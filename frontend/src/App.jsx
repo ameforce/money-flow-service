@@ -2599,7 +2599,7 @@ function App() {
             </div>
           </article>
 
-          <article className="card">
+          <article className="card summary-card">
             <h2>요약</h2>
             <div className="summary" aria-busy={dashboardLoading ? "true" : "false"}>
               {isDashboardInitialLoading

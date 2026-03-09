@@ -243,7 +243,7 @@
 
 .summary {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.5rem;
 }
 
@@ -651,7 +651,11 @@ thead {
 
 .filter-card {
   padding: 1.25rem;
-  align-self: start;
+  grid-column: 1 / -1;
+}
+
+.summary-card {
+  grid-column: 1 / -1;
 }
 
 .filter-card h2 {
@@ -847,6 +851,9 @@ thead {
     grid-template-columns: 1fr;
   }
   .form-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
