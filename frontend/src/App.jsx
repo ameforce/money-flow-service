@@ -3115,6 +3115,7 @@ function App() {
               <label>
                 작업 가계
                 <select
+                  className="household-select"
                   value={household?.id || ""}
                   onChange={(event) => {
                     const nextId = String(event.target.value || "");

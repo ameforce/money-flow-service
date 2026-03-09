@@ -410,10 +410,39 @@
 }
 
 .collaboration-toolbar {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 0.55rem;
-  align-items: end;
+  display: flex;
+  align-items: flex-end;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.collaboration-toolbar label {
+  flex: 1;
+  max-width: 400px;
+  margin-bottom: 0;
+}
+
+.collaboration-toolbar .table-summary {
+  margin: 0;
+  padding-bottom: 0.6rem;
+}
+
+.household-select {
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background-color: white;
+  font-size: 0.95rem;
+  color: #0f172a;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.household-select:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
 }
 
 .collaboration-form-grid {
@@ -640,18 +669,23 @@ thead {
   background-color: #f1f5f9;
   border-radius: 8px;
   padding: 0.25rem;
+  height: 42px;
 }
 
 .filter-modes-segmented button {
   background: transparent;
   border: none;
   color: #64748b;
-  padding: 0.5rem 1rem;
+  padding: 0 1rem;
   font-size: 0.9rem;
   font-weight: 600;
   border-radius: 6px;
   cursor: pointer;
   transition: all 0.2s ease;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .filter-modes-segmented button:hover {
@@ -679,6 +713,7 @@ thead {
   border: 1px solid #e2e8f0;
   border-radius: 8px;
   padding: 0.25rem 0.5rem;
+  height: 42px;
 }
 
 .month-stepper .icon-btn {
@@ -711,6 +746,7 @@ thead {
   gap: 0.25rem;
   font-weight: 600;
   color: #0f172a;
+  height: 32px;
 }
 
 .month-stepper .date-inputs input {
@@ -722,6 +758,7 @@ thead {
   text-align: right;
   width: 3.5rem;
   font-size: 1rem;
+  height: 100%;
 }
 
 .month-stepper .date-inputs input[type="number"]::-webkit-inner-spin-button,
@@ -737,14 +774,18 @@ thead {
 }
 
 .month-stepper .text-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background: transparent;
   border: none;
   color: #3b82f6;
   font-weight: 600;
   font-size: 0.85rem;
-  padding: 0.4rem 0.75rem;
+  padding: 0 0.75rem;
   border-radius: 6px;
   cursor: pointer;
+  height: 32px;
 }
 
 .month-stepper .text-btn:hover {
@@ -769,6 +810,7 @@ thead {
   border: 1px solid #e2e8f0;
   border-radius: 8px;
   padding: 0.25rem 0.5rem;
+  height: 42px;
 }
 
 .range-picker input[type="date"] {
@@ -776,7 +818,8 @@ thead {
   background: transparent;
   font-weight: 500;
   color: #0f172a;
-  padding: 0.4rem;
+  padding: 0 0.4rem;
+  height: 100%;
 }
 
 .range-picker input[type="date"]:focus {
@@ -792,9 +835,13 @@ thead {
 
 .filter-apply-btn {
   margin-left: auto;
-  padding: 0.6rem 1.5rem;
+  padding: 0 1.5rem;
   font-weight: 600;
   border-radius: 8px;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 @media (max-width: 1100px) {
