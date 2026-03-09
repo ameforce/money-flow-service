@@ -66,7 +66,10 @@ def ensure_frontend_deps() -> None:
     if node_modules.exists():
         return
     print("[orchestrator] frontend/node_modules missing -> run npm install", flush=True)
-    code = run_cmd(["cmd", "/c", "npm", "install", "--prefix", "frontend"])
+    frontend_install_cmd = ["npm", "install", "--prefix", "frontend"]
+    if IS_WINDOWS:
+        frontend_install_cmd = ["cmd", "/c", "npm", "install", "--prefix", "frontend"]
+    code = run_cmd(frontend_install_cmd)
     if code != 0:
         raise SystemExit(code)
 
@@ -132,8 +135,6 @@ def spawn_backend(args: argparse.Namespace, backend_env: dict[str, str]) -> subp
 
 def spawn_frontend(args: argparse.Namespace) -> subprocess.Popen:
     frontend_cmd = [
-        "cmd",
-        "/c",
         "npm",
         "run",
         "dev",
@@ -146,6 +147,8 @@ def spawn_frontend(args: argparse.Namespace) -> subprocess.Popen:
         "--port",
         str(args.frontend_port),
     ]
+    if IS_WINDOWS:
+        frontend_cmd = ["cmd", "/c", *frontend_cmd]
     print("[orchestrator] frontend start:", " ".join(frontend_cmd), flush=True)
     creationflags = NEW_PROCESS_GROUP if IS_WINDOWS else 0
     frontend_env = os.environ.copy()

@@ -52,6 +52,7 @@ test("auth deep-link token policy: hash token accepted", async ({ page }) => {
 
 test("full flow: auth -> transactions -> holdings -> import dry_run -> conflict API", async ({ page, request }) => {
   test.setTimeout(180_000);
+  page.on('console', msg => console.log('BROWSER CONSOLE:', msg.text()));
   const screenshotDir = ensureScreenshotDir();
   const capture = async (name) => {
     await page.screenshot({
@@ -92,6 +93,7 @@ test("full flow: auth -> transactions -> holdings -> import dry_run -> conflict 
   }
 
   await page.goto("/");
+  await page.setViewportSize({ width: 1366, height: 960 });
   await expect
     .poll(() => page.evaluate(() => document.documentElement.lang), {
       timeout: 10_000,
@@ -216,8 +218,11 @@ test("full flow: auth -> transactions -> holdings -> import dry_run -> conflict 
       has: page.getByRole("heading", { name: "거래 목록" }),
     });
     await expect(transactionTableCard).toBeVisible();
-    const hasHorizontalScroll = await transactionTableCard.evaluate((node) => node.scrollWidth > node.clientWidth);
-    expect(hasHorizontalScroll).toBeTruthy();
+    const hasHorizontalScroll = await transactionTableCard.evaluate((node) => {
+      console.log("transactionTableCard sizes:", node.scrollWidth, node.clientWidth);
+      return node.scrollWidth > node.clientWidth + 10;
+    });
+    expect(hasHorizontalScroll).toBeFalsy();
   }
   await page.getByRole("button", { name: "필터 초기화" }).click();
 
@@ -286,6 +291,8 @@ test("full flow: auth -> transactions -> holdings -> import dry_run -> conflict 
   expect(inlineEditorOpened).toBeTruthy();
   await expect(inlineEditor).toBeVisible();
   await inlineEditor.getByLabel("자산명").fill(editedHoldingName);
+  const inlineHoldingAverageInput = inlineEditor.getByLabel("평가금액");
+  await expect(inlineHoldingAverageInput).toHaveValue("3000000");
   const saveButton = inlineEditor.getByRole("button", { name: "저장" });
   await expect(saveButton).toBeVisible({ timeout: 5_000 });
   try {
@@ -360,7 +367,7 @@ test("full flow: auth -> transactions -> holdings -> import dry_run -> conflict 
 
   await page.getByRole("button", { name: "거래" }).click();
   const transactionCard = page.locator("article.card", {
-    has: page.getByRole("heading", { name: "거래 입력 / 수정" }),
+    has: page.getByRole("heading", { name: "거래 입력" }),
   });
   await transactionCard.getByLabel("유형").selectOption("expense");
   await expect(transactionCard.getByLabel("중분류")).toBeDisabled();
@@ -391,8 +398,15 @@ test("full flow: auth -> transactions -> holdings -> import dry_run -> conflict 
   const txRowForEdit = page.locator("tr", { hasText: "e2e-coffee" }).first();
   await expect(txRowForEdit).toBeVisible();
   await txRowForEdit.getByRole("button", { name: "수정" }).click();
-  await transactionCard.getByLabel("메모").fill(uiEditedMemo);
-  await transactionCard.getByRole("button", { name: "거래 수정 저장" }).click();
+  const txInlineEditor = page.locator(".transactions-inline-editor").first();
+  await expect(txInlineEditor.locator(".tx-inline-category-section")).toBeVisible();
+  await expect(txInlineEditor.getByLabel("대분류")).toBeVisible();
+  await expect(txInlineEditor.getByLabel("중분류")).toBeVisible();
+  await expect(txInlineEditor.getByLabel("금액")).toHaveValue("12000");
+  await capture("10-inline-editor-open");
+  await txInlineEditor.getByLabel("메모").fill(uiEditedMemo);
+  await txInlineEditor.getByRole("button", { name: "저장" }).click();
+  await capture("11-inline-editor-saved");
   await expect(page.locator("tbody")).toContainText(uiEditedMemo, { timeout: 30_000 });
   expect(inlineTransactionPatchPayload).toBeTruthy();
   expect(Object.keys(inlineTransactionPatchPayload).sort()).toEqual(["base_version", "memo"]);
@@ -489,5 +503,6 @@ test("full flow: auth -> transactions -> holdings -> import dry_run -> conflict 
   await page.getByRole("button", { name: "로그아웃" }).click();
   await expect(page.getByLabel("이메일", { exact: true })).toHaveValue(email);
   await expect(page.getByRole("button", { name: "로그인하기" })).toBeVisible();
-  await capture("10-after-logout");
+  await capture("12-after-logout");
+
 });

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Literal
+import socket
 from urllib.parse import urlparse
 
 from pydantic import Field
@@ -9,6 +10,14 @@ from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 INSECURE_DEFAULT_SECRET_KEY = "change-this-secret-key-please-at-least-32-bytes"
+
+
+def _get_local_ips() -> list[str]:
+    try:
+        hostname = socket.gethostname()
+        return socket.gethostbyname_ex(hostname)[2]
+    except Exception:
+        return []
 
 
 def _normalize_origin(value: str) -> str:
@@ -151,7 +160,23 @@ class Settings(BaseSettings):
             self.smtp_from_email = smtp_from_email
             self.smtp_port = smtp_port
             self.smtp_account_label = smtp_account_label
+
+        env_name = str(self.env or "").strip().lower()
+        is_prod = env_name in {"prod", "production"}
+
         origins = [_normalize_origin(item) for item in self.allowed_origins]
+
+        if not is_prod:
+            local_ips = _get_local_ips()
+            allow_ips = [ip.strip() for ip in str(self.forwarded_allow_ips or "").split(",") if ip.strip()]
+            for local_ip in local_ips:
+                local_origin = f"http://{local_ip}:5173"
+                if local_origin not in origins:
+                    origins.append(local_origin)
+                if local_ip not in allow_ips:
+                    allow_ips.append(local_ip)
+            self.forwarded_allow_ips = ",".join(allow_ips)
+
         if not origins or any(not item for item in origins):
             raise ValueError("CORS_ORIGINS must contain valid origin URLs.")
         self.cors_origins = ",".join(origins)
@@ -168,8 +193,7 @@ class Settings(BaseSettings):
         forwarded_allow_ip_entries = {
             item.strip().lower() for item in forwarded_allow_ips.split(",") if item.strip()
         }
-        env_name = str(self.env or "").strip().lower()
-        if env_name in {"prod", "production"}:
+        if is_prod:
             database_url = str(self.database_url or "").strip()
             if not database_url:
                 raise ValueError("DATABASE_URL must be explicitly set in production.")

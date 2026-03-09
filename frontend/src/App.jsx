@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, Fragment } from "react";
 import {
   ArcElement,
   CategoryScale,
@@ -12,8 +12,12 @@ import {
 } from "chart.js";
 import { Doughnut, Line } from "react-chartjs-2";
 import "./App.css";
+import packageJson from "../package.json";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, ArcElement, Tooltip, Legend, Filler);
+
+const APP_VERSION = String(import.meta.env.VITE_APP_VERSION || packageJson.version || "0.0.0").trim();
+const COPYRIGHT_TEXT = `© ENM Software v${APP_VERSION}`;
 
 const API_PREFIX = "/api/v1";
 const SAVED_EMAIL_KEY = "money-flow-saved-email";
@@ -24,7 +28,10 @@ const DEFAULT_CSRF_HEADER_NAME = "x-csrf-token";
 const DEFAULT_HOUSEHOLD_HEADER_NAME = "x-household-id";
 const DEBUG_TOKEN_OPT_IN_HEADER = "x-debug-token-opt-in";
 const DEBUG_TOKEN_OPT_IN =
-  String(import.meta.env.VITE_DEBUG_TOKEN_OPT_IN || "")
+  String(
+    import.meta.env.VITE_DEBUG_TOKEN_OPT_IN ??
+    (import.meta.env.DEV || import.meta.env.MODE === "test" ? "true" : "")
+  )
     .trim()
     .toLowerCase() === "true";
 let csrfCookieName = DEFAULT_CSRF_COOKIE_NAME;
@@ -87,6 +94,21 @@ const HOLDING_LIST_TABS = [
   { value: "deposit", label: "예금" },
   { value: "savings", label: "적금" },
 ];
+const HOLDING_SORT_KEYS = [
+  { field: "name", label: "이름" },
+  { field: "owner_name", label: "보유자" },
+  { field: "category", label: "카테고리" },
+  { field: "quantity", label: "수량" },
+  { field: "average_cost", label: "평균단가" },
+  { field: "market_value_krw", label: "평가(KRW)" },
+  { field: "gain_loss_krw", label: "손익(KRW)" },
+  { field: "updated_at", label: "최종 수정일" },
+];
+const HOLDING_SORT_DEFAULT = { field: "name", direction: "asc" };
+const HOLDING_SORT_LABELS = HOLDING_SORT_KEYS.reduce((acc, item) => {
+  acc[item.field] = item.label;
+  return acc;
+}, {});
 const HOLDING_FORM_PRESETS = {
   cash: { category: "현금성", currency: "KRW", quantity: "1" },
   stock: { category: "주식", currency: "KRW", quantity: "1" },
@@ -365,12 +387,29 @@ function fmtKrw(value) {
   return `${Math.round(Number(value)).toLocaleString("ko-KR")}원`;
 }
 
-function fmtDateTime(value) {
+function parseDateTime(value) {
   if (!value) {
-    return "-";
+    return null;
   }
-  const date = new Date(value);
+  let str = String(value).trim();
+  if (!str) {
+    return null;
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+    str = `${str}T00:00:00Z`;
+  } else if (!str.endsWith("Z") && !str.includes("+") && !str.match(/-\d{2}:\d{2}$/)) {
+    str = str.replace(" ", "T") + "Z";
+  }
+  const date = new Date(str);
   if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  return date;
+}
+
+function fmtDateTime(value) {
+  const date = parseDateTime(value);
+  if (!date) {
     return String(value);
   }
   return date.toLocaleString("ko-KR", {
@@ -381,6 +420,18 @@ function fmtDateTime(value) {
     minute: "2-digit",
     second: "2-digit",
     hour12: false,
+  });
+}
+
+function fmtDate(value) {
+  const date = parseDateTime(value);
+  if (!date) {
+    return "-";
+  }
+  return date.toLocaleDateString("ko-KR", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
   });
 }
 
@@ -500,6 +551,18 @@ function normalizeDecimalForCompare(value) {
   return numeric.toString();
 }
 
+function normalizeDecimalInputValue(value) {
+  const text = String(value ?? "").trim();
+  if (!text) {
+    return "";
+  }
+  const numeric = Number(text);
+  if (!Number.isFinite(numeric)) {
+    return text;
+  }
+  return Number.isInteger(numeric) ? String(numeric) : text;
+}
+
 function buildDirtyPatchFields(payload, baseline, comparators = {}) {
   if (!baseline) {
     return { ...payload };
@@ -513,6 +576,32 @@ function buildDirtyPatchFields(payload, baseline, comparators = {}) {
     }
   }
   return dirty;
+}
+
+function getHoldingSortValue(item, sortField, holdingUpdatedAtById) {
+  switch (sortField) {
+    case "name":
+      return String(item.name || "").trim();
+    case "owner_name":
+      return String(item.owner_name || "").trim().toLowerCase();
+    case "category":
+      return String(item.category || "기타").trim();
+    case "quantity":
+      return Number(item.quantity);
+    case "average_cost":
+      return Number(item.average_cost);
+    case "market_value_krw":
+      return Number(item.market_value_krw);
+    case "gain_loss_krw":
+      return Number(item.gain_loss_krw);
+    case "updated_at": {
+      const raw = String(holdingUpdatedAtById.get(item.holding_id) || "");
+      const time = Date.parse(raw);
+      return Number.isFinite(time) ? time : 0;
+    }
+    default:
+      return String(item[sortField] || "");
+  }
 }
 
 function buildTransactionPayloadFromForm(form) {
@@ -573,8 +662,8 @@ function createHoldingInlineEditForm(row) {
     category: row.category || "",
     owner_name: row.owner_name || "",
     account_name: row.account_name || "",
-    quantity: String(row.quantity ?? "1"),
-    average_cost: String(row.average_cost ?? ""),
+    quantity: normalizeDecimalInputValue(row.quantity ?? "1"),
+    average_cost: normalizeDecimalInputValue(row.average_cost ?? ""),
     currency: row.currency || "KRW",
   };
 }
@@ -803,9 +892,12 @@ function App() {
     end: "",
   });
   const [holdingListTab, setHoldingListTab] = useState("all");
+  const [holdingSortField, setHoldingSortField] = useState(HOLDING_SORT_DEFAULT.field);
+  const [holdingSortDirection, setHoldingSortDirection] = useState(HOLDING_SORT_DEFAULT.direction);
 
   const [holdingForm, setHoldingForm] = useState(() => createHoldingForm("cash"));
   const [holdingInlineEdit, setHoldingInlineEdit] = useState(null);
+  const [txInlineEdit, setTxInlineEdit] = useState(null);
 
   const [importFile, setImportFile] = useState(null);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -820,6 +912,23 @@ function App() {
     [categoryOptions, txCategoryMajor]
   );
   const categoryById = useMemo(() => new Map(categories.map((item) => [item.id, item])), [categories]);
+  const txInlineCategoryOptions = useMemo(
+    () => categories.filter((item) => txInlineEdit && item.flow_type === txInlineEdit.flow_type),
+    [categories, txInlineEdit]
+  );
+  const txInlineCategoryMajor = String(txInlineEdit?.category_major || "");
+  const txInlineCategoryMajorOptions = useMemo(
+    () => Array.from(new Set(txInlineCategoryOptions.map((item) => item.major))),
+    [txInlineCategoryOptions]
+  );
+  const txInlineCategoryMinorOptions = useMemo(
+    () => txInlineCategoryOptions.filter((item) => item.major === txInlineCategoryMajor),
+    [txInlineCategoryOptions, txInlineCategoryMajor]
+  );
+
+  function closeTxInlineEdit() {
+    setTxInlineEdit(null);
+  }
   const transactionById = useMemo(() => new Map(transactions.map((item) => [item.id, item])), [transactions]);
   const filteredTransactions = useMemo(() => {
     const keyword = normalizeCategoryText(txListFilter.keyword).toLowerCase();
@@ -851,7 +960,10 @@ function App() {
     });
   }, [categoryById, transactions, txListFilter]);
   const holdingById = useMemo(() => new Map(holdings.map((item) => [item.id, item])), [holdings]);
-  const holdingVersionById = useMemo(() => new Map(holdings.map((item) => [item.id, item.version])), [holdings]);
+  const holdingUpdatedAtById = useMemo(
+    () => new Map(holdings.map((item) => [item.id, item.updated_at])),
+    [holdings]
+  );
   const holdingItems = useMemo(() => portfolio?.items || [], [portfolio?.items]);
   const filteredHoldingItems = useMemo(() => {
     if (holdingListTab === "all") {
@@ -862,6 +974,24 @@ function App() {
       return cat === holdingListTab;
     });
   }, [holdingItems, holdingListTab]);
+  const sortedHoldingItems = useMemo(() => {
+    const direction = holdingSortDirection === "asc" ? 1 : -1;
+    const next = [...filteredHoldingItems];
+    return next.sort((left, right) => {
+      const leftValue = getHoldingSortValue(left, holdingSortField, holdingUpdatedAtById);
+      const rightValue = getHoldingSortValue(right, holdingSortField, holdingUpdatedAtById);
+      if (typeof leftValue === "number" && typeof rightValue === "number") {
+        if (!Number.isNaN(leftValue) && !Number.isNaN(rightValue) && leftValue !== rightValue) {
+          return (leftValue - rightValue) * direction;
+        }
+      }
+      const stringCompare = String(leftValue).localeCompare(String(rightValue), "ko");
+      if (stringCompare !== 0) {
+        return stringCompare * direction;
+      }
+      return String(left.name || "").localeCompare(String(right.name || ""), "ko") * direction;
+    });
+  }, [filteredHoldingItems, holdingSortDirection, holdingSortField, holdingUpdatedAtById]);
   const dynamicHoldingTabs = useMemo(() => {
     const categories = new Set();
     for (const item of holdingItems) {
@@ -879,7 +1009,7 @@ function App() {
       return [];
     }
     const bucket = new Map();
-    for (const item of filteredHoldingItems) {
+    for (const item of sortedHoldingItems) {
       const category = String(item.category || "기타").trim() || "기타";
       const sectionItems = bucket.get(category) || [];
       sectionItems.push(item);
@@ -890,7 +1020,7 @@ function App() {
       const rightTotal = right[1].reduce((sum, item) => sum + Number(item.market_value_krw || 0), 0);
       return rightTotal - leftTotal;
     });
-  }, [filteredHoldingItems, holdingListTab]);
+  }, [holdingListTab, sortedHoldingItems]);
   const ownerMemberOptions = useMemo(() => {
     const seen = new Set();
     const options = [];
@@ -915,6 +1045,45 @@ function App() {
     () => (importReport?.issues || []).slice(0, IMPORT_ISSUE_PREVIEW_LIMIT),
     [importReport]
   );
+  function getHoldingSortLabel(field) {
+    return HOLDING_SORT_LABELS[field] || field;
+  }
+  function toggleHoldingSort(field) {
+    if (field === holdingSortField) {
+      setHoldingSortDirection((prev) => (prev === "asc" ? "desc" : "asc"));
+      return;
+    }
+    setHoldingSortField(field);
+    setHoldingSortDirection("asc");
+  }
+  function renderHoldingSortIndicator(field) {
+    if (holdingSortField !== field) {
+      return "↕";
+    }
+    return holdingSortDirection === "asc" ? "↑" : "↓";
+  }
+  function renderHoldingSortHeader(field) {
+    const isActive = holdingSortField === field;
+    return (
+      <button
+        type="button"
+        className={`sort-header${isActive ? " active" : ""}`}
+        onClick={() => toggleHoldingSort(field)}
+        aria-label={`Sort holding list by ${field} ${isActive ? (holdingSortDirection === "asc" ? "descending" : "ascending") : "ascending"}`}
+      >
+        {getHoldingSortLabel(field)}
+        <span className="sort-indicator" aria-hidden="true">
+          {renderHoldingSortIndicator(field)}
+        </span>
+      </button>
+    );
+  }
+  function renderHoldingSortAria(field) {
+    if (holdingSortField !== field) {
+      return "none";
+    }
+    return holdingSortDirection === "asc" ? "ascending" : "descending";
+  }
 
   function syncTxCategoryMajor(categoryId) {
     if (!categoryId) {
@@ -981,6 +1150,27 @@ function App() {
   useEffect(() => {
     setMessage((prev) => (prev ? "" : prev));
   }, [tab]);
+
+  useEffect(() => {
+    if (!txInlineEdit) {
+      return;
+    }
+    if (!txInlineEdit.category_id) {
+      return;
+    }
+    const nextMajor = categoryById.get(txInlineEdit.category_id)?.major || "";
+    if (nextMajor && nextMajor !== txInlineEdit.category_major) {
+      setTxInlineEdit((prev) => {
+        if (!prev || prev.id !== txInlineEdit.id) {
+          return prev;
+        }
+        return {
+          ...prev,
+          category_major: nextMajor,
+        };
+      });
+    }
+  }, [categoryById, txInlineEdit?.id, txInlineEdit?.category_id, txInlineEdit?.category_major]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -1460,40 +1650,14 @@ function App() {
     setMessage("");
     try {
       const payload = buildTransactionPayloadFromForm(txForm);
-      if (txForm.id) {
-        const originalTx = transactionById.get(txForm.id);
-        const originalPayload = originalTx
-          ? buildTransactionPayloadFromForm({
-              occurred_on: originalTx.occurred_on,
-              flow_type: originalTx.flow_type,
-              amount: originalTx.amount,
-              category_id: originalTx.category_id || "",
-              memo: originalTx.memo || "",
-              owner_name: originalTx.owner_name || "",
-            })
-          : null;
-        const dirtyPatch = buildDirtyPatchFields(payload, originalPayload, TX_PATCH_COMPARATORS);
-        await api(
-          `${API_PREFIX}/transactions/${txForm.id}`,
-          {
-            method: "PATCH",
-            body: JSON.stringify({
-              base_version: txForm.version,
-              ...dirtyPatch,
-            }),
-          },
-          token
-        );
-      } else {
-        await api(
-          `${API_PREFIX}/transactions`,
-          {
-            method: "POST",
-            body: JSON.stringify(payload),
-          },
-          token
-        );
-      }
+      await api(
+        `${API_PREFIX}/transactions`,
+        {
+          method: "POST",
+          body: JSON.stringify(payload),
+        },
+        token
+      );
       setTxForm({
         id: "",
         version: 0,
@@ -1506,7 +1670,7 @@ function App() {
       });
       setTxCategoryMajor("");
       await refreshData(false);
-      setMessage(uiGuideMessage("거래를 저장했습니다.", "목록에서 반영 결과를 확인해 주세요."));
+      setMessage(uiGuideMessage("거래를 등록했습니다.", "목록에서 반영 결과를 확인해 주세요."));
     } catch (error) {
       setMessage(formatApiError(error, "transaction_submit"));
     } finally {
@@ -1560,6 +1724,48 @@ function App() {
       setMessage(uiGuideMessage("자산을 저장했습니다.", "목록에서 반영 결과를 확인해 주세요."));
     } catch (error) {
       setMessage(formatApiError(error, "holding_submit"));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function submitTxInlineEdit(event) {
+    if (event && typeof event.preventDefault === "function") {
+      event.preventDefault();
+    }
+    if (!txInlineEdit?.id) return;
+    setLoading(true);
+    setMessage("");
+    try {
+      const payload = buildTransactionPayloadFromForm(txInlineEdit);
+      const originalTx = transactionById.get(txInlineEdit.id);
+      const originalPayload = originalTx
+        ? buildTransactionPayloadFromForm({
+            occurred_on: originalTx.occurred_on,
+            flow_type: originalTx.flow_type,
+            amount: originalTx.amount,
+            category_id: originalTx.category_id || "",
+            memo: originalTx.memo || "",
+            owner_name: originalTx.owner_name || "",
+          })
+        : null;
+      const dirtyPatch = buildDirtyPatchFields(payload, originalPayload, TX_PATCH_COMPARATORS);
+      await api(
+        `${API_PREFIX}/transactions/${txInlineEdit.id}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            base_version: txInlineEdit.version,
+            ...dirtyPatch,
+          }),
+        },
+        token
+      );
+      closeTxInlineEdit();
+      await refreshData(false);
+      setMessage(uiGuideMessage("거래를 수정했습니다.", "목록에서 변경 내용을 확인해 주세요."));
+    } catch (error) {
+      setMessage(formatApiError(error, "transaction_submit"));
     } finally {
       setLoading(false);
     }
@@ -1733,17 +1939,17 @@ function App() {
     const editTracked = Boolean(editForm && isMarketTrackedAssetType(editForm.asset_type));
     const editOwnerOptions = ownerOptionsWithFallback(editForm?.owner_name || "");
     return (
-      <>
-        <tr key={`${rowKey}-row`} className={isEditing ? "holding-row-editing" : ""}>
-          <td>{item.market_symbol}</td>
-          <td>{item.name}</td>
-          <td>{item.category}</td>
-          <td>{fmt(item.quantity)}</td>
-          <td>{fmt(item.average_cost)}</td>
-          <td>{fmtKrw(item.market_value_krw)}</td>
-          <td>{fmtKrw(item.gain_loss_krw)}</td>
-          <td>{holdingVersionById.get(item.holding_id) ?? "-"}</td>
-          <td>
+      <Fragment key={rowKey}>
+        <tr className={isEditing ? "holding-row-editing" : ""}>
+          <td data-label="이름">{item.name}</td>
+          <td data-label="보유자">{item.owner_name || "-"}</td>
+          <td data-label="카테고리">{item.category}</td>
+          <td data-label="수량">{fmt(item.quantity)}</td>
+          <td data-label="평균단가">{fmt(item.average_cost)}</td>
+          <td data-label="평가(KRW)">{fmtKrw(item.market_value_krw)}</td>
+          <td data-label="손익(KRW)">{fmtKrw(item.gain_loss_krw)}</td>
+          <td data-label="최종 수정일">{fmtDate(holdingUpdatedAtById.get(item.holding_id))}</td>
+          <td data-label="동작">
             <div className="inline">
               <button
                 type="button"
@@ -1891,7 +2097,7 @@ function App() {
             </td>
           </tr>
         )}
-      </>
+      </Fragment>
     );
   }
 
@@ -1951,6 +2157,7 @@ function App() {
     });
     setHoldingListTab("all");
     setTxCategoryMajor("");
+    closeTxInlineEdit();
     setTxForm({
       id: "",
       version: 0,
@@ -2361,6 +2568,9 @@ function App() {
           <h1>money-flow</h1>
           <p>세션을 확인하는 중입니다. 잠시만 기다려 주세요.</p>
         </div>
+        <div className="app-copyright" aria-hidden="true">
+          {COPYRIGHT_TEXT}
+        </div>
       </main>
     );
   }
@@ -2484,6 +2694,9 @@ function App() {
           </div>
           {message && <div className="message">{message}</div>}
         </form>
+        <div className="app-copyright" aria-hidden="true">
+          {COPYRIGHT_TEXT}
+        </div>
       </main>
     );
   }
@@ -2673,7 +2886,8 @@ function App() {
       {tab === "transactions" && (
         <section className="grid-1">
           <article className="card">
-            <h2>거래 입력 / 수정</h2>
+            <h2>거래 입력</h2>
+            <p className="table-summary">수정은 아래 거래 목록에서 바로 진행됩니다.</p>
             <form className="form-grid transactions-form-grid" onSubmit={submitTransaction}>
               <label className="date-field">
                 일자
@@ -2745,77 +2959,77 @@ function App() {
               <label>메모<input value={txForm.memo} onChange={(e) => setTxForm({ ...txForm, memo: e.target.value })} /></label>
               <label>거래자명<input value={txForm.owner_name} onChange={(e) => setTxForm({ ...txForm, owner_name: e.target.value })} /></label>
               <div className="inline form-actions">
-                <button type="submit">{txForm.id ? "거래 수정 저장" : "거래 등록"}</button>
-                {txForm.id && (
-                  <button
-                    type="button"
-                    className="secondary"
-                    onClick={() => {
-                      setTxForm({
-                        ...txForm,
-                        id: "",
-                        version: 0,
-                        category_id: "",
-                      });
-                      setTxCategoryMajor("");
-                    }}
-                  >
-                    취소
-                  </button>
-                )}
+                <button type="button" className="secondary" onClick={() => {
+                  setTxForm({
+                    id: "",
+                    version: 0,
+                    occurred_on: todayIso(),
+                    flow_type: "expense",
+                    amount: "",
+                    category_id: "",
+                    memo: "",
+                    owner_name: "",
+                  });
+                  setTxCategoryMajor("");
+                }}>
+                  초기화
+                </button>
+                <button type="submit">거래 등록</button>
               </div>
             </form>
           </article>
           <article className="card table-card">
             <h2>거래 목록</h2>
-            <div className="table-toolbar month-toolbar">
-              <div className="month-stepper">
-                <button
-                  type="button"
-                  className="icon-btn"
-                  aria-label="이전 달"
-                  disabled={isPrevMonthDisabled}
-                  onClick={() => handleShiftYearMonth(-1)}
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
-                </button>
-                <div className="date-inputs">
-                  <input
-                    type="number"
-                    aria-label="연도"
-                    value={yearMonth.year}
-                    onChange={(event) => setYearMonth({ ...yearMonth, year: Number(event.target.value) })}
-                  />
-                  <span>년</span>
-                  <input
-                    type="number"
-                    min="1"
-                    max="12"
-                    aria-label="월"
-                    value={yearMonth.month}
-                    onChange={(event) => setYearMonth({ ...yearMonth, month: Number(event.target.value) })}
-                  />
-                  <span>월</span>
+            <div className="table-header-group">
+              <div className="month-stepper-inline">
+                <div className="month-stepper">
+                  <button
+                    type="button"
+                    className="icon-btn"
+                    aria-label="이전 달"
+                    disabled={isPrevMonthDisabled}
+                    onClick={() => handleShiftYearMonth(-1)}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+                  </button>
+                  <div className="date-inputs">
+                    <input
+                      type="number"
+                      aria-label="연도"
+                      value={yearMonth.year}
+                      onChange={(event) => setYearMonth({ ...yearMonth, year: Number(event.target.value) })}
+                    />
+                    <span>년</span>
+                    <input
+                      type="number"
+                      min="1"
+                      max="12"
+                      aria-label="월"
+                      value={yearMonth.month}
+                      onChange={(event) => setYearMonth({ ...yearMonth, month: Number(event.target.value) })}
+                    />
+                    <span>월</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="icon-btn"
+                    aria-label="다음 달"
+                    disabled={isNextMonthDisabled}
+                    onClick={() => handleShiftYearMonth(1)}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                  </button>
+                  <button type="button" className="text-btn" onClick={handleMoveToCurrentMonth}>
+                    이번 달
+                  </button>
+                  <button type="button" className="text-btn apply-btn" onClick={handleApplyYearMonth}>
+                    조회 적용
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  className="icon-btn"
-                  aria-label="다음 달"
-                  disabled={isNextMonthDisabled}
-                  onClick={() => handleShiftYearMonth(1)}
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
-                </button>
-                <button type="button" className="text-btn" onClick={handleMoveToCurrentMonth}>
-                  이번 달
-                </button>
-                <button type="button" className="text-btn apply-btn" onClick={handleApplyYearMonth}>
-                  조회 적용
-                </button>
+                <p className="table-summary">
+                  조회 가능 월: {toYearMonthKey(minMonth)} ~ {toYearMonthKey(maxMonth)}
+                </p>
               </div>
-              <p className="table-summary">
-                조회 가능 월: {toYearMonthKey(minMonth)} ~ {toYearMonthKey(maxMonth)}
-              </p>
             </div>
             <div className="table-toolbar">
               <label>
@@ -2876,7 +3090,7 @@ function App() {
             </p>
             <table>
               <thead>
-                <tr><th>일자</th><th>유형</th><th>금액</th><th>카테고리</th><th>메모</th><th>거래자명</th><th>버전</th><th>동작</th></tr>
+                <tr><th>일자</th><th>유형</th><th>금액</th><th>카테고리</th><th>메모</th><th>거래자명</th><th>최종 수정일</th><th>동작</th></tr>
               </thead>
               <tbody>
                 {filteredTransactions.length === 0 && (
@@ -2884,41 +3098,177 @@ function App() {
                     <td colSpan={8} className="empty-state">조건에 맞는 거래가 없습니다.</td>
                   </tr>
                 )}
-                {filteredTransactions.map((item) => (
-                  <tr key={item.id}>
-                    <td>{item.occurred_on}</td>
-                    <td>{FLOW_TYPE_LABELS[item.flow_type] || item.flow_type}</td>
-                    <td>{fmtKrw(item.amount)}</td>
-                    <td>{toCategoryPairLabel(categoryById.get(item.category_id || ""))}</td>
-                    <td>{item.memo}</td>
-                    <td>{item.owner_name || "-"}</td>
-                    <td>{item.version}</td>
-                    <td>
-                      <div className="inline">
-                        <button
-                          className="secondary"
-                          onClick={() => {
-                            const nextCategoryId = item.category_id || "";
-                            setTxForm({
-                              id: item.id,
-                              version: item.version,
-                              occurred_on: item.occurred_on,
-                              flow_type: item.flow_type,
-                              amount: item.amount,
-                              category_id: nextCategoryId,
-                              memo: item.memo || "",
-                              owner_name: item.owner_name || "",
-                            });
-                            syncTxCategoryMajor(nextCategoryId);
-                          }}
-                        >
-                          수정
-                        </button>
-                        <button className="danger" onClick={() => removeTx(item.id)}>삭제</button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                {filteredTransactions.map((item) => {
+                  const isEditing = Boolean(item && txInlineEdit?.id === item.id);
+                  const editForm = isEditing ? txInlineEdit : null;
+                  const rowKey = item.id;
+                  return (
+                    <Fragment key={rowKey}>
+                      <tr className={isEditing ? "transaction-row-editing" : ""}>
+                        <td data-label="일자">{item.occurred_on}</td>
+                        <td data-label="유형">{FLOW_TYPE_LABELS[item.flow_type] || item.flow_type}</td>
+                        <td data-label="금액">{fmtKrw(item.amount)}</td>
+                        <td data-label="카테고리">{toCategoryPairLabel(categoryById.get(item.category_id || ""))}</td>
+                        <td data-label="메모">{item.memo}</td>
+                        <td data-label="거래자명">{item.owner_name || "-"}</td>
+                        <td data-label="최종 수정일">{fmtDate(item.updated_at)}</td>
+                        <td data-label="동작">
+                          <div className="inline">
+                            <button
+                              className={isEditing ? "primary" : "secondary"}
+                              onClick={() => {
+                                if (isEditing) {
+                                  closeTxInlineEdit();
+                                } else {
+                                  setTxInlineEdit({
+                                    id: item.id,
+                                    version: item.version,
+                                    occurred_on: item.occurred_on,
+                                    flow_type: item.flow_type,
+                                    amount: normalizeDecimalInputValue(item.amount),
+                                    category_id: item.category_id || "",
+                                    category_major: categoryById.get(item.category_id || "")?.major || "",
+                                    memo: item.memo || "",
+                                    owner_name: item.owner_name || "",
+                                  });
+                                }
+                              }}
+                            >
+                              {isEditing ? "수정 중" : "수정"}
+                            </button>
+                            <button className="danger" onClick={() => removeTx(item.id)}>삭제</button>
+                          </div>
+                        </td>
+                      </tr>
+                      {isEditing && editForm && (
+                        <tr className="transaction-inline-editor-row transactions-inline-editor">
+                          <td data-label="일자">
+                            <label className="tx-inline-date-field">
+                              <input
+                                aria-label="일자"
+                                type="date"
+                                placeholder="일자"
+                                value={editForm.occurred_on}
+                                onChange={(e) => setTxInlineEdit({ ...editForm, occurred_on: e.target.value })}
+                                required
+                              />
+                            </label>
+                          </td>
+                          <td data-label="유형">
+                            <label className="tx-inline-type-field">
+                              <select
+                                aria-label="유형"
+                                value={editForm.flow_type}
+                                onChange={(e) => {
+                                  setTxInlineEdit({
+                                    ...editForm,
+                                    flow_type: e.target.value,
+                                    category_id: "",
+                                    category_major: "",
+                                  });
+                                }}
+                              >
+                                {FLOW_TYPE_OPTIONS.map((opt) => (
+                                  <option key={opt.value} value={opt.value}>
+                                    {opt.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                          </td>
+                          <td data-label="금액">
+                            <label className="tx-inline-amount-field">
+                              <input
+                                aria-label="금액"
+                                placeholder="금액"
+                                type="number" min="1" step="0.01"
+                                value={editForm.amount}
+                                onChange={(e) => setTxInlineEdit({ ...editForm, amount: e.target.value })}
+                                required
+                              />
+                            </label>
+                          </td>
+                          <td data-label="카테고리">
+                            <div className="tx-inline-category-section" aria-label="카테고리 선택">
+                              <label className="tx-inline-major-field">
+                                <select
+                                  aria-label="대분류"
+                                  value={txInlineCategoryMajor}
+                                  onChange={(event) =>
+                                    setTxInlineEdit({
+                                      ...editForm,
+                                      category_major: event.target.value,
+                                      category_id: "",
+                                    })
+                                  }
+                                >
+                                  <option value="">(선택 안함)</option>
+                                  {txInlineCategoryMajorOptions.map((major) => (
+                                    <option key={major} value={major}>
+                                      {toCategoryMajorLabel(major)}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                              <label className="tx-inline-minor-field">
+                                <select
+                                  aria-label="중분류"
+                                  value={editForm.category_id}
+                                  disabled={!txInlineCategoryMajor}
+                                  onChange={(e) => setTxInlineEdit({ ...editForm, category_id: e.target.value })}
+                                >
+                                  <option value="">(선택 안함)</option>
+                                  {txInlineCategoryMinorOptions.map((cat) => (
+                                    <option key={cat.id} value={cat.id}>
+                                      {toCategoryMinorLabel(cat.minor)}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                            </div>
+                          </td>
+                          <td data-label="메모">
+                            <label className="tx-inline-memo-field">
+                              <input
+                                aria-label="메모"
+                                placeholder="메모"
+                                value={editForm.memo}
+                                onChange={(e) => setTxInlineEdit({ ...editForm, memo: e.target.value })}
+                              />
+                            </label>
+                          </td>
+                          <td data-label="거래자명">
+                            <label className="tx-inline-owner-field">
+                              <input
+                                aria-label="거래자명"
+                                placeholder="거래자명"
+                                value={editForm.owner_name}
+                                onChange={(e) => setTxInlineEdit({ ...editForm, owner_name: e.target.value })}
+                              />
+                            </label>
+                          </td>
+                          <td data-label="최종 수정일">-</td>
+                          <td data-label="동작">
+                            <div className="inline tx-inline-editor-actions">
+                              <button type="button" className="secondary" onClick={() => closeTxInlineEdit()}>
+                                취소
+                              </button>
+                              <button
+                                type="button"
+                                className="primary"
+                                onClick={() => {
+                                  void submitTxInlineEdit();
+                                }}
+                              >
+                                저장
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </article>
@@ -3083,10 +3433,20 @@ function App() {
             </p>
             <table>
               <thead>
-                <tr><th>심볼</th><th>이름</th><th>카테고리</th><th>수량</th><th>평균단가</th><th>평가(KRW)</th><th>손익(KRW)</th><th>버전</th><th>동작</th></tr>
+              <tr>
+                <th aria-sort={renderHoldingSortAria("name")}>{renderHoldingSortHeader("name")}</th>
+                <th aria-sort={renderHoldingSortAria("owner_name")}>{renderHoldingSortHeader("owner_name")}</th>
+                <th aria-sort={renderHoldingSortAria("category")}>{renderHoldingSortHeader("category")}</th>
+                <th aria-sort={renderHoldingSortAria("quantity")}>{renderHoldingSortHeader("quantity")}</th>
+                <th aria-sort={renderHoldingSortAria("average_cost")}>{renderHoldingSortHeader("average_cost")}</th>
+                <th aria-sort={renderHoldingSortAria("market_value_krw")}>{renderHoldingSortHeader("market_value_krw")}</th>
+                <th aria-sort={renderHoldingSortAria("gain_loss_krw")}>{renderHoldingSortHeader("gain_loss_krw")}</th>
+                <th aria-sort={renderHoldingSortAria("updated_at")}>{renderHoldingSortHeader("updated_at")}</th>
+                <th>동작</th>
+              </tr>
               </thead>
               <tbody>
-                {filteredHoldingItems.length === 0 && (
+                {sortedHoldingItems.length === 0 && (
                   <tr>
                     <td colSpan={9} className="empty-state">조건에 맞는 자산이 없습니다.</td>
                   </tr>
@@ -3100,7 +3460,7 @@ function App() {
                       </tr>,
                       ...sectionItems.map((item) => renderHoldingRow(item, `all-${categoryName}-${item.holding_id}`)),
                     ])
-                  : filteredHoldingItems.map((item) => renderHoldingRow(item, `tab-${holdingListTab}-${item.holding_id}`))}
+                  : sortedHoldingItems.map((item) => renderHoldingRow(item, `tab-${holdingListTab}-${item.holding_id}`))}
               </tbody>
             </table>
           </article>
@@ -3213,9 +3573,9 @@ function App() {
                   const isSelf = Boolean(user?.id && member.user_id === user.id);
                   return (
                     <tr key={member.member_id}>
-                      <td>{member.display_name || "-"}</td>
-                      <td>{member.email || "-"}</td>
-                      <td>
+                      <td data-label="이름">{member.display_name || "-"}</td>
+                      <td data-label="이메일">{member.email || "-"}</td>
+                      <td data-label="권한">
                         <select
                           value={member.role}
                           disabled={!canManageHousehold || loading}
@@ -3233,8 +3593,8 @@ function App() {
                           )}
                         </select>
                       </td>
-                      <td>{fmtDateTime(member.created_at)}</td>
-                      <td>
+                      <td data-label="가입일">{fmtDateTime(member.created_at)}</td>
+                      <td data-label="동작">
                         <div className="inline">
                           <button
                             type="button"
@@ -3270,12 +3630,12 @@ function App() {
                   const pending = invite.status === "pending";
                   return (
                     <tr key={invite.id}>
-                      <td>{invite.email}</td>
-                      <td>{COLLAB_ROLE_LABELS[invite.role] || invite.role}</td>
-                      <td>{invite.status}</td>
-                      <td>{invite.inviter_display_name || "-"}</td>
-                      <td>{fmtDateTime(invite.expires_at)}</td>
-                      <td>
+                      <td data-label="이메일">{invite.email}</td>
+                      <td data-label="권한">{COLLAB_ROLE_LABELS[invite.role] || invite.role}</td>
+                      <td data-label="상태">{invite.status}</td>
+                      <td data-label="초대한 사람">{invite.inviter_display_name || "-"}</td>
+                      <td data-label="만료일">{fmtDateTime(invite.expires_at)}</td>
+                      <td data-label="동작">
                         <div className="inline">
                           <button
                             type="button"
@@ -3431,6 +3791,9 @@ function App() {
           </section>
         </div>
       )}
+      <div className="app-copyright" aria-hidden="true">
+        {COPYRIGHT_TEXT}
+      </div>
     </main>
   );
 }
