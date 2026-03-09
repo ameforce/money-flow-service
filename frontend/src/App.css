@@ -651,6 +651,7 @@ thead {
 
 .filter-card {
   padding: 1.25rem;
+  align-self: start;
 }
 
 .filter-card h2 {
@@ -742,11 +743,10 @@ thead {
 
 .month-stepper .date-inputs {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 0.25rem;
   font-weight: 600;
   color: #0f172a;
-  height: 32px;
 }
 
 .month-stepper .date-inputs input {
@@ -758,7 +758,6 @@ thead {
   text-align: right;
   width: 3.5rem;
   font-size: 1rem;
-  height: 100%;
 }
 
 .month-stepper .date-inputs input[type="number"]::-webkit-inner-spin-button,
@@ -834,7 +833,6 @@ thead {
 }
 
 .filter-apply-btn {
-  margin-left: auto;
   padding: 0 1.5rem;
   font-weight: 600;
   border-radius: 8px;
