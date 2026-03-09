@@ -68,13 +68,15 @@ const SOCKET_STATUS_LABELS = {
   error: "연결 오류",
   permission_lost: "권한 변경",
 };
-const DASHBOARD_SUMMARY_LABELS = [
+const FINANCIAL_SUMMARY_LABELS = [
   "수입",
   "지출",
   "투자",
   "순현금흐름",
   "총자산(KRW)",
   "평가손익(KRW)",
+];
+const PRICE_SUMMARY_LABELS = [
   "시세 지연 건수",
   "시세 갱신 상태",
   "최근 시세 갱신 시각",
@@ -747,6 +749,13 @@ function App() {
   const [yearMonth, setYearMonth] = useState(currentMonth());
   const [range, setRange] = useState({ start: todayIso(), end: todayIso() });
 
+  const filterModeRef = useRef(filterMode);
+  const yearMonthRef = useRef(yearMonth);
+  const rangeRef = useRef(range);
+  useEffect(() => { filterModeRef.current = filterMode; }, [filterMode]);
+  useEffect(() => { yearMonthRef.current = yearMonth; }, [yearMonth]);
+  useEffect(() => { rangeRef.current = range; }, [range]);
+
   const [overview, setOverview] = useState(null);
   const [portfolio, setPortfolio] = useState(null);
   const [transactions, setTransactions] = useState([]);
@@ -798,8 +807,8 @@ function App() {
   const [holdingForm, setHoldingForm] = useState(() => createHoldingForm("cash"));
   const [holdingInlineEdit, setHoldingInlineEdit] = useState(null);
 
-  const [importPath, setImportPath] = useState("");
   const [importFile, setImportFile] = useState(null);
+  const [isDragOver, setIsDragOver] = useState(false);
 
   const categoryOptions = useMemo(() => categories.filter((item) => item.flow_type === txForm.flow_type), [categories, txForm.flow_type]);
   const categoryMajorOptions = useMemo(
@@ -845,17 +854,26 @@ function App() {
   const holdingVersionById = useMemo(() => new Map(holdings.map((item) => [item.id, item.version])), [holdings]);
   const holdingItems = useMemo(() => portfolio?.items || [], [portfolio?.items]);
   const filteredHoldingItems = useMemo(() => {
-    if (holdingListTab === "stock") {
-      return holdingItems.filter((item) => item.asset_type === "stock");
+    if (holdingListTab === "all") {
+      return holdingItems;
     }
-    if (holdingListTab === "deposit") {
-      return holdingItems.filter((item) => item.asset_type === "cash" && isDepositCategory(item.category));
-    }
-    if (holdingListTab === "savings") {
-      return holdingItems.filter((item) => item.asset_type === "cash" && isSavingsCategory(item.category));
-    }
-    return holdingItems;
+    return holdingItems.filter((item) => {
+      const cat = String(item.category || "기타").trim() || "기타";
+      return cat === holdingListTab;
+    });
   }, [holdingItems, holdingListTab]);
+  const dynamicHoldingTabs = useMemo(() => {
+    const categories = new Set();
+    for (const item of holdingItems) {
+      categories.add(String(item.category || "기타").trim() || "기타");
+    }
+    const tabs = [{ value: "all", label: "전체" }];
+    const sortedCategories = Array.from(categories).sort();
+    for (const cat of sortedCategories) {
+      tabs.push({ value: cat, label: cat });
+    }
+    return tabs;
+  }, [holdingItems]);
   const groupedHoldingSections = useMemo(() => {
     if (holdingListTab !== "all") {
       return [];
@@ -1019,9 +1037,9 @@ function App() {
   }
 
   function resolveFilterQuery(override = null) {
-    const activeFilterMode = override?.filterMode || filterMode;
-    const activeYearMonth = override?.yearMonth || yearMonth;
-    const activeRange = override?.range || range;
+    const activeFilterMode = override?.filterMode || filterModeRef.current;
+    const activeYearMonth = override?.yearMonth || yearMonthRef.current;
+    const activeRange = override?.range || rangeRef.current;
     const txQuery =
       activeFilterMode === "month"
         ? `year=${activeYearMonth.year}&month=${activeYearMonth.month}`
@@ -1594,35 +1612,25 @@ function App() {
   }
 
   async function doImport(mode) {
+    if (!importFile) {
+      setMessage("엑셀 파일을 먼저 업로드해 주세요.");
+      return;
+    }
     setImportLoadingMode(mode);
     setLoading(true);
     setMessage(`${IMPORT_MODE_LABELS[mode] || mode} 요청을 처리 중입니다. 잠시만 기다려 주세요.`);
     try {
       let report = null;
-      if (importFile) {
-        const formData = new FormData();
-        formData.append("file", importFile);
-        report = await api(
-          `${API_PREFIX}/imports/workbook/upload?mode=${mode}`,
-          {
-            method: "POST",
-            body: formData,
-          },
-          token
-        );
-      } else {
-        report = await api(
-          `${API_PREFIX}/imports/workbook`,
-          {
-            method: "POST",
-            body: JSON.stringify({
-              mode,
-              workbook_path: importPath || null,
-            }),
-          },
-          token
-        );
-      }
+      const formData = new FormData();
+      formData.append("file", importFile);
+      report = await api(
+        `${API_PREFIX}/imports/workbook/upload?mode=${mode}`,
+        {
+          method: "POST",
+          body: formData,
+        },
+        token
+      );
       setImportReport(report);
       if (mode === "apply") {
         await loadAuthContext(token);
@@ -2325,13 +2333,15 @@ function App() {
       ? "완료"
       : "대기";
   const latestRefreshAt = priceStatus?.refresh_finished_at || priceStatus?.updated_at || null;
-  const dashboardSummaryRows = [
+  const financialSummaryRows = [
     { label: "수입", value: fmtKrw(overview?.totals?.income) },
     { label: "지출", value: fmtKrw(overview?.totals?.expense) },
     { label: "투자", value: fmtKrw(overview?.totals?.investment) },
     { label: "순현금흐름", value: fmtKrw(overview?.totals?.net_cashflow) },
     { label: "총자산(KRW)", value: fmtKrw(portfolio?.total_market_value_krw) },
     { label: "평가손익(KRW)", value: fmtKrw(portfolio?.total_gain_loss_krw) },
+  ];
+  const priceSummaryRows = [
     { label: "시세 지연 건수", value: fmt(priceStatus?.stale_count) },
     { label: "시세 갱신 상태", value: refreshStateLabel },
     { label: "최근 시세 갱신 시각", value: latestRefreshAt ? fmtDateTime(latestRefreshAt) : "-" },
@@ -2528,68 +2538,90 @@ function App() {
           )}
           <article className="card">
             <h2>조회 필터</h2>
-            <div className="inline">
-              <button className={filterMode === "month" ? "active" : ""} onClick={() => setFilterMode("month")}>월별</button>
-              <button className={filterMode === "range" ? "active" : ""} onClick={() => setFilterMode("range")}>기간</button>
+            <div className="filter-container" style={{ margin: 0, padding: 0 }}>
+              <div className="filter-modes">
+                <button className={filterMode === "month" ? "active" : ""} onClick={() => setFilterMode("month")}>월별</button>
+                <button className={filterMode === "range" ? "active" : ""} onClick={() => setFilterMode("range")}>기간</button>
+              </div>
+              <div className="filter-inputs" style={{ marginTop: "1rem" }}>
+                {filterMode === "month" ? (
+                  <div className="month-nav" style={{ margin: 0 }}>
+                    <button
+                      type="button"
+                      className="secondary month-nav-btn"
+                      aria-label="이전 달"
+                      disabled={isPrevMonthDisabled}
+                      onClick={() => handleShiftYearMonth(-1)}
+                    >
+                      ◀
+                    </button>
+                    <label>연도<input type="number" value={yearMonth.year} onChange={(e) => setYearMonth({ ...yearMonth, year: Number(e.target.value) })} /></label>
+                    <label>월<input type="number" min="1" max="12" value={yearMonth.month} onChange={(e) => setYearMonth({ ...yearMonth, month: Number(e.target.value) })} /></label>
+                    <button
+                      type="button"
+                      className="secondary month-nav-btn"
+                      aria-label="다음 달"
+                      disabled={isNextMonthDisabled}
+                      onClick={() => handleShiftYearMonth(1)}
+                    >
+                      ▶
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary month-nav-btn"
+                      onClick={handleMoveToCurrentMonth}
+                    >
+                      이번 달
+                    </button>
+                  </div>
+                ) : (
+                  <div className="range-inputs">
+                    <label>시작<input type="date" value={range.start} onChange={(e) => setRange({ ...range, start: e.target.value })} /></label>
+                    <label>종료<input type="date" value={range.end} onChange={(e) => setRange({ ...range, end: e.target.value })} /></label>
+                  </div>
+                )}
+                <button
+                  className="filter-apply-btn"
+                  onClick={() =>
+                    filterMode === "month"
+                      ? handleApplyYearMonth()
+                      : refreshDataWithUiFeedback().catch(() => undefined)
+                  }
+                  disabled={dashboardLoading}
+                >
+                  {dashboardLoading ? "로딩중..." : "조회 적용"}
+                </button>
+              </div>
             </div>
-            {filterMode === "month" ? (
-              <div className="inline month-nav">
-                <button
-                  type="button"
-                  className="secondary month-nav-btn"
-                  aria-label="이전 달"
-                  disabled={isPrevMonthDisabled}
-                  onClick={() => handleShiftYearMonth(-1)}
-                >
-                  ◀
-                </button>
-                <label>연도<input type="number" value={yearMonth.year} onChange={(e) => setYearMonth({ ...yearMonth, year: Number(e.target.value) })} /></label>
-                <label>월<input type="number" min="1" max="12" value={yearMonth.month} onChange={(e) => setYearMonth({ ...yearMonth, month: Number(e.target.value) })} /></label>
-                <button
-                  type="button"
-                  className="secondary month-nav-btn"
-                  aria-label="다음 달"
-                  disabled={isNextMonthDisabled}
-                  onClick={() => handleShiftYearMonth(1)}
-                >
-                  ▶
-                </button>
-                <button
-                  type="button"
-                  className="secondary month-nav-btn"
-                  onClick={handleMoveToCurrentMonth}
-                >
-                  이번 달
-                </button>
-              </div>
-            ) : (
-              <div className="inline">
-                <label>시작<input type="date" value={range.start} onChange={(e) => setRange({ ...range, start: e.target.value })} /></label>
-                <label>종료<input type="date" value={range.end} onChange={(e) => setRange({ ...range, end: e.target.value })} /></label>
-              </div>
-            )}
-            <button
-              onClick={() =>
-                filterMode === "month"
-                  ? handleApplyYearMonth()
-                  : refreshDataWithUiFeedback().catch(() => undefined)
-              }
-              disabled={dashboardLoading}
-            >
-              {dashboardLoading ? "불러오는 중..." : "적용"}
-            </button>
           </article>
 
           <article className="card">
             <h2>요약</h2>
             <div className="summary" aria-busy={dashboardLoading ? "true" : "false"}>
               {isDashboardInitialLoading
-                ? DASHBOARD_SUMMARY_LABELS.map((label) => (
+                ? FINANCIAL_SUMMARY_LABELS.map((label) => (
                     <div key={label} className="summary-placeholder">
                       {label}: 불러오는 중...
                     </div>
                   ))
-                : dashboardSummaryRows.map((item) => (
+                : financialSummaryRows.map((item) => (
+                    <div key={item.label}>
+                      <strong>{item.label}</strong>
+                      <span>{item.value}</span>
+                    </div>
+                  ))}
+            </div>
+            
+            <hr style={{ margin: "1rem 0", border: "none", borderTop: "1px solid #dbe3ef" }} />
+            
+            <div className="summary" aria-busy={dashboardLoading ? "true" : "false"}>
+              {isDashboardInitialLoading
+                ? PRICE_SUMMARY_LABELS.map((label) => (
+                    <div key={label} className="summary-placeholder">
+                      {label}: 불러오는 중...
+                    </div>
+                  ))
+                : priceSummaryRows.map((item) => (
                     <div key={item.label}>
                       <strong>{item.label}</strong>
                       <span>{item.value}</span>
@@ -2708,7 +2740,7 @@ function App() {
               </label>
               <label>메모<input value={txForm.memo} onChange={(e) => setTxForm({ ...txForm, memo: e.target.value })} /></label>
               <label>거래자명<input value={txForm.owner_name} onChange={(e) => setTxForm({ ...txForm, owner_name: e.target.value })} /></label>
-              <div className="inline">
+              <div className="inline form-actions">
                 <button type="submit">{txForm.id ? "거래 수정 저장" : "거래 등록"}</button>
                 {txForm.id && (
                   <button
@@ -2733,7 +2765,7 @@ function App() {
           <article className="card table-card">
             <h2>거래 목록</h2>
             <div className="table-toolbar month-toolbar">
-              <div className="inline month-nav">
+              <div className="month-nav">
                 <button
                   type="button"
                   className="secondary month-nav-btn"
@@ -3027,7 +3059,7 @@ function App() {
           <article className="card table-card">
             <h2>자산 목록</h2>
             <div className="tabs sub-tabs" role="tablist" aria-label="자산 목록 분류">
-              {HOLDING_LIST_TABS.map((tabItem) => (
+              {dynamicHoldingTabs.map((tabItem) => (
                 <button
                   key={tabItem.value}
                   type="button"
@@ -3261,15 +3293,27 @@ function App() {
         <section className="grid-1">
           <article className="card">
             <h2>데이터 파일 가져오기</h2>
-            <label>가져올 파일 경로 (.xlsx)
-              <input
-                value={importPath}
-                onChange={(e) => setImportPath(e.target.value)}
-                placeholder="예: legacy/sample-assets.xlsx"
-                disabled={Boolean(importLoadingMode)}
-              />
-            </label>
-            <div className="inline upload-row">
+            <div
+              className={`file-drop-area ${isDragOver ? "drag-over" : ""}`}
+              onDragOver={(e) => {
+                e.preventDefault();
+                if (!importLoadingMode) setIsDragOver(true);
+              }}
+              onDragLeave={(e) => {
+                e.preventDefault();
+                setIsDragOver(false);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                setIsDragOver(false);
+                if (!importLoadingMode && e.dataTransfer.files?.[0]) {
+                  setImportFile(e.dataTransfer.files[0]);
+                }
+              }}
+              onClick={() => {
+                if (!importLoadingMode) importFileInputRef.current?.click();
+              }}
+            >
               <input
                 ref={importFileInputRef}
                 type="file"
@@ -3279,17 +3323,13 @@ function App() {
                 aria-label="엑셀 파일 업로드"
                 disabled={Boolean(importLoadingMode)}
               />
-              <button
-                type="button"
-                className="secondary"
-                onClick={() => importFileInputRef.current?.click()}
-                disabled={Boolean(importLoadingMode)}
-              >
-                엑셀 파일 업로드
-              </button>
-              <span className="upload-file-name">{importFile ? importFile.name : "선택된 파일 없음"}</span>
+              {importFile ? (
+                <div className="upload-file-name">선택된 파일: {importFile.name}</div>
+              ) : (
+                <div className="upload-placeholder">엑셀 파일을 이곳에 드래그 앤 드롭 하거나 클릭하여 업로드하세요.</div>
+              )}
             </div>
-            <div className="inline">
+            <div className="inline" style={{ marginTop: "1rem" }}>
               <button disabled={Boolean(importLoadingMode)} onClick={() => doImport("dry_run")}>
                 {importLoadingMode === "dry_run" ? "미리 검증 중..." : IMPORT_MODE_LABELS.dry_run}
               </button>

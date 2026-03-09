@@ -71,6 +71,28 @@
   color: #355177;
 }
 
+.file-drop-area {
+  border: 2px dashed #b6cff6;
+  border-radius: 10px;
+  padding: 3rem 1rem;
+  text-align: center;
+  background-color: #f7fbff;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-top: 1rem;
+}
+
+.file-drop-area:hover,
+.file-drop-area.drag-over {
+  border-color: #0b4ab4;
+  background-color: #eaf2ff;
+}
+
+.upload-placeholder {
+  color: #3f5f8f;
+  font-size: 0.95rem;
+}
+
 .import-progress {
   border: 1px solid #c8d9f9;
   background: #eef4ff;
@@ -275,8 +297,10 @@
   color: #6b7f9d;
 }
 
-.holdings-form-grid {
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+.holdings-form-grid,
+.holdings-inline-editor {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.8rem;
 }
 
 .holding-row-editing {
@@ -286,10 +310,6 @@
 .holding-inline-editor-row td {
   background: #f7fbff;
   padding: 0.6rem;
-}
-
-.holdings-inline-editor {
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
 }
 
 .date-input-wrap {
@@ -309,11 +329,18 @@
 }
 
 .month-nav {
+  display: flex;
+  gap: 0.5rem;
   align-items: flex-end;
+  flex-wrap: wrap;
 }
 
 .month-nav label {
   min-width: 4.6rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  margin-bottom: 0;
 }
 
 .month-toolbar {
@@ -534,6 +561,41 @@ thead {
   cursor: pointer;
   font-size: 0.83rem;
   color: #355177;
+}
+
+.filter-container {
+  display: flex;
+  flex-direction: column;
+}
+
+.filter-modes {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.filter-inputs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: flex-end;
+}
+
+.filter-inputs .month-nav {
+  margin: 0;
+}
+
+.range-inputs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: flex-end;
+  margin: 0;
+}
+
+.filter-apply-btn {
+  height: 38px;
+  min-width: 5rem;
+  margin-left: auto;
 }
 
 @media (max-width: 1100px) {

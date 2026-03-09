@@ -109,7 +109,7 @@ def run_playwright(frontend_port: int, backend_port: int) -> int:
 
     playwright_command = ["npx", "playwright", "test"]
     if os.name == "nt":
-        playwright_command = ["cmd", "/c", "playwright", "test"]
+        playwright_command = ["cmd", "/c", "npx", "playwright", "test"]
     result = subprocess.run(playwright_command, cwd=ROOT, env=env)
     if int(result.returncode) != 0:
         return int(result.returncode)
