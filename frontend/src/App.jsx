@@ -2536,62 +2536,66 @@ function App() {
               최신 데이터를 새로 불러오고 있습니다.
             </div>
           )}
-          <article className="card">
-            <h2>조회 필터</h2>
-            <div className="filter-container" style={{ margin: 0, padding: 0 }}>
-              <div className="filter-modes">
+          <article className="card filter-card">
+            <div className="filter-container">
+              <div className="filter-modes-segmented">
                 <button className={filterMode === "month" ? "active" : ""} onClick={() => setFilterMode("month")}>월별</button>
                 <button className={filterMode === "range" ? "active" : ""} onClick={() => setFilterMode("range")}>기간</button>
               </div>
-              <div className="filter-inputs" style={{ marginTop: "1rem" }}>
+              <div className="filter-inputs-wrapper">
                 {filterMode === "month" ? (
-                  <div className="month-nav" style={{ margin: 0 }}>
+                  <div className="month-stepper">
                     <button
                       type="button"
-                      className="secondary month-nav-btn"
+                      className="icon-btn"
                       aria-label="이전 달"
                       disabled={isPrevMonthDisabled}
                       onClick={() => handleShiftYearMonth(-1)}
                     >
-                      ◀
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
                     </button>
-                    <label>연도<input type="number" value={yearMonth.year} onChange={(e) => setYearMonth({ ...yearMonth, year: Number(e.target.value) })} /></label>
-                    <label>월<input type="number" min="1" max="12" value={yearMonth.month} onChange={(e) => setYearMonth({ ...yearMonth, month: Number(e.target.value) })} /></label>
+                    <div className="date-inputs">
+                      <input type="number" aria-label="연도" value={yearMonth.year} onChange={(e) => setYearMonth({ ...yearMonth, year: Number(e.target.value) })} />
+                      <span>년</span>
+                      <input type="number" min="1" max="12" aria-label="월" value={yearMonth.month} onChange={(e) => setYearMonth({ ...yearMonth, month: Number(e.target.value) })} />
+                      <span>월</span>
+                    </div>
                     <button
                       type="button"
-                      className="secondary month-nav-btn"
+                      className="icon-btn"
                       aria-label="다음 달"
                       disabled={isNextMonthDisabled}
                       onClick={() => handleShiftYearMonth(1)}
                     >
-                      ▶
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
                     </button>
                     <button
                       type="button"
-                      className="secondary month-nav-btn"
+                      className="text-btn"
                       onClick={handleMoveToCurrentMonth}
                     >
                       이번 달
                     </button>
                   </div>
                 ) : (
-                  <div className="range-inputs">
-                    <label>시작<input type="date" value={range.start} onChange={(e) => setRange({ ...range, start: e.target.value })} /></label>
-                    <label>종료<input type="date" value={range.end} onChange={(e) => setRange({ ...range, end: e.target.value })} /></label>
+                  <div className="range-picker">
+                    <input type="date" value={range.start} onChange={(e) => setRange({ ...range, start: e.target.value })} />
+                    <span className="range-separator">~</span>
+                    <input type="date" value={range.end} onChange={(e) => setRange({ ...range, end: e.target.value })} />
                   </div>
                 )}
-                <button
-                  className="filter-apply-btn"
-                  onClick={() =>
-                    filterMode === "month"
-                      ? handleApplyYearMonth()
-                      : refreshDataWithUiFeedback().catch(() => undefined)
-                  }
-                  disabled={dashboardLoading}
-                >
-                  {dashboardLoading ? "로딩중..." : "조회 적용"}
-                </button>
               </div>
+              <button
+                className="filter-apply-btn primary"
+                onClick={() =>
+                  filterMode === "month"
+                    ? handleApplyYearMonth()
+                    : refreshDataWithUiFeedback().catch(() => undefined)
+                }
+                disabled={dashboardLoading}
+              >
+                {dashboardLoading ? "로딩중..." : "조회 적용"}
+              </button>
             </div>
           </article>
 
@@ -2765,47 +2769,47 @@ function App() {
           <article className="card table-card">
             <h2>거래 목록</h2>
             <div className="table-toolbar month-toolbar">
-              <div className="month-nav">
+              <div className="month-stepper">
                 <button
                   type="button"
-                  className="secondary month-nav-btn"
+                  className="icon-btn"
                   aria-label="이전 달"
                   disabled={isPrevMonthDisabled}
                   onClick={() => handleShiftYearMonth(-1)}
                 >
-                  ◀
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
                 </button>
-                <label>
-                  연도
+                <div className="date-inputs">
                   <input
                     type="number"
+                    aria-label="연도"
                     value={yearMonth.year}
                     onChange={(event) => setYearMonth({ ...yearMonth, year: Number(event.target.value) })}
                   />
-                </label>
-                <label>
-                  월
+                  <span>년</span>
                   <input
                     type="number"
                     min="1"
                     max="12"
+                    aria-label="월"
                     value={yearMonth.month}
                     onChange={(event) => setYearMonth({ ...yearMonth, month: Number(event.target.value) })}
                   />
-                </label>
+                  <span>월</span>
+                </div>
                 <button
                   type="button"
-                  className="secondary month-nav-btn"
+                  className="icon-btn"
                   aria-label="다음 달"
                   disabled={isNextMonthDisabled}
                   onClick={() => handleShiftYearMonth(1)}
                 >
-                  ▶
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
                 </button>
-                <button type="button" className="secondary month-nav-btn" onClick={handleMoveToCurrentMonth}>
+                <button type="button" className="text-btn" onClick={handleMoveToCurrentMonth}>
                   이번 달
                 </button>
-                <button type="button" className="secondary month-nav-btn" onClick={handleApplyYearMonth}>
+                <button type="button" className="text-btn apply-btn" onClick={handleApplyYearMonth}>
                   조회 적용
                 </button>
               </div>
@@ -2926,135 +2930,137 @@ function App() {
           <article className="card">
             <h2>자산 입력</h2>
             <p className="table-summary">수정은 아래 자산 목록에서 바로 진행됩니다.</p>
-            <form className="form-grid holdings-form-grid" onSubmit={submitHolding}>
-              <label>
-                유형
-                <select
-                  value={holdingForm.asset_type}
-                  onChange={(event) => {
-                    const nextType = String(event.target.value || "cash");
-                    setHoldingForm((prev) => ({
-                      ...createHoldingForm(nextType),
-                      name: prev.name,
-                      owner_name: prev.owner_name,
-                      account_name: prev.account_name,
-                      average_cost: prev.average_cost,
-                    }));
-                  }}
-                >
-                  {ASSET_TYPE_OPTIONS.map((item) => (
-                    <option key={item.value} value={item.value}>
-                      {item.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                자산명
-                <input
-                  value={holdingForm.name}
-                  onChange={(event) => setHoldingForm({ ...holdingForm, name: event.target.value })}
-                  required
-                />
-              </label>
-              <label>
-                카테고리
-                <input
-                  value={holdingForm.category}
-                  onChange={(event) => setHoldingForm({ ...holdingForm, category: event.target.value })}
-                />
-              </label>
-              <label>
-                보유자
-                <select
-                  value={holdingForm.owner_name}
-                  onChange={(event) => setHoldingForm({ ...holdingForm, owner_name: event.target.value })}
-                >
-                  <option value="">(선택 안함)</option>
-                  {holdingFormOwnerOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                계좌
-                <input
-                  value={holdingForm.account_name}
-                  onChange={(event) => setHoldingForm({ ...holdingForm, account_name: event.target.value })}
-                />
-              </label>
-              {holdingFormTracked ? (
-                <>
+            <div className="holdings-form-container">
+              <form className="holdings-form-grid" onSubmit={submitHolding}>
+                <label>
+                  유형
+                  <select
+                    value={holdingForm.asset_type}
+                    onChange={(event) => {
+                      const nextType = String(event.target.value || "cash");
+                      setHoldingForm((prev) => ({
+                        ...createHoldingForm(nextType),
+                        name: prev.name,
+                        owner_name: prev.owner_name,
+                        account_name: prev.account_name,
+                        average_cost: prev.average_cost,
+                      }));
+                    }}
+                  >
+                    {ASSET_TYPE_OPTIONS.map((item) => (
+                      <option key={item.value} value={item.value}>
+                        {item.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  자산명
+                  <input
+                    value={holdingForm.name}
+                    onChange={(event) => setHoldingForm({ ...holdingForm, name: event.target.value })}
+                    required
+                  />
+                </label>
+                <label>
+                  카테고리
+                  <input
+                    value={holdingForm.category}
+                    onChange={(event) => setHoldingForm({ ...holdingForm, category: event.target.value })}
+                  />
+                </label>
+                <label>
+                  보유자
+                  <select
+                    value={holdingForm.owner_name}
+                    onChange={(event) => setHoldingForm({ ...holdingForm, owner_name: event.target.value })}
+                  >
+                    <option value="">(선택 안함)</option>
+                    {holdingFormOwnerOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  계좌
+                  <input
+                    value={holdingForm.account_name}
+                    onChange={(event) => setHoldingForm({ ...holdingForm, account_name: event.target.value })}
+                  />
+                </label>
+                {holdingFormTracked ? (
+                  <>
+                    <label>
+                      심볼
+                      <input
+                        value={holdingForm.symbol}
+                        onChange={(event) => setHoldingForm({ ...holdingForm, symbol: event.target.value })}
+                        required
+                      />
+                    </label>
+                    <label>
+                      시장심볼
+                      <input
+                        value={holdingForm.market_symbol}
+                        onChange={(event) => setHoldingForm({ ...holdingForm, market_symbol: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      수량
+                      <input
+                        type="number"
+                        min="0.00000001"
+                        step="0.00000001"
+                        value={holdingForm.quantity}
+                        onChange={(event) => setHoldingForm({ ...holdingForm, quantity: event.target.value })}
+                        required
+                      />
+                    </label>
+                  </>
+                ) : (
                   <label>
-                    심볼
-                    <input
-                      value={holdingForm.symbol}
-                      onChange={(event) => setHoldingForm({ ...holdingForm, symbol: event.target.value })}
-                      required
-                    />
-                  </label>
-                  <label>
-                    시장심볼
-                    <input
-                      value={holdingForm.market_symbol}
-                      onChange={(event) => setHoldingForm({ ...holdingForm, market_symbol: event.target.value })}
-                    />
-                  </label>
-                  <label>
-                    수량
+                    평가금액
                     <input
                       type="number"
-                      min="0.00000001"
-                      step="0.00000001"
-                      value={holdingForm.quantity}
-                      onChange={(event) => setHoldingForm({ ...holdingForm, quantity: event.target.value })}
+                      min="0"
+                      step="0.01"
+                      value={holdingForm.average_cost}
+                      onChange={(event) => setHoldingForm({ ...holdingForm, average_cost: event.target.value })}
                       required
                     />
                   </label>
-                </>
-              ) : (
+                )}
+                {holdingFormTracked && (
+                  <label>
+                    평균단가
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.0001"
+                      value={holdingForm.average_cost}
+                      onChange={(event) => setHoldingForm({ ...holdingForm, average_cost: event.target.value })}
+                      required
+                    />
+                  </label>
+                )}
                 <label>
-                  평가금액
+                  통화
                   <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={holdingForm.average_cost}
-                    onChange={(event) => setHoldingForm({ ...holdingForm, average_cost: event.target.value })}
+                    value={holdingForm.currency}
+                    onChange={(event) => setHoldingForm({ ...holdingForm, currency: event.target.value.toUpperCase() })}
                     required
                   />
                 </label>
-              )}
-              {holdingFormTracked && (
-                <label>
-                  평균단가
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.0001"
-                    value={holdingForm.average_cost}
-                    onChange={(event) => setHoldingForm({ ...holdingForm, average_cost: event.target.value })}
-                    required
-                  />
-                </label>
-              )}
-              <label>
-                통화
-                <input
-                  value={holdingForm.currency}
-                  onChange={(event) => setHoldingForm({ ...holdingForm, currency: event.target.value.toUpperCase() })}
-                  required
-                />
-              </label>
-              <div className="inline form-actions">
-                <button type="submit">자산 등록</button>
-                <button type="button" className="secondary" onClick={() => setHoldingForm(createHoldingForm(holdingForm.asset_type))}>
-                  초기화
-                </button>
-              </div>
-            </form>
+                <div className="holdings-form-actions">
+                  <button type="button" className="secondary" onClick={() => setHoldingForm(createHoldingForm(holdingForm.asset_type))}>
+                    초기화
+                  </button>
+                  <button type="submit" className="primary">자산 등록</button>
+                </div>
+              </form>
+            </div>
           </article>
           <article className="card table-card">
             <h2>자산 목록</h2>

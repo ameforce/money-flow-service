@@ -297,7 +297,64 @@
   color: #6b7f9d;
 }
 
-.holdings-form-grid,
+.holdings-form-container {
+  background-color: #f8fafc;
+  border-radius: 12px;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+  border: 1px solid #e2e8f0;
+}
+
+.holdings-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 1rem;
+  align-items: end;
+}
+
+.holdings-form-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #475569;
+  margin-bottom: 0;
+}
+
+.holdings-form-grid input,
+.holdings-form-grid select {
+  padding: 0.6rem 0.75rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  transition: all 0.2s;
+  background-color: white;
+}
+
+.holdings-form-grid input:focus,
+.holdings-form-grid select:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  outline: none;
+}
+
+.holdings-form-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+  justify-content: flex-end;
+  grid-column: 1 / -1;
+  border-top: 1px solid #e2e8f0;
+  padding-top: 1rem;
+}
+
+.holdings-form-actions button {
+  padding: 0.6rem 1.5rem;
+  border-radius: 8px;
+  font-weight: 600;
+}
+
 .holdings-inline-editor {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.8rem;
@@ -563,39 +620,181 @@ thead {
   color: #355177;
 }
 
+.filter-card {
+  padding: 1.25rem;
+}
+
+.filter-card h2 {
+  display: none;
+}
+
 .filter-container {
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
 }
 
-.filter-modes {
+.filter-modes-segmented {
   display: flex;
-  gap: 0.5rem;
+  background-color: #f1f5f9;
+  border-radius: 8px;
+  padding: 0.25rem;
 }
 
-.filter-inputs {
+.filter-modes-segmented button {
+  background: transparent;
+  border: none;
+  color: #64748b;
+  padding: 0.5rem 1rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.filter-modes-segmented button:hover {
+  color: #0f172a;
+}
+
+.filter-modes-segmented button.active {
+  background-color: white;
+  color: #0f172a;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.filter-inputs-wrapper {
   display: flex;
+  align-items: center;
   flex-wrap: wrap;
   gap: 0.5rem;
-  align-items: flex-end;
 }
 
-.filter-inputs .month-nav {
+.month-stepper {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background-color: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 0.25rem 0.5rem;
+}
+
+.month-stepper .icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: #64748b;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.month-stepper .icon-btn:hover:not(:disabled) {
+  background-color: #f1f5f9;
+  color: #0f172a;
+}
+
+.month-stepper .icon-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.month-stepper .date-inputs {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.month-stepper .date-inputs input {
+  border: none;
+  background: transparent;
+  font-weight: 600;
+  color: #0f172a;
+  padding: 0;
+  text-align: right;
+  width: 3.5rem;
+  font-size: 1rem;
+}
+
+.month-stepper .date-inputs input[type="number"]::-webkit-inner-spin-button,
+.month-stepper .date-inputs input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
   margin: 0;
 }
 
-.range-inputs {
+.month-stepper .date-inputs input:focus {
+  outline: none;
+  background-color: #f1f5f9;
+  border-radius: 4px;
+}
+
+.month-stepper .text-btn {
+  background: transparent;
+  border: none;
+  color: #3b82f6;
+  font-weight: 600;
+  font-size: 0.85rem;
+  padding: 0.4rem 0.75rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.month-stepper .text-btn:hover {
+  background-color: #eff6ff;
+}
+
+.month-stepper .text-btn.apply-btn {
+  color: white;
+  background-color: #3b82f6;
+  margin-left: 0.5rem;
+}
+
+.month-stepper .text-btn.apply-btn:hover {
+  background-color: #2563eb;
+}
+
+.range-picker {
   display: flex;
-  flex-wrap: wrap;
+  align-items: center;
   gap: 0.5rem;
-  align-items: flex-end;
-  margin: 0;
+  background-color: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 0.25rem 0.5rem;
+}
+
+.range-picker input[type="date"] {
+  border: none;
+  background: transparent;
+  font-weight: 500;
+  color: #0f172a;
+  padding: 0.4rem;
+}
+
+.range-picker input[type="date"]:focus {
+  outline: none;
+  background-color: #f1f5f9;
+  border-radius: 4px;
+}
+
+.range-separator {
+  color: #64748b;
+  font-weight: 600;
 }
 
 .filter-apply-btn {
-  height: 38px;
-  min-width: 5rem;
   margin-left: auto;
+  padding: 0.6rem 1.5rem;
+  font-weight: 600;
+  border-radius: 8px;
 }
 
 @media (max-width: 1100px) {
