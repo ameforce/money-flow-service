@@ -127,6 +127,44 @@ pipeline {
       }
     }
 
+    stage('Resolve App Version') {
+      steps {
+        script {
+          if (isUnix()) {
+            sh 'git fetch --all --tags --prune'
+          } else {
+            bat 'git fetch --all --tags --prune'
+          }
+
+          def version = ''
+          if (isUnix()) {
+            version = sh(
+              returnStdout: true,
+              script: "git describe --tags --match 'v[0-9]*.[0-9]*.[0-9]*' --dirty --always --abbrev=7"
+            ).trim()
+          } else {
+            version = powershell(
+              returnStdout: true,
+              script: '''
+                $version = git describe --tags --match "v[0-9]*.[0-9]*.[0-9]*" --dirty --always --abbrev=7
+                if ([string]::IsNullOrWhiteSpace($version)) {
+                  $version = "v0.0.0-$env:BUILD_NUMBER"
+                }
+                $version.Trim()
+              '''
+            ).trim()
+          }
+
+          if (!version) {
+            version = "v0.0.0-${env.BUILD_NUMBER}"
+          }
+
+          env.APP_VERSION = version
+          echo "Resolved version = ${env.APP_VERSION}"
+        }
+      }
+    }
+
     stage('Install Dependencies') {
       steps {
         script {
@@ -161,9 +199,9 @@ pipeline {
       steps {
         script {
           if (isUnix()) {
-            sh "docker build -t ${env.IMAGE_NAME}:${env.BUILD_NUMBER} ."
+            sh "docker build -t ${env.IMAGE_NAME}:${env.APP_VERSION} ."
           } else {
-            bat "docker build -t ${env.IMAGE_NAME}:%BUILD_NUMBER% ."
+            bat "docker build -t ${env.IMAGE_NAME}:${env.APP_VERSION} ."
           }
         }
       }
@@ -181,11 +219,12 @@ pipeline {
           env.CAN_DEPLOY_BRANCH = canDeployBranch.toString()
           env.DEPLOY_TARGET_BRANCH = deployBranch
 
-          def imageTag = "${env.IMAGE_NAME}:${env.BUILD_NUMBER}"
+          def imageTag = "${env.IMAGE_NAME}:${env.APP_VERSION}"
           def previewLines = [
             '[deploy-preview]',
             "run_deploy=${params.RUN_DEPLOY}",
             "dry_run=${params.DEPLOY_DRY_RUN}",
+            "app_version=${env.APP_VERSION}",
             "build_number=${env.BUILD_NUMBER}",
             "build_branch=${deployBranch}",
             "deploy_allowed_branch=${params.DEPLOY_ALLOWED_BRANCHES}",
@@ -280,7 +319,7 @@ pipeline {
           def healthRetryCount = Math.max(1, (healthTimeoutSeconds / healthIntervalSeconds) as int)
 
           def remote = "${params.DEPLOY_SSH_USER}@${params.DEPLOY_HOST}"
-          def bundle = "deploy-${env.BUILD_NUMBER}.tgz"
+          def bundle = "deploy-${env.APP_VERSION}-${env.BUILD_NUMBER}.tgz"
 
           withCredentials([
             file(credentialsId: params.DEPLOY_ENV_FILE_CREDENTIALS_ID, variable: 'DEPLOY_ENV_FILE')
