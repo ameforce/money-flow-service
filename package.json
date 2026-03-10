@@ -1,0 +1,28 @@
+{
+  "name": "money-flow-workspace",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev:all": "cmd /c uv run python orchestrator.py",
+    "frontend:dev": "npm run dev --prefix frontend",
+    "frontend:build": "npm run build --prefix frontend",
+    "e2e": "cmd /c uv run python scripts/run_e2e_with_orchestrator.py",
+    "e2e:mail:live": "cmd /c uv run python scripts/run_mail_live_e2e.py",
+    "e2e:mail:send": "cmd /c uv run python scripts/run_mail_live_e2e.py --send-only",
+    "mail:profile:new": "cmd /c uv run python scripts/create_service_mail_profile.py",
+    "mail:local:up": "cmd /c docker compose -f docker-compose.mail-local.yml up -d",
+    "mail:local:up:relay": "cmd /c docker compose --env-file infra/mail/local-smtp.relay.env -f docker-compose.mail-local.yml up -d",
+    "mail:local:down": "cmd /c docker compose -f docker-compose.mail-local.yml down",
+    "mail:local:logs": "cmd /c docker compose -f docker-compose.mail-local.yml logs --tail=200",
+    "ci:test": "uv run python -m pytest -q",
+    "ci:e2e": "uv run python scripts/run_e2e_with_orchestrator.py",
+    "ci:quality:gate": "npm run ci:test && npm run ci:e2e && uv run python scripts/verify_e2e_screenshots.py && uv run python scripts/check_mojibake.py",
+    "e2e:raw": "playwright test",
+    "e2e:headed": "playwright test --headed",
+    "quality": "npm run quality:gate",
+    "quality:gate": "cmd /c uv run python -m pytest -q && npm run e2e && cmd /c uv run python scripts/verify_e2e_screenshots.py && cmd /c uv run python scripts/check_mojibake.py"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.2"
+  }
+}

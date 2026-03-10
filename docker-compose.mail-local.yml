@@ -1,0 +1,18 @@
+services:
+  smtp-local:
+    image: boky/postfix:latest
+    container_name: moneyflow-smtp-local
+    restart: unless-stopped
+    environment:
+      # Local test mode: allow sender domains without strict filtering.
+      ALLOW_EMPTY_SENDER_DOMAINS: "true"
+      POSTFIX_myhostname: ${LOCAL_SMTP_MYHOSTNAME:-mail.enmsoftware.com}
+      LOG_FORMAT: ${LOCAL_SMTP_LOG_FORMAT:-plain}
+
+      # Optional upstream relay (leave empty to deliver directly to MX).
+      RELAYHOST: ${LOCAL_SMTP_RELAYHOST:-}
+      RELAYHOST_USERNAME: ${LOCAL_SMTP_RELAYHOST_USERNAME:-}
+      RELAYHOST_PASSWORD: ${LOCAL_SMTP_RELAYHOST_PASSWORD:-}
+      POSTFIX_smtp_tls_security_level: ${LOCAL_SMTP_RELAY_TLS_LEVEL:-may}
+    ports:
+      - "${LOCAL_SMTP_PORT:-2525}:587"
