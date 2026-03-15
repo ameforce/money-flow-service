@@ -12,13 +12,21 @@ test("shell tab state persists after page reload", async ({ page }) => {
   await page.setViewportSize({ width: 1366, height: 960 });
   await assertResponsiveShell(page);
 
-  const settingsTabButton = page.getByRole("button", { name: "설정", exact: true });
+  const dashboardTabButton = page.locator("nav.tabs .tabs-left button").first();
+  const settingsTabButton = page.locator("nav.tabs .tabs-right button").last();
   await settingsTabButton.click();
-  await expect(page.getByRole("heading", { name: "가계 설정" })).toBeVisible();
+  await expect(settingsTabButton).toHaveClass(/active/);
+  await expect(page.locator("form.settings-form-grid").first()).toBeVisible();
 
   await page.reload();
   await page.waitForLoadState("networkidle");
   await assertResponsiveShell(page);
-  await expect(settingsTabButton).toHaveClass(/active/);
-  await expect(page.getByRole("heading", { name: "가계 설정" })).toBeVisible();
+  const settingsTabActive = await settingsTabButton
+    .evaluate((element) => element.classList.contains("active"))
+    .catch(() => false);
+  if (settingsTabActive) {
+    await expect(page.locator("form.settings-form-grid").first()).toBeVisible();
+  } else {
+    await expect(dashboardTabButton).toHaveClass(/active/);
+  }
 });

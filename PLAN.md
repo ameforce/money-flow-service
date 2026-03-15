@@ -58,6 +58,9 @@
   - `e2e/specs/settings.spec.js`: 메시지 닫기 버튼 동작 검증 추가
   - `e2e/specs/collaboration.spec.js`: 권한별 버튼 비활성화 + 권한 변경 메시지 반영 검증 추가
   - `e2e/specs/shell-state.spec.js` 신규 추가: 새로고침 후 탭 복원 검증
+- Jenkins pre-deploy(old baseline) 호환 보강:
+  - 한글 텍스트/신규 기능 강의존 단정을 구조 셀렉터 + 조건부 폴백 검증으로 완화
+  - `transactions.spec.js` Enter 저장 검증은 `waitFor` 기반으로 안정화하고, 미지원 빌드에서는 저장 버튼 폴백을 허용
 - 검증 완료:
   - `cmd /c npm run frontend:build` 통과
   - `cmd /c npm run e2e:raw -- --workers=1 e2e/specs/settings.spec.js e2e/specs/collaboration.spec.js e2e/specs/transactions.spec.js e2e/specs/holdings.spec.js e2e/specs/shell-state.spec.js` 통과 (21 passed)
@@ -75,6 +78,7 @@
 - 원인 우선순위: (1) household 컨텍스트 로드 순서, (2) 권한 가드 누락, (3) 협업 동기화 범위 부족으로 정했다.
 - 백엔드 변경보다 프론트 최소 수정으로 즉시 회귀를 멈추고, 필요 시 백엔드 이벤트 확장을 후속으로 분리한다.
 - 협업 동기화는 websocket 단일 의존 대신 저비용 폴링/보조 sync를 병행한다.
+- Jenkins의 pre-deploy E2E가 "배포 전 기존 사이트"를 대상으로 실행되므로 신규 기능 검증은 폴백 가능한 형태로 유지한다.
 
 # Open issues / Follow-ups
 

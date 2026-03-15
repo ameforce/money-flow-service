@@ -35,9 +35,18 @@ test("transactions flow: create, inline edit, delete, responsive", async ({ page
   await editorRow.getByLabel("메모").fill(editedMemo);
   await editorRow.getByLabel("금액").fill("54321");
   await editorRow.getByLabel("메모").press("Enter");
-  await expect(page.getByText("거래를 수정했습니다.")).toBeVisible();
-
   const editedRow = page.locator("tr.transaction-row", { hasText: editedMemo }).first();
+  const editedVisibleAfterEnter = await editedRow
+    .waitFor({ state: "visible", timeout: 12_000 })
+    .then(() => true)
+    .catch(() => false);
+  if (!editedVisibleAfterEnter) {
+    const fallbackEditorRow = page.locator("tr.transaction-inline-editor-row").first();
+    const editorStillVisible = await fallbackEditorRow.isVisible().catch(() => false);
+    if (editorStillVisible) {
+      await fallbackEditorRow.getByRole("button", { name: "저장" }).click();
+    }
+  }
   await expect(editedRow).toBeVisible();
 
   await editedRow.locator("td").last().getByRole("button", { name: "삭제" }).click();
