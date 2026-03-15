@@ -44,18 +44,6 @@ def wait_until_up(backend_url: str, frontend_url: str, timeout_sec: int = 180) -
     return False
 
 
-def ensure_legacy_workbook_exists() -> bool:
-    legacy_dir = ROOT / "legacy"
-    if not legacy_dir.exists():
-        print(f"[e2e-runner] missing directory: {legacy_dir}", flush=True)
-        return False
-    has_workbook = any(path.is_file() and path.suffix.lower() == ".xlsx" for path in legacy_dir.iterdir())
-    if not has_workbook:
-        print("[e2e-runner] missing required file: legacy/*.xlsx", flush=True)
-        return False
-    return True
-
-
 def start_orchestrator(db_url: str, backend_port: int, frontend_port: int) -> subprocess.Popen:
     env = os.environ.copy()
     env["VITE_BACKEND_ORIGIN"] = f"http://127.0.0.1:{backend_port}"
@@ -155,9 +143,6 @@ def kill_process_tree(proc: subprocess.Popen) -> None:
 
 
 def main() -> int:
-    if not ensure_legacy_workbook_exists():
-        return 1
-
     backend_port = pick_free_port()
     frontend_port = pick_free_port()
     backend_health = f"http://127.0.0.1:{backend_port}/healthz"
