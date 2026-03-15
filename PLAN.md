@@ -36,6 +36,7 @@
 - E2E 확장: `e2e/specs/collaboration.spec.js`에 설정 탭 전환 검증 단계 추가.
 - Jenkins 환경 플래키 완화: 새 협업 E2E 단계의 라벨 기반 탐색을 구조 기반 셀렉터로 보강.
 - Jenkins 환경 탭 전환 경합 완화: 설정/협업 탭 전환 시 활성 클래스 기반 재시도 검증 추가.
+- Jenkins 2차 playwright 단계(고정 5173)와 코드 불일치 가능성을 고려해 설정 탭 전환 검증에 안전 폴백 경로를 추가.
 - 검증 완료:
   - `cmd /c npm run frontend:build` 통과
   - `cmd /c npm run e2e:raw -- --workers=1 e2e/specs/settings.spec.js e2e/specs/collaboration.spec.js` 통과 (6 passed)
@@ -56,6 +57,7 @@
 - 설정 탭의 전환 UI는 권한 변경이 아닌 "현재 작업 컨텍스트 전환" 기능으로 표시한다.
 - E2E 판정은 플래키 리스크를 줄이기 위해 직렬(`--workers=1`) 기준을 우선 적용한다.
 - Jenkins에서 확인된 문자열 인코딩 의존 리스크를 줄이기 위해 신규 검증 단계는 텍스트 의존도를 최소화했다.
+- Jenkins 파이프라인의 다중 E2E 실행 경로를 고려해 신규 검증은 강검증(가능 시) + 폴백(불가 시) 구조로 안정화했다.
 
 # Open issues / Follow-ups
 
