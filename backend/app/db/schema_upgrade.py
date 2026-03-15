@@ -6,7 +6,7 @@ from sqlalchemy.engine import Engine
 from app.db.models import DisplayNameMode, Household, User
 from app.db.session import SessionLocal, engine
 from app.services.owner_links import backfill_owner_links_for_household
-from app.services.profile import normalize_transaction_row_colors, sync_user_display_name
+from app.services.profile import normalize_holding_settings, normalize_transaction_row_colors, sync_user_display_name
 
 
 def _column_names(bind, table_name: str) -> set[str]:
@@ -61,8 +61,16 @@ def upgrade_schema(bind_engine: Engine | None = None) -> None:
             "transaction_row_colors",
             f"transaction_row_colors {json_type_name} NOT NULL DEFAULT '{{}}'",
         )
+        _add_column_if_missing(
+            conn,
+            "households",
+            "holding_settings",
+            f"holding_settings {json_type_name} NOT NULL DEFAULT '{{}}'",
+        )
         _add_column_if_missing(conn, "transactions", "owner_user_id", "owner_user_id VARCHAR(36)")
         _add_column_if_missing(conn, "holdings", "owner_user_id", "owner_user_id VARCHAR(36)")
+        _add_column_if_missing(conn, "holdings", "type_key", "type_key VARCHAR(80)")
+        _add_column_if_missing(conn, "holdings", "display_order", "display_order INTEGER NOT NULL DEFAULT 100")
         _create_indexes(conn, dialect_name)
 
     with SessionLocal() as db:
@@ -77,6 +85,7 @@ def upgrade_schema(bind_engine: Engine | None = None) -> None:
         households = db.scalars(select(Household)).all()
         for household in households:
             household.transaction_row_colors = normalize_transaction_row_colors(household.transaction_row_colors)
+            household.holding_settings = normalize_holding_settings(household.holding_settings)
 
         for household in households:
             backfill_owner_links_for_household(db, str(household.id))

@@ -40,6 +40,7 @@ def _to_holding_read(holding: Holding, linked_owner_name: str | None = None) -> 
         id=str(holding.id),
         household_id=str(holding.household_id),
         asset_type=holding.asset_type,
+        type_key=str(holding.type_key).strip() if str(holding.type_key or "").strip() else None,
         symbol=str(holding.symbol),
         market_symbol=str(holding.market_symbol),
         name=str(holding.name),
@@ -50,6 +51,7 @@ def _to_holding_read(holding: Holding, linked_owner_name: str | None = None) -> 
         quantity=holding.quantity,
         average_cost=holding.average_cost,
         currency=str(holding.currency),
+        display_order=int(holding.display_order),
         source_ref=str(holding.source_ref).strip() if str(holding.source_ref or "").strip() else None,
         version=int(holding.version),
         updated_at=holding.updated_at,
@@ -115,7 +117,7 @@ def list_holdings(ctx=Depends(get_current_household), db: Session = Depends(get_
         select(Holding, User.display_name)
         .outerjoin(User, User.id == Holding.owner_user_id)
         .where(Holding.household_id == household.id)
-        .order_by(Holding.owner_name, Holding.category, Holding.account_name, Holding.symbol)
+        .order_by(Holding.display_order.asc(), Holding.owner_name, Holding.category, Holding.account_name, Holding.symbol)
     ).all()
     return [_to_holding_read(holding, linked_owner_name) for holding, linked_owner_name in rows]
 
@@ -155,9 +157,14 @@ def create_holding(
             action="시장코드, 소유자, 계좌 조합을 확인해 주세요.",
         )
 
+    next_display_order = int(
+        db.scalar(select(func.coalesce(func.max(Holding.display_order), 0)).where(Holding.household_id == household.id)) or 0
+    ) + 1
+    display_order = int(payload.display_order or next_display_order)
     entity = Holding(
         household_id=household.id,
         asset_type=payload.asset_type,
+        type_key=payload.type_key,
         symbol=payload.symbol.strip().upper(),
         market_symbol=payload.market_symbol.strip().upper(),
         name=payload.name.strip(),
@@ -168,6 +175,7 @@ def create_holding(
         quantity=payload.quantity,
         average_cost=payload.average_cost,
         currency=payload.currency.upper(),
+        display_order=display_order,
     )
     db.add(entity)
     try:
@@ -215,7 +223,7 @@ def patch_holding(
     fields_set = set(payload.model_fields_set)
     fields_set.discard("base_version")
     patch_data = {field: getattr(payload, field) for field in fields_set}
-    null_blocked_fields = {"market_symbol", "name", "category", "quantity", "average_cost", "currency"}
+    null_blocked_fields = {"market_symbol", "name", "category", "quantity", "average_cost", "currency", "display_order"}
     null_fields = sorted(field for field in null_blocked_fields if field in patch_data and patch_data[field] is None)
     if null_fields:
         raise app_error(
@@ -252,6 +260,8 @@ def patch_holding(
         if field in {"market_symbol", "currency"}:
             cleaned = cleaned.upper()
         patch_data[field] = cleaned
+    if "type_key" in patch_data:
+        patch_data["type_key"] = normalize_optional_text(patch_data["type_key"])
 
     if "owner_user_id" in patch_data or "owner_name" in patch_data:
         patch_data["owner_user_id"], patch_data["owner_name"] = resolve_owner_fields(

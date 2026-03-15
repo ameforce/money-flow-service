@@ -36,7 +36,7 @@ from app.schemas import (
     HouseholdSelectRequest,
 )
 from app.services.email_service import email_service
-from app.services.profile import normalize_transaction_row_colors
+from app.services.profile import normalize_holding_settings, normalize_transaction_row_colors
 from app.services.runtime import hub
 
 
@@ -143,6 +143,7 @@ def _to_invitation_read(
         expires_at=invitation.expires_at,
         accepted_at=invitation.accepted_at,
         created_at=invitation.created_at,
+        inviter_user_id=str(invitation.inviter_user_id).strip() if str(invitation.inviter_user_id or "").strip() else None,
         inviter_display_name=inviter_display_name,
         debug_invite_token=debug_invite_token,
     )
@@ -154,6 +155,7 @@ def _to_household_settings_read(household: Household) -> HouseholdSettingsRead:
         name=str(household.name),
         base_currency=str(household.base_currency),
         transaction_row_colors=normalize_transaction_row_colors(household.transaction_row_colors),
+        holding_settings=normalize_holding_settings(household.holding_settings),
     )
 
 
@@ -347,6 +349,10 @@ def patch_household_settings(
         household.transaction_row_colors = normalize_transaction_row_colors(payload.transaction_row_colors)
     elif household.transaction_row_colors is None:
         household.transaction_row_colors = normalize_transaction_row_colors(None)
+    if "holding_settings" in payload.model_fields_set and payload.holding_settings is not None:
+        household.holding_settings = normalize_holding_settings(payload.holding_settings)
+    elif household.holding_settings is None:
+        household.holding_settings = normalize_holding_settings(None)
     db.commit()
     db.refresh(household)
     return _to_household_settings_read(household)

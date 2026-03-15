@@ -154,6 +154,7 @@ class Household(Base):
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     base_currency: Mapped[str] = mapped_column(String(8), nullable=False, default="KRW")
     transaction_row_colors: Mapped[dict[str, str]] = mapped_column(JSON, nullable=False, default=dict)
+    holding_settings: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     members: Mapped[list["HouseholdMember"]] = relationship(back_populates="household", cascade="all, delete-orphan")
@@ -304,6 +305,7 @@ class Holding(Base):
     symbol: Mapped[str] = mapped_column(String(40), nullable=False)
     market_symbol: Mapped[str] = mapped_column(String(40), nullable=False)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
+    type_key: Mapped[str | None] = mapped_column(String(80), nullable=True)
     category: Mapped[str] = mapped_column(String(80), nullable=False, default="기타")
     owner_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     owner_name: Mapped[str] = mapped_column(String(80), nullable=False, default="")
@@ -311,6 +313,7 @@ class Holding(Base):
     quantity: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False)
     average_cost: Mapped[Decimal] = mapped_column(Numeric(20, 4), nullable=False)
     currency: Mapped[str] = mapped_column(String(8), nullable=False, default="KRW")
+    display_order: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
     source_ref: Mapped[str | None] = mapped_column(String(120), nullable=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     updated_at: Mapped[datetime] = mapped_column(

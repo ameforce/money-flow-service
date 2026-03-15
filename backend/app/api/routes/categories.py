@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from collections import defaultdict
+from decimal import Decimal
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -8,7 +11,14 @@ from app.api.deps import get_current_household, require_editor_household
 from app.core.errors import app_error
 from app.db.models import Category, Transaction
 from app.db.session import get_db
-from app.schemas import CategoryCreate, CategoryPatch, CategoryRead, CategoryRenameMajorRequest
+from app.schemas import (
+    CategoryCreate,
+    CategoryPatch,
+    CategoryRead,
+    CategoryRenameMajorRequest,
+    CategoryUsageEntry,
+    CategoryUsageMonth,
+)
 
 
 router = APIRouter(prefix="/categories", tags=["categories"])
@@ -62,6 +72,49 @@ def list_categories(ctx=Depends(get_current_household), db: Session = Depends(ge
         .order_by(Category.flow_type, Category.sort_order, Category.major, Category.minor)
     ).all()
     return [_to_category_read(category, usage_count) for category, usage_count in rows]
+
+
+@router.get("/{category_id}/usage", response_model=list[CategoryUsageMonth])
+def list_category_usage(
+    category_id: str,
+    ctx=Depends(get_current_household),
+    db: Session = Depends(get_db),
+) -> list[CategoryUsageMonth]:
+    household, _ = ctx
+    category = _load_household_category(db, str(household.id), category_id)
+    rows = db.scalars(
+        select(Transaction)
+        .where(
+            Transaction.household_id == household.id,
+            Transaction.category_id == category.id,
+        )
+        .order_by(Transaction.occurred_on.desc(), Transaction.created_at.desc())
+    ).all()
+    month_items: dict[str, list[CategoryUsageEntry]] = defaultdict(list)
+    month_totals: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
+    for transaction in rows:
+        month_key = transaction.occurred_on.strftime("%Y-%m")
+        amount = Decimal(transaction.amount or 0)
+        month_totals[month_key] += amount
+        month_items[month_key].append(
+            CategoryUsageEntry(
+                transaction_id=str(transaction.id),
+                occurred_on=transaction.occurred_on,
+                amount=amount,
+                memo=str(transaction.memo or ""),
+                owner_name=str(transaction.owner_name or "").strip() or None,
+            )
+        )
+
+    return [
+        CategoryUsageMonth(
+            month=month_key,
+            total_amount=month_totals[month_key],
+            count=len(month_items[month_key]),
+            items=month_items[month_key],
+        )
+        for month_key in sorted(month_items.keys(), reverse=True)
+    ]
 
 
 @router.post("", response_model=CategoryRead, status_code=status.HTTP_201_CREATED)

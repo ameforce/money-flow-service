@@ -222,6 +222,7 @@ class DashboardService:
                 PortfolioItem(
                     holding_id=holding.id,
                     asset_type=holding.asset_type,
+                    type_key=str(holding.type_key).strip() if str(holding.type_key or "").strip() else None,
                     symbol=holding.symbol,
                     market_symbol=holding.market_symbol,
                     name=holding.name,
@@ -231,6 +232,7 @@ class DashboardService:
                     quantity=Decimal(holding.quantity),
                     average_cost=Decimal(holding.average_cost),
                     currency=holding.currency,
+                    display_order=int(holding.display_order),
                     latest_price=latest_price,
                     latest_price_currency=price_currency,
                     market_value_krw=market_krw,

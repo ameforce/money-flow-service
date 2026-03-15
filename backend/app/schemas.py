@@ -8,7 +8,13 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
 from app.db.models import AssetType, DisplayNameMode, FlowType, InvitationStatus, MemberRole
-from app.services.profile import DEFAULT_TRANSACTION_ROW_COLORS, normalize_optional_text, normalize_transaction_row_colors
+from app.services.profile import (
+    DEFAULT_HOLDING_SETTINGS,
+    DEFAULT_TRANSACTION_ROW_COLORS,
+    normalize_holding_settings,
+    normalize_optional_text,
+    normalize_transaction_row_colors,
+)
 
 SUPPORTED_CURRENCIES = {"KRW", "USD", "JPY", "EUR"}
 
@@ -167,6 +173,7 @@ class HouseholdInvitationRead(BaseModel):
     expires_at: datetime
     accepted_at: datetime | None = None
     created_at: datetime
+    inviter_user_id: str | None = None
     inviter_display_name: str | None = None
     debug_invite_token: str | None = None
 
@@ -193,11 +200,13 @@ class HouseholdSettingsRead(BaseModel):
     name: str
     base_currency: str
     transaction_row_colors: dict[str, str] = Field(default_factory=lambda: dict(DEFAULT_TRANSACTION_ROW_COLORS))
+    holding_settings: dict[str, Any] = Field(default_factory=lambda: dict(DEFAULT_HOLDING_SETTINGS))
 
 
 class HouseholdSettingsPatch(BaseModel):
     name: str | None = Field(default=None, max_length=120)
     transaction_row_colors: dict[str, str] | None = None
+    holding_settings: dict[str, Any] | None = None
 
     @field_validator("name")
     @classmethod
@@ -215,6 +224,13 @@ class HouseholdSettingsPatch(BaseModel):
         if value is None:
             return None
         return normalize_transaction_row_colors(value)
+
+    @field_validator("holding_settings")
+    @classmethod
+    def validate_holding_settings(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        if value is None:
+            return None
+        return normalize_holding_settings(value)
 
     @model_validator(mode="after")
     def validate_non_empty_patch(self) -> HouseholdSettingsPatch:
@@ -281,6 +297,21 @@ class CategoryRenameMajorRequest(BaseModel):
         if not text:
             raise ValueError("blank value is not allowed")
         return text
+
+
+class CategoryUsageEntry(BaseModel):
+    transaction_id: str
+    occurred_on: date
+    amount: Decimal
+    memo: str
+    owner_name: str | None = None
+
+
+class CategoryUsageMonth(BaseModel):
+    month: str
+    total_amount: Decimal
+    count: int
+    items: list[CategoryUsageEntry]
 
 
 class TransactionCreate(BaseModel):
@@ -369,6 +400,7 @@ class TransactionRead(BaseModel):
 
 class HoldingCreate(BaseModel):
     asset_type: AssetType
+    type_key: str | None = Field(default=None, max_length=80)
     symbol: str = Field(min_length=1, max_length=40)
     market_symbol: str = Field(min_length=1, max_length=40)
     name: str = Field(min_length=1, max_length=120)
@@ -379,6 +411,7 @@ class HoldingCreate(BaseModel):
     quantity: Decimal = Field(gt=0)
     average_cost: Decimal = Field(ge=0)
     currency: str = Field(default="KRW", min_length=3, max_length=8)
+    display_order: int | None = Field(default=None, ge=1)
 
     @field_validator("symbol", "market_symbol", "name", "category")
     @classmethod
@@ -391,6 +424,11 @@ class HoldingCreate(BaseModel):
     @field_validator("owner_user_id")
     @classmethod
     def normalize_owner_user_id(cls, value: str | None) -> str | None:
+        return normalize_optional_text(value)
+
+    @field_validator("type_key")
+    @classmethod
+    def normalize_type_key(cls, value: str | None) -> str | None:
         return normalize_optional_text(value)
 
     @field_validator("owner_name", "account_name")
@@ -411,6 +449,7 @@ class HoldingCreate(BaseModel):
 
 class HoldingPatch(BaseModel):
     base_version: int = Field(ge=1)
+    type_key: str | None = Field(default=None, max_length=80)
     market_symbol: str | None = Field(default=None, min_length=1, max_length=40)
     name: str | None = Field(default=None, min_length=1, max_length=120)
     category: str | None = Field(default=None, min_length=1, max_length=80)
@@ -420,10 +459,16 @@ class HoldingPatch(BaseModel):
     quantity: Decimal | None = Field(default=None, gt=0)
     average_cost: Decimal | None = Field(default=None, ge=0)
     currency: str | None = Field(default=None, min_length=3, max_length=8)
+    display_order: int | None = Field(default=None, ge=1)
 
     @field_validator("owner_user_id")
     @classmethod
     def normalize_patch_owner_user_id(cls, value: str | None) -> str | None:
+        return normalize_optional_text(value)
+
+    @field_validator("type_key")
+    @classmethod
+    def normalize_patch_type_key(cls, value: str | None) -> str | None:
         return normalize_optional_text(value)
 
     @field_validator("owner_name", "account_name")
@@ -448,6 +493,7 @@ class HoldingRead(BaseModel):
     id: str
     household_id: str
     asset_type: AssetType
+    type_key: str | None = None
     symbol: str
     market_symbol: str
     name: str
@@ -458,6 +504,7 @@ class HoldingRead(BaseModel):
     quantity: Decimal
     average_cost: Decimal
     currency: str
+    display_order: int
     source_ref: str | None
     version: int
     updated_at: datetime
@@ -496,6 +543,7 @@ class OverviewResponse(BaseModel):
 class PortfolioItem(BaseModel):
     holding_id: str
     asset_type: AssetType
+    type_key: str | None = None
     symbol: str
     market_symbol: str
     name: str
@@ -505,6 +553,7 @@ class PortfolioItem(BaseModel):
     quantity: Decimal
     average_cost: Decimal
     currency: str
+    display_order: int
     latest_price: Decimal | None
     latest_price_currency: str | None
     market_value_krw: Decimal

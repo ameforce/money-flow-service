@@ -7,7 +7,7 @@ from sqlalchemy import text
 from app.db.base import Base
 from app.db.session import engine
 from app.db import models  # noqa: F401
-from app.services.profile import DEFAULT_TRANSACTION_ROW_COLORS
+from app.services.profile import DEFAULT_HOLDING_SETTINGS, DEFAULT_TRANSACTION_ROW_COLORS
 
 
 _SCHEMA_BOOTSTRAPPED_URLS: set[str] = set()
@@ -63,6 +63,13 @@ def _repair_legacy_sqlite_schema() -> None:
                     f"NOT NULL DEFAULT '{json.dumps(DEFAULT_TRANSACTION_ROW_COLORS)}'"
                 )
             )
+        if household_columns and "holding_settings" not in household_columns:
+            conn.execute(
+                text(
+                    "ALTER TABLE households ADD COLUMN holding_settings JSON "
+                    f"NOT NULL DEFAULT '{json.dumps(DEFAULT_HOLDING_SETTINGS)}'"
+                )
+            )
 
         transaction_columns = _sqlite_column_names(conn, "transactions")
         if transaction_columns and "owner_user_id" not in transaction_columns:
@@ -71,6 +78,10 @@ def _repair_legacy_sqlite_schema() -> None:
         holding_columns = _sqlite_column_names(conn, "holdings")
         if holding_columns and "owner_user_id" not in holding_columns:
             conn.execute(text("ALTER TABLE holdings ADD COLUMN owner_user_id VARCHAR(36)"))
+        if holding_columns and "type_key" not in holding_columns:
+            conn.execute(text("ALTER TABLE holdings ADD COLUMN type_key VARCHAR(80)"))
+        if holding_columns and "display_order" not in holding_columns:
+            conn.execute(text("ALTER TABLE holdings ADD COLUMN display_order INTEGER NOT NULL DEFAULT 100"))
 
 
 def create_schema() -> None:
