@@ -54,6 +54,10 @@ const TAB_LABELS = {
   collaboration: "협업",
   import: "데이터 가져오기",
 };
+const TAB_GROUPS = {
+  left: ["dashboard", "transactions", "holdings"],
+  right: ["collaboration", "import", "settings"],
+};
 const DISPLAY_NAME_MODE_OPTIONS = [
   { value: "real_name", label: "본명 우선" },
   { value: "nickname", label: "닉네임 우선" },
@@ -3330,6 +3334,12 @@ function App() {
     );
   }
 
+  const renderTabButton = (item) => (
+    <button key={item} className={tab === item ? "active" : ""} onClick={() => setTab(item)}>
+      {TAB_LABELS[item] || item}
+    </button>
+  );
+
   return (
     <main className="app-shell" translate="no">
       <header className="topbar">
@@ -3356,12 +3366,13 @@ function App() {
         </div>
       </header>
 
-      <nav className="tabs">
-        {["dashboard", "transactions", "holdings", "settings", "collaboration", "import"].map((item) => (
-          <button key={item} className={tab === item ? "active" : ""} onClick={() => setTab(item)}>
-            {TAB_LABELS[item] || item}
-          </button>
-        ))}
+      <nav className="tabs" aria-label="주요 메뉴">
+        <div className="tabs-left">
+          {TAB_GROUPS.left.map(renderTabButton)}
+        </div>
+        <div className="tabs-right">
+          {TAB_GROUPS.right.map(renderTabButton)}
+        </div>
       </nav>
 
       {message && <div className="message">{message}</div>}
