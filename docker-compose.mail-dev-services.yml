@@ -1,0 +1,31 @@
+services:
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: enm-mailpit
+    restart: unless-stopped
+    networks:
+      - enm-services-mail
+    ports:
+      - "127.0.0.1:8026:8025"
+      - "127.0.0.1:1026:1025"
+
+  smtp-relay:
+    image: boky/postfix:latest
+    container_name: enm-mail-smtp
+    restart: unless-stopped
+    networks:
+      - enm-services-mail
+    environment:
+      ALLOW_EMPTY_SENDER_DOMAINS: "true"
+      POSTFIX_myhostname: ${MAIL_SERVICE_HOSTNAME:-mail.enmsoftware.com}
+      LOG_FORMAT: ${MAIL_SERVICE_LOG_FORMAT:-plain}
+      POSTFIX_smtp_tls_security_level: ${MAIL_SERVICE_RELAY_TLS_LEVEL:-may}
+      RELAYHOST: ${MAIL_SERVICE_RELAYHOST:-mailpit:1025}
+    depends_on:
+      mailpit:
+        condition: service_started
+
+networks:
+  enm-services-mail:
+    external: true
+    name: enm-services-mail

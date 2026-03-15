@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 # Run Jenkins container as a host OS user on enm-server.
+# Optional env:
+# - JENKINS_TZ: Java/OS timezone passed to container (default Asia/Seoul)
+# - JENKINS_JAVA_OPTS: Additional JAVA_OPTS merged with defaults
 set -euo pipefail
 
 HOST_USER="${ENM_USER:-${JENKINS_HOST_USER:-jenkins}}"
@@ -12,6 +15,12 @@ JENKINS_HOME="${JENKINS_HOME:-${HOST_HOME}/jenkins_home}"
 CONTAINER_NAME="${JENKINS_CONTAINER_NAME:-jenkins}"
 IMAGE="${JENKINS_IMAGE:-jenkins/jenkins:lts}"
 INIT_SCRIPT_PATH="${INIT_SCRIPT_PATH:-/home/ameforce/money-flow-service/scripts/deploy/jenkins/jenkins-web-admin-init.groovy}"
+JENKINS_TZ="${JENKINS_TZ:-${TZ:-Asia/Seoul}}"
+JENKINS_JAVA_OPTS="${JENKINS_JAVA_OPTS:-}"
+JAVA_OPTS_VALUE="-Djenkins.install.runSetupWizard=false -Duser.timezone=${JENKINS_TZ}"
+if [ -n "$JENKINS_JAVA_OPTS" ]; then
+  JAVA_OPTS_VALUE="${JAVA_OPTS_VALUE} ${JENKINS_JAVA_OPTS}"
+fi
 
 if id "$HOST_USER" >/dev/null 2>&1; then
   :
@@ -45,7 +54,8 @@ docker run -d \
   -p 127.0.0.1:8080:8080 \
   -p 127.0.0.1:50000:50000 \
   -v "$JENKINS_HOME:/var/jenkins_home" \
-  -e JAVA_OPTS="-Djenkins.install.runSetupWizard=false" \
+  -e TZ="$JENKINS_TZ" \
+  -e JAVA_OPTS="$JAVA_OPTS_VALUE" \
   -e JENKINS_WEB_ADMIN_USER="$JENKINS_WEB_USER" \
   -e JENKINS_WEB_ADMIN_PASSWORD="$JENKINS_WEB_PASSWORD" \
   -e JENKINS_WEB_LEGACY_USER="$JENKINS_WEB_LEGACY_USER" \

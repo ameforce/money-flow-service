@@ -32,5 +32,13 @@ if (legacyUser && legacyUser != webUser) {
     }
 }
 
-jenkins.setAuthorizationStrategy(new FullControlOnceLoggedInAuthorizationStrategy())
+def strategy = new FullControlOnceLoggedInAuthorizationStrategy()
+if (strategy.respondsTo('setAllowAnonymousRead', boolean)) {
+  strategy.setAllowAnonymousRead(false)
+} else if (strategy.metaClass.respondsTo(strategy, 'setDenyAnonymousReadAccess', boolean)) {
+  strategy.setDenyAnonymousReadAccess(false)
+} else {
+  println('WARN: FullControlOnceLoggedInAuthorizationStrategy does not expose anonymous read setter; using default.')
+}
+jenkins.setAuthorizationStrategy(strategy)
 jenkins.save()

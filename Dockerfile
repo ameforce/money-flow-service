@@ -1,6 +1,8 @@
 FROM node:22-alpine AS frontend-build
 WORKDIR /workspace/frontend
 COPY frontend/package*.json ./
+ARG APP_VERSION=0.0.0
+ENV VITE_APP_VERSION=${APP_VERSION}
 RUN npm ci
 COPY frontend/ ./
 RUN npm run build

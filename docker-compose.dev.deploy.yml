@@ -4,11 +4,11 @@ services:
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_DB: ${POSTGRES_DB:-moneyflow_dev}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB:-moneyflow_dev}"]
       interval: 5s
       timeout: 5s
       retries: 12
@@ -22,18 +22,18 @@ services:
         APP_VERSION: ${APP_VERSION:-0.0.0}
     environment:
       ENV: ${ENV:-prod}
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-moneyflow_dev}}
       SECRET_KEY: ${SECRET_KEY}
       AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-true}
       AUTH_DEBUG_RETURN_VERIFY_TOKEN: ${AUTH_DEBUG_RETURN_VERIFY_TOKEN:-false}
       FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-172.30.0.0/24,127.0.0.1,::1}
-      CORS_ORIGINS: ${CORS_ORIGINS}
-      FRONTEND_BASE_URL: ${FRONTEND_BASE_URL}
-      EMAIL_DELIVERY_MODE: ${EMAIL_DELIVERY_MODE:-log}
-      SMTP_HOST: ${SMTP_HOST}
-      SMTP_PORT: ${SMTP_PORT}
-      SMTP_SSL: ${SMTP_SSL}
-      SMTP_STARTTLS: ${SMTP_STARTTLS}
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://dev.moneyflow.enmsoftware.com}
+      FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:-https://dev.moneyflow.enmsoftware.com}
+      EMAIL_DELIVERY_MODE: ${EMAIL_DELIVERY_MODE:-smtp}
+      SMTP_HOST: ${SMTP_HOST:-enm-mail-smtp}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SSL: ${SMTP_SSL:-false}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-false}
       SMTP_USER: ${SMTP_USER}
       SMTP_PASS: ${SMTP_PASS}
       SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL}
@@ -43,7 +43,7 @@ services:
         condition: service_healthy
     restart: unless-stopped
     ports:
-      - "127.0.0.1:18080:8000"
+      - "127.0.0.1:18081:8000"
     networks:
       - default
       - enm-services-mail
@@ -55,7 +55,7 @@ networks:
   default:
     ipam:
       config:
-        - subnet: 172.30.0.0/24
+        - subnet: 172.31.0.0/24
   enm-services-mail:
     external: true
     name: enm-services-mail
