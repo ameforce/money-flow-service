@@ -70,6 +70,14 @@ cmd /c npm run mail:local:logs
 cmd /c npm run mail:local:down
 ```
 
+enm-server 개발 메일 스택(공유 수신 캡처용):
+```cmd
+cmd /c docker network inspect enm-services-mail || docker network create --driver bridge enm-services-mail
+cmd /c docker compose -p money-flow-mail -f docker-compose.mail-dev-services.yml up -d
+cmd /c docker compose -p money-flow-mail -f docker-compose.mail-dev-services.yml ps
+cmd /c docker compose -p money-flow-mail -f docker-compose.mail-dev-services.yml down
+```
+
 로컬 SMTP + upstream relay(외부 도착 검증):
 ```cmd
 copy infra\mail\local-smtp.relay.env.example infra\mail\local-smtp.relay.env
@@ -86,6 +94,7 @@ cmd /c npm run mail:local:down
 - 운영 도메인 표기는 `moneyflow.enmsoftware.com`을 기준으로 사용합니다.
 - 운영 표준 메일 릴레이는 `Amazon SES(ap-northeast-2)`를 사용합니다.
 - 상세 원인/해결 절차는 `docs/mail-delivery-troubleshooting-and-setup.md`를 참고하세요.
+- `money-flow-mail` 스택은 `enm-services-mail` 네트워크의 공유 서비스를 이용하므로, enm-server에서 `money-flow-service`(dev/prod)와 함께 실행하면 동일 메일 인프라를 재사용해 검증할 수 있습니다.
 
 `npm run e2e`는 내부적으로 다음을 수행합니다.
 1. 백엔드/프론트 기동 여부 확인
@@ -127,9 +136,10 @@ cmd /c docker compose up -d --build
   - `RUN_DEPLOY=true`, `DEPLOY_DRY_RUN=false`
   - `RUN_POST_DEPLOY_E2E=false`
   - `POST_DEPLOY_E2E_URL=https://moneyflow.enmsoftware.com`
+- `NGINX_CLIENT_MAX_BODY_SIZE=20m` (도메인 업로드 제한을 초과한 요청 시 413 방지용)
   - `POST_DEPLOY_E2E_RETRY_COUNT=8`
   - `POST_DEPLOY_E2E_RETRY_INTERVAL_SECONDS=5`
-- `DEPLOY_ALLOWED_BRANCHES=main`
+  - `DEPLOY_ALLOWED_BRANCHES=` (빈 값이면 모든 브랜치 허용)
   - `DEPLOY_COMPOSE_PROJECT=money-flow-service`
   - `DEPLOY_COMPOSE_FILE=docker-compose.deploy.yml`
   - `DEPLOY_PATH=/home/ameforce/money-flow-service`(원격 사용자 권한 확인)
@@ -137,119 +147,33 @@ cmd /c docker compose up -d --build
 - `ENM_HOST=enmsoftware.com`, `ENM_PORT=22`, `ENM_USER=ameforce` 기준으로 `enm-server` 접근 테스트 완료.
 - `ENM_DEPLOY_PATH`는 `/home/ameforce/money-flow-service`로 설정하면 Jenkins 실행 시 기본 파라미터와 일치.
 - 헬스체크가 동작하도록 `ENM_HEALTHCHECK_URL`은 `http://127.0.0.1:18080/healthz`로 운영에서 설정.
-- Multi-pipeline 등록 후 빌드 버튼을 누르면 배포가 진행되도록 하려면 Jenkins Job 생성 시 `main` 브랜치가 감지되도록 설정하고, 수동 승인 단계에서 `승인` 클릭만 진행하면 됩니다.
+- Multi-pipeline 등록 후 빌드 버튼을 누르면 배포가 진행되도록 하려면 Jenkins Job에서 대상 브랜치가 보이는지 확인하고, 수동 승인 단계에서 `승인` 클릭만 진행하면 됩니다.
 - 운영 반영 체크리스트
   - [ ] `/home/ameforce/money-flow-service/docker-compose.deploy.yml` 기준으로 앱이 `127.0.0.1:18080`에 바인딩되어 실행되는지 확인
   - [ ] enm-server system nginx에 `moneyflow.enmsoftware.com` vhost가 적용되어 `/ws/`와 `/`을 `127.0.0.1:18080`으로 전달하는지 확인
   - [ ] Cloudflare DNS에서 `moneyflow.enmsoftware.com`이 `enmsoftware.com` 오리진(프록시 모드)으로 정합되는지 확인
   - [ ] SSL 인증서가 `moneyflow.enmsoftware.com` 기준으로 유효하며 자동 갱신되는지 확인
-  - [ ] Jenkins 멀티브랜치 Job에서 `main` 브랜치 빌드 후 `RUN_DEPLOY` 승인 시 최신 빌드가 반영되는지 확인
+  - [ ] Jenkins 멀티브랜치 Job에서 브랜치 빌드 후 `RUN_DEPLOY` 승인 시 최신 빌드가 반영되는지 확인
+  - [ ] `main` 이외 브랜치는 `dev.moneyflow.enmsoftware.com`로 dev 배포가 되는지 확인
 
 ### enm-server nginx reverse proxy(금액관리 서비스: moneyflow.enmsoftware.com)
-- enm-server가 이미 80/443을 점유 중이므로, 서비스 컨테이너는 내부에서 `127.0.0.1:18080`로만 열어둡니다(`docker-compose.deploy.yml` 기준).
-- enm-server의 system nginx에서 `moneyflow.enmsoftware.com`을 다음 업스트림으로 연결합니다.
-  - `http://127.0.0.1:18080` (WebSocket 업스트림 포함)
-- 권장 서버 블록 스니펫 (`/etc/nginx/sites-available/moneyflow.enmsoftware.com.conf`, `sites-enabled` 연결 후 Reload)
+ - 이 프로젝트의 배포 실행은 Jenkinsfile을 통해 정의합니다.
+ - Nginx vhost, TLS, Cloudflare 오리진 정책, 도메인 라우팅은 운영 기준 환경에서 별도 관리합니다.
+ - Jenkinsfile의 배포 단계에서 필요한 환경값(`ENM_*`, `DEPLOY_*`)을 통해 라우팅/포트/도메인 정책을 적용하세요.
+ - Jenkinsfile이 실제 배포 소스 오브 트루스이므로, 서버 레벨 블록 전체를 리포지토리에 풀어서 노출하지 않습니다.
 
-```nginx
-server {
-  listen 80;
-  listen [::]:80;
-  server_name moneyflow.enmsoftware.com;
-  return 301 https://$host$request_uri;
-}
-
-server {
-  listen 443 ssl http2;
-  listen [::]:443 ssl http2;
-  server_name moneyflow.enmsoftware.com;
-
-  ssl_certificate /etc/letsencrypt/live/moneyflow.enmsoftware.com/fullchain.pem;
-  ssl_certificate_key /etc/letsencrypt/live/moneyflow.enmsoftware.com/privkey.pem;
-
-  # 앱 본문
-  location / {
-    proxy_pass http://127.0.0.1:18080;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-  }
-
-  # WebSocket 경로
-  location /ws/ {
-    proxy_pass http://127.0.0.1:18080;
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "upgrade";
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_read_timeout 3600s;
-  }
-}
-```
-
-- 실행 예시(루트 권한 필요):
-  - `sudo bash scripts/deploy/enmserver-apply-nginx-reverse-proxy.sh moneyflow.enmsoftware.com 18080`
-
-- Cloudflare 대시보드에서 `moneyflow.enmsoftware.com`을 `enmsoftware.com`과 동일한 Cloudflare DNS/SSL 오리진 정책으로 둔 뒤, enm-server Nginx가 위 블록을 읽도록 설정해 주세요.
+### enm-server dev 도메인 분리 운영
+ - `develop/hotfix` 기반 배포는 `hotfix`/`dev` 정책 대상에서 `dev.moneyflow.enmsoftware.com`로 라우팅하도록 Jenkins를 통해 통제합니다.
+ - `money-flow-service-dev` 프로젝트/환경값은 Jenkins 파이프라인에서 관리합니다. (로컬 스냅샷/임시 실행은 별도 운영 절차에서만 허용)
 
 보안 권장(운영):
 - `ENV=prod`, `AUTH_COOKIE_SECURE=true`, `AUTH_DEBUG_RETURN_VERIFY_TOKEN=false`로 실행
 - 세션 쿠키(`Secure`) 사용을 위해 외부 접속은 HTTPS(TLS 종단) 경로를 사용
 
-### enm-server nginx reverse proxy(젠킨스: jenkins.enmsoftware.com)
+### enm-server Jenkins 운영 원칙
 
-- Jenkins는 enm-server에서 별도 컨테이너로 실행되며 `127.0.0.1:8080`에서만 바인딩하세요.
-- Cloudflare DNS는 `jenkins.enmsoftware.com`이 `enmsoftware.com`의 오리진 정책(또는 동일 TLS/리버스 프록시 정책)을 따르도록 등록하세요.
-- enm-server 시스템 Nginx에 아래 스니펫을 적용하면 도메인 접근이 가능합니다.
-
-```nginx
-server {
-  listen 80;
-  listen [::]:80;
-  server_name jenkins.enmsoftware.com;
-  return 301 https://$host$request_uri;
-}
-
-server {
-  listen 443 ssl http2;
-  listen [::]:443 ssl http2;
-  server_name jenkins.enmsoftware.com;
-
-  ssl_certificate /etc/letsencrypt/live/enmsoftware.com-0001/fullchain.pem;
-  ssl_certificate_key /etc/letsencrypt/live/enmsoftware.com-0001/privkey.pem;
-
-  location / {
-    proxy_pass http://127.0.0.1:8080;
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "upgrade";
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_read_timeout 3600s;
-  }
-}
-```
-
-- 실행 예시(루트 권한 필요):
-  - `sudo bash scripts/deploy/enmserver-apply-nginx-reverse-proxy.sh jenkins.enmsoftware.com 8080`
-- Jenkins 초기 비밀번호는 컨테이너 로그 또는 아래 파일에서 확인:
-  - `docker logs --tail 40 jenkins | tail -n 5`
-  - `/home/ameforce/jenkins_home/secrets/initialAdminPassword`
-- 현재 Jenkins 실행은 enm-server의 OS 계정(`ENM_USER`, 기본 `jenkins`)을 생성/재설정하고, 그 사용자 UID/GID로 컨테이너를 기동합니다.
-- Jenkins 웹 로그인 계정도 동일하게 `ENM_USER` / `ENM_PASSWORD`로 맞추며, 이전에 잘못 만든 웹 계정(`jenkins`)은 실행 시 정리합니다.
-- 로컬/원격에서 동일 설정을 반영할 때:
-
-```bash
-export ENM_USER=<ENM_USER>
-export ENM_PASSWORD=<ENM_PASSWORD>
-bash /home/ameforce/money-flow-service/scripts/deploy/jenkins/deploy-jenkins-container.sh
-```
+- Jenkins 자체 접근/운영은 오케스트레이션 경로(해당 서버 접근 정책)에서 처리하고, 운영 계정/비밀번호는 비밀 저장소에서 관리합니다.
+- Jenkins 초기 설정/실행 파라미터도 가능하면 infra repo에서 관리하고, 여기에 민감 값이 노출되지 않게 합니다.
 
 ### Jenkins 멀티 브랜치 Job 자동 등록 (수동 빌드 트리거)
 - `money-flow-service` 레포를 Jenkins 멀티 브랜치 Pipeline으로 등록/갱신하려면 다음 스크립트를 실행합니다.
@@ -276,3 +200,12 @@ bash scripts/deploy/jenkins/register-jenkins-multibranch-job.sh
 export JENKINS_MULTI_BRANCH_SCAN_SPEC="H/15 * * * *"
 bash scripts/deploy/jenkins/register-jenkins-multibranch-job.sh
 ```
+
+## 커밋 컨벤션
+
+- 커밋 메시지는 가능하면 한글로 작성한다.
+- 접두사는 `fix`, `feat`, `chore`, `refact` 중 하나를 사용한다.
+- 포맷: `<prefix>: <요약>` (예: `fix: 품질 게이트 우회 옵션 추가`)
+- Cursor로 생성한 커밋에 자동 첨부되는 `Made-with: Cursor` 트레일러는 커밋 전에 제거한다.
+- `main`, `develop` 브랜치에는 직접 커밋하지 않는다.
+- 이미 원격 푸시된 커밋도 컨벤션에 맞지 않으면 개선한다.
