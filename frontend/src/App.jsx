@@ -3148,6 +3148,14 @@ function App() {
   const memberRoleOptions = canAssignOwner
     ? COLLAB_ROLE_OPTIONS
     : COLLAB_ROLE_OPTIONS.filter((item) => item.value !== "owner");
+  const householdSwitchDisabled = loading || householdList.length === 0;
+  const handleHouseholdSwitchChange = (event) => {
+    const nextId = String(event.target.value || "");
+    if (!nextId || nextId === household?.id) {
+      return;
+    }
+    selectActiveHousehold(nextId).catch(() => undefined);
+  };
   const inviteAcceptanceCanSwitch =
     Boolean(inviteAcceptanceNotice?.householdId) &&
     household?.id !== inviteAcceptanceNotice?.householdId &&
@@ -4277,6 +4285,31 @@ function App() {
             </form>
           </article>
 
+          <article className="card">
+            <h2>작업 가계 전환</h2>
+            <div className="settings-household-switch">
+              <label>
+                작업 가계
+                <select
+                  className="household-select"
+                  value={household?.id || ""}
+                  onChange={handleHouseholdSwitchChange}
+                  disabled={householdSwitchDisabled}
+                >
+                  {householdList.length === 0 && <option value="">선택 가능한 가계 없음</option>}
+                  {householdList.map((entry) => (
+                    <option key={entry.household.id} value={entry.household.id}>
+                      {entry.household.name} · 내 권한 {COLLAB_ROLE_LABELS[entry.role] || entry.role}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <p className="table-summary">
+                현재 작업 가계: {household?.name || "-"} / 내 권한: {COLLAB_ROLE_LABELS[householdRole] || householdRole || "-"}
+              </p>
+            </div>
+          </article>
+
           <article className="card settings-span-full">
             <h2>카테고리 관리</h2>
             <form className="form-grid settings-form-grid category-create-form" onSubmit={createCategoryPair}>
@@ -4425,14 +4458,8 @@ function App() {
                 <select
                   className="household-select"
                   value={household?.id || ""}
-                  onChange={(event) => {
-                    const nextId = String(event.target.value || "");
-                    if (!nextId || nextId === household?.id) {
-                      return;
-                    }
-                    selectActiveHousehold(nextId).catch(() => undefined);
-                  }}
-                  disabled={loading || householdList.length === 0}
+                  onChange={handleHouseholdSwitchChange}
+                  disabled={householdSwitchDisabled}
                 >
                   {householdList.length === 0 && <option value="">선택 가능한 가계 없음</option>}
                   {householdList.map((entry) => (

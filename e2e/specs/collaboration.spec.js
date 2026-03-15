@@ -50,6 +50,9 @@ test("collaboration flow: invite, accept, switch household, responsive", async (
     const guestCollaborationCard = guestPage.locator("article.card", {
       has: guestPage.getByRole("heading", { name: "가계 협업 관리" }),
     });
+    const guestSummaryText = String((await guestCollaborationCard.locator(".table-summary").first().textContent()) || "");
+    const guestOwnHouseholdName = guestSummaryText.split("/")[0].replace("현재 가계:", "").trim();
+    expect(guestOwnHouseholdName).not.toBe("");
     const receivedInviteCard = guestPage.locator("article.card", {
       has: guestPage.getByRole("heading", { name: "받은 초대" }),
     });
@@ -66,6 +69,34 @@ test("collaboration flow: invite, accept, switch household, responsive", async (
 
     await guestPage.getByRole("button", { name: "작업 가계로 전환" }).first().click();
     await expect(guestCollaborationCard.locator(".table-summary").first()).toContainText(`현재 가계: ${ownerHouseholdName}`);
+
+    await guestPage.getByRole("button", { name: "설정", exact: true }).click();
+    const settingsSwitchCard = guestPage.locator("article.card", {
+      has: guestPage.getByRole("heading", { name: "작업 가계 전환" }),
+    });
+    await expect(settingsSwitchCard).toBeVisible();
+    const settingsHouseholdSelect = labeledField(settingsSwitchCard, "작업 가계", "select");
+    const currentHouseholdId = await settingsHouseholdSelect.inputValue();
+    const switchOptions = await settingsHouseholdSelect.locator("option").evaluateAll((nodes) =>
+      nodes.map((node) => ({
+        value: String(node.value || ""),
+        text: String(node.textContent || "").trim(),
+      }))
+    );
+    const nextOption =
+      switchOptions.find(
+        (item) =>
+          item.value &&
+          item.value !== currentHouseholdId &&
+          item.text.includes(guestOwnHouseholdName)
+      ) || switchOptions.find((item) => item.value && item.value !== currentHouseholdId);
+    expect(nextOption).toBeTruthy();
+    await settingsHouseholdSelect.selectOption(nextOption.value);
+    await expect(guestPage.locator(".topbar .meta")).toContainText(`가계: ${guestOwnHouseholdName}`);
+    await capture(guestPage, "settings-household-switch");
+
+    await guestPage.getByRole("button", { name: "협업", exact: true }).click();
+    await expect(guestCollaborationCard.locator(".table-summary").first()).toContainText(`현재 가계: ${guestOwnHouseholdName}`);
 
     await guestPage.setViewportSize({ width: 390, height: 844 });
     await guestPage.waitForLoadState("networkidle");

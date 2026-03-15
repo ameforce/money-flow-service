@@ -1244,6 +1244,19 @@ thead {
   justify-content: flex-end;
 }
 
+.settings-household-switch {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.settings-household-switch label {
+  margin-bottom: 0;
+}
+
+.settings-household-switch .table-summary {
+  margin: 0;
+}
+
 .settings-color-form {
   display: grid;
   gap: 0.65rem;
