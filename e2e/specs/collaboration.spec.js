@@ -70,7 +70,19 @@ test("collaboration flow: invite, accept, switch household, responsive", async (
     await guestPage.getByRole("button", { name: "작업 가계로 전환" }).first().click();
     await expect(guestCollaborationCard.locator(".table-summary").first()).toContainText(ownerHouseholdName);
 
-    await guestPage.locator("nav.tabs .tabs-right button").last().click();
+    const collaborationTabButton = guestPage.locator("nav.tabs .tabs-right button").first();
+    const settingsTabButton = guestPage.locator("nav.tabs .tabs-right button").last();
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      await settingsTabButton.click();
+      const isActive = await settingsTabButton
+        .evaluate((element) => element.classList.contains("active"))
+        .catch(() => false);
+      if (isActive) {
+        break;
+      }
+      await guestPage.waitForTimeout(250);
+    }
+    await expect(settingsTabButton).toHaveClass(/active/);
     const settingsSwitchCard = guestPage.locator("article.card", {
       has: guestPage.locator(".settings-household-switch"),
     });
@@ -95,7 +107,17 @@ test("collaboration flow: invite, accept, switch household, responsive", async (
     await expect(guestPage.locator(".topbar .meta")).toContainText(guestOwnHouseholdName);
     await capture(guestPage, "settings-household-switch");
 
-    await guestPage.locator("nav.tabs .tabs-right button").first().click();
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      await collaborationTabButton.click();
+      const isActive = await collaborationTabButton
+        .evaluate((element) => element.classList.contains("active"))
+        .catch(() => false);
+      if (isActive) {
+        break;
+      }
+      await guestPage.waitForTimeout(250);
+    }
+    await expect(collaborationTabButton).toHaveClass(/active/);
     await expect(guestCollaborationCard.locator(".table-summary").first()).toContainText(guestOwnHouseholdName);
 
     await guestPage.setViewportSize({ width: 390, height: 844 });

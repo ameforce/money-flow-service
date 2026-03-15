@@ -35,6 +35,7 @@
 - 협업 탭과 설정 탭의 가계 전환 select를 공통 핸들러(`handleHouseholdSwitchChange`)로 정리.
 - E2E 확장: `e2e/specs/collaboration.spec.js`에 설정 탭 전환 검증 단계 추가.
 - Jenkins 환경 플래키 완화: 새 협업 E2E 단계의 라벨 기반 탐색을 구조 기반 셀렉터로 보강.
+- Jenkins 환경 탭 전환 경합 완화: 설정/협업 탭 전환 시 활성 클래스 기반 재시도 검증 추가.
 - 검증 완료:
   - `cmd /c npm run frontend:build` 통과
   - `cmd /c npm run e2e:raw -- --workers=1 e2e/specs/settings.spec.js e2e/specs/collaboration.spec.js` 통과 (6 passed)
