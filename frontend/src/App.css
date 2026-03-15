@@ -194,12 +194,42 @@
   color: #64748b;
   font-weight: 600;
   box-shadow: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
 }
 
 .tabs button:hover:not(:disabled) {
   background: #e2e8f0;
   color: #0f172a;
   transform: translateY(-1px);
+}
+
+.tab-badge {
+  min-width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 999px;
+  background: #f43f5e;
+  color: #fff;
+  font-size: 0.7rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 0.3rem;
+}
+
+.tab-invite-pulse {
+  animation: tab-invite-pulse 1s ease-in-out infinite;
+}
+
+@keyframes tab-invite-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(244, 63, 94, 0.45);
+  }
+  50% {
+    box-shadow: 0 0 0 10px rgba(244, 63, 94, 0);
+  }
 }
 
 .sub-tabs {
@@ -255,6 +285,11 @@
 .chart-card {
   min-height: 320px;
   grid-template-rows: auto 1fr;
+}
+
+.chart-card-header {
+  justify-content: space-between;
+  align-items: center;
 }
 
 .chart-wrap {
@@ -1214,6 +1249,80 @@ thead {
   background: #f7fbff;
 }
 
+.holding-name-cell {
+  white-space: normal;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.holding-column-width-editor summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: #355177;
+}
+
+.holding-col-name {
+  width: var(--holding-col-name, 220px);
+}
+
+.holding-col-type {
+  width: var(--holding-col-type, 120px);
+}
+
+.holding-col-owner {
+  width: var(--holding-col-owner, 120px);
+}
+
+.holding-col-category {
+  width: var(--holding-col-category, 130px);
+}
+
+.holding-col-quantity {
+  width: var(--holding-col-quantity, 100px);
+}
+
+.holding-col-average {
+  width: var(--holding-col-average, 120px);
+}
+
+.holding-col-market {
+  width: var(--holding-col-market, 130px);
+}
+
+.holding-col-gain {
+  width: var(--holding-col-gain, 130px);
+}
+
+.settings-category-usage-detail {
+  margin-top: 0.15rem;
+  border: 1px dashed #d6e3f7;
+  border-radius: 8px;
+  padding: 0.5rem 0.7rem;
+  background: #f8fbff;
+}
+
+.invite-row-new {
+  animation: invite-row-new 0.8s ease;
+}
+
+@keyframes invite-row-new {
+  0% {
+    transform: translateY(4px);
+    opacity: 0.35;
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.mobile-toggle-btn {
+  display: none;
+}
+
 .category-cell {
   display: grid;
   gap: 0.1rem;
@@ -1441,6 +1550,15 @@ thead {
   tr.transaction-row {
     border-left: 0.55rem solid var(--transaction-row-accent, transparent);
     padding-left: 0.25rem;
+  }
+  .mobile-toggle-btn {
+    display: inline-flex;
+  }
+  tr.transaction-row:not(.mobile-row-expanded) td[data-label]:not([data-label="일자"]):not([data-label="유형"]):not([data-label="금액"]):not([data-label="동작"]) {
+    display: none;
+  }
+  tr.holding-row:not(.mobile-row-expanded) td[data-label]:not([data-label="이름"]):not([data-label="유형"]):not([data-label="평가(KRW)"]):not([data-label="동작"]) {
+    display: none;
   }
   td {
     border: none;
