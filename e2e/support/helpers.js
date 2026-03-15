@@ -60,7 +60,18 @@ export function hexToRgb(hex) {
 }
 
 export async function openTab(page, label) {
-  await page.getByRole("button", { name: label, exact: true }).click();
+  const tabButton = page.getByRole("button", { name: label, exact: true }).first();
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    await tabButton.click();
+    const isActive = await tabButton
+      .evaluate((element) => element.classList.contains("active"))
+      .catch(() => false);
+    if (isActive) {
+      return;
+    }
+    await page.waitForTimeout(250);
+  }
+  await expect(tabButton).toHaveClass(/active/);
 }
 
 export async function login(page, { email, password = TEST_PASSWORD }) {
@@ -124,6 +135,14 @@ export async function createBasicTransaction(page, { memo, amount = "12000" }) {
   const transactionCard = page.locator("article.card", {
     has: page.getByRole("heading", { name: "거래 입력" }),
   });
+  const txToggleButton = transactionCard.getByRole("button", { name: /거래 추가|입력 닫기/ }).first();
+  const txToggleVisible = await txToggleButton.isVisible().catch(() => false);
+  if (txToggleVisible) {
+    const txToggleText = String((await txToggleButton.textContent()) || "");
+    if (txToggleText.includes("거래 추가")) {
+      await txToggleButton.click();
+    }
+  }
 
   await labeledField(transactionCard, "금액", "input").fill(amount);
   await labeledField(transactionCard, "메모", "input").fill(memo);
@@ -131,10 +150,16 @@ export async function createBasicTransaction(page, { memo, amount = "12000" }) {
   const ownerSelect = labeledField(transactionCard, "거래자", "select");
   await selectFirstNonEmptyOption(ownerSelect);
 
-  const majorSelect = labeledField(transactionCard, "대분류", "select");
+  const majorSelectNew = labeledField(transactionCard, "카테고리 그룹", "select");
+  const hasNewCategoryLabels = (await majorSelectNew.count()) > 0;
+  const majorSelect = hasNewCategoryLabels
+    ? majorSelectNew
+    : labeledField(transactionCard, "대분류", "select");
   const hasMajor = await selectFirstNonEmptyOption(majorSelect);
   if (hasMajor) {
-    const minorSelect = labeledField(transactionCard, "중분류", "select");
+    const minorSelect = hasNewCategoryLabels
+      ? labeledField(transactionCard, "카테고리", "select")
+      : labeledField(transactionCard, "중분류", "select");
     await selectFirstNonEmptyOption(minorSelect);
   }
 
@@ -149,9 +174,31 @@ export async function createBasicHolding(page, { name }) {
   const holdingCard = page.locator("article.card", {
     has: page.getByRole("heading", { name: "자산 입력" }),
   });
-  await labeledField(holdingCard, "유형", "select").selectOption("cash");
-  await labeledField(holdingCard, "자산명", "input").fill(name);
-  await labeledField(holdingCard, "카테고리", "input").fill("현금성");
+  const holdingToggleButton = holdingCard.getByRole("button", { name: /자산 추가|입력 닫기/ }).first();
+  const holdingToggleVisible = await holdingToggleButton.isVisible().catch(() => false);
+  if (holdingToggleVisible) {
+    const holdingToggleText = String((await holdingToggleButton.textContent()) || "");
+    if (holdingToggleText.includes("자산 추가")) {
+      await holdingToggleButton.click();
+    }
+  }
+  const typeSelect = labeledField(holdingCard, "유형", "select");
+  const hasCashOption = (await typeSelect.locator("option[value='cash']").count()) > 0;
+  if (hasCashOption) {
+    await typeSelect.selectOption("cash");
+  } else {
+    await selectFirstNonEmptyOption(typeSelect);
+  }
+  const holdingNameTextarea = labeledField(holdingCard, "자산명", "textarea");
+  if ((await holdingNameTextarea.count()) > 0) {
+    await holdingNameTextarea.fill(name);
+  } else {
+    await labeledField(holdingCard, "자산명", "input").fill(name);
+  }
+  const categoryInput = labeledField(holdingCard, "카테고리", "input");
+  if ((await categoryInput.count()) > 0) {
+    await categoryInput.fill("현금성");
+  }
   await labeledField(holdingCard, "평가금액", "input").fill("300000");
 
   const ownerSelect = labeledField(holdingCard, "보유자", "select");

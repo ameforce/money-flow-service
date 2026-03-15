@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { assertResponsiveShell, capture, labeledField, registerAndVerify, unique } from "../support/helpers";
+import { assertResponsiveShell, capture, labeledField, openTab, registerAndVerify, unique } from "../support/helpers";
 
 test("settings flow: profile, household, colors, categories CRUD", async ({ page }) => {
   test.setTimeout(240_000);
@@ -20,7 +20,7 @@ test("settings flow: profile, household, colors, categories CRUD", async ({ page
   await registerAndVerify(page, { email, displayName });
   await page.setViewportSize({ width: 1366, height: 960 });
   await assertResponsiveShell(page);
-  await page.getByRole("button", { name: "설정", exact: true }).click();
+  await openTab(page, "설정");
   await capture(page, "settings-entry");
 
   const profileCard = page.locator("article.card", { has: page.getByRole("heading", { name: "내 프로필" }) });
@@ -49,20 +49,68 @@ test("settings flow: profile, household, colors, categories CRUD", async ({ page
   await expect(page.getByText("가계 설정을 저장했습니다.")).toBeVisible();
 
   const categoryCard = page.locator("article.card", { has: page.getByRole("heading", { name: "카테고리 관리" }) });
+  const quickCategorySelect = labeledField(categoryCard, "기존 카테고리 선택", "select");
+  const findCategoryOptionValue = async (major, minor) => {
+    if ((await quickCategorySelect.count()) === 0) {
+      return "";
+    }
+    return quickCategorySelect.locator("option").evaluateAll(
+      (nodes, target) => {
+        const [majorText, minorText] = target;
+        const matched = nodes.find((node) => {
+          const text = String(node.textContent || "");
+          return text.includes(majorText) && text.includes(minorText);
+        });
+        return matched ? String(matched.value || "") : "";
+      },
+      [major, minor]
+    );
+  };
+  const createCategoryPairCompat = async (major, minor) => {
+    const majorSelect = labeledField(categoryCard, "새 대분류", "select");
+    if ((await majorSelect.count()) > 0) {
+      await majorSelect.selectOption("__custom__");
+      await labeledField(categoryCard, "새 대분류 입력", "input").fill(major);
+      const firstMinorSelect = labeledField(categoryCard, "첫 중분류", "select");
+      if ((await firstMinorSelect.count()) > 0) {
+        await firstMinorSelect.selectOption("__custom__");
+        await labeledField(categoryCard, "첫 중분류 입력", "input").fill(minor);
+      } else {
+        const firstMinorInput = labeledField(categoryCard, "첫 중분류", "input");
+        if ((await firstMinorInput.count()) > 0) {
+          await firstMinorInput.fill(minor);
+        } else {
+          await labeledField(categoryCard, "새 중분류", "input").fill(minor);
+        }
+      }
+      return;
+    }
+    await labeledField(categoryCard, "새 대분류", "input").fill(major);
+    const firstMinorInput = labeledField(categoryCard, "첫 중분류", "input");
+    if ((await firstMinorInput.count()) > 0) {
+      await firstMinorInput.fill(minor);
+    } else {
+      await labeledField(categoryCard, "새 중분류", "input").fill(minor);
+    }
+  };
   await labeledField(categoryCard, "유형", "select").selectOption("expense");
-  await labeledField(categoryCard, "새 대분류", "input").fill(majorSeed);
-  await labeledField(categoryCard, "첫 중분류", "input").fill(minorSeed);
+  await createCategoryPairCompat(majorSeed, minorSeed);
   await categoryCard.getByRole("button", { name: "카테고리 추가" }).click();
   await expect(page.getByText("카테고리를 추가했습니다.")).toBeVisible();
 
-  await labeledField(categoryCard, "새 대분류", "input").fill(deleteMajor);
-  await labeledField(categoryCard, "첫 중분류", "input").fill(deleteMinor);
+  await createCategoryPairCompat(deleteMajor, deleteMinor);
   await categoryCard.getByRole("button", { name: "카테고리 추가" }).click();
   await expect(categoryCard).toContainText(deleteMinor);
 
   const createdGroup = categoryCard.locator(".settings-category-group", { hasText: majorSeed }).first();
-  const createdRow = createdGroup.locator(".settings-category-row", { hasText: minorSeed }).first();
-  await createdRow.getByRole("button", { name: "중분류 수정" }).click();
+  const createdCategoryOption = await findCategoryOptionValue(majorSeed, minorSeed);
+  if (createdCategoryOption) {
+    await quickCategorySelect.selectOption(createdCategoryOption);
+    await categoryCard.getByRole("button", { name: "선택 수정" }).click();
+  } else {
+    const createdRow = createdGroup.locator(".settings-category-row", { hasText: minorSeed }).first();
+    await createdRow.getByRole("button", { name: "중분류 수정" }).click();
+  }
   const editingRow = createdGroup.locator(".category-row-editing").first();
   await editingRow.locator("input").fill(renamedMinor);
   await editingRow.getByRole("button", { name: "저장" }).click();
@@ -74,8 +122,18 @@ test("settings flow: profile, household, colors, categories CRUD", async ({ page
   await expect(page.getByText("대분류 이름을 일괄 변경했습니다.")).toBeVisible();
   await expect(categoryCard).toContainText(renamedMajor);
 
-  const deleteGroup = categoryCard.locator(".settings-category-group", { hasText: deleteMajor }).first();
-  await deleteGroup.locator(".settings-category-row", { hasText: deleteMinor }).first().getByRole("button", { name: "삭제" }).click();
+  const deleteCategoryOption = await findCategoryOptionValue(deleteMajor, deleteMinor);
+  if (deleteCategoryOption) {
+    await quickCategorySelect.selectOption(deleteCategoryOption);
+    await categoryCard.getByRole("button", { name: "선택 삭제" }).click();
+  } else {
+    const deleteGroup = categoryCard.locator(".settings-category-group", { hasText: deleteMajor }).first();
+    await deleteGroup
+      .locator(".settings-category-row", { hasText: deleteMinor })
+      .first()
+      .getByRole("button", { name: "삭제" })
+      .click();
+  }
   const confirmDialog = page.locator(".confirm-dialog");
   await expect(confirmDialog).toBeVisible();
   await confirmDialog.getByRole("button", { name: "삭제" }).click();

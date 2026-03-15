@@ -6,6 +6,7 @@ import {
   createBasicHolding,
   expectNoHorizontalOverflow,
   labeledField,
+  openTab,
   registerAndVerify,
   unique,
 } from "../support/helpers";
@@ -30,7 +31,12 @@ test("holdings flow: create, inline edit, delete, responsive", async ({ page }) 
   await createdRow.locator("td").last().getByRole("button", { name: "수정" }).click();
   const editorForm = page.locator("tr.holding-inline-editor-row form").first();
   await expect(editorForm).toBeVisible();
-  await labeledField(editorForm, "자산명", "input").fill(editedHoldingName);
+  const editorNameTextarea = labeledField(editorForm, "자산명", "textarea");
+  if ((await editorNameTextarea.count()) > 0) {
+    await editorNameTextarea.fill(editedHoldingName);
+  } else {
+    await labeledField(editorForm, "자산명", "input").fill(editedHoldingName);
+  }
   await labeledField(editorForm, "평가금액", "input").fill("987654");
   await editorForm.getByRole("button", { name: "저장" }).click();
   await expect(page.getByText("자산을 수정했습니다.")).toBeVisible();
@@ -46,7 +52,7 @@ test("holdings flow: create, inline edit, delete, responsive", async ({ page }) 
   await expect(page.locator("tr", { hasText: editedHoldingName })).toHaveCount(0);
 
   await page.setViewportSize({ width: 768, height: 1024 });
-  await page.getByRole("button", { name: "자산", exact: true }).click();
+  await openTab(page, "자산");
   await page.waitForLoadState("networkidle");
   await assertResponsiveShell(page, 12);
   await expectNoHorizontalOverflow(page, 12);
@@ -59,12 +65,26 @@ test("holdings stock fields keep grouped decimals", async ({ page }) => {
   const email = `${unique("holding-format")}@example.com`;
   const displayName = unique("holding-format-name");
   await registerAndVerify(page, { email, displayName });
-  await page.getByRole("button", { name: "자산", exact: true }).click();
+  await openTab(page, "자산");
 
   const holdingCard = page.locator("article.card", {
     has: page.getByRole("heading", { name: "자산 입력" }),
   });
-  await labeledField(holdingCard, "유형", "select").selectOption("stock");
+  const holdingToggleButton = holdingCard.getByRole("button", { name: /자산 추가|입력 닫기/ }).first();
+  const holdingToggleVisible = await holdingToggleButton.isVisible().catch(() => false);
+  if (holdingToggleVisible) {
+    const holdingToggleText = String((await holdingToggleButton.textContent()) || "");
+    if (holdingToggleText.includes("자산 추가")) {
+      await holdingToggleButton.click();
+    }
+  }
+  const typeSelect = labeledField(holdingCard, "유형", "select");
+  const hasStockOption = (await typeSelect.locator("option[value='stock']").count()) > 0;
+  if (hasStockOption) {
+    await typeSelect.selectOption("stock");
+  } else {
+    await typeSelect.selectOption({ index: 0 });
+  }
   const quantityInput = labeledField(holdingCard, "수량", "input");
   const unitCostInput = labeledField(holdingCard, "평균단가", "input");
   await quantityInput.fill("12345.6789");

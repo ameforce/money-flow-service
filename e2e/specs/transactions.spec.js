@@ -6,6 +6,7 @@ import {
   createBasicTransaction,
   expectNoHorizontalOverflow,
   labeledField,
+  openTab,
   registerAndVerify,
   unique,
 } from "../support/helpers";
@@ -57,7 +58,7 @@ test("transactions flow: create, inline edit, delete, responsive", async ({ page
   await expect(page.locator("tr.transaction-row", { hasText: editedMemo })).toHaveCount(0);
 
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByRole("button", { name: "거래", exact: true }).click();
+  await openTab(page, "거래");
   await page.waitForLoadState("networkidle");
   await assertResponsiveShell(page, 12);
   await expectNoHorizontalOverflow(page, 12);
@@ -71,10 +72,18 @@ test("transactions form keeps grouped number format", async ({ page }) => {
   const displayName = unique("tx-format-name");
   await registerAndVerify(page, { email, displayName });
 
-  await page.getByRole("button", { name: "거래", exact: true }).click();
+  await openTab(page, "거래");
   const transactionCard = page.locator("article.card", {
     has: page.getByRole("heading", { name: "거래 입력" }),
   });
+  const txToggleButton = transactionCard.getByRole("button", { name: /거래 추가|입력 닫기/ }).first();
+  const txToggleVisible = await txToggleButton.isVisible().catch(() => false);
+  if (txToggleVisible) {
+    const txToggleText = String((await txToggleButton.textContent()) || "");
+    if (txToggleText.includes("거래 추가")) {
+      await txToggleButton.click();
+    }
+  }
   const amountInput = labeledField(transactionCard, "금액", "input");
   await amountInput.fill("123456789");
   await expect(amountInput).toHaveValue("123,456,789");
