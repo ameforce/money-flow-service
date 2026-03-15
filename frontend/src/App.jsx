@@ -16,7 +16,8 @@ import packageJson from "../package.json";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, ArcElement, Tooltip, Legend, Filler);
 
-const APP_VERSION = String(import.meta.env.VITE_APP_VERSION || packageJson.version || "0.0.0").trim();
+const APP_VERSION_RAW = String(import.meta.env.VITE_APP_VERSION || packageJson.version || "0.0.0").trim();
+const APP_VERSION = (APP_VERSION_RAW.startsWith("v") ? APP_VERSION_RAW.substring(1) : APP_VERSION_RAW) || "0.0.0";
 const COPYRIGHT_TEXT = `© ENM Software v${APP_VERSION}`;
 
 const API_PREFIX = "/api/v1";
@@ -27,10 +28,18 @@ const DEFAULT_CSRF_COOKIE_NAME = "mf_csrf_token";
 const DEFAULT_CSRF_HEADER_NAME = "x-csrf-token";
 const DEFAULT_HOUSEHOLD_HEADER_NAME = "x-household-id";
 const DEBUG_TOKEN_OPT_IN_HEADER = "x-debug-token-opt-in";
+
+function isRuntimeDebugTokenOptInHost() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+  return String(window.location.hostname || "").trim().toLowerCase() === "dev.moneyflow.enmsoftware.com";
+}
+
 const DEBUG_TOKEN_OPT_IN =
   String(
     import.meta.env.VITE_DEBUG_TOKEN_OPT_IN ??
-    (import.meta.env.DEV || import.meta.env.MODE === "test" ? "true" : "")
+    (import.meta.env.DEV || import.meta.env.MODE === "test" || isRuntimeDebugTokenOptInHost() ? "true" : "")
   )
     .trim()
     .toLowerCase() === "true";
@@ -41,9 +50,22 @@ const TAB_LABELS = {
   dashboard: "대시보드",
   transactions: "거래",
   holdings: "자산",
+  settings: "설정",
   collaboration: "협업",
   import: "데이터 가져오기",
 };
+const DISPLAY_NAME_MODE_OPTIONS = [
+  { value: "real_name", label: "본명 우선" },
+  { value: "nickname", label: "닉네임 우선" },
+];
+const DEFAULT_TRANSACTION_ROW_COLORS = {
+  income: "#EDF9F0",
+  expense: "#FFF1F0",
+  investment: "#EFF4FF",
+  transfer: "#FFF7E8",
+};
+const ONBOARDING_SEEN_KEY_PREFIX = "money-flow-onboarding-seen";
+const LEGACY_OWNER_PREFIX = "__legacy_owner__:";
 const FLOW_TYPE_OPTIONS = [
   { value: "income", label: "수입" },
   { value: "expense", label: "지출" },
@@ -124,6 +146,12 @@ const COLLAB_ROLE_OPTIONS = [
   { value: "owner", label: "소유자" },
 ];
 const COLLAB_ROLE_LABELS = COLLAB_ROLE_OPTIONS.reduce((acc, item) => ({ ...acc, [item.value]: item.label }), {});
+const INVITATION_STATUS_LABELS = {
+  pending: "대기 중",
+  accepted: "수락됨",
+  revoked: "취소됨",
+  expired: "만료됨",
+};
 const CATEGORY_MAJOR_ALIAS = {
   변동지출: "변동 지출",
   고정지출: "고정 지출",
@@ -261,6 +289,15 @@ function shouldAttachHouseholdHeader(path) {
     return false;
   }
   if (path.startsWith(`${API_PREFIX}/household/select`)) {
+    return false;
+  }
+  if (path.startsWith(`${API_PREFIX}/household/invitations/accept`)) {
+    return false;
+  }
+  if (path.startsWith(`${API_PREFIX}/household/invitations/received`)) {
+    return false;
+  }
+  if (/^\/api\/v1\/household\/invitations\/[^/]+\/accept(?:\?|$)/.test(path)) {
     return false;
   }
   return true;
@@ -539,8 +576,88 @@ function normalizeNullableText(value) {
   return text || null;
 }
 
+function stripGrouping(value) {
+  return String(value ?? "").replace(/,/g, "").trim();
+}
+
+function sanitizeDecimalInput(value) {
+  const text = stripGrouping(value).replace(/[^\d.]/g, "");
+  if (!text) {
+    return "";
+  }
+  const firstDot = text.indexOf(".");
+  if (firstDot < 0) {
+    return text;
+  }
+  const integerPart = text.slice(0, firstDot).replace(/\./g, "");
+  const decimalPart = text.slice(firstDot + 1).replace(/\./g, "");
+  return `${integerPart || "0"}.${decimalPart}`;
+}
+
+function formatGroupedDecimalInput(value) {
+  const text = sanitizeDecimalInput(value);
+  if (!text) {
+    return "";
+  }
+  const hasDot = text.includes(".");
+  const [integerPart, decimalPart = ""] = text.split(".");
+  const groupedIntegerPart = integerPart.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return hasDot ? `${groupedIntegerPart}.${decimalPart}` : groupedIntegerPart;
+}
+
+function restoreDecimalInputCaret(input, plainLength) {
+  if (!input || typeof plainLength !== "number") {
+    return;
+  }
+  const nextPlainLength = Math.max(0, plainLength);
+  try {
+    if (nextPlainLength === 0) {
+      input.setSelectionRange(0, 0);
+      return;
+    }
+    const formatted = String(input.value || "");
+    let seen = 0;
+    let caret = formatted.length;
+    for (let idx = 0; idx < formatted.length; idx += 1) {
+      if (/[0-9.]/.test(formatted[idx])) {
+        seen += 1;
+        if (seen >= nextPlainLength) {
+          caret = idx + 1;
+          break;
+        }
+      }
+    }
+    input.setSelectionRange(caret, caret);
+  } catch {
+    // no-op: selection APIs can fail for non-focusable inputs in edge cases.
+  }
+}
+
+function handleGroupedDecimalInput(event, setForm, field) {
+  const input = event.currentTarget;
+  const rawValue = String(input.value || "");
+  const cursor = Number.isFinite(input.selectionStart) ? input.selectionStart : rawValue.length;
+  const leftSanitized = sanitizeDecimalInput(rawValue.slice(0, cursor));
+  const formattedValue = formatGroupedDecimalInput(rawValue);
+  setForm((prev) => {
+    if (!prev || typeof prev !== "object") {
+      return prev;
+    }
+    return {
+      ...prev,
+      [field]: formattedValue,
+    };
+  });
+  requestAnimationFrame(() => {
+    if (document.activeElement !== input) {
+      return;
+    }
+    restoreDecimalInputCaret(input, leftSanitized.length);
+  });
+}
+
 function normalizeDecimalForCompare(value) {
-  const text = String(value ?? "").trim();
+  const text = stripGrouping(value);
   if (!text) {
     return "";
   }
@@ -552,15 +669,56 @@ function normalizeDecimalForCompare(value) {
 }
 
 function normalizeDecimalInputValue(value) {
-  const text = String(value ?? "").trim();
+  const text = stripGrouping(value);
   if (!text) {
     return "";
   }
   const numeric = Number(text);
   if (!Number.isFinite(numeric)) {
-    return text;
+    return formatGroupedDecimalInput(text);
   }
-  return Number.isInteger(numeric) ? String(numeric) : text;
+  const normalized = Number.isInteger(numeric) ? String(numeric) : text;
+  return formatGroupedDecimalInput(normalized);
+}
+
+function normalizeTransactionRowColors(value) {
+  return {
+    ...DEFAULT_TRANSACTION_ROW_COLORS,
+    ...(value || {}),
+  };
+}
+
+function createAuthForm() {
+  return {
+    email: getSavedEmail(),
+    password: "",
+    password_confirm: "",
+    display_name: "",
+  };
+}
+
+function createVerifyForm() {
+  return {
+    email: getSavedEmail(),
+    token: "",
+    password: "",
+    password_confirm: "",
+    display_name: "",
+  };
+}
+
+function createTransactionForm() {
+  return {
+    id: "",
+    version: 0,
+    occurred_on: todayIso(),
+    flow_type: "expense",
+    amount: "",
+    category_id: "",
+    memo: "",
+    owner_user_id: "",
+    owner_name: "",
+  };
 }
 
 function buildDirtyPatchFields(payload, baseline, comparators = {}) {
@@ -608,9 +766,10 @@ function buildTransactionPayloadFromForm(form) {
   return {
     occurred_on: String(form.occurred_on || "").trim(),
     flow_type: String(form.flow_type || "").trim(),
-    amount: String(form.amount).trim(),
+    amount: stripGrouping(form.amount),
     category_id: form.category_id || null,
     memo: String(form.memo || ""),
+    owner_user_id: normalizeNullableText(form.owner_user_id),
     owner_name: normalizeNullableText(form.owner_name),
   };
 }
@@ -621,6 +780,7 @@ const TX_PATCH_COMPARATORS = {
   amount: (left, right) => normalizeDecimalForCompare(left) === normalizeDecimalForCompare(right),
   category_id: (left, right) => normalizeNullableText(left) === normalizeNullableText(right),
   memo: (left, right) => String(left ?? "") === String(right ?? ""),
+  owner_user_id: (left, right) => normalizeNullableText(left) === normalizeNullableText(right),
   owner_name: (left, right) => normalizeNullableText(left) === normalizeNullableText(right),
 };
 
@@ -628,6 +788,7 @@ const HOLDING_PATCH_COMPARATORS = {
   market_symbol: (left, right) => String(left || "").trim().toUpperCase() === String(right || "").trim().toUpperCase(),
   name: (left, right) => String(left || "").trim() === String(right || "").trim(),
   category: (left, right) => String(left || "").trim() === String(right || "").trim(),
+  owner_user_id: (left, right) => normalizeNullableText(left) === normalizeNullableText(right),
   owner_name: (left, right) => normalizeNullableText(left) === normalizeNullableText(right),
   account_name: (left, right) => normalizeNullableText(left) === normalizeNullableText(right),
   quantity: (left, right) => normalizeDecimalForCompare(left) === normalizeDecimalForCompare(right),
@@ -643,6 +804,7 @@ function createHoldingForm(assetType = "cash") {
     market_symbol: "",
     name: "",
     category: preset.category,
+    owner_user_id: "",
     owner_name: "",
     account_name: "",
     quantity: preset.quantity,
@@ -660,6 +822,7 @@ function createHoldingInlineEditForm(row) {
     market_symbol: row.market_symbol || "",
     name: row.name || "",
     category: row.category || "",
+    owner_user_id: row.owner_user_id || "",
     owner_name: row.owner_name || "",
     account_name: row.account_name || "",
     quantity: normalizeDecimalInputValue(row.quantity ?? "1"),
@@ -714,6 +877,62 @@ function toCategoryPairLabel(category) {
   return `${toCategoryMajorLabel(category.major)} / ${toCategoryMinorLabel(category.minor)}`;
 }
 
+function onboardingSeenKey(userId, householdId) {
+  const normalizedUserId = String(userId || "").trim();
+  const normalizedHouseholdId = String(householdId || "").trim();
+  if (!normalizedUserId || !normalizedHouseholdId) {
+    return "";
+  }
+  return `${ONBOARDING_SEEN_KEY_PREFIX}:${normalizedUserId}:${normalizedHouseholdId}`;
+}
+
+function ownerSelectValue(ownerUserId = "", ownerName = "") {
+  const normalizedOwnerUserId = String(ownerUserId || "").trim();
+  if (normalizedOwnerUserId) {
+    return normalizedOwnerUserId;
+  }
+  const normalizedOwnerName = String(ownerName || "").trim();
+  if (!normalizedOwnerName) {
+    return "";
+  }
+  return `${LEGACY_OWNER_PREFIX}${normalizedOwnerName}`;
+}
+
+function createProfileForm(user) {
+  return {
+    real_name: String(user?.real_name || user?.display_name || "").trim(),
+    nickname: String(user?.nickname || "").trim(),
+    display_name_mode: String(user?.display_name_mode || "real_name").trim() || "real_name",
+  };
+}
+
+function createHouseholdSettingsForm(settingsPayload) {
+  return {
+    name: String(settingsPayload?.name || "").trim(),
+    transaction_row_colors: normalizeTransactionRowColors(settingsPayload?.transaction_row_colors),
+  };
+}
+
+function createCategoryDraft(flowType = "expense") {
+  return {
+    flow_type: flowType,
+    major: "",
+    minor: "",
+  };
+}
+
+function renderCategoryCell(category) {
+  if (!category) {
+    return <span className="category-cell-empty">-</span>;
+  }
+  return (
+    <div className="category-cell">
+      <span className="category-cell-major">{toCategoryMajorLabel(category.major)}</span>
+      <span className="category-cell-minor">{toCategoryMinorLabel(category.minor)}</span>
+    </div>
+  );
+}
+
 function formatApiError(error, context) {
   const status = Number(error?.status || 0);
   const code = String(error?.code || "").toUpperCase();
@@ -726,6 +945,18 @@ function formatApiError(error, context) {
   if (context === "auth_register" && (code === "AUTH_EMAIL_ALREADY_EXISTS" || status === 409)) {
     return uiGuideMessage("회원가입에 실패했습니다. 이미 사용 중인 이메일입니다.", "로그인으로 전환하거나 다른 이메일을 사용해 주세요.");
   }
+  if (context === "profile_save" && code === "AUTH_NICKNAME_REQUIRED") {
+    return uiGuideMessage("닉네임 표시명을 선택하려면 닉네임이 필요합니다.", "닉네임을 입력하거나 표시명 모드를 본명으로 바꿔 주세요.");
+  }
+  if ((context === "transaction_submit" && code === "TRANSACTION_OWNER_INVALID") || (context === "holding_submit" && code === "HOLDING_OWNER_INVALID")) {
+    return uiGuideMessage("선택한 거래자/보유자가 현재 가계 멤버가 아닙니다.", "가계 멤버 목록에서 다시 선택해 주세요.");
+  }
+  if ((context === "category_create" || context === "category_patch" || context === "category_rename_major") && code === "CATEGORY_DUPLICATE") {
+    return uiGuideMessage("동일한 카테고리 조합이 이미 존재합니다.", "다른 이름으로 저장하거나 기존 항목을 수정해 주세요.");
+  }
+  if (context === "category_delete" && code === "CATEGORY_IN_USE") {
+    return uiGuideMessage("사용 중인 카테고리는 삭제할 수 없습니다.", "이름을 바꾸거나 미사용 카테고리만 정리해 주세요.");
+  }
   if (context.startsWith("import_")) {
     if (code === "IMPORT_WORKBOOK_NOT_FOUND") {
       return uiGuideMessage("가져올 파일을 찾을 수 없습니다.", "파일 경로를 확인하거나 파일 업로드를 사용해 주세요.");
@@ -736,8 +967,20 @@ function formatApiError(error, context) {
     if (code === "IMPORT_PATH_NOT_ALLOWED") {
       return uiGuideMessage("허용된 경로의 파일만 가져올 수 있습니다.", "프로젝트의 import 허용 폴더(legacy) 파일을 선택해 주세요.");
     }
-    if (code === "IMPORT_FILE_TOO_LARGE" || status === 413) {
+    if (code === "IMPORT_FILE_TOO_LARGE") {
       return uiGuideMessage("파일 크기가 업로드 제한을 초과했습니다.", "파일 크기를 줄이거나 불필요한 시트를 정리해 주세요.");
+    }
+    if (code === "IMPORT_ARCHIVE_TOO_COMPLEX") {
+      return uiGuideMessage("파일 내부 시트/개체 구성이 너무 복잡합니다.", "불필요한 시트나 개체를 정리한 뒤 다시 시도해 주세요.");
+    }
+    if (code === "IMPORT_ARCHIVE_EXPANDS_TOO_LARGE") {
+      return uiGuideMessage("파일 내부 압축 해제 크기가 제한을 초과했습니다.", "시트 수나 포함 데이터를 줄인 뒤 다시 시도해 주세요.");
+    }
+    if (status === 413) {
+      return uiGuideMessage(
+        "서버 업로드 제한으로 파일 전송이 차단되었습니다.",
+        "잠시 후 다시 시도하거나 관리자에게 업로드 프록시 제한 설정을 확인해 달라고 요청해 주세요."
+      );
     }
     if (code === "IMPORT_ALREADY_RUNNING" || status === 429) {
       return uiGuideMessage("다른 가져오기 작업이 진행 중입니다.", "잠시 기다린 뒤 다시 시도해 주세요.");
@@ -809,28 +1052,31 @@ function App() {
   const [token, setToken] = useState("");
   const [authReady, setAuthReady] = useState(false);
   const [authMode, setAuthMode] = useState("login");
-  const [authForm, setAuthForm] = useState(() => ({
-    email: getSavedEmail(),
-    password: "",
-    display_name: "",
-  }));
-  const [verifyForm, setVerifyForm] = useState({
-    email: getSavedEmail(),
-    token: "",
-    password: "",
-    display_name: "",
-  });
+  const [authForm, setAuthForm] = useState(() => createAuthForm());
+  const [verifyForm, setVerifyForm] = useState(() => createVerifyForm());
   const [saveAccountInfo, setSaveAccountInfo] = useState(() => Boolean(getSavedEmail()));
   const [keepSignedIn, setKeepSignedIn] = useState(true);
   const [user, setUser] = useState(null);
   const [household, setHousehold] = useState(null);
+  const [householdSettings, setHouseholdSettings] = useState(null);
   const [householdRole, setHouseholdRole] = useState("");
+  const householdRoleRef = useRef("");
   const [householdList, setHouseholdList] = useState([]);
   const [householdMembers, setHouseholdMembers] = useState([]);
   const [householdInvites, setHouseholdInvites] = useState([]);
+  const [receivedHouseholdInvites, setReceivedHouseholdInvites] = useState([]);
   const [inviteForm, setInviteForm] = useState({ email: "", role: "viewer" });
   const [inviteAcceptToken, setInviteAcceptToken] = useState("");
+  const [inviteAcceptanceNotice, setInviteAcceptanceNotice] = useState(null);
   const [categories, setCategories] = useState([]);
+  const [profileForm, setProfileForm] = useState(() => createProfileForm(null));
+  const [householdSettingsForm, setHouseholdSettingsForm] = useState(() => createHouseholdSettingsForm(null));
+  const [categoryDraft, setCategoryDraft] = useState(() => createCategoryDraft());
+  const [categoryEditId, setCategoryEditId] = useState("");
+  const [categoryEditForm, setCategoryEditForm] = useState({ major: "", minor: "" });
+  const [majorRenameDrafts, setMajorRenameDrafts] = useState({});
+  const [showOnboardingGuide, setShowOnboardingGuide] = useState(false);
+  const [showTransactionEntryBanner, setShowTransactionEntryBanner] = useState(false);
   const [tab, setTab] = useState("dashboard");
   const [socketStatus, setSocketStatus] = useState("disconnected");
 
@@ -874,16 +1120,7 @@ function App() {
     confirmLabel: "확인",
   });
 
-  const [txForm, setTxForm] = useState({
-    id: "",
-    version: 0,
-    occurred_on: todayIso(),
-    flow_type: "expense",
-    amount: "",
-    category_id: "",
-    memo: "",
-    owner_name: "",
-  });
+  const [txForm, setTxForm] = useState(() => createTransactionForm());
   const [txCategoryMajor, setTxCategoryMajor] = useState("");
   const [txListFilter, setTxListFilter] = useState({
     keyword: "",
@@ -1022,21 +1259,40 @@ function App() {
     });
   }, [holdingListTab, sortedHoldingItems]);
   const ownerMemberOptions = useMemo(() => {
-    const seen = new Set();
-    const options = [];
-    for (const member of householdMembers) {
-      const name = String(member?.display_name || "").trim();
-      if (!name || seen.has(name)) {
-        continue;
-      }
-      seen.add(name);
-      options.push({
-        value: name,
-        label: `${name}${member?.email ? ` (${member.email})` : ""}`,
-      });
-    }
-    return options;
+    return householdMembers
+      .map((member) => {
+        const userId = String(member?.user_id || "").trim();
+        const displayName = String(member?.display_name || "").trim();
+        if (!userId || !displayName) {
+          return null;
+        }
+        return {
+          value: userId,
+          label: `${displayName}${member?.email ? ` (${member.email})` : ""}`,
+          displayName,
+          email: String(member?.email || "").trim(),
+        };
+      })
+      .filter(Boolean);
   }, [householdMembers]);
+  const categoryGroups = useMemo(() => {
+    const flows = new Map();
+    for (const category of categories) {
+      const flowType = String(category?.flow_type || "").trim() || "expense";
+      const major = String(category?.major || "").trim() || "미분류";
+      const flowBucket = flows.get(flowType) || new Map();
+      const majorBucket = flowBucket.get(major) || [];
+      majorBucket.push(category);
+      flowBucket.set(major, majorBucket);
+      flows.set(flowType, flowBucket);
+    }
+    return FLOW_TYPE_OPTIONS.map((flow) => ({
+      ...flow,
+      groups: Array.from((flows.get(flow.value) || new Map()).entries())
+        .map(([major, items]) => [major, [...items].sort((left, right) => String(left.minor || "").localeCompare(String(right.minor || ""), "ko"))])
+        .sort((left, right) => String(left[0]).localeCompare(String(right[0]), "ko")),
+    }));
+  }, [categories]);
   const importMismatchPreview = useMemo(
     () => (importReport?.detected_mismatch_cells || []).slice(0, IMPORT_MISMATCH_PREVIEW_LIMIT),
     [importReport]
@@ -1045,6 +1301,35 @@ function App() {
     () => (importReport?.issues || []).slice(0, IMPORT_ISSUE_PREVIEW_LIMIT),
     [importReport]
   );
+
+  useEffect(() => {
+    setProfileForm(createProfileForm(user));
+  }, [user?.id, user?.real_name, user?.nickname, user?.display_name_mode, user?.display_name]);
+
+  useEffect(() => {
+    setHouseholdSettingsForm(createHouseholdSettingsForm(householdSettings));
+  }, [householdSettings?.household_id, householdSettings?.name, JSON.stringify(householdSettings?.transaction_row_colors || {})]);
+
+  useEffect(() => {
+    if (!user?.id || !household?.id) {
+      setShowOnboardingGuide(false);
+      return;
+    }
+    const isEmptyHousehold = transactions.length === 0 && holdings.length === 0;
+    const seenKey = onboardingSeenKey(user.id, household.id);
+    if (!isEmptyHousehold || !seenKey || localStorage.getItem(seenKey)) {
+      setShowOnboardingGuide(false);
+      return;
+    }
+    setShowOnboardingGuide(true);
+  }, [user?.id, household?.id, transactions.length, holdings.length]);
+
+  useEffect(() => {
+    if (transactions.length > 0) {
+      setShowTransactionEntryBanner(false);
+    }
+  }, [transactions.length]);
+
   function getHoldingSortLabel(field) {
     return HOLDING_SORT_LABELS[field] || field;
   }
@@ -1122,6 +1407,34 @@ function App() {
         confirmLabel,
       });
     });
+  }
+
+  async function handleHouseholdInviteAccepted(acceptedPayload, nextToken = token) {
+    const nextHouseholdId = String(acceptedPayload?.household_id || "").trim();
+    const nextInvitationId = String(acceptedPayload?.invitation_id || "").trim();
+    const nextHouseholdName = String(acceptedPayload?.household_name || "").trim() || "초대 받은 가계";
+    const nextRole = String(acceptedPayload?.role || "").trim();
+    const activeHouseholdSelected = Boolean(acceptedPayload?.active_household_selected);
+    setInviteAcceptToken("");
+    await loadAuthContext(nextToken);
+    await refreshData(false, nextToken);
+    await refreshCollaborationData(nextToken);
+    setInviteAcceptanceNotice({
+      invitationId: nextInvitationId,
+      householdId: nextHouseholdId,
+      householdName: nextHouseholdName,
+      role: nextRole,
+      activeHouseholdSelected,
+    });
+    setTab("collaboration");
+    setMessage(
+      uiGuideMessage(
+        "초대를 수락했습니다.",
+        activeHouseholdSelected
+          ? `${nextHouseholdName} 가계가 현재 작업 가계로 선택되었습니다.`
+          : `${nextHouseholdName} 가계 참여가 완료되었습니다. 아래에서 작업 가계 전환을 선택할 수 있습니다.`
+      )
+    );
   }
 
   useEffect(() => {
@@ -1210,18 +1523,25 @@ function App() {
   }, []);
 
   async function loadAuthContext(nextToken = token) {
-    const [me, householdResp, householdListResp] = await Promise.all([
+    const [me, householdResp, householdListResp, householdSettingsResp, categoryResp] = await Promise.all([
       api(`${API_PREFIX}/auth/me`, {}, nextToken),
       api(`${API_PREFIX}/household/current`, {}, nextToken),
       api(`${API_PREFIX}/household/list`, {}, nextToken),
+      api(`${API_PREFIX}/household/settings`, {}, nextToken),
+      api(`${API_PREFIX}/categories`, {}, nextToken),
     ]);
     const nextHouseholdId = householdResp?.household?.id || "";
     setActiveHouseholdId(nextHouseholdId);
-    const categoryResp = await api(`${API_PREFIX}/categories`, {}, nextToken);
     setUser(me);
     setHousehold(householdResp.household);
+    setHouseholdSettings({
+      ...householdSettingsResp,
+      transaction_row_colors: normalizeTransactionRowColors(householdSettingsResp?.transaction_row_colors),
+    });
     setActiveHouseholdId(nextHouseholdId);
-    setHouseholdRole(householdResp.role || "");
+    const nextHouseholdRole = householdResp.role || "";
+    householdRoleRef.current = nextHouseholdRole;
+    setHouseholdRole(nextHouseholdRole);
     setHouseholdList(householdListResp.households || []);
     setCategories(categoryResp);
   }
@@ -1373,9 +1693,22 @@ function App() {
 
   async function runAuth(event) {
     event.preventDefault();
+    const currentMode = authMode;
+    if (currentMode === "register" || currentMode === "verify") {
+      const activeForm = currentMode === "verify" ? verifyForm : authForm;
+      const password = String(activeForm.password || "");
+      const passwordConfirm = String(activeForm.password_confirm || "");
+      if (password.length < 8) {
+        setMessage("비밀번호는 8자 이상이어야 합니다.");
+        return;
+      }
+      if (password !== passwordConfirm) {
+        setMessage("비밀번호 확인이 일치하지 않습니다.");
+        return;
+      }
+    }
     setLoading(true);
     setMessage("");
-    const currentMode = authMode;
     try {
       await loadClientConfig();
       if (currentMode === "verify") {
@@ -1414,6 +1747,7 @@ function App() {
             email: String(registerResp?.email || authForm.email || ""),
             token: DEBUG_TOKEN_OPT_IN ? debugToken : "",
             password: authForm.password,
+            password_confirm: authForm.password_confirm,
             display_name: authForm.display_name,
           });
           setMessage(
@@ -1435,7 +1769,15 @@ function App() {
       await refreshData(false, sessionToken);
       setToken(sessionToken);
       setAuthReady(true);
-      setMessage(uiGuideMessage("인증이 완료되었습니다.", "원하는 메뉴를 선택해 계속 진행해 주세요."));
+      if (inviteAcceptToken) {
+        setTab("collaboration");
+      }
+      setMessage(
+        uiGuideMessage(
+          "인증이 완료되었습니다.",
+          inviteAcceptToken ? "협업 탭에서 초대를 수락해 주세요." : "원하는 메뉴를 선택해 계속 진행해 주세요."
+        )
+      );
     } catch (error) {
       setActiveHouseholdId("");
       setToken("");
@@ -1471,15 +1813,20 @@ function App() {
   async function refreshCollaborationData(nextToken = token) {
     const authToken = nextToken || COOKIE_AUTH_SENTINEL;
     const membersPromise = api(`${API_PREFIX}/household/members`, {}, authToken);
-    const invitesPromise = api(`${API_PREFIX}/household/invitations`, {}, authToken).catch((error) => {
-      if (Number(error?.status || 0) === 403) {
-        return [];
-      }
-      throw error;
-    });
-    const [membersResp, invitesResp] = await Promise.all([membersPromise, invitesPromise]);
+    const canManageInvitations =
+      householdRoleRef.current === "owner" || householdRoleRef.current === "co_owner";
+    const invitesPromise = canManageInvitations
+      ? api(`${API_PREFIX}/household/invitations`, {}, authToken)
+      : Promise.resolve([]);
+    const receivedInvitesPromise = api(`${API_PREFIX}/household/invitations/received`, {}, authToken);
+    const [membersResp, invitesResp, receivedInvitesResp] = await Promise.all([
+      membersPromise,
+      invitesPromise,
+      receivedInvitesPromise,
+    ]);
     setHouseholdMembers(membersResp || []);
     setHouseholdInvites(invitesResp || []);
+    setReceivedHouseholdInvites(receivedInvitesResp || []);
   }
 
   async function selectActiveHousehold(householdId) {
@@ -1497,6 +1844,15 @@ function App() {
       await loadAuthContext(token);
       await refreshData(false, token);
       await refreshCollaborationData(token);
+      setInviteAcceptanceNotice((prev) => {
+        if (!prev || String(prev.householdId || "") !== String(householdId || "")) {
+          return prev;
+        }
+        return {
+          ...prev,
+          activeHouseholdSelected: true,
+        };
+      });
       setMessage(uiGuideMessage("가계를 전환했습니다.", "협업/거래/자산 화면이 새 가계 기준으로 갱신되었습니다."));
     } catch (error) {
       setMessage(formatApiError(error, "household_select"));
@@ -1552,7 +1908,7 @@ function App() {
     setLoading(true);
     setMessage("");
     try {
-      await api(
+      const payload = await api(
         `${API_PREFIX}/household/invitations/accept`,
         {
           method: "POST",
@@ -1560,12 +1916,26 @@ function App() {
         },
         token
       );
-      setInviteAcceptToken("");
-      await loadAuthContext(token);
-      await refreshData(false, token);
-      await refreshCollaborationData(token);
-      setTab("collaboration");
-      setMessage(uiGuideMessage("초대를 수락했습니다.", "가계 선택에서 초대 받은 가계로 전환할 수 있습니다."));
+      await handleHouseholdInviteAccepted(payload, token);
+    } catch (error) {
+      setMessage(formatApiError(error, "household_invite_accept"));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function acceptReceivedHouseholdInvite(invitationId) {
+    setLoading(true);
+    setMessage("");
+    try {
+      const payload = await api(
+        `${API_PREFIX}/household/invitations/${invitationId}/accept`,
+        {
+          method: "POST",
+        },
+        token
+      );
+      await handleHouseholdInviteAccepted(payload, token);
     } catch (error) {
       setMessage(formatApiError(error, "household_invite_accept"));
     } finally {
@@ -1658,17 +2028,9 @@ function App() {
         },
         token
       );
-      setTxForm({
-        id: "",
-        version: 0,
-        occurred_on: todayIso(),
-        flow_type: "expense",
-        amount: "",
-        category_id: "",
-        memo: "",
-        owner_name: "",
-      });
+      setTxForm(createTransactionForm());
       setTxCategoryMajor("");
+      setShowTransactionEntryBanner(false);
       await refreshData(false);
       setMessage(uiGuideMessage("거래를 등록했습니다.", "목록에서 반영 결과를 확인해 주세요."));
     } catch (error) {
@@ -1689,20 +2051,59 @@ function App() {
       market_symbol: marketSymbol,
       name: String(form.name || "").trim(),
       category: String(form.category || "기타").trim() || "기타",
+      owner_user_id: String(form.owner_user_id || "").trim() || null,
       owner_name: String(form.owner_name || "").trim() || null,
       account_name: String(form.account_name || "").trim() || null,
-      quantity: tracked ? String(form.quantity || "").trim() : "1",
-      average_cost: String(form.average_cost || "").trim(),
+      quantity: tracked ? stripGrouping(form.quantity || "") : "1",
+      average_cost: stripGrouping(form.average_cost || ""),
       currency: String(form.currency || "KRW").trim().toUpperCase(),
     };
   }
 
-  function ownerOptionsWithFallback(currentValue = "") {
-    const current = String(currentValue || "").trim();
-    if (!current || ownerMemberOptions.some((item) => item.value === current)) {
+  function ownerOptionsWithFallback(currentUserId = "", currentOwnerName = "") {
+    const normalizedUserId = String(currentUserId || "").trim();
+    const normalizedOwnerName = String(currentOwnerName || "").trim();
+    if (normalizedUserId && !ownerMemberOptions.some((item) => item.value === normalizedUserId)) {
+      return [
+        ...ownerMemberOptions,
+        {
+          value: normalizedUserId,
+          label: `${normalizedOwnerName || normalizedUserId} (기존 연결)`,
+          displayName: normalizedOwnerName,
+        },
+      ];
+    }
+    if (!normalizedOwnerName || normalizedUserId) {
       return ownerMemberOptions;
     }
-    return [...ownerMemberOptions, { value: current, label: `${current} (기존 값)` }];
+    const legacyValue = `${LEGACY_OWNER_PREFIX}${normalizedOwnerName}`;
+    if (ownerMemberOptions.some((item) => item.value === legacyValue)) {
+      return ownerMemberOptions;
+    }
+    return [
+      ...ownerMemberOptions,
+      {
+        value: legacyValue,
+        label: `${normalizedOwnerName} (기존 값)`,
+        ownerName: normalizedOwnerName,
+        legacy: true,
+      },
+    ];
+  }
+
+  function ownerSelectionFromValue(nextValue, options) {
+    const normalizedValue = String(nextValue || "").trim();
+    if (!normalizedValue) {
+      return { owner_user_id: "", owner_name: "" };
+    }
+    const matched = options.find((item) => item.value === normalizedValue);
+    if (matched?.legacy) {
+      return { owner_user_id: "", owner_name: matched.ownerName || "" };
+    }
+    return {
+      owner_user_id: normalizedValue,
+      owner_name: matched?.displayName || "",
+    };
   }
 
   async function submitHolding(event) {
@@ -1746,6 +2147,7 @@ function App() {
             amount: originalTx.amount,
             category_id: originalTx.category_id || "",
             memo: originalTx.memo || "",
+            owner_user_id: originalTx.owner_user_id || "",
             owner_name: originalTx.owner_name || "",
           })
         : null;
@@ -1785,6 +2187,7 @@ function App() {
         market_symbol: payload.market_symbol,
         name: payload.name,
         category: payload.category,
+        owner_user_id: payload.owner_user_id,
         owner_name: payload.owner_name,
         account_name: payload.account_name,
         quantity: payload.quantity,
@@ -1815,6 +2218,194 @@ function App() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function saveProfileSettings(event) {
+    event.preventDefault();
+    setLoading(true);
+    setMessage("");
+    try {
+      const payload = {
+        real_name: String(profileForm.real_name || "").trim() || null,
+        nickname: String(profileForm.nickname || "").trim() || null,
+        display_name_mode: String(profileForm.display_name_mode || "real_name").trim() || "real_name",
+      };
+      const nextUser = await api(
+        `${API_PREFIX}/auth/me`,
+        {
+          method: "PATCH",
+          body: JSON.stringify(payload),
+        },
+        token
+      );
+      setUser(nextUser);
+      await refreshCollaborationData(token);
+      await refreshData(false, token);
+      setMessage(uiGuideMessage("프로필을 저장했습니다.", "표시명 변경 내용이 멤버 목록과 거래/자산 화면에 반영되었습니다."));
+    } catch (error) {
+      setMessage(formatApiError(error, "profile_save"));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function saveHouseholdSettings(event) {
+    event.preventDefault();
+    setLoading(true);
+    setMessage("");
+    try {
+      const payload = {
+        name: String(householdSettingsForm.name || "").trim(),
+        transaction_row_colors: normalizeTransactionRowColors(householdSettingsForm.transaction_row_colors),
+      };
+      const nextSettings = await api(
+        `${API_PREFIX}/household/settings`,
+        {
+          method: "PATCH",
+          body: JSON.stringify(payload),
+        },
+        token
+      );
+      setHouseholdSettings({
+        ...nextSettings,
+        transaction_row_colors: normalizeTransactionRowColors(nextSettings?.transaction_row_colors),
+      });
+      await loadAuthContext(token);
+      setMessage(uiGuideMessage("가계 설정을 저장했습니다.", "가계 이름과 거래 행 색상이 현재 가계 전체에 반영되었습니다."));
+    } catch (error) {
+      setMessage(formatApiError(error, "household_settings"));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function createCategoryPair(event) {
+    event.preventDefault();
+    setLoading(true);
+    setMessage("");
+    try {
+      await api(
+        `${API_PREFIX}/categories`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            flow_type: categoryDraft.flow_type,
+            major: String(categoryDraft.major || "").trim(),
+            minor: String(categoryDraft.minor || "").trim(),
+          }),
+        },
+        token
+      );
+      setCategoryDraft(createCategoryDraft(categoryDraft.flow_type));
+      await loadAuthContext(token);
+      setMessage(uiGuideMessage("카테고리를 추가했습니다.", "거래 입력 폼 옵션에도 즉시 반영되었습니다."));
+    } catch (error) {
+      setMessage(formatApiError(error, "category_create"));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function saveCategoryEdit(event, categoryId) {
+    event.preventDefault();
+    setLoading(true);
+    setMessage("");
+    try {
+      await api(
+        `${API_PREFIX}/categories/${categoryId}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            major: String(categoryEditForm.major || "").trim(),
+            minor: String(categoryEditForm.minor || "").trim(),
+          }),
+        },
+        token
+      );
+      setCategoryEditId("");
+      setCategoryEditForm({ major: "", minor: "" });
+      await loadAuthContext(token);
+      await refreshData(false, token);
+      setMessage(uiGuideMessage("카테고리를 수정했습니다.", "연결된 거래 화면에도 즉시 반영되었습니다."));
+    } catch (error) {
+      setMessage(formatApiError(error, "category_patch"));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function renameCategoryMajorGroup(flowType, currentMajor) {
+    const nextMajor = String(majorRenameDrafts[`${flowType}:${currentMajor}`] || "").trim();
+    if (!nextMajor) {
+      setMessage("새 대분류 이름을 입력해 주세요.");
+      return;
+    }
+    setLoading(true);
+    setMessage("");
+    try {
+      await api(
+        `${API_PREFIX}/categories/rename-major`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            flow_type: flowType,
+            current_major: currentMajor,
+            next_major: nextMajor,
+          }),
+        },
+        token
+      );
+      setMajorRenameDrafts((prev) => ({ ...prev, [`${flowType}:${currentMajor}`]: "" }));
+      await loadAuthContext(token);
+      await refreshData(false, token);
+      setMessage(uiGuideMessage("대분류 이름을 일괄 변경했습니다.", "해당 그룹의 모든 중분류와 기존 거래 표시에 반영되었습니다."));
+    } catch (error) {
+      setMessage(formatApiError(error, "category_rename_major"));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function deleteCategoryPair(category) {
+    const confirmed = await requestConfirmDialog({
+      title: "카테고리 삭제",
+      action: `${toCategoryMajorLabel(category.major)} / ${toCategoryMinorLabel(category.minor)} 카테고리를 삭제할까요?`,
+      confirmLabel: "삭제",
+    });
+    if (!confirmed) {
+      return;
+    }
+    setLoading(true);
+    setMessage("");
+    try {
+      await api(
+        `${API_PREFIX}/categories/${category.id}`,
+        {
+          method: "DELETE",
+        },
+        token
+      );
+      await loadAuthContext(token);
+      setMessage(uiGuideMessage("카테고리를 삭제했습니다.", "사용 중이지 않은 카테고리만 정리했습니다."));
+    } catch (error) {
+      setMessage(formatApiError(error, "category_delete"));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function dismissOnboardingGuide() {
+    const seenKey = onboardingSeenKey(user?.id, household?.id);
+    if (seenKey) {
+      localStorage.setItem(seenKey, "1");
+    }
+    setShowOnboardingGuide(false);
+  }
+
+  function startOnboardingFlow() {
+    dismissOnboardingGuide();
+    setShowTransactionEntryBanner(true);
+    setTab("transactions");
   }
 
   async function doImport(mode) {
@@ -1937,7 +2528,7 @@ function App() {
     const isEditing = Boolean(row && holdingInlineEdit?.id === row.id);
     const editForm = isEditing ? holdingInlineEdit : null;
     const editTracked = Boolean(editForm && isMarketTrackedAssetType(editForm.asset_type));
-    const editOwnerOptions = ownerOptionsWithFallback(editForm?.owner_name || "");
+    const editOwnerOptions = ownerOptionsWithFallback(editForm?.owner_user_id || "", editForm?.owner_name || "");
     return (
       <Fragment key={rowKey}>
         <tr className={isEditing ? "holding-row-editing" : ""}>
@@ -1995,9 +2586,12 @@ function App() {
                 <label>
                   보유자
                   <select
-                    value={editForm.owner_name}
+                    value={ownerSelectValue(editForm.owner_user_id, editForm.owner_name)}
                     onChange={(event) =>
-                      setHoldingInlineEdit((prev) => ({ ...prev, owner_name: event.target.value }))
+                      setHoldingInlineEdit((prev) => ({
+                        ...prev,
+                        ...ownerSelectionFromValue(event.target.value, editOwnerOptions),
+                      }))
                     }
                   >
                     <option value="">(선택 안함)</option>
@@ -2036,13 +2630,10 @@ function App() {
                     <label>
                       수량
                       <input
-                        type="number"
-                        min="0.00000001"
-                        step="0.00000001"
+                        type="text"
+                        inputMode="decimal"
                         value={editForm.quantity}
-                        onChange={(event) =>
-                          setHoldingInlineEdit((prev) => ({ ...prev, quantity: event.target.value }))
-                        }
+                        onChange={(event) => handleGroupedDecimalInput(event, setHoldingInlineEdit, "quantity")}
                         required
                       />
                     </label>
@@ -2051,13 +2642,10 @@ function App() {
                   <label>
                     평가금액
                     <input
-                      type="number"
-                      min="0"
-                      step="0.01"
+                      type="text"
+                      inputMode="decimal"
                       value={editForm.average_cost}
-                      onChange={(event) =>
-                        setHoldingInlineEdit((prev) => ({ ...prev, average_cost: event.target.value }))
-                      }
+                      onChange={(event) => handleGroupedDecimalInput(event, setHoldingInlineEdit, "average_cost")}
                       required
                     />
                   </label>
@@ -2066,13 +2654,10 @@ function App() {
                   <label>
                     평균단가
                     <input
-                      type="number"
-                      min="0"
-                      step="0.0001"
+                      type="text"
+                      inputMode="decimal"
                       value={editForm.average_cost}
-                      onChange={(event) =>
-                        setHoldingInlineEdit((prev) => ({ ...prev, average_cost: event.target.value }))
-                      }
+                      onChange={(event) => handleGroupedDecimalInput(event, setHoldingInlineEdit, "average_cost")}
                       required
                     />
                   </label>
@@ -2125,12 +2710,15 @@ function App() {
     setAuthReady(true);
     setUser(null);
     setHousehold(null);
+    householdRoleRef.current = "";
     setHouseholdRole("");
     setHouseholdList([]);
     setHouseholdMembers([]);
     setHouseholdInvites([]);
+    setReceivedHouseholdInvites([]);
     setInviteForm({ email: "", role: "viewer" });
     setInviteAcceptToken("");
+    setInviteAcceptanceNotice(null);
     setCategories([]);
     setOverview(null);
     setTransactions([]);
@@ -2158,16 +2746,7 @@ function App() {
     setHoldingListTab("all");
     setTxCategoryMajor("");
     closeTxInlineEdit();
-    setTxForm({
-      id: "",
-      version: 0,
-      occurred_on: todayIso(),
-      flow_type: "expense",
-      amount: "",
-      category_id: "",
-      memo: "",
-      owner_name: "",
-    });
+    setTxForm(createTransactionForm());
     setHoldingForm(createHoldingForm("cash"));
     setHoldingInlineEdit(null);
     setAuthMode("login");
@@ -2182,9 +2761,12 @@ function App() {
     priceRefreshRequestInFlightRef.current = false;
     realtimeFallbackSyncInFlightRef.current = false;
     setAuthForm({
+      ...createAuthForm(),
       email: saveAccountInfo ? getSavedEmail() : "",
-      password: "",
-      display_name: "",
+    });
+    setVerifyForm({
+      ...createVerifyForm(),
+      email: saveAccountInfo ? getSavedEmail() : "",
     });
   }
 
@@ -2554,12 +3136,18 @@ function App() {
     { label: "최근 시세 갱신 시각", value: latestRefreshAt ? fmtDateTime(latestRefreshAt) : "-" },
   ];
   const holdingFormTracked = isMarketTrackedAssetType(holdingForm.asset_type);
-  const holdingFormOwnerOptions = ownerOptionsWithFallback(holdingForm.owner_name);
+  const transactionOwnerOptions = ownerOptionsWithFallback(txForm.owner_user_id, txForm.owner_name);
+  const holdingFormOwnerOptions = ownerOptionsWithFallback(holdingForm.owner_user_id, holdingForm.owner_name);
+  const canEditHouseholdData = householdRole === "owner" || householdRole === "co_owner" || householdRole === "editor";
   const canManageHousehold = householdRole === "owner" || householdRole === "co_owner";
   const canAssignOwner = householdRole === "owner";
   const memberRoleOptions = canAssignOwner
     ? COLLAB_ROLE_OPTIONS
     : COLLAB_ROLE_OPTIONS.filter((item) => item.value !== "owner");
+  const inviteAcceptanceCanSwitch =
+    Boolean(inviteAcceptanceNotice?.householdId) &&
+    household?.id !== inviteAcceptanceNotice?.householdId &&
+    householdList.some((entry) => entry.household.id === inviteAcceptanceNotice?.householdId);
 
   if (!authReady) {
     return (
@@ -2576,11 +3164,26 @@ function App() {
   }
 
   if (!token) {
+    const hasPendingInviteToken = Boolean(String(inviteAcceptToken || "").trim());
+    const authDescription =
+      authMode === "verify"
+        ? hasPendingInviteToken
+          ? "회원가입을 완료하면 협업 탭에서 가계부 초대를 수락할 수 있습니다."
+          : "회원가입을 완료하려면 이메일 인증을 진행해 주세요."
+        : hasPendingInviteToken
+          ? "가계부 초대 링크를 확인했습니다. 로그인 후 협업 탭에서 초대를 수락해 주세요."
+          : "가구 전체를 쉽게 시작하는 가계부·투자 관리 서비스";
     return (
       <main className="auth-shell" translate="no">
         <form className="auth-card" onSubmit={runAuth}>
           <h1>money-flow</h1>
-          <p>{authMode === "verify" ? "회원가입을 완료하려면 이메일 인증을 진행해 주세요." : "가구 전체를 쉽게 시작하는 가계부·투자 관리 서비스"}</p>
+          <p>{authDescription}</p>
+          {hasPendingInviteToken && (
+            <div className="auth-pending-invite" role="status">
+              <strong>가계부 초대 링크를 확인했습니다.</strong>
+              <span>로그인 또는 회원가입 후 협업 탭의 초대 수락 토큰 칸에 자동 입력됩니다.</span>
+            </div>
+          )}
           {authMode === "verify" ? (
             <>
               <label>
@@ -2610,7 +3213,16 @@ function App() {
                 />
               </label>
               <label>
-                이름
+                비밀번호 확인
+                <input
+                  type="password"
+                  value={verifyForm.password_confirm}
+                  onChange={(e) => setVerifyForm({ ...verifyForm, password_confirm: e.target.value })}
+                  required
+                />
+              </label>
+              <label>
+                본명
                 <input
                   value={verifyForm.display_name}
                   onChange={(e) => setVerifyForm({ ...verifyForm, display_name: e.target.value })}
@@ -2629,12 +3241,29 @@ function App() {
                 <input type="password" value={authForm.password} onChange={(e) => setAuthForm({ ...authForm, password: e.target.value })} required />
               </label>
               {authMode === "register" && (
-                <label>
-                  이름
-                  <input value={authForm.display_name} onChange={(e) => setAuthForm({ ...authForm, display_name: e.target.value })} required />
-                </label>
+                <>
+                  <label>
+                    비밀번호 확인
+                    <input
+                      type="password"
+                      value={authForm.password_confirm}
+                      onChange={(e) => setAuthForm({ ...authForm, password_confirm: e.target.value })}
+                      required
+                    />
+                  </label>
+                  <label>
+                    본명
+                    <input value={authForm.display_name} onChange={(e) => setAuthForm({ ...authForm, display_name: e.target.value })} required />
+                  </label>
+                </>
               )}
             </>
+          )}
+          {hasPendingInviteToken && (
+            <label>
+              감지된 초대 토큰
+              <input value={inviteAcceptToken} readOnly spellCheck={false} />
+            </label>
           )}
           <div className="auth-options">
             <label className="check-row">
@@ -2728,7 +3357,7 @@ function App() {
       </header>
 
       <nav className="tabs">
-        {["dashboard", "transactions", "holdings", "collaboration", "import"].map((item) => (
+        {["dashboard", "transactions", "holdings", "settings", "collaboration", "import"].map((item) => (
           <button key={item} className={tab === item ? "active" : ""} onClick={() => setTab(item)}>
             {TAB_LABELS[item] || item}
           </button>
@@ -2736,6 +3365,22 @@ function App() {
       </nav>
 
       {message && <div className="message">{message}</div>}
+      {showOnboardingGuide && (
+        <section className="card onboarding-guide" role="status">
+          <div>
+            <h2>처음 입력할 준비가 됐습니다</h2>
+            <p>현재 가계에는 아직 거래와 자산이 없습니다. 첫 거래 한 건만 입력해도 대시보드와 카테고리 흐름이 바로 살아납니다.</p>
+          </div>
+          <div className="inline">
+            <button type="button" className="primary" onClick={startOnboardingFlow}>
+              바로 입력하기
+            </button>
+            <button type="button" className="secondary" onClick={dismissOnboardingGuide}>
+              나중에
+            </button>
+          </div>
+        </section>
+      )}
 
       {tab === "dashboard" && (
         <section className="grid-2" aria-busy={dashboardLoading ? "true" : "false"}>
@@ -2888,6 +3533,14 @@ function App() {
           <article className="card">
             <h2>거래 입력</h2>
             <p className="table-summary">수정은 아래 거래 목록에서 바로 진행됩니다.</p>
+            {showTransactionEntryBanner && (
+              <div className="tx-entry-banner" role="status">
+                <span>첫 거래를 바로 입력해 보세요. 거래자와 카테고리를 먼저 고르면 정리 속도가 빨라집니다.</span>
+                <button type="button" className="secondary" onClick={() => setShowTransactionEntryBanner(false)}>
+                  닫기
+                </button>
+              </div>
+            )}
             <form className="form-grid transactions-form-grid" onSubmit={submitTransaction}>
               <label className="date-field">
                 일자
@@ -2923,7 +3576,16 @@ function App() {
                   ))}
                 </select>
               </label>
-              <label>금액<input type="number" min="1" step="0.01" value={txForm.amount} onChange={(e) => setTxForm({ ...txForm, amount: e.target.value })} required /></label>
+              <label>
+                금액
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={txForm.amount}
+                  onChange={(event) => handleGroupedDecimalInput(event, setTxForm, "amount")}
+                  required
+                />
+              </label>
               <label>
                 대분류
                 <select
@@ -2957,19 +3619,26 @@ function App() {
                 </select>
               </label>
               <label>메모<input value={txForm.memo} onChange={(e) => setTxForm({ ...txForm, memo: e.target.value })} /></label>
-              <label>거래자명<input value={txForm.owner_name} onChange={(e) => setTxForm({ ...txForm, owner_name: e.target.value })} /></label>
+              <label>
+                거래자
+                <select
+                  value={ownerSelectValue(txForm.owner_user_id, txForm.owner_name)}
+                  onChange={(event) => {
+                    const nextOwner = ownerSelectionFromValue(event.target.value, transactionOwnerOptions);
+                    setTxForm({ ...txForm, ...nextOwner });
+                  }}
+                >
+                  <option value="">(선택 안함)</option>
+                  {transactionOwnerOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <div className="inline form-actions">
                 <button type="button" className="secondary" onClick={() => {
-                  setTxForm({
-                    id: "",
-                    version: 0,
-                    occurred_on: todayIso(),
-                    flow_type: "expense",
-                    amount: "",
-                    category_id: "",
-                    memo: "",
-                    owner_name: "",
-                  });
+                  setTxForm(createTransactionForm());
                   setTxCategoryMajor("");
                 }}>
                   초기화
@@ -3101,14 +3770,21 @@ function App() {
                 {filteredTransactions.map((item) => {
                   const isEditing = Boolean(item && txInlineEdit?.id === item.id);
                   const editForm = isEditing ? txInlineEdit : null;
+                  const editOwnerOptions = ownerOptionsWithFallback(editForm?.owner_user_id || "", editForm?.owner_name || "");
                   const rowKey = item.id;
                   return (
                     <Fragment key={rowKey}>
-                      <tr className={isEditing ? "transaction-row-editing" : ""}>
+                      <tr
+                        className={`transaction-row transaction-row-${item.flow_type} ${isEditing ? "transaction-row-editing" : ""}`}
+                        style={{
+                          "--transaction-row-bg": normalizeTransactionRowColors(householdSettings?.transaction_row_colors)[item.flow_type] || DEFAULT_TRANSACTION_ROW_COLORS[item.flow_type],
+                          "--transaction-row-accent": normalizeTransactionRowColors(householdSettings?.transaction_row_colors)[item.flow_type] || DEFAULT_TRANSACTION_ROW_COLORS[item.flow_type],
+                        }}
+                      >
                         <td data-label="일자">{item.occurred_on}</td>
                         <td data-label="유형">{FLOW_TYPE_LABELS[item.flow_type] || item.flow_type}</td>
                         <td data-label="금액">{fmtKrw(item.amount)}</td>
-                        <td data-label="카테고리">{toCategoryPairLabel(categoryById.get(item.category_id || ""))}</td>
+                        <td data-label="카테고리">{renderCategoryCell(categoryById.get(item.category_id || ""))}</td>
                         <td data-label="메모">{item.memo}</td>
                         <td data-label="거래자명">{item.owner_name || "-"}</td>
                         <td data-label="최종 수정일">{fmtDate(item.updated_at)}</td>
@@ -3129,6 +3805,7 @@ function App() {
                                     category_id: item.category_id || "",
                                     category_major: categoryById.get(item.category_id || "")?.major || "",
                                     memo: item.memo || "",
+                                    owner_user_id: item.owner_user_id || "",
                                     owner_name: item.owner_name || "",
                                   });
                                 }
@@ -3181,9 +3858,10 @@ function App() {
                               <input
                                 aria-label="금액"
                                 placeholder="금액"
-                                type="number" min="1" step="0.01"
+                                type="text"
+                                inputMode="decimal"
                                 value={editForm.amount}
-                                onChange={(e) => setTxInlineEdit({ ...editForm, amount: e.target.value })}
+                                onChange={(event) => handleGroupedDecimalInput(event, setTxInlineEdit, "amount")}
                                 required
                               />
                             </label>
@@ -3239,12 +3917,23 @@ function App() {
                           </td>
                           <td data-label="거래자명">
                             <label className="tx-inline-owner-field">
-                              <input
-                                aria-label="거래자명"
-                                placeholder="거래자명"
-                                value={editForm.owner_name}
-                                onChange={(e) => setTxInlineEdit({ ...editForm, owner_name: e.target.value })}
-                              />
+                              <select
+                                aria-label="거래자"
+                                value={ownerSelectValue(editForm.owner_user_id, editForm.owner_name)}
+                                onChange={(event) =>
+                                  setTxInlineEdit({
+                                    ...editForm,
+                                    ...ownerSelectionFromValue(event.target.value, editOwnerOptions),
+                                  })
+                                }
+                              >
+                                <option value="">(선택 안함)</option>
+                                {editOwnerOptions.map((option) => (
+                                  <option key={option.value} value={option.value}>
+                                    {option.label}
+                                  </option>
+                                ))}
+                              </select>
                             </label>
                           </td>
                           <td data-label="최종 수정일">-</td>
@@ -3291,6 +3980,7 @@ function App() {
                       setHoldingForm((prev) => ({
                         ...createHoldingForm(nextType),
                         name: prev.name,
+                        owner_user_id: prev.owner_user_id,
                         owner_name: prev.owner_name,
                         account_name: prev.account_name,
                         average_cost: prev.average_cost,
@@ -3322,8 +4012,13 @@ function App() {
                 <label>
                   보유자
                   <select
-                    value={holdingForm.owner_name}
-                    onChange={(event) => setHoldingForm({ ...holdingForm, owner_name: event.target.value })}
+                    value={ownerSelectValue(holdingForm.owner_user_id, holdingForm.owner_name)}
+                    onChange={(event) =>
+                      setHoldingForm({
+                        ...holdingForm,
+                        ...ownerSelectionFromValue(event.target.value, holdingFormOwnerOptions),
+                      })
+                    }
                   >
                     <option value="">(선택 안함)</option>
                     {holdingFormOwnerOptions.map((option) => (
@@ -3360,11 +4055,10 @@ function App() {
                     <label>
                       수량
                       <input
-                        type="number"
-                        min="0.00000001"
-                        step="0.00000001"
+                        type="text"
+                        inputMode="decimal"
                         value={holdingForm.quantity}
-                        onChange={(event) => setHoldingForm({ ...holdingForm, quantity: event.target.value })}
+                        onChange={(event) => handleGroupedDecimalInput(event, setHoldingForm, "quantity")}
                         required
                       />
                     </label>
@@ -3373,11 +4067,10 @@ function App() {
                   <label>
                     평가금액
                     <input
-                      type="number"
-                      min="0"
-                      step="0.01"
+                      type="text"
+                      inputMode="decimal"
                       value={holdingForm.average_cost}
-                      onChange={(event) => setHoldingForm({ ...holdingForm, average_cost: event.target.value })}
+                      onChange={(event) => handleGroupedDecimalInput(event, setHoldingForm, "average_cost")}
                       required
                     />
                   </label>
@@ -3386,11 +4079,10 @@ function App() {
                   <label>
                     평균단가
                     <input
-                      type="number"
-                      min="0"
-                      step="0.0001"
+                      type="text"
+                      inputMode="decimal"
                       value={holdingForm.average_cost}
-                      onChange={(event) => setHoldingForm({ ...holdingForm, average_cost: event.target.value })}
+                      onChange={(event) => handleGroupedDecimalInput(event, setHoldingForm, "average_cost")}
                       required
                     />
                   </label>
@@ -3467,6 +4159,251 @@ function App() {
         </section>
       )}
 
+      {tab === "settings" && (
+        <section className="grid-2 settings-grid">
+          <article className="card">
+            <h2>내 프로필</h2>
+            <form className="form-grid settings-form-grid" onSubmit={saveProfileSettings}>
+              <label>
+                본명
+                <input
+                  value={profileForm.real_name}
+                  onChange={(event) => setProfileForm((prev) => ({ ...prev, real_name: event.target.value }))}
+                  required
+                />
+              </label>
+              <label>
+                닉네임
+                <input
+                  value={profileForm.nickname}
+                  onChange={(event) => setProfileForm((prev) => ({ ...prev, nickname: event.target.value }))}
+                  placeholder="선택 입력"
+                />
+              </label>
+              <label>
+                표시명 방식
+                <select
+                  value={profileForm.display_name_mode}
+                  onChange={(event) => setProfileForm((prev) => ({ ...prev, display_name_mode: event.target.value }))}
+                >
+                  {DISPLAY_NAME_MODE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="settings-preview">
+                현재 표시명: <strong>{user?.display_name || "-"}</strong>
+              </div>
+              <div className="inline form-actions settings-actions">
+                <button type="submit">프로필 저장</button>
+              </div>
+            </form>
+          </article>
+
+          <article className="card">
+            <h2>가계 설정</h2>
+            <form className="form-grid settings-form-grid" onSubmit={saveHouseholdSettings}>
+              <label>
+                가계 이름
+                <input
+                  value={householdSettingsForm.name}
+                  onChange={(event) => setHouseholdSettingsForm((prev) => ({ ...prev, name: event.target.value }))}
+                  required
+                />
+              </label>
+              <div className="settings-preview">
+                현재 기준 통화: <strong>{householdSettings?.base_currency || household?.base_currency || "KRW"}</strong>
+              </div>
+              <div className="inline form-actions settings-actions">
+                <button type="submit" disabled={!canManageHousehold}>
+                  가계 설정 저장
+                </button>
+              </div>
+            </form>
+            {!canManageHousehold && (
+              <p className="table-summary">가계 이름과 공통 색상은 공동 소유자 이상 권한에서만 변경할 수 있습니다.</p>
+            )}
+          </article>
+
+          <article className="card">
+            <h2>거래 행 색상</h2>
+            <form className="settings-color-form" onSubmit={saveHouseholdSettings}>
+              {FLOW_TYPE_OPTIONS.map((option) => {
+                const colorValue = householdSettingsForm.transaction_row_colors?.[option.value] || DEFAULT_TRANSACTION_ROW_COLORS[option.value];
+                return (
+                  <label key={option.value} className="settings-color-row">
+                    <span>{option.label}</span>
+                    <span
+                      className="settings-color-preview-bar"
+                      style={{ "--settings-color-preview": colorValue }}
+                      aria-hidden="true"
+                    />
+                    <input
+                      type="color"
+                      value={colorValue}
+                      onChange={(event) =>
+                        setHouseholdSettingsForm((prev) => ({
+                          ...prev,
+                          transaction_row_colors: {
+                            ...prev.transaction_row_colors,
+                            [option.value]: event.target.value.toUpperCase(),
+                          },
+                        }))
+                      }
+                      disabled={!canManageHousehold}
+                    />
+                    <code>{colorValue}</code>
+                  </label>
+                );
+              })}
+              <div className="inline form-actions settings-actions">
+                <button type="submit" disabled={!canManageHousehold}>
+                  색상 저장
+                </button>
+              </div>
+            </form>
+          </article>
+
+          <article className="card settings-span-full">
+            <h2>카테고리 관리</h2>
+            <form className="form-grid settings-form-grid category-create-form" onSubmit={createCategoryPair}>
+              <label>
+                유형
+                <select
+                  value={categoryDraft.flow_type}
+                  onChange={(event) => setCategoryDraft((prev) => ({ ...prev, flow_type: event.target.value }))}
+                  disabled={!canEditHouseholdData}
+                >
+                  {FLOW_TYPE_OPTIONS.map((item) => (
+                    <option key={item.value} value={item.value}>
+                      {item.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                새 대분류
+                <input
+                  value={categoryDraft.major}
+                  onChange={(event) => setCategoryDraft((prev) => ({ ...prev, major: event.target.value }))}
+                  required
+                  disabled={!canEditHouseholdData}
+                />
+              </label>
+              <label>
+                첫 중분류
+                <input
+                  value={categoryDraft.minor}
+                  onChange={(event) => setCategoryDraft((prev) => ({ ...prev, minor: event.target.value }))}
+                  required
+                  disabled={!canEditHouseholdData}
+                />
+              </label>
+              <div className="inline form-actions settings-actions">
+                <button type="submit" disabled={!canEditHouseholdData}>카테고리 추가</button>
+              </div>
+            </form>
+            {!canEditHouseholdData && (
+              <p className="table-summary">카테고리 변경은 편집자 이상 권한에서만 가능합니다.</p>
+            )}
+
+            <div className="settings-category-flows">
+              {categoryGroups.map((flowGroup) => (
+                <section key={flowGroup.value} className="settings-category-flow">
+                  <header className="settings-category-flow-header">
+                    <h3>{FLOW_TYPE_LABELS[flowGroup.value] || flowGroup.value}</h3>
+                    <span className="table-summary">{flowGroup.groups.reduce((count, [, items]) => count + items.length, 0)}개</span>
+                  </header>
+                  {flowGroup.groups.length === 0 ? (
+                    <p className="table-summary">등록된 카테고리가 없습니다.</p>
+                  ) : (
+                    flowGroup.groups.map(([major, items]) => (
+                      <div key={`${flowGroup.value}:${major}`} className="settings-category-group">
+                        <div className="settings-category-group-header">
+                          <strong>{toCategoryMajorLabel(major)}</strong>
+                          <div className="inline">
+                            <input
+                              value={majorRenameDrafts[`${flowGroup.value}:${major}`] || ""}
+                              onChange={(event) =>
+                                setMajorRenameDrafts((prev) => ({
+                                  ...prev,
+                                  [`${flowGroup.value}:${major}`]: event.target.value,
+                                }))
+                              }
+                              placeholder="새 대분류명"
+                              disabled={!canEditHouseholdData}
+                            />
+                            <button type="button" className="secondary" disabled={!canEditHouseholdData} onClick={() => renameCategoryMajorGroup(flowGroup.value, major)}>
+                              대분류 변경
+                            </button>
+                          </div>
+                        </div>
+                        <div className="settings-category-list">
+                          {items.map((category) => {
+                            const isEditing = categoryEditId === category.id;
+                            return isEditing ? (
+                              <form
+                                key={category.id}
+                                className="settings-category-row category-row-editing"
+                                onSubmit={(event) => saveCategoryEdit(event, category.id)}
+                              >
+                                <span className="settings-category-major">{toCategoryMajorLabel(category.major)}</span>
+                                <input
+                                  value={categoryEditForm.minor}
+                                  onChange={(event) => setCategoryEditForm((prev) => ({ ...prev, major: category.major, minor: event.target.value }))}
+                                  required
+                                  disabled={!canEditHouseholdData}
+                                />
+                                <span className="settings-category-usage">사용 {category.usage_count}건</span>
+                                <div className="inline">
+                                  <button type="submit" disabled={!canEditHouseholdData}>저장</button>
+                                  <button type="button" className="secondary" onClick={() => { setCategoryEditId(""); setCategoryEditForm({ major: "", minor: "" }); }}>
+                                    취소
+                                  </button>
+                                </div>
+                              </form>
+                            ) : (
+                              <div key={category.id} className="settings-category-row">
+                                <span className="settings-category-major">{toCategoryMajorLabel(category.major)}</span>
+                                <span className="settings-category-minor">{toCategoryMinorLabel(category.minor)}</span>
+                                <span className="settings-category-usage">사용 {category.usage_count}건</span>
+                                <div className="inline">
+                                  <button
+                                    type="button"
+                                    className="secondary"
+                                    disabled={!canEditHouseholdData}
+                                    onClick={() => {
+                                      setCategoryEditId(category.id);
+                                      setCategoryEditForm({ major: category.major, minor: category.minor });
+                                    }}
+                                  >
+                                    중분류 수정
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="danger"
+                                    disabled={!canEditHouseholdData || Number(category.usage_count || 0) > 0}
+                                    onClick={() => deleteCategoryPair(category).catch(() => undefined)}
+                                  >
+                                    삭제
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </section>
+              ))}
+            </div>
+          </article>
+        </section>
+      )}
+
       {tab === "collaboration" && (
         <section className="grid-1">
           <article className="card">
@@ -3498,6 +4435,31 @@ function App() {
                 현재 가계: {household?.name || "-"} / 내 권한: {COLLAB_ROLE_LABELS[householdRole] || householdRole || "-"}
               </p>
             </div>
+
+            {inviteAcceptanceNotice && (
+              <div className="invite-acceptance-banner" role="status">
+                <div className="invite-acceptance-copy">
+                  <strong>{inviteAcceptanceNotice.householdName} 초대를 수락했습니다.</strong>
+                  <span>
+                    권한: {COLLAB_ROLE_LABELS[inviteAcceptanceNotice.role] || inviteAcceptanceNotice.role || "-"}
+                    {inviteAcceptanceNotice.activeHouseholdSelected
+                      ? " · 현재 작업 가계로 선택되었습니다."
+                      : " · 필요하면 바로 작업 가계로 전환할 수 있습니다."}
+                  </span>
+                </div>
+                {inviteAcceptanceCanSwitch && (
+                  <div className="inline">
+                    <button
+                      type="button"
+                      onClick={() => selectActiveHousehold(inviteAcceptanceNotice.householdId).catch(() => undefined)}
+                      disabled={loading}
+                    >
+                      작업 가계로 전환
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
 
             <form className="form-grid collaboration-form-grid" onSubmit={createHouseholdInvite}>
               <label>
@@ -3554,6 +4516,66 @@ function App() {
                 </button>
               </div>
             </form>
+          </article>
+
+          <article className="card table-card">
+            <h2>받은 초대</h2>
+            <p className="table-summary">총 {receivedHouseholdInvites.length}건</p>
+            <table>
+              <thead>
+                <tr><th>가계</th><th>초대한 사람</th><th>권한</th><th>상태</th><th>시각</th><th>동작</th></tr>
+              </thead>
+              <tbody>
+                {receivedHouseholdInvites.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="empty-state">받은 초대가 없습니다.</td>
+                  </tr>
+                )}
+                {receivedHouseholdInvites.map((invite) => {
+                  const pending = invite.status === "pending";
+                  const accepted = invite.status === "accepted";
+                  const canSwitchToInviteHousehold = accepted && invite.household_id && invite.household_id !== household?.id;
+                  const isRecentlyAccepted = inviteAcceptanceNotice?.invitationId === invite.id;
+                  return (
+                    <tr key={invite.id} className={isRecentlyAccepted ? "invite-row-highlight" : ""}>
+                      <td data-label="가계">{invite.household_name || "-"}</td>
+                      <td data-label="초대한 사람">{invite.inviter_display_name || "-"}</td>
+                      <td data-label="권한">{COLLAB_ROLE_LABELS[invite.role] || invite.role}</td>
+                      <td data-label="상태">
+                        <span className={`status-pill status-pill-${invite.status} ${isRecentlyAccepted ? "status-pill-highlight" : ""}`}>
+                          {INVITATION_STATUS_LABELS[invite.status] || invite.status}
+                        </span>
+                      </td>
+                      <td data-label="시각">{fmtDateTime(invite.accepted_at || invite.expires_at)}</td>
+                      <td data-label="동작">
+                        <div className="inline">
+                          {pending && (
+                            <button
+                              type="button"
+                              className="secondary"
+                              disabled={loading}
+                              onClick={() => acceptReceivedHouseholdInvite(invite.id).catch(() => undefined)}
+                            >
+                              초대 수락
+                            </button>
+                          )}
+                          {!pending && canSwitchToInviteHousehold && (
+                            <button
+                              type="button"
+                              disabled={loading}
+                              onClick={() => selectActiveHousehold(invite.household_id).catch(() => undefined)}
+                            >
+                              작업 가계로 전환
+                            </button>
+                          )}
+                          {!pending && !canSwitchToInviteHousehold && "-"}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </article>
 
           <article className="card table-card">
@@ -3614,7 +4636,7 @@ function App() {
           </article>
 
           <article className="card table-card">
-            <h2>초대 현황</h2>
+            <h2>보낸 초대 현황</h2>
             <p className="table-summary">총 {householdInvites.length}건</p>
             <table>
               <thead>
@@ -3632,7 +4654,11 @@ function App() {
                     <tr key={invite.id}>
                       <td data-label="이메일">{invite.email}</td>
                       <td data-label="권한">{COLLAB_ROLE_LABELS[invite.role] || invite.role}</td>
-                      <td data-label="상태">{invite.status}</td>
+                      <td data-label="상태">
+                        <span className={`status-pill status-pill-${invite.status}`}>
+                          {INVITATION_STATUS_LABELS[invite.status] || invite.status}
+                        </span>
+                      </td>
                       <td data-label="초대한 사람">{invite.inviter_display_name || "-"}</td>
                       <td data-label="만료일">{fmtDateTime(invite.expires_at)}</td>
                       <td data-label="동작">

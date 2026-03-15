@@ -37,6 +37,21 @@
   font-size: 0.85rem;
 }
 
+.auth-pending-invite {
+  border: 1px solid #c8d9f9;
+  background: #eef4ff;
+  color: #1f4c99;
+  border-radius: 12px;
+  padding: 0.7rem 0.8rem;
+  display: grid;
+  gap: 0.25rem;
+  font-size: 0.88rem;
+}
+
+.auth-pending-invite strong {
+  font-size: 0.9rem;
+}
+
 .text-button {
   background: transparent;
   color: #0b4ab4;
@@ -543,6 +558,7 @@
   align-items: flex-end;
   gap: 1rem;
   margin-bottom: 1.5rem;
+  flex-wrap: wrap;
 }
 
 .collaboration-toolbar label {
@@ -580,6 +596,32 @@
 
 .collaboration-accept-grid {
   grid-template-columns: minmax(0, 1fr);
+}
+
+.invite-acceptance-banner {
+  border: 1px solid #cfe6c7;
+  background: #f5fbec;
+  color: #355a21;
+  border-radius: 12px;
+  padding: 0.75rem 0.85rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.invite-acceptance-copy {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.invite-acceptance-copy strong {
+  font-size: 0.95rem;
+}
+
+.invite-acceptance-copy span {
+  font-size: 0.85rem;
+  color: #47682d;
 }
 
 label {
@@ -748,6 +790,50 @@ button.danger:active:not(:disabled) {
 .empty-state {
   text-align: center;
   color: #5d7597;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 4.6rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  border: 1px solid transparent;
+}
+
+.status-pill-pending {
+  background: #eef4ff;
+  color: #1f4c99;
+  border-color: #c8d9f9;
+}
+
+.status-pill-accepted {
+  background: #edf9f0;
+  color: #25663b;
+  border-color: #cfe6c7;
+}
+
+.status-pill-revoked {
+  background: #fff1f0;
+  color: #b42318;
+  border-color: #f7c6c2;
+}
+
+.status-pill-expired {
+  background: #f7f9fc;
+  color: #516985;
+  border-color: #dbe3ef;
+}
+
+.status-pill-highlight {
+  box-shadow: 0 0 0 3px rgba(37, 102, 59, 0.12);
+}
+
+.invite-row-highlight td {
+  background: #f8fdf6;
 }
 
 .section-header-cell {
@@ -1065,6 +1151,178 @@ thead {
   justify-content: center;
 }
 
+.onboarding-guide {
+  border-color: #c8d9f9;
+  background: linear-gradient(135deg, #eef4ff 0%, #f8fbff 100%);
+}
+
+.onboarding-guide p {
+  margin: 0.35rem 0 0;
+  color: #355177;
+}
+
+.tx-entry-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border: 1px solid #d6e7c3;
+  border-radius: 12px;
+  background: #f5fbec;
+  color: #355a21;
+  padding: 0.7rem 0.8rem;
+}
+
+.transaction-row td {
+  background: var(--transaction-row-bg, transparent);
+}
+
+.transaction-row td:first-child {
+  box-shadow: inset 0.55rem 0 0 var(--transaction-row-accent, transparent);
+  padding-left: 0.8rem;
+}
+
+.transaction-row-editing td,
+.transaction-inline-editor-row td {
+  background: #f7fbff;
+}
+
+.category-cell {
+  display: grid;
+  gap: 0.1rem;
+  justify-items: start;
+  text-align: left;
+}
+
+.category-cell-major {
+  font-weight: 700;
+  color: #163866;
+}
+
+.category-cell-minor {
+  font-size: 0.83rem;
+  color: #5f7596;
+}
+
+.category-cell-empty {
+  color: #7b8faa;
+}
+
+.settings-grid {
+  align-items: start;
+}
+
+.settings-span-full {
+  grid-column: 1 / -1;
+}
+
+.settings-form-grid {
+  align-items: end;
+}
+
+.settings-preview {
+  grid-column: 1 / -1;
+  font-size: 0.9rem;
+  color: #355177;
+}
+
+.settings-actions {
+  grid-column: 1 / -1;
+  justify-content: flex-end;
+}
+
+.settings-color-form {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.settings-color-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(110px, 180px) auto auto;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.9rem;
+  color: #243b5f;
+}
+
+.settings-color-preview-bar {
+  width: 100%;
+  height: 0.95rem;
+  border-radius: 999px;
+  background: var(--settings-color-preview, #e2e8f0);
+  border: 1px solid #dbe3ef;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.38);
+}
+
+.settings-color-row code {
+  color: #516985;
+  background: #f7f9fc;
+  border: 1px solid #dbe3ef;
+  border-radius: 999px;
+  padding: 0.2rem 0.55rem;
+}
+
+.settings-category-flows {
+  display: grid;
+  gap: 1rem;
+}
+
+.settings-category-flow {
+  display: grid;
+  gap: 0.75rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 0.85rem;
+  background: #fbfdff;
+}
+
+.settings-category-flow-header,
+.settings-category-group-header,
+.settings-category-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.settings-category-group {
+  display: grid;
+  gap: 0.55rem;
+  border-top: 1px solid #e6edf7;
+  padding-top: 0.75rem;
+}
+
+.settings-category-list {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.settings-category-row {
+  grid-template-columns: 160px minmax(0, 1fr) 110px auto;
+  border: 1px solid #e6edf7;
+  border-radius: 10px;
+  padding: 0.6rem 0.7rem;
+  background: #fff;
+}
+
+.category-row-editing {
+  background: #f7fbff;
+}
+
+.settings-category-major {
+  font-weight: 700;
+  color: #173a67;
+}
+
+.settings-category-minor {
+  color: #385272;
+}
+
+.settings-category-usage {
+  font-size: 0.82rem;
+  color: #6a7f99;
+}
+
 @media (max-width: 1100px) {
   .grid-2 {
     grid-template-columns: minmax(0, 1fr);
@@ -1129,6 +1387,10 @@ thead {
     padding: 0.5rem;
     background: #fff;
   }
+  tr.transaction-row {
+    border-left: 0.55rem solid var(--transaction-row-accent, transparent);
+    padding-left: 0.25rem;
+  }
   td {
     border: none;
     border-bottom: 1px solid #f4f8ff;
@@ -1141,6 +1403,28 @@ thead {
     white-space: normal;
     word-break: break-all;
     gap: 0.5rem;
+  }
+  .transaction-row td:first-child {
+    box-shadow: none;
+    padding-left: 0.2rem;
+  }
+  .settings-color-row {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+  }
+  .settings-color-preview-bar {
+    grid-column: 1 / -1;
+  }
+  .invite-acceptance-banner {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .invite-acceptance-banner .inline {
+    width: 100%;
+  }
+  .collaboration-toolbar label,
+  .collaboration-toolbar .table-summary {
+    width: 100%;
+    max-width: none;
   }
   td:last-child {
     border-bottom: 0;
@@ -1184,6 +1468,22 @@ thead {
 .tx-inline-category-section {
   max-width: 100%;
 }
+
+  .tx-entry-banner,
+  .settings-color-row,
+  .settings-category-flow-header,
+  .settings-category-group-header,
+  .settings-category-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settings-actions {
+    justify-content: stretch;
+  }
+
+  .settings-actions button {
+    width: 100%;
+  }
 
   .filter-container,
   .actions,

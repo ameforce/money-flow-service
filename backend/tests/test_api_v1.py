@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import io
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 import os
 from pathlib import Path
@@ -421,6 +421,24 @@ def test_email_log_mode_redacts_body(caplog: pytest.LogCaptureFixture) -> None:
         assert "body_redacted=true" in messages
     finally:
         settings.email_delivery_mode = previous_mode
+
+
+def test_auth_verification_ack_message_mentions_mailpit_for_internal_dev_smtp() -> None:
+    previous_env = settings.env
+    previous_mode = settings.email_delivery_mode
+    previous_host = settings.smtp_host
+    try:
+        settings.env = "dev"
+        settings.email_delivery_mode = "smtp"
+        settings.smtp_host = "enm-mail-smtp"
+        message = auth_route._verification_ack_message()
+        assert "가입된 계정이 있으면 인증 메일을 발송" in message
+        assert "Mailpit" in message
+        assert "외부 메일함 미도착이 정상 동작" in message
+    finally:
+        settings.env = previous_env
+        settings.email_delivery_mode = previous_mode
+        settings.smtp_host = previous_host
 
 
 def test_email_smtp_starttls_uses_explicit_tls_context(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1473,7 +1491,10 @@ def test_cookie_auth_write_routes_require_csrf_headers() -> None:
         allowed_invite = client.post("/api/v1/household/invitations", headers=_csrf_headers(client), json=invite_payload)
         assert allowed_invite.status_code == 201
 
-        workbook_path = str(next((Path(__file__).resolve().parents[2] / "legacy").glob("*.xlsx")))
+        legacy_files = sorted((Path(__file__).resolve().parents[2] / "legacy").glob("*.xlsx"))
+        if not legacy_files:
+            pytest.skip("legacy workbook fixtures are missing in this environment")
+        workbook_path = str(legacy_files[0])
         blocked_import = client.post(
             "/api/v1/imports/workbook",
             json={"mode": "dry_run", "workbook_path": workbook_path},
@@ -2132,6 +2153,7 @@ def test_household_invitation_accept_and_switch_household() -> None:
         owner_household = client.get("/api/v1/household/current", headers=_headers(token_owner))
         assert owner_household.status_code == 200
         owner_household_id = owner_household.json()["household"]["id"]
+        owner_household_name = owner_household.json()["household"]["name"]
 
         invite_resp = client.post(
             "/api/v1/household/invitations",
@@ -2149,7 +2171,12 @@ def test_household_invitation_accept_and_switch_household() -> None:
             json={"token": invite_token},
         )
         assert accepted.status_code == 200
-        assert accepted.json()["status"] == "accepted"
+        accepted_payload = accepted.json()
+        assert accepted_payload["status"] == "accepted"
+        assert accepted_payload["household_id"] == owner_household_id
+        assert accepted_payload["household_name"] == owner_household_name
+        assert accepted_payload["active_household_selected"] is False
+        assert accepted_payload["invitation_id"] == invite_payload["id"]
 
         listed = client.get("/api/v1/household/list", headers=_headers(token_guest))
         assert listed.status_code == 200
@@ -2168,6 +2195,51 @@ def test_household_invitation_accept_and_switch_household() -> None:
         members = client.get("/api/v1/household/members", headers=_headers(token_guest))
         assert members.status_code == 200
         assert len(members.json()) >= 2
+
+
+def test_household_received_invitations_can_show_inviter_and_accept_by_id() -> None:
+    with TestClient(app) as client:
+        owner_email = f"owner-received-{uuid.uuid4().hex}@example.com"
+        guest_email = f"guest-received-{uuid.uuid4().hex}@example.com"
+        token_owner = _auth(client, owner_email, "Password1234", "OwnerReceived")
+        token_guest = _auth(client, guest_email, "Password1234", "GuestReceived")
+
+        owner_household = client.get("/api/v1/household/current", headers=_headers(token_owner))
+        assert owner_household.status_code == 200
+        owner_household_name = owner_household.json()["household"]["name"]
+
+        invite_resp = client.post(
+            "/api/v1/household/invitations",
+            headers=_headers(token_owner),
+            json={"email": guest_email, "role": "editor"},
+        )
+        assert invite_resp.status_code == 201
+        invite_id = invite_resp.json()["id"]
+
+        received = client.get("/api/v1/household/invitations/received", headers=_headers(token_guest))
+        assert received.status_code == 200
+        received_payload = received.json()
+        assert len(received_payload) == 1
+        assert received_payload[0]["id"] == invite_id
+        assert received_payload[0]["household_name"] == owner_household_name
+        assert received_payload[0]["inviter_display_name"] == "OwnerReceived"
+        assert received_payload[0]["status"] == "pending"
+
+        accepted = client.post(
+            f"/api/v1/household/invitations/{invite_id}/accept",
+            headers=_headers(token_guest),
+        )
+        assert accepted.status_code == 200
+        accepted_payload = accepted.json()
+        assert accepted_payload["invitation_id"] == invite_id
+        assert accepted_payload["household_name"] == owner_household_name
+        assert accepted_payload["active_household_selected"] is False
+        assert accepted_payload["role"] == "editor"
+
+        received_after = client.get("/api/v1/household/invitations/received", headers=_headers(token_guest))
+        assert received_after.status_code == 200
+        assert received_after.json()[0]["status"] == "accepted"
+        assert received_after.json()[0]["accepted_at"] is not None
 
 
 def test_household_invitation_accept_single_use_under_parallel_requests() -> None:
@@ -2328,7 +2400,7 @@ def test_household_invitation_accept_and_revoke_race_keeps_consistent_state() ->
             raise AssertionError(f"unexpected invitation status: {invitation.status}")
 
 
-def test_household_invitation_rejects_duplicate_display_name_member() -> None:
+def test_household_invitation_allows_duplicate_display_name_member() -> None:
     with TestClient(app) as client:
         owner_email = f"dup-name-owner-{uuid.uuid4().hex}@example.com"
         guest_email = f"dup-name-guest-{uuid.uuid4().hex}@example.com"
@@ -2340,8 +2412,8 @@ def test_household_invitation_rejects_duplicate_display_name_member() -> None:
             headers=_headers(token_owner),
             json={"email": guest_email, "role": "viewer"},
         )
-        assert invited.status_code == 409
-        assert invited.json()["error"]["code"] == "HOUSEHOLD_MEMBER_NAME_CONFLICT"
+        assert invited.status_code == 201
+        assert invited.json()["email"] == guest_email
 
 
 def test_household_invitation_persists_before_email_send(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -3074,7 +3146,7 @@ def test_holding_create_rejects_invalid_currency_and_blank_text_fields() -> None
         assert blank_symbol.status_code == 400
 
 
-def test_holding_owner_must_be_household_member() -> None:
+def test_holding_owner_name_fallback_is_allowed_without_member_link() -> None:
     with TestClient(app) as client:
         token = _auth(client, f"holding-owner-{uuid.uuid4().hex}@example.com", "Password1234", "HoldingOwner")
         created = client.post(
@@ -3092,8 +3164,10 @@ def test_holding_owner_must_be_household_member() -> None:
                 "currency": "KRW",
             },
         )
-        assert created.status_code == 400
-        assert created.json()["error"]["code"] == "HOLDING_OWNER_INVALID"
+        assert created.status_code == 201
+        created_payload = created.json()
+        assert created_payload["owner_user_id"] is None
+        assert created_payload["owner_name"] == "NotMember"
 
         valid = client.post(
             "/api/v1/holdings",
@@ -3104,7 +3178,7 @@ def test_holding_owner_must_be_household_member() -> None:
                 "market_symbol": "KRW-CASH-OWNER-VALID",
                 "name": "OwnerPolicyValid",
                 "category": "현금성",
-                "owner_name": "HoldingOwner",
+                "owner_user_id": client.get("/api/v1/auth/me", headers=_headers(token)).json()["id"],
                 "quantity": 1,
                 "average_cost": 1000,
                 "currency": "KRW",
@@ -3112,17 +3186,19 @@ def test_holding_owner_must_be_household_member() -> None:
         )
         assert valid.status_code == 201
         payload = valid.json()
+        assert payload["owner_user_id"] is not None
+        assert payload["owner_name"] == "HoldingOwner"
 
         patched = client.patch(
             f"/api/v1/holdings/{payload['id']}",
             headers=_headers(token),
-            json={"base_version": payload["version"], "owner_name": "UnknownMember"},
+            json={"base_version": payload["version"], "owner_user_id": "unknown-member"},
         )
         assert patched.status_code == 400
         assert patched.json()["error"]["code"] == "HOLDING_OWNER_INVALID"
 
 
-def test_holding_owner_rejects_ambiguous_member_display_name() -> None:
+def test_holding_duplicate_display_name_can_remain_legacy_owner_name() -> None:
     with TestClient(app) as client:
         owner_email = f"holding-amb-owner-{uuid.uuid4().hex}@example.com"
         token = _auth(client, owner_email, "Password1234", "DupHolder")
@@ -3160,8 +3236,10 @@ def test_holding_owner_rejects_ambiguous_member_display_name() -> None:
                 "currency": "KRW",
             },
         )
-        assert ambiguous.status_code == 409
-        assert ambiguous.json()["error"]["code"] == "HOLDING_OWNER_AMBIGUOUS"
+        assert ambiguous.status_code == 201
+        payload = ambiguous.json()
+        assert payload["owner_user_id"] is None
+        assert payload["owner_name"] == "DupHolder"
 
 
 def test_holding_patch_rejects_invalid_currency() -> None:
@@ -3558,7 +3636,10 @@ def test_holdings_dashboard_and_import_dry_run() -> None:
         assert portfolio.status_code == 200
         assert len(portfolio.json()["items"]) >= 1
 
-        workbook_path = str(next((Path(__file__).resolve().parents[2] / "legacy").glob("*.xlsx")))
+        legacy_files = sorted((Path(__file__).resolve().parents[2] / "legacy").glob("*.xlsx"))
+        if not legacy_files:
+            pytest.skip("legacy workbook fixtures are missing in this environment")
+        workbook_path = str(legacy_files[0])
         dry_run = client.post(
             "/api/v1/imports/workbook",
             headers=_headers(token),
@@ -3649,7 +3730,10 @@ def test_dashboard_portfolio_returns_retryable_error_when_fx_unavailable(monkeyp
 def test_import_upload_dry_run_and_apply_repeat() -> None:
     with TestClient(app) as client:
         token = _auth(client, "import-upload@example.com", "Password1234", "ImportUpload")
-        workbook_path = next((Path(__file__).resolve().parents[2] / "legacy").glob("*.xlsx"))
+        legacy_files = sorted((Path(__file__).resolve().parents[2] / "legacy").glob("*.xlsx"))
+        if not legacy_files:
+            pytest.skip("legacy workbook fixtures are missing in this environment")
+        workbook_path = legacy_files[0]
         content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
         with workbook_path.open("rb") as fp:
@@ -3746,7 +3830,10 @@ def test_import_upload_apply_row_shift_keeps_transaction_idempotency(tmp_path: P
         current = client.get("/api/v1/household/current", headers=_headers(token))
         assert current.status_code == 200
         household_id = str(current.json()["household"]["id"])
-        workbook_path = next((Path(__file__).resolve().parents[2] / "legacy").glob("*.xlsx"))
+        legacy_files = sorted((Path(__file__).resolve().parents[2] / "legacy").glob("*.xlsx"))
+        if not legacy_files:
+            pytest.skip("legacy workbook fixtures are missing in this environment")
+        workbook_path = legacy_files[0]
         content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
         with workbook_path.open("rb") as fp:
@@ -4144,8 +4231,8 @@ def test_import_non_member_owner_names_do_not_collapse_to_same_holding() -> None
         ).all()
         assert len(imported) == 2
         owners = {str(item.owner_name or "") for item in imported}
-        assert len(owners) == 2
-        assert all(owner.startswith("unmapped:") for owner in owners)
+        assert owners == {"외부보유자-A", "외부보유자-B"}
+        assert all(item.owner_user_id is None for item in imported)
 
         owner_issues = [issue for issue in issues if issue.code == "HOLDING_OWNER_NOT_MEMBER"]
         assert len(owner_issues) == 2
@@ -4156,10 +4243,10 @@ def test_import_non_member_owner_names_do_not_collapse_to_same_holding() -> None
 def test_import_holding_key_avoids_delimiter_collisions() -> None:
     importer = WorkbookImporter()
 
-    key_a = importer._holding_key(AssetType.stock, "ABC", "A:B", "C")
-    key_b = importer._holding_key(AssetType.stock, "ABC", "A", "B:C")
-    key_empty = importer._holding_key(AssetType.stock, "ABC", None, None)
-    key_dash = importer._holding_key(AssetType.stock, "ABC", "-", "-")
+    key_a = importer._holding_key(AssetType.stock, "ABC", None, "A:B", "C")
+    key_b = importer._holding_key(AssetType.stock, "ABC", None, "A", "B:C")
+    key_empty = importer._holding_key(AssetType.stock, "ABC", None, None, None)
+    key_dash = importer._holding_key(AssetType.stock, "ABC", None, "-", "-")
 
     assert key_a != key_b
     assert key_empty != key_dash
@@ -5038,3 +5125,278 @@ def test_import_upload_rejects_oversized_file() -> None:
         assert response.status_code == 413
         error_payload = response.json()["error"]
         assert error_payload["code"] == "IMPORT_FILE_TOO_LARGE"
+
+
+def test_auth_me_patch_updates_profile_and_backfills_owner_links() -> None:
+    with TestClient(app) as client:
+        token = _auth(client, f"profile-backfill-{uuid.uuid4().hex}@example.com", "Password1234", "본명")
+        me = client.get("/api/v1/auth/me", headers=_headers(token))
+        assert me.status_code == 200
+        user_id = str(me.json()["id"])
+        current = client.get("/api/v1/household/current", headers=_headers(token))
+        assert current.status_code == 200
+        household_id = str(current.json()["household"]["id"])
+
+        with SessionLocal() as db:
+            db.add(
+                Transaction(
+                    household_id=household_id,
+                    flow_type=FlowType.expense,
+                    occurred_on=date(2026, 2, 10),
+                    amount=Decimal("12000"),
+                    currency="KRW",
+                    memo="legacy-owner",
+                    owner_name="새닉네임",
+                )
+            )
+            db.add(
+                Holding(
+                    household_id=household_id,
+                    asset_type=AssetType.cash,
+                    symbol=f"LEGACY-{uuid.uuid4().hex[:8].upper()}",
+                    market_symbol=f"LEGACY-{uuid.uuid4().hex[:8].upper()}",
+                    name="LegacyHolding",
+                    category="현금성",
+                    owner_name="새닉네임",
+                    account_name="",
+                    quantity=Decimal("1"),
+                    average_cost=Decimal("12000"),
+                    currency="KRW",
+                )
+            )
+            db.commit()
+
+        patched = client.patch(
+            "/api/v1/auth/me",
+            headers=_headers(token),
+            json={"nickname": "새닉네임", "display_name_mode": "nickname"},
+        )
+        assert patched.status_code == 200
+        profile = patched.json()
+        assert profile["real_name"] == "본명"
+        assert profile["nickname"] == "새닉네임"
+        assert profile["display_name_mode"] == "nickname"
+        assert profile["display_name"] == "새닉네임"
+
+        tx_list = client.get("/api/v1/transactions", headers=_headers(token))
+        assert tx_list.status_code == 200
+        assert any(item["owner_user_id"] == user_id and item["owner_name"] == "새닉네임" for item in tx_list.json())
+
+        holding_list = client.get("/api/v1/holdings", headers=_headers(token))
+        assert holding_list.status_code == 200
+        assert any(item["owner_user_id"] == user_id and item["owner_name"] == "새닉네임" for item in holding_list.json())
+
+        portfolio = client.get("/api/v1/dashboard/portfolio", headers=_headers(token))
+        assert portfolio.status_code == 200
+        assert any(item["owner_name"] == "새닉네임" for item in portfolio.json()["items"])
+
+
+def test_auth_me_patch_rejects_nickname_mode_without_nickname() -> None:
+    with TestClient(app) as client:
+        token = _auth(client, f"profile-nickname-{uuid.uuid4().hex}@example.com", "Password1234", "본명")
+        response = client.patch(
+            "/api/v1/auth/me",
+            headers=_headers(token),
+            json={"display_name_mode": "nickname", "nickname": "   "},
+        )
+        assert response.status_code == 400
+        assert response.json()["error"]["code"] == "AUTH_NICKNAME_REQUIRED"
+
+
+def test_household_settings_patch_persists_name_and_colors_and_enforces_role() -> None:
+    with TestClient(app) as client:
+        owner_email = f"settings-owner-{uuid.uuid4().hex}@example.com"
+        viewer_email = f"settings-viewer-{uuid.uuid4().hex}@example.com"
+        owner_token = _auth(client, owner_email, "Password1234", "Owner")
+        viewer_token = _auth(client, viewer_email, "Password1234", "Viewer")
+
+        invited = client.post(
+            "/api/v1/household/invitations",
+            headers=_headers(owner_token),
+            json={"email": viewer_email, "role": "viewer"},
+        )
+        assert invited.status_code == 201
+        invite_token = str(invited.json()["debug_invite_token"])
+        accepted = client.post(
+            "/api/v1/household/invitations/accept",
+            headers=_headers(viewer_token),
+            json={"token": invite_token},
+        )
+        assert accepted.status_code == 200
+        selected = client.post(
+            "/api/v1/household/select",
+            headers=_headers(viewer_token),
+            json={"household_id": accepted.json()["household_id"]},
+        )
+        assert selected.status_code == 200
+
+        forbidden = client.patch(
+            "/api/v1/household/settings",
+            headers=_headers(viewer_token),
+            json={"name": "Viewer Rename"},
+        )
+        assert forbidden.status_code == 403
+
+        patched = client.patch(
+            "/api/v1/household/settings",
+            headers=_headers(owner_token),
+            json={
+                "name": "새 가계 이름",
+                "transaction_row_colors": {
+                    "income": "#112233",
+                    "expense": "#445566",
+                },
+            },
+        )
+        assert patched.status_code == 200
+        payload = patched.json()
+        assert payload["name"] == "새 가계 이름"
+        assert payload["transaction_row_colors"]["income"] == "#112233"
+        assert payload["transaction_row_colors"]["expense"] == "#445566"
+        assert payload["transaction_row_colors"]["investment"]
+        assert payload["transaction_row_colors"]["transfer"]
+
+        fetched = client.get("/api/v1/household/settings", headers=_headers(owner_token))
+        assert fetched.status_code == 200
+        assert fetched.json()["name"] == "새 가계 이름"
+
+
+def test_category_crud_usage_count_and_major_rename() -> None:
+    with TestClient(app) as client:
+        token = _auth(client, f"category-crud-{uuid.uuid4().hex}@example.com", "Password1234", "CategoryOwner")
+
+        created = client.post(
+            "/api/v1/categories",
+            headers=_headers(token),
+            json={"flow_type": "expense", "major": "생활", "minor": "식비"},
+        )
+        assert created.status_code == 201
+        first_category = created.json()
+        assert first_category["usage_count"] == 0
+
+        duplicate = client.post(
+            "/api/v1/categories",
+            headers=_headers(token),
+            json={"flow_type": "expense", "major": "생활", "minor": "식비"},
+        )
+        assert duplicate.status_code == 409
+        assert duplicate.json()["error"]["code"] == "CATEGORY_DUPLICATE"
+
+        second_created = client.post(
+            "/api/v1/categories",
+            headers=_headers(token),
+            json={"flow_type": "expense", "major": "생활", "minor": "교통"},
+        )
+        assert second_created.status_code == 201
+
+        patched = client.patch(
+            f"/api/v1/categories/{first_category['id']}",
+            headers=_headers(token),
+            json={"minor": "외식"},
+        )
+        assert patched.status_code == 200
+        first_category = patched.json()
+        assert first_category["minor"] == "외식"
+
+        renamed = client.post(
+            "/api/v1/categories/rename-major",
+            headers=_headers(token),
+            json={"flow_type": "expense", "current_major": "생활", "next_major": "고정생활"},
+        )
+        assert renamed.status_code == 200
+        assert len(renamed.json()) == 2
+        assert all(item["major"] == "고정생활" for item in renamed.json())
+
+        used_tx = client.post(
+            "/api/v1/transactions",
+            headers=_headers(token),
+            json={
+                "occurred_on": "2026-02-03",
+                "flow_type": "expense",
+                "amount": 15000,
+                "currency": "KRW",
+                "memo": "category-use",
+                "category_id": first_category["id"],
+            },
+        )
+        assert used_tx.status_code == 201
+
+        categories = client.get("/api/v1/categories", headers=_headers(token))
+        assert categories.status_code == 200
+        used_category = next(item for item in categories.json() if item["id"] == first_category["id"])
+        assert used_category["usage_count"] == 1
+
+        delete_used = client.delete(f"/api/v1/categories/{first_category['id']}", headers=_headers(token))
+        assert delete_used.status_code == 409
+        assert delete_used.json()["error"]["code"] == "CATEGORY_IN_USE"
+
+        deletable = client.post(
+            "/api/v1/categories",
+            headers=_headers(token),
+            json={"flow_type": "income", "major": "급여", "minor": "월급"},
+        )
+        assert deletable.status_code == 201
+        delete_unused = client.delete(f"/api/v1/categories/{deletable.json()['id']}", headers=_headers(token))
+        assert delete_unused.status_code == 204
+
+
+def test_transaction_owner_user_id_validation_and_display_resolution() -> None:
+    with TestClient(app) as client:
+        owner_email = f"tx-owner-{uuid.uuid4().hex}@example.com"
+        guest_email = f"tx-guest-{uuid.uuid4().hex}@example.com"
+        owner_token = _auth(client, owner_email, "Password1234", "OwnerName")
+        guest_token = _auth(client, guest_email, "Password1234", "GuestName")
+
+        invited = client.post(
+            "/api/v1/household/invitations",
+            headers=_headers(owner_token),
+            json={"email": guest_email, "role": "viewer"},
+        )
+        assert invited.status_code == 201
+        accepted = client.post(
+            "/api/v1/household/invitations/accept",
+            headers=_headers(guest_token),
+            json={"token": invited.json()["debug_invite_token"]},
+        )
+        assert accepted.status_code == 200
+
+        guest_me = client.get("/api/v1/auth/me", headers=_headers(guest_token))
+        assert guest_me.status_code == 200
+        guest_user_id = str(guest_me.json()["id"])
+
+        created = client.post(
+            "/api/v1/transactions",
+            headers=_headers(owner_token),
+            json={
+                "occurred_on": "2026-02-03",
+                "flow_type": "expense",
+                "amount": 15000,
+                "currency": "KRW",
+                "memo": "linked-owner",
+                "owner_user_id": guest_user_id,
+            },
+        )
+        assert created.status_code == 201
+        transaction_payload = created.json()
+        assert transaction_payload["owner_user_id"] == guest_user_id
+        assert transaction_payload["owner_name"] == "GuestName"
+
+        invalid_patch = client.patch(
+            f"/api/v1/transactions/{transaction_payload['id']}",
+            headers=_headers(owner_token),
+            json={"base_version": transaction_payload["version"], "owner_user_id": "not-a-member"},
+        )
+        assert invalid_patch.status_code == 400
+        assert invalid_patch.json()["error"]["code"] == "TRANSACTION_OWNER_INVALID"
+
+        renamed = client.patch(
+            "/api/v1/auth/me",
+            headers=_headers(guest_token),
+            json={"nickname": "GuestNick", "display_name_mode": "nickname"},
+        )
+        assert renamed.status_code == 200
+
+        listed = client.get("/api/v1/transactions", headers=_headers(owner_token))
+        assert listed.status_code == 200
+        updated_row = next(item for item in listed.json() if item["id"] == transaction_payload["id"])
+        assert updated_row["owner_name"] == "GuestNick"

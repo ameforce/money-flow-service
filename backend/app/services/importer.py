@@ -9,12 +9,13 @@ import re
 
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.db.models import AssetType, Category, FlowType, Holding, Household, HouseholdMember, Transaction, User
 from app.schemas import ImportIssue, ImportReport
+from app.services.owner_links import find_unique_household_member_by_display_name
 
 
 MONTH_SHEET = re.compile(r"^(?:[1-9]|1[0-2])$")
@@ -588,6 +589,16 @@ class WorkbookImporter:
                     amount=row.amount,
                     currency="KRW",
                     memo=row.memo,
+                    owner_user_id=(
+                        linked_user.id
+                        if (linked_user := find_unique_household_member_by_display_name(
+                            db,
+                            household_id=household_id,
+                            display_name=row.owner_name,
+                        ))
+                        is not None
+                        else None
+                    ),
                     owner_name=row.owner_name,
                     source_ref=row.source_ref,
                 )
@@ -597,44 +608,40 @@ class WorkbookImporter:
             added += 1
         return added, skipped
 
-    def _household_member_name_counts(self, db: Session, household_id: str) -> dict[str, int]:
-        rows = db.execute(
-            select(User.display_name)
-            .join(HouseholdMember, HouseholdMember.user_id == User.id)
-            .where(HouseholdMember.household_id == household_id)
-        ).all()
-        counts: dict[str, int] = {}
-        for display_name, in rows:
-            normalized = str(display_name or "").strip()
-            if not normalized:
-                continue
-            counts[normalized] = int(counts.get(normalized, 0)) + 1
-        return counts
-
     def _apply_holdings(self, db: Session, household_id: str, rows: list[ParsedHolding]) -> tuple[int, int, list[ImportIssue]]:
         existing = db.scalars(select(Holding).where(Holding.household_id == household_id)).all()
-        member_name_counts = self._household_member_name_counts(db, household_id)
         invalid_owner_names: set[str] = set()
         ambiguous_owner_names: set[str] = set()
-        invalid_owner_aliases: dict[str, str] = {}
         apply_issues: list[ImportIssue] = []
 
-        def normalize_owner_name(value: str | None) -> str:
+        def resolve_owner(value: str | None) -> tuple[str | None, str]:
             normalized_owner = self._normalize_holder_text(value)
             if not normalized_owner:
-                return ""
-            member_count = int(member_name_counts.get(normalized_owner, 0))
-            if member_count == 1:
-                return normalized_owner
-            if member_count > 1:
+                return None, ""
+            linked_user = find_unique_household_member_by_display_name(
+                db,
+                household_id=household_id,
+                display_name=normalized_owner,
+            )
+            if linked_user is not None:
+                return str(linked_user.id), normalized_owner
+            duplicate_member_count = int(
+                db.scalar(
+                    select(func.count())
+                    .select_from(HouseholdMember)
+                    .join(User, User.id == HouseholdMember.user_id)
+                    .where(
+                        HouseholdMember.household_id == household_id,
+                        func.lower(User.display_name) == normalized_owner.lower(),
+                    )
+                )
+                or 0
+            )
+            if duplicate_member_count > 1:
                 ambiguous_owner_names.add(normalized_owner)
-                return ""
-            invalid_owner_names.add(normalized_owner)
-            alias = invalid_owner_aliases.get(normalized_owner)
-            if alias is None:
-                alias = self._unmapped_owner_alias(normalized_owner)
-                invalid_owner_aliases[normalized_owner] = alias
-            return alias
+            else:
+                invalid_owner_names.add(normalized_owner)
+            return None, normalized_owner
 
         for item in existing:
             item.version = self._normalize_version(item.version)
@@ -642,6 +649,7 @@ class WorkbookImporter:
             self._holding_key(
                 item.asset_type,
                 item.market_symbol,
+                item.owner_user_id,
                 item.owner_name,
                 item.account_name,
             ): item
@@ -655,9 +663,15 @@ class WorkbookImporter:
         added = 0
         updated = 0
         for row in rows:
-            normalized_owner = normalize_owner_name(row.owner_name)
+            owner_user_id, normalized_owner = resolve_owner(row.owner_name)
             normalized_account = self._normalize_holder_text(row.account_name)
-            key = self._holding_key(row.asset_type, row.market_symbol, normalized_owner, normalized_account)
+            key = self._holding_key(
+                row.asset_type,
+                row.market_symbol,
+                owner_user_id,
+                normalized_owner,
+                normalized_account,
+            )
             entity = by_source_ref.get(row.source_ref) if row.source_ref else None
             if entity is None:
                 entity = by_key.get(key)
@@ -669,6 +683,7 @@ class WorkbookImporter:
                     market_symbol=row.market_symbol,
                     name=row.name,
                     category=row.category,
+                    owner_user_id=owner_user_id,
                     owner_name=normalized_owner,
                     account_name=normalized_account,
                     quantity=row.quantity,
@@ -684,7 +699,13 @@ class WorkbookImporter:
                 continue
 
             changed = False
-            old_key = self._holding_key(entity.asset_type, entity.market_symbol, entity.owner_name, entity.account_name)
+            old_key = self._holding_key(
+                entity.asset_type,
+                entity.market_symbol,
+                entity.owner_user_id,
+                entity.owner_name,
+                entity.account_name,
+            )
             for attr in (
                 "symbol",
                 "market_symbol",
@@ -700,7 +721,10 @@ class WorkbookImporter:
                 value = getattr(row, attr)
                 if attr in {"owner_name", "account_name"}:
                     if attr == "owner_name":
-                        value = normalize_owner_name(value)
+                        linked_owner_user_id, value = resolve_owner(value)
+                        if entity.owner_user_id != linked_owner_user_id:
+                            entity.owner_user_id = linked_owner_user_id
+                            changed = True
                     else:
                         value = self._normalize_holder_text(value)
                 if getattr(entity, attr) != value:
@@ -709,23 +733,25 @@ class WorkbookImporter:
             if changed:
                 entity.version = self._normalize_version(entity.version) + 1
                 updated += 1
-            new_key = self._holding_key(entity.asset_type, entity.market_symbol, entity.owner_name, entity.account_name)
+            new_key = self._holding_key(
+                entity.asset_type,
+                entity.market_symbol,
+                entity.owner_user_id,
+                entity.owner_name,
+                entity.account_name,
+            )
             if old_key != new_key and by_key.get(old_key) is entity:
                 by_key.pop(old_key, None)
             by_key[new_key] = entity
             if entity.source_ref:
                 by_source_ref[entity.source_ref] = entity
         for owner_name in sorted(invalid_owner_names):
-            detail = {"owner_name": owner_name}
-            alias = invalid_owner_aliases.get(owner_name)
-            if alias:
-                detail["applied_owner_alias"] = alias
             apply_issues.append(
                 ImportIssue(
                     severity="warning",
                     code="HOLDING_OWNER_NOT_MEMBER",
-                    message="가계 구성원이 아닌 보유자는 식별용 별칭으로 반영했습니다.",
-                    detail=detail,
+                    message="가계 구성원이 아닌 보유자는 legacy owner_name 으로 보존했습니다.",
+                    detail={"owner_name": owner_name},
                 )
             )
         for owner_name in sorted(ambiguous_owner_names):
@@ -733,7 +759,7 @@ class WorkbookImporter:
                 ImportIssue(
                     severity="warning",
                     code="HOLDING_OWNER_AMBIGUOUS",
-                    message="동일한 표시 이름 구성원이 여러 명이라 보유자를 비워서 반영했습니다.",
+                    message="동일한 표시 이름 구성원이 여러 명이라 owner_user_id 없이 legacy owner_name 만 보존했습니다.",
                     detail={"owner_name": owner_name},
                 )
             )
@@ -743,13 +769,14 @@ class WorkbookImporter:
     def _holding_key(
         asset_type: AssetType,
         market_symbol: str,
+        owner_user_id: str | None,
         owner_name: str | None,
         account_name: str | None,
     ) -> tuple[AssetType, str, str, str]:
         return (
             asset_type,
             str(market_symbol or "").strip().upper(),
-            str(owner_name or "").strip(),
+            str(owner_user_id or "").strip() or str(owner_name or "").strip(),
             str(account_name or "").strip(),
         )
 
@@ -789,11 +816,6 @@ class WorkbookImporter:
             ]
         )
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
-
-    @staticmethod
-    def _unmapped_owner_alias(owner_name: str) -> str:
-        digest = hashlib.sha256(owner_name.encode("utf-8")).hexdigest()[:12]
-        return f"unmapped:{digest}"
 
     @staticmethod
     def _guess_flow_type(text: str) -> FlowType:

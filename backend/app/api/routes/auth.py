@@ -25,6 +25,7 @@ from app.core.security import (
     verify_password,
 )
 from app.db.models import (
+    DisplayNameMode,
     EmailVerificationToken,
     Household,
     HouseholdMember,
@@ -41,6 +42,7 @@ from app.schemas import (
     AuthRefreshResponse,
     AuthResponse,
     LoginRequest,
+    ProfilePatchRequest,
     RegisterRequest,
     RegisterResponse,
     ResendVerificationRequest,
@@ -48,6 +50,13 @@ from app.schemas import (
     VerifyEmailRequest,
 )
 from app.services.email_service import email_service
+from app.services.owner_links import backfill_owner_links_for_household
+from app.services.profile import (
+    effective_user_real_name,
+    normalize_display_name_mode,
+    resolve_display_name,
+    sync_user_display_name,
+)
 
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -314,6 +323,29 @@ def _create_household_for_user(db: Session, user: User) -> Household:
     return household
 
 
+def _apply_registration_real_name(user: User, real_name: str) -> None:
+    normalized_real_name = str(real_name or "").strip()
+    user.real_name = normalized_real_name
+    if normalize_display_name_mode(user.display_name_mode) != DisplayNameMode.nickname.value or not str(user.nickname or "").strip():
+        user.display_name_mode = DisplayNameMode.real_name.value
+    sync_user_display_name(user)
+
+
+def _to_user_read(user: User) -> UserRead:
+    return UserRead(
+        id=str(user.id),
+        email=str(user.email),
+        real_name=effective_user_real_name(user),
+        nickname=str(user.nickname).strip() if str(user.nickname or "").strip() else None,
+        display_name_mode=DisplayNameMode(normalize_display_name_mode(user.display_name_mode)),
+        display_name=str(user.display_name),
+        email_verified=bool(user.email_verified),
+        email_verified_at=user.email_verified_at,
+        active_household_id=str(user.active_household_id).strip() if str(user.active_household_id or "").strip() else None,
+        created_at=user.created_at,
+    )
+
+
 def _issue_verification_token(db: Session, user: User) -> tuple[str, datetime]:
     for _attempt in range(_VERIFICATION_TOKEN_ISSUE_RETRIES):
         now = datetime.now(UTC)
@@ -371,9 +403,25 @@ def _maybe_debug_verification_token(token: str, request: Request | None) -> str 
     return token
 
 
+def _is_internal_mail_capture() -> bool:
+    env_name = str(settings.env or "").strip().lower()
+    if env_name not in {"dev", "test", "local"}:
+        return False
+    if settings.email_delivery_mode != "smtp":
+        return False
+    smtp_host = str(settings.smtp_host or "").strip().lower()
+    return smtp_host in {"enm-mail-smtp", "mailpit", "localhost", "127.0.0.1"}
+
+
 def _verification_ack_message() -> str:
     base_message = "요청이 접수되었습니다. 가입된 계정이 있으면 인증 메일을 발송합니다."
     env_name = str(settings.env or "").strip().lower()
+    if _is_internal_mail_capture():
+        return (
+            f"{base_message} "
+            "현재 dev 서버 메일은 외부 메일함이 아니라 내부 캡처함(Mailpit)으로 전달됩니다. "
+            "이 환경에서는 Gmail 등 외부 메일함 미도착이 정상 동작입니다."
+        )
     if settings.email_delivery_mode != "log":
         return base_message
     if env_name in {"prod", "production"}:
@@ -729,10 +777,14 @@ def register(payload: RegisterRequest, request: Request, response: Response, db:
         user = User(
             email=normalized_email,
             password_hash=initial_password_hash,
+            real_name=payload.display_name.strip(),
+            nickname=None,
+            display_name_mode=DisplayNameMode.real_name.value,
             display_name=payload.display_name.strip(),
             email_verified=not settings.auth_email_verification_required,
             email_verified_at=now if not settings.auth_email_verification_required else None,
         )
+        sync_user_display_name(user)
         db.add(user)
         try:
             db.flush()
@@ -750,12 +802,13 @@ def register(payload: RegisterRequest, request: Request, response: Response, db:
         if locked_user is not None:
             user = locked_user
 
+    _apply_registration_real_name(user, payload.display_name)
     _ensure_default_household_membership(db, user)
 
     if not settings.auth_email_verification_required:
         # Verification-disabled mode must finalize credentials for reused unverified accounts.
         user.password_hash = hash_password(payload.password)
-        user.display_name = payload.display_name.strip()
+        _apply_registration_real_name(user, payload.display_name)
         user.email_verified = True
         if user.email_verified_at is None:
             user.email_verified_at = now
@@ -785,7 +838,7 @@ def register(payload: RegisterRequest, request: Request, response: Response, db:
             message="회원가입이 완료되었습니다.",
             access_token=access_token if include_body_token else None,
             token_type="bearer" if include_body_token else None,
-            user=UserRead.model_validate(user),
+            user=_to_user_read(user),
         )
 
     raw_token, expires_at = _issue_verification_token(db, user)
@@ -900,7 +953,7 @@ def login(payload: LoginRequest, request: Request, response: Response, db: Sessi
     return AuthResponse(
         access_token=access_token if include_body_token else None,
         token_type="bearer" if include_body_token else None,
-        user=UserRead.model_validate(user),
+        user=_to_user_read(user),
     )
 
 
@@ -1054,7 +1107,7 @@ def verify_email(payload: VerifyEmailRequest, request: Request, response: Respon
     user.password_hash = hash_password(payload.password)
     display_name = str(payload.display_name or "").strip()
     if display_name:
-        user.display_name = display_name
+        _apply_registration_real_name(user, display_name)
     user.email_verified = True
     user.email_verified_at = now
     if user.active_household_id is None:
@@ -1076,7 +1129,7 @@ def verify_email(payload: VerifyEmailRequest, request: Request, response: Respon
     return AuthResponse(
         access_token=access_token if include_body_token else None,
         token_type="bearer" if include_body_token else None,
-        user=UserRead.model_validate(user),
+        user=_to_user_read(user),
     )
 
 
@@ -1141,7 +1194,52 @@ def resend_verification(
 
 @router.get("/me", response_model=UserRead)
 def me(user: User = Depends(get_current_user)) -> UserRead:
-    return UserRead.model_validate(user)
+    return _to_user_read(user)
+
+
+@router.patch("/me", response_model=UserRead)
+def patch_me(
+    payload: ProfilePatchRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> UserRead:
+    if "real_name" in payload.model_fields_set:
+        user.real_name = payload.real_name
+    if "nickname" in payload.model_fields_set:
+        user.nickname = payload.nickname
+    if "display_name_mode" in payload.model_fields_set:
+        user.display_name_mode = payload.display_name_mode or DisplayNameMode.real_name.value
+
+    if normalize_display_name_mode(user.display_name_mode) == DisplayNameMode.nickname.value and not str(user.nickname or "").strip():
+        raise app_error(
+            status_code=400,
+            code="AUTH_NICKNAME_REQUIRED",
+            message="닉네임 표시명을 선택한 경우 nickname 이 필요합니다.",
+            action="닉네임을 입력하거나 표시명 모드를 본명으로 바꿔 주세요.",
+        )
+
+    previous_display_name = str(user.display_name or "").strip()
+    sync_user_display_name(user)
+    if not str(user.display_name or "").strip():
+        raise app_error(
+            status_code=400,
+            code="AUTH_DISPLAY_NAME_REQUIRED",
+            message="표시 이름이 비어 있을 수 없습니다.",
+            action="본명 또는 닉네임을 입력해 주세요.",
+        )
+    db.flush()
+
+    household_ids = {
+        str(item or "").strip()
+        for item in db.scalars(select(HouseholdMember.household_id).where(HouseholdMember.user_id == user.id)).all()
+        if str(item or "").strip()
+    }
+    if str(user.display_name or "").strip() != previous_display_name:
+        for household_id in household_ids:
+            backfill_owner_links_for_household(db, household_id)
+    db.commit()
+    db.refresh(user)
+    return _to_user_read(user)
 
 
 @router.post("/logout")

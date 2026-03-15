@@ -37,6 +37,11 @@ class MemberRole(str, enum.Enum):
     viewer = "viewer"
 
 
+class DisplayNameMode(str, enum.Enum):
+    real_name = "real_name"
+    nickname = "nickname"
+
+
 class InvitationStatus(str, enum.Enum):
     pending = "pending"
     accepted = "accepted"
@@ -66,6 +71,13 @@ class User(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    real_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    nickname: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    display_name_mode: Mapped[DisplayNameMode] = mapped_column(
+        String(20),
+        nullable=False,
+        default=DisplayNameMode.real_name,
+    )
     display_name: Mapped[str] = mapped_column(String(120), nullable=False)
     email_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     email_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -141,6 +153,7 @@ class Household(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     base_currency: Mapped[str] = mapped_column(String(8), nullable=False, default="KRW")
+    transaction_row_colors: Mapped[dict[str, str]] = mapped_column(JSON, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     members: Mapped[list["HouseholdMember"]] = relationship(back_populates="household", cascade="all, delete-orphan")
@@ -245,6 +258,7 @@ class Transaction(Base):
         UniqueConstraint("household_id", "source_ref", name="uq_transaction_source_ref"),
         Index("idx_tx_household_date", "household_id", "occurred_on"),
         Index("idx_tx_household_type_date", "household_id", "flow_type", "occurred_on"),
+        Index("idx_tx_household_owner_user", "household_id", "owner_user_id"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
@@ -255,6 +269,7 @@ class Transaction(Base):
     amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
     currency: Mapped[str] = mapped_column(String(8), nullable=False, default="KRW")
     memo: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    owner_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     owner_name: Mapped[str | None] = mapped_column(String(80), nullable=True)
     source_ref: Mapped[str | None] = mapped_column(String(120), nullable=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
@@ -275,11 +290,12 @@ class Holding(Base):
             "household_id",
             "asset_type",
             "market_symbol",
-            "owner_name",
+            "owner_user_id",
             "account_name",
             name="uq_holding_identity",
         ),
         Index("idx_holding_household", "household_id"),
+        Index("idx_holding_household_owner_user", "household_id", "owner_user_id"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
@@ -289,6 +305,7 @@ class Holding(Base):
     market_symbol: Mapped[str] = mapped_column(String(40), nullable=False)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     category: Mapped[str] = mapped_column(String(80), nullable=False, default="기타")
+    owner_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     owner_name: Mapped[str] = mapped_column(String(80), nullable=False, default="")
     account_name: Mapped[str] = mapped_column(String(120), nullable=False, default="")
     quantity: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False)

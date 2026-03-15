@@ -7,10 +7,12 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_household, get_current_user, require_editor_household
 from app.core.errors import app_error
-from app.db.models import Holding, HouseholdMember, User
+from app.db.models import Holding, User
 from app.db.session import get_db
 from app.schemas import HoldingCreate, HoldingPatch, HoldingRead, PatchConflict
 from app.services.merge import MergeConflictError, merge_patch_or_raise
+from app.services.owner_links import resolve_owner_fields
+from app.services.profile import normalize_optional_text
 from app.services.runtime import hub
 
 
@@ -33,48 +35,89 @@ def _normalize_identity_text(value: str | None) -> str:
     return str(value or "").strip()
 
 
-def _normalize_and_validate_owner_name(db: Session, household_id: str, owner_name: str | None) -> str:
-    normalized = _normalize_identity_text(owner_name)
-    if not normalized:
-        return ""
-    member_count = int(
-        db.scalar(
-        select(func.count())
-        .select_from(HouseholdMember)
-        .join(User, User.id == HouseholdMember.user_id)
-        .where(
-            HouseholdMember.household_id == household_id,
-            User.display_name == normalized,
-        )
+def _to_holding_read(holding: Holding, linked_owner_name: str | None = None) -> HoldingRead:
+    return HoldingRead(
+        id=str(holding.id),
+        household_id=str(holding.household_id),
+        asset_type=holding.asset_type,
+        symbol=str(holding.symbol),
+        market_symbol=str(holding.market_symbol),
+        name=str(holding.name),
+        category=str(holding.category),
+        owner_user_id=str(holding.owner_user_id).strip() if str(holding.owner_user_id or "").strip() else None,
+        owner_name=str(linked_owner_name or holding.owner_name or "").strip() or None,
+        account_name=str(holding.account_name or "").strip() or None,
+        quantity=holding.quantity,
+        average_cost=holding.average_cost,
+        currency=str(holding.currency),
+        source_ref=str(holding.source_ref).strip() if str(holding.source_ref or "").strip() else None,
+        version=int(holding.version),
+        updated_at=holding.updated_at,
     )
-        or 0
-    )
-    if member_count <= 0:
-        raise app_error(
-            status_code=400,
-            code="HOLDING_OWNER_INVALID",
-            message="보유자는 현재 가계 구성원만 선택할 수 있습니다.",
-            action="가계 구성원 목록에서 보유자를 다시 선택해 주세요.",
+
+
+def _load_holding_read(db: Session, holding_id: str) -> HoldingRead:
+    row = db.execute(
+        select(Holding, User.display_name)
+        .outerjoin(User, User.id == Holding.owner_user_id)
+        .where(Holding.id == holding_id)
+    ).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="holding not found")
+    holding, linked_owner_name = row
+    return _to_holding_read(holding, linked_owner_name)
+
+
+def _same_owner_identity(
+    holding: Holding,
+    *,
+    owner_user_id: str | None,
+    owner_name: str | None,
+) -> bool:
+    current_owner_user_id = normalize_optional_text(holding.owner_user_id)
+    current_owner_name = normalize_optional_text(holding.owner_name)
+    if owner_user_id or current_owner_user_id:
+        return current_owner_user_id == owner_user_id
+    return current_owner_name == owner_name
+
+
+def _find_duplicate_holding(
+    db: Session,
+    *,
+    household_id: str,
+    asset_type,
+    market_symbol: str,
+    owner_user_id: str | None,
+    owner_name: str | None,
+    account_name: str,
+    exclude_holding_id: str | None = None,
+) -> Holding | None:
+    candidates = db.scalars(
+        select(Holding).where(
+            Holding.household_id == household_id,
+            Holding.asset_type == asset_type,
+            Holding.market_symbol == market_symbol,
+            func.coalesce(Holding.account_name, "") == account_name,
         )
-    if member_count > 1:
-        raise app_error(
-            status_code=409,
-            code="HOLDING_OWNER_AMBIGUOUS",
-            message="동일한 표시 이름의 구성원이 여러 명이라 보유자를 확정할 수 없습니다.",
-            action="가계 구성원 표시 이름을 서로 다르게 변경한 뒤 다시 시도해 주세요.",
-        )
-    return normalized
+    ).all()
+    for candidate in candidates:
+        if exclude_holding_id and str(candidate.id) == exclude_holding_id:
+            continue
+        if _same_owner_identity(candidate, owner_user_id=owner_user_id, owner_name=owner_name):
+            return candidate
+    return None
 
 
 @router.get("", response_model=list[HoldingRead])
 def list_holdings(ctx=Depends(get_current_household), db: Session = Depends(get_db)) -> list[HoldingRead]:
     household, _ = ctx
-    rows = db.scalars(
-        select(Holding)
+    rows = db.execute(
+        select(Holding, User.display_name)
+        .outerjoin(User, User.id == Holding.owner_user_id)
         .where(Holding.household_id == household.id)
         .order_by(Holding.owner_name, Holding.category, Holding.account_name, Holding.symbol)
     ).all()
-    return [HoldingRead.model_validate(row) for row in rows]
+    return [_to_holding_read(holding, linked_owner_name) for holding, linked_owner_name in rows]
 
 
 @router.post("", response_model=HoldingRead, status_code=status.HTTP_201_CREATED)
@@ -85,19 +128,32 @@ def create_holding(
     db: Session = Depends(get_db),
 ) -> HoldingRead:
     household, _ = ctx
-    normalized_owner = _normalize_and_validate_owner_name(db, household.id, payload.owner_name)
-    normalized_account = _normalize_identity_text(payload.account_name)
-    existing = db.scalar(
-        select(Holding).where(
-            Holding.household_id == household.id,
-            Holding.asset_type == payload.asset_type,
-            Holding.market_symbol == payload.market_symbol.strip().upper(),
-            func.coalesce(Holding.owner_name, "") == normalized_owner,
-            func.coalesce(Holding.account_name, "") == normalized_account,
-        )
+    owner_user_id, owner_name = resolve_owner_fields(
+        db,
+        household_id=str(household.id),
+        owner_user_id=payload.owner_user_id,
+        owner_name=payload.owner_name,
+        invalid_code="HOLDING_OWNER_INVALID",
+        invalid_message="보유자는 현재 가계 구성원만 선택할 수 있습니다.",
+        invalid_action="가계 구성원 목록에서 보유자를 다시 선택해 주세요.",
     )
-    if existing is not None:
-        raise HTTPException(status_code=409, detail="holding already exists")
+    normalized_account = _normalize_identity_text(payload.account_name)
+    duplicate = _find_duplicate_holding(
+        db,
+        household_id=str(household.id),
+        asset_type=payload.asset_type,
+        market_symbol=payload.market_symbol.strip().upper(),
+        owner_user_id=owner_user_id,
+        owner_name=owner_name,
+        account_name=normalized_account,
+    )
+    if duplicate is not None:
+        raise app_error(
+            status_code=409,
+            code="HOLDING_ALREADY_EXISTS",
+            message="동일한 자산이 이미 존재합니다.",
+            action="시장코드, 소유자, 계좌 조합을 확인해 주세요.",
+        )
 
     entity = Holding(
         household_id=household.id,
@@ -106,7 +162,8 @@ def create_holding(
         market_symbol=payload.market_symbol.strip().upper(),
         name=payload.name.strip(),
         category=payload.category.strip(),
-        owner_name=normalized_owner,
+        owner_user_id=owner_user_id,
+        owner_name=owner_name or "",
         account_name=normalized_account,
         quantity=payload.quantity,
         average_cost=payload.average_cost,
@@ -131,7 +188,7 @@ def create_holding(
         household.id,
         {"event": "holding.created", "entity_id": entity.id, "version": entity.version},
     )
-    return HoldingRead.model_validate(entity)
+    return _load_holding_read(db, str(entity.id))
 
 
 @router.patch("/{holding_id}", response_model=HoldingRead)
@@ -183,14 +240,11 @@ def patch_holding(
             context={"fields": blank_fields},
         )
 
-    normalize_text_fields = {"market_symbol", "name", "category", "currency", "owner_name", "account_name"}
+    normalize_text_fields = {"market_symbol", "name", "category", "currency", "account_name"}
     for field in normalize_text_fields:
         if field not in patch_data:
             continue
         value = patch_data[field]
-        if field in {"owner_name", "account_name"}:
-            patch_data[field] = _normalize_identity_text(value)
-            continue
         if value is None:
             patch_data[field] = None
             continue
@@ -199,28 +253,33 @@ def patch_holding(
             cleaned = cleaned.upper()
         patch_data[field] = cleaned
 
-    if "owner_name" in patch_data:
-        patch_data["owner_name"] = _normalize_and_validate_owner_name(
+    if "owner_user_id" in patch_data or "owner_name" in patch_data:
+        patch_data["owner_user_id"], patch_data["owner_name"] = resolve_owner_fields(
             db,
-            household.id,
-            patch_data["owner_name"],
+            household_id=str(household.id),
+            owner_user_id=patch_data.get("owner_user_id", entity.owner_user_id),
+            owner_name=patch_data.get("owner_name", entity.owner_name),
+            invalid_code="HOLDING_OWNER_INVALID",
+            invalid_message="보유자는 현재 가계 구성원만 선택할 수 있습니다.",
+            invalid_action="가계 구성원 목록에서 보유자를 다시 선택해 주세요.",
         )
 
     target_identity = {
         "asset_type": entity.asset_type,
         "market_symbol": str(patch_data.get("market_symbol", entity.market_symbol)).strip().upper(),
-        "owner_name": _normalize_identity_text(patch_data.get("owner_name", entity.owner_name)),
+        "owner_user_id": normalize_optional_text(patch_data.get("owner_user_id", entity.owner_user_id)),
+        "owner_name": normalize_optional_text(patch_data.get("owner_name", entity.owner_name)),
         "account_name": _normalize_identity_text(patch_data.get("account_name", entity.account_name)),
     }
-    duplicate = db.scalar(
-        select(Holding).where(
-            Holding.household_id == household.id,
-            Holding.asset_type == target_identity["asset_type"],
-            Holding.market_symbol == target_identity["market_symbol"],
-            func.coalesce(Holding.owner_name, "") == target_identity["owner_name"],
-            func.coalesce(Holding.account_name, "") == target_identity["account_name"],
-            Holding.id != entity.id,
-        )
+    duplicate = _find_duplicate_holding(
+        db,
+        household_id=str(household.id),
+        asset_type=target_identity["asset_type"],
+        market_symbol=target_identity["market_symbol"],
+        owner_user_id=target_identity["owner_user_id"],
+        owner_name=target_identity["owner_name"],
+        account_name=target_identity["account_name"],
+        exclude_holding_id=str(entity.id),
     )
     if duplicate is not None:
         raise app_error(
@@ -230,7 +289,7 @@ def patch_holding(
             action="시장코드, 소유자, 계좌 조합을 확인해 주세요.",
         )
 
-    current_data = HoldingRead.model_validate(entity).model_dump(mode="json")
+    current_data = _load_holding_read(db, str(entity.id)).model_dump(mode="json")
     try:
         merged, changed_fields = merge_patch_or_raise(
             db=db,
@@ -255,7 +314,12 @@ def patch_holding(
         ) from error
 
     if not changed_fields:
-        return HoldingRead.model_validate(entity)
+        return _load_holding_read(db, str(entity.id))
+
+    if "owner_name" in changed_fields and patch_data.get("owner_name") is None:
+        entity.owner_name = ""
+    if "account_name" in changed_fields and patch_data.get("account_name") is None:
+        entity.account_name = ""
 
     try:
         db.commit()
@@ -281,7 +345,7 @@ def patch_holding(
             "merged": merged,
         },
     )
-    return HoldingRead.model_validate(entity)
+    return _load_holding_read(db, str(entity.id))
 
 
 @router.delete("/{holding_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -298,4 +362,3 @@ def delete_holding(
     db.delete(entity)
     db.commit()
     background_tasks.add_task(hub.broadcast, household.id, {"event": "holding.deleted", "entity_id": holding_id})
-

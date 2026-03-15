@@ -8,7 +8,7 @@ from sqlalchemy import Integer, cast, func, select
 from sqlalchemy.orm import Session
 
 from app.core.errors import app_error
-from app.db.models import FlowType, Holding, Household, Transaction
+from app.db.models import FlowType, Holding, Household, Transaction, User
 from app.schemas import (
     OverviewResponse,
     PortfolioCategorySlice,
@@ -175,13 +175,17 @@ class DashboardService:
         db: Session,
         household: Household,
     ) -> PortfolioResponse:
-        holdings = db.scalars(select(Holding).where(Holding.household_id == household.id)).all()
+        holding_rows = db.execute(
+            select(Holding, User.display_name)
+            .outerjoin(User, User.id == Holding.owner_user_id)
+            .where(Holding.household_id == household.id)
+        ).all()
         items: list[PortfolioItem] = []
         total_market = Decimal("0")
         total_invested = Decimal("0")
         category_bucket: dict[str, dict[str, Decimal]] = {}
 
-        for holding in holdings:
+        for holding, linked_owner_name in holding_rows:
             quote = await self.price_service.quote_holding(db, holding, force_refresh=False)
             latest_price = Decimal(quote.price) if quote.price is not None else None
             quantity = Decimal(holding.quantity)
@@ -222,7 +226,7 @@ class DashboardService:
                     market_symbol=holding.market_symbol,
                     name=holding.name,
                     category=holding.category,
-                    owner_name=holding.owner_name,
+                    owner_name=str(linked_owner_name or holding.owner_name or "").strip() or None,
                     account_name=holding.account_name,
                     quantity=Decimal(holding.quantity),
                     average_cost=Decimal(holding.average_cost),
