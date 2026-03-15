@@ -34,7 +34,7 @@ test("transactions flow: create, inline edit, delete, responsive", async ({ page
 
   await editorRow.getByLabel("메모").fill(editedMemo);
   await editorRow.getByLabel("금액").fill("54321");
-  await editorRow.getByRole("button", { name: "저장" }).click();
+  await editorRow.getByLabel("메모").press("Enter");
   await expect(page.getByText("거래를 수정했습니다.")).toBeVisible();
 
   const editedRow = page.locator("tr.transaction-row", { hasText: editedMemo }).first();

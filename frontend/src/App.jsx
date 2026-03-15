@@ -23,6 +23,7 @@ const COPYRIGHT_TEXT = `© ENM Software v${APP_VERSION}`;
 const API_PREFIX = "/api/v1";
 const SAVED_EMAIL_KEY = "money-flow-saved-email";
 const ACTIVE_HOUSEHOLD_KEY = "money-flow-active-household-id";
+const ACTIVE_TAB_KEY = "money-flow-active-tab";
 const COOKIE_AUTH_SENTINEL = "__cookie_auth__";
 const DEFAULT_CSRF_COOKIE_NAME = "mf_csrf_token";
 const DEFAULT_CSRF_HEADER_NAME = "x-csrf-token";
@@ -58,6 +59,7 @@ const TAB_GROUPS = {
   left: ["dashboard", "transactions", "holdings"],
   right: ["collaboration", "import", "settings"],
 };
+const TAB_IDS = new Set([...TAB_GROUPS.left, ...TAB_GROUPS.right]);
 const DISPLAY_NAME_MODE_OPTIONS = [
   { value: "real_name", label: "본명 우선" },
   { value: "nickname", label: "닉네임 우선" },
@@ -93,6 +95,7 @@ const AUTO_PRICE_REFRESH_INTERVAL_MS = 20_000;
 const AUTO_PRICE_REFRESH_COOLDOWN_MS = 30_000;
 const WS_REFRESH_DEBOUNCE_MS = 300;
 const REALTIME_FALLBACK_SYNC_INTERVAL_MS = 45_000;
+const COLLAB_ACTIVE_SYNC_INTERVAL_MS = 8_000;
 const IMPORT_MISMATCH_PREVIEW_LIMIT = 20;
 const IMPORT_ISSUE_PREVIEW_LIMIT = 20;
 const SOCKET_STATUS_LABELS = {
@@ -228,6 +231,23 @@ function setActiveHouseholdId(value) {
     return;
   }
   localStorage.removeItem(ACTIVE_HOUSEHOLD_KEY);
+}
+
+function normalizeTabId(value) {
+  const normalized = String(value || "").trim();
+  return TAB_IDS.has(normalized) ? normalized : "dashboard";
+}
+
+function getSavedTabId() {
+  return normalizeTabId(localStorage.getItem(ACTIVE_TAB_KEY));
+}
+
+function setSavedTabId(value) {
+  localStorage.setItem(ACTIVE_TAB_KEY, normalizeTabId(value));
+}
+
+function clearSavedTabId() {
+  localStorage.removeItem(ACTIVE_TAB_KEY);
 }
 
 function applyCsrfHeader(headers, method) {
@@ -1081,7 +1101,7 @@ function App() {
   const [majorRenameDrafts, setMajorRenameDrafts] = useState({});
   const [showOnboardingGuide, setShowOnboardingGuide] = useState(false);
   const [showTransactionEntryBanner, setShowTransactionEntryBanner] = useState(false);
-  const [tab, setTab] = useState("dashboard");
+  const [tab, setTab] = useState(() => getSavedTabId());
   const [socketStatus, setSocketStatus] = useState("disconnected");
 
   const [filterMode, setFilterMode] = useState("month");
@@ -1116,6 +1136,7 @@ function App() {
   const lastAutoRefreshAtRef = useRef(0);
   const priceRefreshRequestInFlightRef = useRef(false);
   const realtimeFallbackSyncInFlightRef = useRef(false);
+  const roleNoticeStateRef = useRef({ householdId: "", role: "" });
   const confirmResolveRef = useRef(null);
   const [confirmDialog, setConfirmDialog] = useState({
     open: false,
@@ -1170,6 +1191,26 @@ function App() {
   function closeTxInlineEdit() {
     setTxInlineEdit(null);
   }
+
+  function dismissMessage() {
+    setMessage("");
+  }
+
+  function handleTxInlineEditKeyDown(event) {
+    if (event.key !== "Enter") {
+      return;
+    }
+    if (event.isComposing || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) {
+      return;
+    }
+    const targetTag = String(event.target?.tagName || "").toLowerCase();
+    if (targetTag === "textarea") {
+      return;
+    }
+    event.preventDefault();
+    void submitTxInlineEdit();
+  }
+
   const transactionById = useMemo(() => new Map(transactions.map((item) => [item.id, item])), [transactions]);
   const filteredTransactions = useMemo(() => {
     const keyword = normalizeCategoryText(txListFilter.keyword).toLowerCase();
@@ -1313,6 +1354,24 @@ function App() {
   useEffect(() => {
     setHouseholdSettingsForm(createHouseholdSettingsForm(householdSettings));
   }, [householdSettings?.household_id, householdSettings?.name, JSON.stringify(householdSettings?.transaction_row_colors || {})]);
+
+  useEffect(() => {
+    const nextHouseholdId = String(household?.id || "").trim();
+    const nextRole = String(householdRole || "").trim();
+    const previous = roleNoticeStateRef.current;
+    if (token && nextHouseholdId && nextRole && previous.householdId === nextHouseholdId && previous.role && previous.role !== nextRole) {
+      setMessage(
+        uiGuideMessage(
+          "내 권한이 변경되었습니다.",
+          `현재 권한: ${COLLAB_ROLE_LABELS[nextRole] || nextRole || "-"}`,
+        ),
+      );
+    }
+    roleNoticeStateRef.current = {
+      householdId: nextHouseholdId,
+      role: nextRole,
+    };
+  }, [household?.id, householdRole, token]);
 
   useEffect(() => {
     if (!user?.id || !household?.id) {
@@ -1465,6 +1524,7 @@ function App() {
   }, [categoryById, categoryMajorOptions, txCategoryMajor, txForm.category_id]);
 
   useEffect(() => {
+    setSavedTabId(tab);
     setMessage((prev) => (prev ? "" : prev));
   }, [tab]);
 
@@ -1488,6 +1548,39 @@ function App() {
       });
     }
   }, [categoryById, txInlineEdit?.id, txInlineEdit?.category_id, txInlineEdit?.category_major]);
+
+  useEffect(() => {
+    if (!txForm.category_id) {
+      return;
+    }
+    if (!categoryById.has(txForm.category_id)) {
+      setTxForm((prev) => ({ ...prev, category_id: "" }));
+    }
+  }, [categoryById, txForm.category_id]);
+
+  useEffect(() => {
+    if (!txInlineEdit?.category_id) {
+      return;
+    }
+    if (!categoryById.has(txInlineEdit.category_id)) {
+      setTxInlineEdit((prev) => (prev ? { ...prev, category_id: "" } : prev));
+    }
+  }, [categoryById, txInlineEdit?.category_id]);
+
+  useEffect(() => {
+    if (!household?.id) {
+      return;
+    }
+    setTxCategoryMajor("");
+    setTxForm((prev) => ({ ...prev, category_id: "" }));
+    closeTxInlineEdit();
+    setHoldingInlineEdit(null);
+    setCategoryDraft(createCategoryDraft());
+    setCategoryEditId("");
+    setCategoryEditForm({ major: "", minor: "" });
+    setMajorRenameDrafts({});
+    setImportReport(null);
+  }, [household?.id]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -1527,22 +1620,23 @@ function App() {
   }, []);
 
   async function loadAuthContext(nextToken = token) {
-    const [me, householdResp, householdListResp, householdSettingsResp, categoryResp] = await Promise.all([
+    const [me, householdResp, householdListResp] = await Promise.all([
       api(`${API_PREFIX}/auth/me`, {}, nextToken),
       api(`${API_PREFIX}/household/current`, {}, nextToken),
       api(`${API_PREFIX}/household/list`, {}, nextToken),
-      api(`${API_PREFIX}/household/settings`, {}, nextToken),
-      api(`${API_PREFIX}/categories`, {}, nextToken),
     ]);
     const nextHouseholdId = householdResp?.household?.id || "";
     setActiveHouseholdId(nextHouseholdId);
+    const [householdSettingsResp, categoryResp] = await Promise.all([
+      api(`${API_PREFIX}/household/settings`, {}, nextToken),
+      api(`${API_PREFIX}/categories`, {}, nextToken),
+    ]);
     setUser(me);
     setHousehold(householdResp.household);
     setHouseholdSettings({
       ...householdSettingsResp,
       transaction_row_colors: normalizeTransactionRowColors(householdSettingsResp?.transaction_row_colors),
     });
-    setActiveHouseholdId(nextHouseholdId);
     const nextHouseholdRole = householdResp.role || "";
     householdRoleRef.current = nextHouseholdRole;
     setHouseholdRole(nextHouseholdRole);
@@ -1603,7 +1697,9 @@ function App() {
     const includeAll = kinds.has("full");
     const includeTransactions = includeAll || kinds.has("transaction");
     const includeHoldings = includeAll || kinds.has("holding");
-    if (!includeTransactions && !includeHoldings) {
+    const includeCollaboration = includeAll || kinds.has("collaboration");
+    const includeContext = includeAll || includeCollaboration || kinds.has("context");
+    if (!includeTransactions && !includeHoldings && !includeContext && !includeCollaboration) {
       return;
     }
     const silent = Boolean(options?.silent);
@@ -1625,6 +1721,16 @@ function App() {
           api(`${API_PREFIX}/holdings`, {}, nextToken).then((data) => ({ key: "holdings", data })),
           api(`${API_PREFIX}/dashboard/portfolio`, {}, nextToken).then((data) => ({ key: "portfolio", data })),
           api(`${API_PREFIX}/prices/status`, {}, nextToken).then((data) => ({ key: "priceStatus", data })),
+        );
+      }
+      if (includeContext) {
+        requests.push(
+          loadAuthContext(nextToken).then(() => ({ key: "context", data: null })),
+        );
+      }
+      if (includeCollaboration) {
+        requests.push(
+          refreshCollaborationData(nextToken).then(() => ({ key: "collaboration", data: null })),
         );
       }
       const responses = await Promise.all(requests);
@@ -1845,6 +1951,7 @@ function App() {
         },
         token
       );
+      setActiveHouseholdId(householdId);
       await loadAuthContext(token);
       await refreshData(false, token);
       await refreshCollaborationData(token);
@@ -2020,6 +2127,10 @@ function App() {
 
   async function submitTransaction(event) {
     event.preventDefault();
+    if (!canEditRecords) {
+      setMessage(uiGuideMessage("현재 권한으로는 거래를 저장할 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
+      return;
+    }
     setLoading(true);
     setMessage("");
     try {
@@ -2112,6 +2223,10 @@ function App() {
 
   async function submitHolding(event) {
     event.preventDefault();
+    if (!canEditRecords) {
+      setMessage(uiGuideMessage("현재 권한으로는 자산을 저장할 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
+      return;
+    }
     setLoading(true);
     setMessage("");
     try {
@@ -2137,6 +2252,10 @@ function App() {
   async function submitTxInlineEdit(event) {
     if (event && typeof event.preventDefault === "function") {
       event.preventDefault();
+    }
+    if (!canEditRecords) {
+      setMessage(uiGuideMessage("현재 권한으로는 거래를 수정할 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
+      return;
     }
     if (!txInlineEdit?.id) return;
     setLoading(true);
@@ -2178,7 +2297,13 @@ function App() {
   }
 
   async function submitHoldingInlineEdit(event) {
-    event.preventDefault();
+    if (event && typeof event.preventDefault === "function") {
+      event.preventDefault();
+    }
+    if (!canEditRecords) {
+      setMessage(uiGuideMessage("현재 권한으로는 자산을 수정할 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
+      return;
+    }
     if (!holdingInlineEdit?.id) {
       return;
     }
@@ -2413,6 +2538,10 @@ function App() {
   }
 
   async function doImport(mode) {
+    if (!canEditRecords) {
+      setMessage(uiGuideMessage("현재 권한으로는 데이터를 가져올 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
+      return;
+    }
     if (!importFile) {
       setMessage("엑셀 파일을 먼저 업로드해 주세요.");
       return;
@@ -2493,6 +2622,10 @@ function App() {
   }
 
   async function removeTx(id) {
+    if (!canEditRecords) {
+      setMessage(uiGuideMessage("현재 권한으로는 거래를 삭제할 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
+      return;
+    }
     const confirmed = await requestConfirmDialog({
       title: "거래를 삭제할까요?",
       action: "삭제하려면 삭제를 눌러 주세요.",
@@ -2509,6 +2642,10 @@ function App() {
   }
 
   async function removeHolding(id) {
+    if (!canEditRecords) {
+      setMessage(uiGuideMessage("현재 권한으로는 자산을 삭제할 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
+      return;
+    }
     const confirmed = await requestConfirmDialog({
       title: "자산을 삭제할까요?",
       action: "삭제하려면 삭제를 눌러 주세요.",
@@ -2549,7 +2686,11 @@ function App() {
               <button
                 type="button"
                 className="secondary"
+                disabled={!canEditRecords || loading}
                 onClick={() => {
+                  if (!canEditRecords) {
+                    return;
+                  }
                   if (!row) {
                     return;
                   }
@@ -2558,7 +2699,7 @@ function App() {
               >
                 {isEditing ? "수정 중" : "수정"}
               </button>
-              <button type="button" className="danger" onClick={() => removeHolding(item.holding_id)}>
+              <button type="button" className="danger" disabled={!canEditRecords || loading} onClick={() => removeHolding(item.holding_id)}>
                 삭제
               </button>
             </div>
@@ -2575,6 +2716,7 @@ function App() {
                     onChange={(event) =>
                       setHoldingInlineEdit((prev) => ({ ...prev, name: event.target.value }))
                     }
+                    disabled={!canEditRecords}
                     required
                   />
                 </label>
@@ -2585,12 +2727,14 @@ function App() {
                     onChange={(event) =>
                       setHoldingInlineEdit((prev) => ({ ...prev, category: event.target.value }))
                     }
+                    disabled={!canEditRecords}
                   />
                 </label>
                 <label>
                   보유자
                   <select
                     value={ownerSelectValue(editForm.owner_user_id, editForm.owner_name)}
+                    disabled={!canEditRecords}
                     onChange={(event) =>
                       setHoldingInlineEdit((prev) => ({
                         ...prev,
@@ -2613,6 +2757,7 @@ function App() {
                     onChange={(event) =>
                       setHoldingInlineEdit((prev) => ({ ...prev, account_name: event.target.value }))
                     }
+                    disabled={!canEditRecords}
                   />
                 </label>
                 {editTracked ? (
@@ -2628,6 +2773,7 @@ function App() {
                         onChange={(event) =>
                           setHoldingInlineEdit((prev) => ({ ...prev, market_symbol: event.target.value }))
                         }
+                        disabled={!canEditRecords}
                         required
                       />
                     </label>
@@ -2638,6 +2784,7 @@ function App() {
                         inputMode="decimal"
                         value={editForm.quantity}
                         onChange={(event) => handleGroupedDecimalInput(event, setHoldingInlineEdit, "quantity")}
+                        disabled={!canEditRecords}
                         required
                       />
                     </label>
@@ -2650,6 +2797,7 @@ function App() {
                       inputMode="decimal"
                       value={editForm.average_cost}
                       onChange={(event) => handleGroupedDecimalInput(event, setHoldingInlineEdit, "average_cost")}
+                      disabled={!canEditRecords}
                       required
                     />
                   </label>
@@ -2662,6 +2810,7 @@ function App() {
                       inputMode="decimal"
                       value={editForm.average_cost}
                       onChange={(event) => handleGroupedDecimalInput(event, setHoldingInlineEdit, "average_cost")}
+                      disabled={!canEditRecords}
                       required
                     />
                   </label>
@@ -2673,11 +2822,12 @@ function App() {
                     onChange={(event) =>
                       setHoldingInlineEdit((prev) => ({ ...prev, currency: event.target.value.toUpperCase() }))
                     }
+                    disabled={!canEditRecords}
                     required
                   />
                 </label>
                 <div className="inline form-actions">
-                  <button type="submit">저장</button>
+                  <button type="submit" disabled={!canEditRecords}>저장</button>
                   <button type="button" className="secondary" onClick={() => setHoldingInlineEdit(null)}>
                     취소
                   </button>
@@ -2716,6 +2866,7 @@ function App() {
     setHousehold(null);
     householdRoleRef.current = "";
     setHouseholdRole("");
+    roleNoticeStateRef.current = { householdId: "", role: "" };
     setHouseholdList([]);
     setHouseholdMembers([]);
     setHouseholdInvites([]);
@@ -2737,6 +2888,7 @@ function App() {
     setPriceRefreshPolling(false);
     setDashboardLoading(false);
     setDashboardLoaded(false);
+    clearSavedTabId();
     setTab("dashboard");
     setFilterMode("month");
     setYearMonth(currentMonth());
@@ -2926,9 +3078,28 @@ function App() {
     if (tab !== "collaboration") {
       return;
     }
-    refreshCollaborationData(token).catch((error) => {
-      setMessage(formatApiError(error, "household_members"));
-    });
+    let cancelled = false;
+    const syncCollaborationTab = async () => {
+      if (cancelled) {
+        return;
+      }
+      try {
+        await loadAuthContext(token);
+        await refreshCollaborationData(token);
+      } catch (error) {
+        if (!cancelled) {
+          setMessage(formatApiError(error, "household_members"));
+        }
+      }
+    };
+    syncCollaborationTab().catch(() => undefined);
+    const timerId = window.setInterval(() => {
+      syncCollaborationTab().catch(() => undefined);
+    }, COLLAB_ACTIVE_SYNC_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timerId);
+    };
   }, [household?.id, tab, token]);
 
   useEffect(() => {
@@ -3032,6 +3203,13 @@ function App() {
               kind = "transaction";
             } else if (eventName.startsWith("holding.")) {
               kind = "holding";
+            } else if (
+              eventName.startsWith("household.") ||
+              eventName.startsWith("member.") ||
+              eventName.startsWith("invitation.") ||
+              eventName.startsWith("profile.")
+            ) {
+              kind = "collaboration";
             }
           } catch {
             kind = "full";
@@ -3143,6 +3321,7 @@ function App() {
   const transactionOwnerOptions = ownerOptionsWithFallback(txForm.owner_user_id, txForm.owner_name);
   const holdingFormOwnerOptions = ownerOptionsWithFallback(holdingForm.owner_user_id, holdingForm.owner_name);
   const canEditHouseholdData = householdRole === "owner" || householdRole === "co_owner" || householdRole === "editor";
+  const canEditRecords = canEditHouseholdData;
   const canManageHousehold = householdRole === "owner" || householdRole === "co_owner";
   const canAssignOwner = householdRole === "owner";
   const memberRoleOptions = canAssignOwner
@@ -3160,6 +3339,14 @@ function App() {
     Boolean(inviteAcceptanceNotice?.householdId) &&
     household?.id !== inviteAcceptanceNotice?.householdId &&
     householdList.some((entry) => entry.household.id === inviteAcceptanceNotice?.householdId);
+
+  useEffect(() => {
+    if (canEditRecords) {
+      return;
+    }
+    closeTxInlineEdit();
+    setHoldingInlineEdit(null);
+  }, [canEditRecords]);
 
   if (!authReady) {
     return (
@@ -3333,7 +3520,14 @@ function App() {
               </>
             )}
           </div>
-          {message && <div className="message">{message}</div>}
+          {message && (
+            <div className="message" role="status">
+              <span>{message}</span>
+              <button type="button" className="message-close secondary" onClick={dismissMessage}>
+                닫기
+              </button>
+            </div>
+          )}
         </form>
         <div className="app-copyright" aria-hidden="true">
           {COPYRIGHT_TEXT}
@@ -3383,7 +3577,14 @@ function App() {
         </div>
       </nav>
 
-      {message && <div className="message">{message}</div>}
+      {message && (
+        <div className="message" role="status">
+          <span>{message}</span>
+          <button type="button" className="message-close secondary" onClick={dismissMessage}>
+            닫기
+          </button>
+        </div>
+      )}
       {showOnboardingGuide && (
         <section className="card onboarding-guide" role="status">
           <div>
@@ -3552,6 +3753,9 @@ function App() {
           <article className="card">
             <h2>거래 입력</h2>
             <p className="table-summary">수정은 아래 거래 목록에서 바로 진행됩니다.</p>
+            {!canEditRecords && (
+              <p className="table-summary">거래 등록/수정/삭제는 편집자 이상 권한에서만 가능합니다.</p>
+            )}
             {showTransactionEntryBanner && (
               <div className="tx-entry-banner" role="status">
                 <span>첫 거래를 바로 입력해 보세요. 거래자와 카테고리를 먼저 고르면 정리 속도가 빨라집니다.</span>
@@ -3568,12 +3772,14 @@ function App() {
                     type="date"
                     value={txForm.occurred_on}
                     onChange={(e) => setTxForm({ ...txForm, occurred_on: e.target.value })}
+                    disabled={!canEditRecords}
                     required
                   />
                   <button
                     type="button"
                     className="secondary today-btn"
                     onClick={() => setTxForm({ ...txForm, occurred_on: todayIso() })}
+                    disabled={!canEditRecords}
                   >
                     오늘
                   </button>
@@ -3583,6 +3789,7 @@ function App() {
                 유형
                 <select
                   value={txForm.flow_type}
+                  disabled={!canEditRecords}
                   onChange={(e) => {
                     setTxForm({ ...txForm, flow_type: e.target.value, category_id: "" });
                     setTxCategoryMajor("");
@@ -3602,6 +3809,7 @@ function App() {
                   inputMode="decimal"
                   value={txForm.amount}
                   onChange={(event) => handleGroupedDecimalInput(event, setTxForm, "amount")}
+                  disabled={!canEditRecords}
                   required
                 />
               </label>
@@ -3609,6 +3817,7 @@ function App() {
                 대분류
                 <select
                   value={txCategoryMajor}
+                  disabled={!canEditRecords}
                   onChange={(e) => {
                     setTxCategoryMajor(e.target.value);
                     setTxForm({ ...txForm, category_id: "" });
@@ -3626,7 +3835,7 @@ function App() {
                 중분류
                 <select
                   value={txForm.category_id}
-                  disabled={!txCategoryMajor}
+                  disabled={!canEditRecords || !txCategoryMajor}
                   onChange={(e) => setTxForm({ ...txForm, category_id: e.target.value })}
                 >
                   <option value="">(선택 안함)</option>
@@ -3637,11 +3846,12 @@ function App() {
                   ))}
                 </select>
               </label>
-              <label>메모<input value={txForm.memo} onChange={(e) => setTxForm({ ...txForm, memo: e.target.value })} /></label>
+              <label>메모<input value={txForm.memo} onChange={(e) => setTxForm({ ...txForm, memo: e.target.value })} disabled={!canEditRecords} /></label>
               <label>
                 거래자
                 <select
                   value={ownerSelectValue(txForm.owner_user_id, txForm.owner_name)}
+                  disabled={!canEditRecords}
                   onChange={(event) => {
                     const nextOwner = ownerSelectionFromValue(event.target.value, transactionOwnerOptions);
                     setTxForm({ ...txForm, ...nextOwner });
@@ -3659,10 +3869,10 @@ function App() {
                 <button type="button" className="secondary" onClick={() => {
                   setTxForm(createTransactionForm());
                   setTxCategoryMajor("");
-                }}>
+                }} disabled={!canEditRecords}>
                   초기화
                 </button>
-                <button type="submit">거래 등록</button>
+                <button type="submit" disabled={!canEditRecords}>거래 등록</button>
               </div>
             </form>
           </article>
@@ -3810,8 +4020,13 @@ function App() {
                         <td data-label="동작">
                           <div className="inline">
                             <button
+                              type="button"
                               className={isEditing ? "primary" : "secondary"}
+                              disabled={!canEditRecords || loading}
                               onClick={() => {
+                                if (!canEditRecords) {
+                                  return;
+                                }
                                 if (isEditing) {
                                   closeTxInlineEdit();
                                 } else {
@@ -3832,12 +4047,12 @@ function App() {
                             >
                               {isEditing ? "수정 중" : "수정"}
                             </button>
-                            <button className="danger" onClick={() => removeTx(item.id)}>삭제</button>
+                            <button type="button" className="danger" disabled={!canEditRecords || loading} onClick={() => removeTx(item.id)}>삭제</button>
                           </div>
                         </td>
                       </tr>
                       {isEditing && editForm && (
-                        <tr className="transaction-inline-editor-row transactions-inline-editor">
+                        <tr className="transaction-inline-editor-row transactions-inline-editor" onKeyDown={handleTxInlineEditKeyDown}>
                           <td data-label="일자">
                             <label className="tx-inline-date-field">
                               <input
@@ -3846,6 +4061,7 @@ function App() {
                                 placeholder="일자"
                                 value={editForm.occurred_on}
                                 onChange={(e) => setTxInlineEdit({ ...editForm, occurred_on: e.target.value })}
+                                disabled={!canEditRecords}
                                 required
                               />
                             </label>
@@ -3855,6 +4071,7 @@ function App() {
                               <select
                                 aria-label="유형"
                                 value={editForm.flow_type}
+                                disabled={!canEditRecords}
                                 onChange={(e) => {
                                   setTxInlineEdit({
                                     ...editForm,
@@ -3881,6 +4098,7 @@ function App() {
                                 inputMode="decimal"
                                 value={editForm.amount}
                                 onChange={(event) => handleGroupedDecimalInput(event, setTxInlineEdit, "amount")}
+                                disabled={!canEditRecords}
                                 required
                               />
                             </label>
@@ -3891,6 +4109,7 @@ function App() {
                                 <select
                                   aria-label="대분류"
                                   value={txInlineCategoryMajor}
+                                  disabled={!canEditRecords}
                                   onChange={(event) =>
                                     setTxInlineEdit({
                                       ...editForm,
@@ -3911,7 +4130,7 @@ function App() {
                                 <select
                                   aria-label="중분류"
                                   value={editForm.category_id}
-                                  disabled={!txInlineCategoryMajor}
+                                  disabled={!canEditRecords || !txInlineCategoryMajor}
                                   onChange={(e) => setTxInlineEdit({ ...editForm, category_id: e.target.value })}
                                 >
                                   <option value="">(선택 안함)</option>
@@ -3931,6 +4150,7 @@ function App() {
                                 placeholder="메모"
                                 value={editForm.memo}
                                 onChange={(e) => setTxInlineEdit({ ...editForm, memo: e.target.value })}
+                                disabled={!canEditRecords}
                               />
                             </label>
                           </td>
@@ -3939,6 +4159,7 @@ function App() {
                               <select
                                 aria-label="거래자"
                                 value={ownerSelectValue(editForm.owner_user_id, editForm.owner_name)}
+                                disabled={!canEditRecords}
                                 onChange={(event) =>
                                   setTxInlineEdit({
                                     ...editForm,
@@ -3958,12 +4179,13 @@ function App() {
                           <td data-label="최종 수정일">-</td>
                           <td data-label="동작">
                             <div className="inline tx-inline-editor-actions">
-                              <button type="button" className="secondary" onClick={() => closeTxInlineEdit()}>
+                              <button type="button" className="secondary" disabled={!canEditRecords} onClick={() => closeTxInlineEdit()}>
                                 취소
                               </button>
                               <button
                                 type="button"
                                 className="primary"
+                                disabled={!canEditRecords}
                                 onClick={() => {
                                   void submitTxInlineEdit();
                                 }}
@@ -3988,12 +4210,16 @@ function App() {
           <article className="card">
             <h2>자산 입력</h2>
             <p className="table-summary">수정은 아래 자산 목록에서 바로 진행됩니다.</p>
+            {!canEditRecords && (
+              <p className="table-summary">자산 등록/수정/삭제는 편집자 이상 권한에서만 가능합니다.</p>
+            )}
             <div className="holdings-form-container">
               <form className="holdings-form-grid" onSubmit={submitHolding}>
                 <label>
                   유형
                   <select
                     value={holdingForm.asset_type}
+                    disabled={!canEditRecords}
                     onChange={(event) => {
                       const nextType = String(event.target.value || "cash");
                       setHoldingForm((prev) => ({
@@ -4018,6 +4244,7 @@ function App() {
                   <input
                     value={holdingForm.name}
                     onChange={(event) => setHoldingForm({ ...holdingForm, name: event.target.value })}
+                    disabled={!canEditRecords}
                     required
                   />
                 </label>
@@ -4026,12 +4253,14 @@ function App() {
                   <input
                     value={holdingForm.category}
                     onChange={(event) => setHoldingForm({ ...holdingForm, category: event.target.value })}
+                    disabled={!canEditRecords}
                   />
                 </label>
                 <label>
                   보유자
                   <select
                     value={ownerSelectValue(holdingForm.owner_user_id, holdingForm.owner_name)}
+                    disabled={!canEditRecords}
                     onChange={(event) =>
                       setHoldingForm({
                         ...holdingForm,
@@ -4052,6 +4281,7 @@ function App() {
                   <input
                     value={holdingForm.account_name}
                     onChange={(event) => setHoldingForm({ ...holdingForm, account_name: event.target.value })}
+                    disabled={!canEditRecords}
                   />
                 </label>
                 {holdingFormTracked ? (
@@ -4061,6 +4291,7 @@ function App() {
                       <input
                         value={holdingForm.symbol}
                         onChange={(event) => setHoldingForm({ ...holdingForm, symbol: event.target.value })}
+                        disabled={!canEditRecords}
                         required
                       />
                     </label>
@@ -4069,6 +4300,7 @@ function App() {
                       <input
                         value={holdingForm.market_symbol}
                         onChange={(event) => setHoldingForm({ ...holdingForm, market_symbol: event.target.value })}
+                        disabled={!canEditRecords}
                       />
                     </label>
                     <label>
@@ -4078,6 +4310,7 @@ function App() {
                         inputMode="decimal"
                         value={holdingForm.quantity}
                         onChange={(event) => handleGroupedDecimalInput(event, setHoldingForm, "quantity")}
+                        disabled={!canEditRecords}
                         required
                       />
                     </label>
@@ -4090,6 +4323,7 @@ function App() {
                       inputMode="decimal"
                       value={holdingForm.average_cost}
                       onChange={(event) => handleGroupedDecimalInput(event, setHoldingForm, "average_cost")}
+                      disabled={!canEditRecords}
                       required
                     />
                   </label>
@@ -4102,6 +4336,7 @@ function App() {
                       inputMode="decimal"
                       value={holdingForm.average_cost}
                       onChange={(event) => handleGroupedDecimalInput(event, setHoldingForm, "average_cost")}
+                      disabled={!canEditRecords}
                       required
                     />
                   </label>
@@ -4111,14 +4346,15 @@ function App() {
                   <input
                     value={holdingForm.currency}
                     onChange={(event) => setHoldingForm({ ...holdingForm, currency: event.target.value.toUpperCase() })}
+                    disabled={!canEditRecords}
                     required
                   />
                 </label>
                 <div className="holdings-form-actions">
-                  <button type="button" className="secondary" onClick={() => setHoldingForm(createHoldingForm(holdingForm.asset_type))}>
+                  <button type="button" className="secondary" disabled={!canEditRecords} onClick={() => setHoldingForm(createHoldingForm(holdingForm.asset_type))}>
                     초기화
                   </button>
-                  <button type="submit" className="primary">자산 등록</button>
+                  <button type="submit" className="primary" disabled={!canEditRecords}>자산 등록</button>
                 </div>
               </form>
             </div>
@@ -4724,11 +4960,14 @@ function App() {
         <section className="grid-1">
           <article className="card">
             <h2>데이터 파일 가져오기</h2>
+            {!canEditRecords && (
+              <p className="table-summary">데이터 가져오기는 편집자 이상 권한에서만 가능합니다.</p>
+            )}
             <div
               className={`file-drop-area ${isDragOver ? "drag-over" : ""}`}
               onDragOver={(e) => {
                 e.preventDefault();
-                if (!importLoadingMode) setIsDragOver(true);
+                if (!importLoadingMode && canEditRecords) setIsDragOver(true);
               }}
               onDragLeave={(e) => {
                 e.preventDefault();
@@ -4737,12 +4976,12 @@ function App() {
               onDrop={(e) => {
                 e.preventDefault();
                 setIsDragOver(false);
-                if (!importLoadingMode && e.dataTransfer.files?.[0]) {
+                if (!importLoadingMode && canEditRecords && e.dataTransfer.files?.[0]) {
                   setImportFile(e.dataTransfer.files[0]);
                 }
               }}
               onClick={() => {
-                if (!importLoadingMode) importFileInputRef.current?.click();
+                if (!importLoadingMode && canEditRecords) importFileInputRef.current?.click();
               }}
             >
               <input
@@ -4752,7 +4991,7 @@ function App() {
                 onChange={(e) => setImportFile(e.target.files?.[0] || null)}
                 style={{ display: "none" }}
                 aria-label="엑셀 파일 업로드"
-                disabled={Boolean(importLoadingMode)}
+                disabled={Boolean(importLoadingMode) || !canEditRecords}
               />
               {importFile ? (
                 <div className="upload-file-name">선택된 파일: {importFile.name}</div>
@@ -4761,10 +5000,10 @@ function App() {
               )}
             </div>
             <div className="inline" style={{ marginTop: "1rem" }}>
-              <button disabled={Boolean(importLoadingMode)} onClick={() => doImport("dry_run")}>
+              <button type="button" disabled={Boolean(importLoadingMode) || !canEditRecords} onClick={() => doImport("dry_run")}>
                 {importLoadingMode === "dry_run" ? "미리 검증 중..." : IMPORT_MODE_LABELS.dry_run}
               </button>
-              <button disabled={Boolean(importLoadingMode)} onClick={() => doImport("apply")}>
+              <button type="button" disabled={Boolean(importLoadingMode) || !canEditRecords} onClick={() => doImport("apply")}>
                 {importLoadingMode === "apply" ? "적용 중..." : IMPORT_MODE_LABELS.apply}
               </button>
             </div>

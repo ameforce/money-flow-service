@@ -70,8 +70,37 @@ test("collaboration flow: invite, accept, switch household, responsive", async (
     await guestPage.getByRole("button", { name: "작업 가계로 전환" }).first().click();
     await expect(guestCollaborationCard.locator(".table-summary").first()).toContainText(ownerHouseholdName);
 
+    await guestPage.getByRole("button", { name: "거래", exact: true }).click();
+    await expect(guestPage.getByRole("button", { name: "거래 등록" })).toBeDisabled();
+    await guestPage.getByRole("button", { name: "자산", exact: true }).click();
+    await expect(guestPage.getByRole("button", { name: "자산 등록" })).toBeDisabled();
+    await guestPage.getByRole("button", { name: "데이터 가져오기", exact: true }).click();
+    await expect(guestPage.getByRole("button", { name: "미리 검증" })).toBeDisabled();
+    await expect(guestPage.getByRole("button", { name: "적용" })).toBeDisabled();
+
+    const ownerMembersCard = ownerPage.locator("article.card", {
+      has: ownerPage.getByRole("heading", { name: "멤버 목록" }),
+    });
+    const ownerGuestMemberRow = ownerMembersCard.locator("tbody tr", { hasText: guestDisplayName }).first();
+    await ownerGuestMemberRow.locator("select").first().selectOption("editor");
+    await expect(ownerPage.getByText("구성원 권한을 변경했습니다.")).toBeVisible();
+
     const collaborationTabButton = guestPage.locator("nav.tabs .tabs-right button").first();
     const settingsTabButton = guestPage.locator("nav.tabs .tabs-right button").last();
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      await collaborationTabButton.click();
+      const isActive = await collaborationTabButton
+        .evaluate((element) => element.classList.contains("active"))
+        .catch(() => false);
+      if (isActive) {
+        break;
+      }
+      await guestPage.waitForTimeout(250);
+    }
+    await expect(collaborationTabButton).toHaveClass(/active/);
+    await expect(guestPage.locator(".message")).toContainText("내 권한이 변경되었습니다.", { timeout: 15_000 });
+    await expect(guestCollaborationCard.locator(".table-summary").first()).toContainText("편집자");
+
     for (let attempt = 0; attempt < 4; attempt += 1) {
       await settingsTabButton.click();
       const isActive = await settingsTabButton

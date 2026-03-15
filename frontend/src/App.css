@@ -728,7 +728,21 @@ button.danger:active:not(:disabled) {
   color: #164087;
   padding: 0.5rem 0.7rem;
   font-size: 0.9rem;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.message span {
   white-space: pre-line;
+}
+
+.message-close {
+  flex-shrink: 0;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.8rem;
+  line-height: 1.2;
 }
 
 .confirm-backdrop {

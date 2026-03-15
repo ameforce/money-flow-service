@@ -27,7 +27,10 @@ test("settings flow: profile, household, colors, categories CRUD", async ({ page
   await labeledField(profileCard, "닉네임", "input").fill(nickname);
   await labeledField(profileCard, "표시명 방식", "select").selectOption("nickname");
   await profileCard.getByRole("button", { name: "프로필 저장" }).click();
-  await expect(page.getByText("프로필을 저장했습니다.")).toBeVisible();
+  const profileSavedMessage = page.locator(".message", { hasText: "프로필을 저장했습니다." }).first();
+  await expect(profileSavedMessage).toBeVisible();
+  await profileSavedMessage.getByRole("button", { name: "닫기" }).click();
+  await expect(profileSavedMessage).toHaveCount(0);
   await expect(page.locator(".topbar .meta")).toContainText(`사용자: ${nickname}`);
 
   const householdCard = page.locator("article.card", { has: page.getByRole("heading", { name: "가계 설정" }) });
