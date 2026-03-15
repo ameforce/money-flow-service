@@ -34,6 +34,7 @@
 - 설정 탭에 `작업 가계 전환` 카드 추가 및 `selectActiveHousehold` 재사용 연결.
 - 협업 탭과 설정 탭의 가계 전환 select를 공통 핸들러(`handleHouseholdSwitchChange`)로 정리.
 - E2E 확장: `e2e/specs/collaboration.spec.js`에 설정 탭 전환 검증 단계 추가.
+- Jenkins 환경 플래키 완화: 새 협업 E2E 단계의 라벨 기반 탐색을 구조 기반 셀렉터로 보강.
 - 검증 완료:
   - `cmd /c npm run frontend:build` 통과
   - `cmd /c npm run e2e:raw -- --workers=1 e2e/specs/settings.spec.js e2e/specs/collaboration.spec.js` 통과 (6 passed)
@@ -53,11 +54,12 @@
 - 기능 중복 구현 대신 기존 `selectActiveHousehold` 재사용을 선택해 회귀 위험을 최소화한다.
 - 설정 탭의 전환 UI는 권한 변경이 아닌 "현재 작업 컨텍스트 전환" 기능으로 표시한다.
 - E2E 판정은 플래키 리스크를 줄이기 위해 직렬(`--workers=1`) 기준을 우선 적용한다.
+- Jenkins에서 확인된 문자열 인코딩 의존 리스크를 줄이기 위해 신규 검증 단계는 텍스트 의존도를 최소화했다.
 
 # Open issues / Follow-ups
 
 - 설정 탭 진입 시 가계 전환 사용량을 추적하는 telemetry는 아직 미적용 상태다.
-- 플래키 E2E 원인(인증 토큰 입력 경합)은 별도 안정화 작업 후보로 유지한다.
+- 기존 플래키 E2E 원인(인증 토큰 입력 경합)은 별도 안정화 작업 후보로 유지한다.
 
 # Ignore / Out-of-scope files
 
