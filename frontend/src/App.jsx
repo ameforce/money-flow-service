@@ -1513,6 +1513,8 @@ function App() {
   const [showTransactionEntryBanner, setShowTransactionEntryBanner] = useState(false);
   const [showTransactionForm, setShowTransactionForm] = useState(false);
   const [txEntrySheetStep, setTxEntrySheetStep] = useState("form");
+  const [showTransactionQuickResume, setShowTransactionQuickResume] = useState(false);
+  const [txQuickOwnerTouched, setTxQuickOwnerTouched] = useState(false);
   const [showHoldingForm, setShowHoldingForm] = useState(false);
   const [tab, setTab] = useState(() => getSavedTabId());
   const [isCompactViewport, setIsCompactViewport] = useState(
@@ -1699,6 +1701,9 @@ function App() {
   const [importFile, setImportFile] = useState(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const txDateInputRef = useRef(null);
+  const txAmountInputRef = useRef(null);
+  const txQuickMemoInputRef = useRef(null);
+  const txQuickFormRef = useRef(null);
   const holdingNameInputRef = useRef(null);
   const txCategoryManagerRef = useRef(null);
   const transactionSupportDetailsRef = useRef(null);
@@ -1871,6 +1876,89 @@ function App() {
         .sort((left, right) => Number(right.amount) - Number(left.amount)),
     }));
   }, [categoryById, sortedTransactions]);
+  const transactionQuickCategoryChips = useMemo(() => {
+    const flowType = String(txForm.flow_type || "expense").trim() || "expense";
+    const usageByCategoryId = new Map();
+    const toComparableTime = (item) => {
+      const explicitTime = Date.parse(String(item?.updated_at || item?.created_at || ""));
+      if (Number.isFinite(explicitTime)) {
+        return explicitTime;
+      }
+      const dateKey = normalizeIsoDateKey(item?.occurred_on, "");
+      const dateTime = Date.parse(dateKey);
+      return Number.isFinite(dateTime) ? dateTime : 0;
+    };
+
+    for (const item of transactionLedgerItems) {
+      if (String(item?.flow_type || "").trim() !== flowType) {
+        continue;
+      }
+      const categoryId = String(item?.category_id || "").trim();
+      const category = categoryById.get(categoryId);
+      if (!category || String(category.flow_type || "").trim() !== flowType) {
+        continue;
+      }
+      const occurredOn = normalizeIsoDateKey(item?.occurred_on, "");
+      const latestTime = toComparableTime(item);
+      const prev = usageByCategoryId.get(categoryId) || { category, count: 0, latestTime: 0, latestDate: "" };
+      prev.count += 1;
+      if (!prev.latestDate || (occurredOn && occurredOn > prev.latestDate)) {
+        prev.latestDate = occurredOn;
+        prev.latestTime = latestTime;
+      } else if (occurredOn && occurredOn === prev.latestDate) {
+        prev.latestTime = Math.max(prev.latestTime, latestTime);
+      } else if (!occurredOn) {
+        prev.latestTime = Math.max(prev.latestTime, latestTime);
+      }
+      usageByCategoryId.set(categoryId, prev);
+    }
+
+    const recentChips = Array.from(usageByCategoryId.entries())
+      .map(([id, info]) => ({
+        id,
+        label: toCategoryPairLabel(info.category),
+        count: info.count,
+        latestTime: info.latestTime,
+        latestDate: info.latestDate,
+      }))
+      .sort((left, right) => {
+        if (left.latestDate !== right.latestDate) {
+          return right.latestDate.localeCompare(left.latestDate);
+        }
+        if (left.latestTime !== right.latestTime) {
+          return right.latestTime - left.latestTime;
+        }
+        if (left.count !== right.count) {
+          return right.count - left.count;
+        }
+        const labelOrder = left.label.localeCompare(right.label, "ko");
+        return labelOrder || left.id.localeCompare(right.id);
+      });
+
+    if (recentChips.length > 0) {
+      return recentChips.slice(0, 6);
+    }
+
+    return [...categoryOptions]
+      .filter((category) => String(category?.id || "").trim())
+      .sort((left, right) => {
+        const leftOrder = Number(left?.display_order ?? left?.sort_order ?? 0);
+        const rightOrder = Number(right?.display_order ?? right?.sort_order ?? 0);
+        if (Number.isFinite(leftOrder) && Number.isFinite(rightOrder) && leftOrder !== rightOrder) {
+          return leftOrder - rightOrder;
+        }
+        const labelOrder = toCategoryPairLabel(left).localeCompare(toCategoryPairLabel(right), "ko");
+        return labelOrder || String(left?.id || "").localeCompare(String(right?.id || ""));
+      })
+      .slice(0, 6)
+      .map((category) => ({
+        id: String(category.id || ""),
+        label: toCategoryPairLabel(category),
+        count: 0,
+        latestTime: 0,
+        latestDate: "",
+      }));
+  }, [categoryById, categoryOptions, transactionLedgerItems, txForm.flow_type]);
   const selectedTransactionSummary = useMemo(() => {
     let count = 0;
     let amount = 0;
@@ -2180,6 +2268,41 @@ function App() {
       })
       .filter(Boolean);
   }, [householdMembers]);
+  const transactionQuickOwnerSuggestion = useMemo(() => {
+    if (txQuickOwnerTouched) {
+      return null;
+    }
+    if (txForm.owner_user_id || txForm.owner_name) {
+      return null;
+    }
+    if (ownerMemberOptions.length === 0) {
+      return null;
+    }
+
+    const memberById = new Map(ownerMemberOptions.map((option) => [option.value, option]));
+    const recentItems = [...transactionLedgerItems].sort((left, right) => {
+      const leftDate = String(left?.occurred_on || "");
+      const rightDate = String(right?.occurred_on || "");
+      if (leftDate !== rightDate) {
+        return rightDate.localeCompare(leftDate);
+      }
+      const leftCreated = Date.parse(String(left?.created_at || left?.updated_at || ""));
+      const rightCreated = Date.parse(String(right?.created_at || right?.updated_at || ""));
+      if (Number.isFinite(leftCreated) && Number.isFinite(rightCreated) && leftCreated !== rightCreated) {
+        return rightCreated - leftCreated;
+      }
+      return String(right?.id || "").localeCompare(String(left?.id || ""));
+    });
+
+    for (const item of recentItems) {
+      const ownerUserId = String(item?.owner_user_id || "").trim();
+      if (memberById.has(ownerUserId)) {
+        return memberById.get(ownerUserId);
+      }
+    }
+
+    return ownerMemberOptions.length === 1 ? ownerMemberOptions[0] : null;
+  }, [ownerMemberOptions, transactionLedgerItems, txForm.owner_name, txForm.owner_user_id, txQuickOwnerTouched]);
   const categoryGroups = useMemo(() => {
     const flows = new Map();
     for (const category of categories) {
@@ -2488,9 +2611,79 @@ function App() {
       return;
     }
     requestAnimationFrame(() => {
-      txDateInputRef.current?.focus?.();
+      const focusTarget = isCompactViewport && txEntrySheetStep === "form" ? txAmountInputRef.current : txDateInputRef.current;
+      focusTarget?.focus?.({ preventScroll: false });
+      if (focusTarget === txAmountInputRef.current) {
+        setShowTransactionQuickResume(false);
+      }
     });
-  }, [showTransactionForm]);
+  }, [isCompactViewport, showTransactionForm, txEntrySheetStep]);
+
+  useEffect(() => {
+    if (!isCompactViewport || !showTransactionForm || txEntrySheetStep !== "form") {
+      return undefined;
+    }
+
+    const restoreQuickAmountFocus = () => {
+      requestAnimationFrame(() => {
+        const quickAmountInput = txAmountInputRef.current;
+        if (!quickAmountInput) {
+          return;
+        }
+        quickAmountInput.focus?.({ preventScroll: false });
+        const focusRestored = document.activeElement === quickAmountInput;
+        setShowTransactionQuickResume(!focusRestored);
+      });
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        setShowTransactionQuickResume(true);
+        return;
+      }
+      restoreQuickAmountFocus();
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("focus", restoreQuickAmountFocus);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("focus", restoreQuickAmountFocus);
+    };
+  }, [isCompactViewport, showTransactionForm, txEntrySheetStep]);
+
+  useEffect(() => {
+    if (
+      !isCompactViewport ||
+      !showTransactionForm ||
+      txEntrySheetStep !== "form" ||
+      txQuickOwnerTouched ||
+      !transactionQuickOwnerSuggestion ||
+      txForm.owner_user_id ||
+      txForm.owner_name
+    ) {
+      return;
+    }
+
+    setTxForm((prev) => {
+      if (prev.owner_user_id || prev.owner_name) {
+        return prev;
+      }
+      return {
+        ...prev,
+        owner_user_id: transactionQuickOwnerSuggestion.value,
+        owner_name: transactionQuickOwnerSuggestion.displayName || "",
+      };
+    });
+  }, [
+    isCompactViewport,
+    showTransactionForm,
+    transactionQuickOwnerSuggestion,
+    txEntrySheetStep,
+    txForm.owner_name,
+    txForm.owner_user_id,
+    txQuickOwnerTouched,
+  ]);
 
   useEffect(() => {
     if (!showHoldingForm) {
@@ -2580,12 +2773,58 @@ function App() {
   function closeTransactionEntrySheet() {
     setShowTransactionForm(false);
     setTxEntrySheetStep("form");
+    setShowTransactionQuickResume(false);
     if (!isCompactViewport) {
       return;
     }
     window.setTimeout(() => {
       window.scrollTo({ top: transactionSheetScrollYRef.current, behavior: "auto" });
     }, 0);
+  }
+
+  function resetTransactionDraft() {
+    setTxForm(createTransactionForm());
+    setTxCategoryMajor("");
+    setShowTransactionQuickResume(false);
+    setTxQuickOwnerTouched(false);
+    requestAnimationFrame(() => {
+      if (isCompactViewport && showTransactionForm) {
+        txAmountInputRef.current?.focus?.({ preventScroll: false });
+      }
+    });
+  }
+
+  function focusTransactionQuickAmount() {
+    requestAnimationFrame(() => {
+      txAmountInputRef.current?.focus?.({ preventScroll: false });
+      if (document.activeElement === txAmountInputRef.current) {
+        setShowTransactionQuickResume(false);
+      }
+    });
+  }
+
+  function handleTransactionQuickAmountKeyDown(event) {
+    if (event.key !== "Enter" || event.isComposing) {
+      return;
+    }
+    event.preventDefault();
+    txQuickMemoInputRef.current?.focus?.({ preventScroll: false });
+  }
+
+  function handleTransactionQuickMemoKeyDown(event) {
+    if (event.key !== "Enter" || event.isComposing || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) {
+      return;
+    }
+    event.preventDefault();
+    txQuickFormRef.current?.requestSubmit?.();
+  }
+
+  function selectTransactionQuickCategory(categoryId) {
+    const normalizedCategoryId = String(categoryId || "").trim();
+    const category = categoryById.get(normalizedCategoryId);
+    setTxForm((prev) => ({ ...prev, category_id: normalizedCategoryId }));
+    setTxCategoryMajor(category ? String(category.major || "") : "");
+    focusTransactionQuickAmount();
   }
 
   function openHoldingEntrySheet() {
@@ -4168,6 +4407,8 @@ function App() {
       setShowTransactionEntryBanner(false);
       setShowTransactionForm(false);
       setTxEntrySheetStep("form");
+      setShowTransactionQuickResume(false);
+      setTxQuickOwnerTouched(false);
       await refreshData(false);
       if (transactionHistoryInitialized || tab === "transactions") {
         await refreshTransactionHistoryAtAnchor(
@@ -6161,8 +6402,229 @@ function App() {
     );
   };
 
+  const renderTransactionQuickEntryForm = () => {
+    const transactionFormDisabled = !canEditRecords || loading;
+    const selectedCategoryId = String(txForm.category_id || "").trim();
+    const selectedCategoryLabel = selectedCategoryId
+      ? toCategoryPairLabel(categoryById.get(selectedCategoryId))
+      : "추천 카테고리를 탭하면 바로 연결됩니다.";
+
+    return (
+      <form
+        ref={txQuickFormRef}
+        className="transaction-quick-form transaction-entry-sheet-form"
+        data-testid="transaction-quick-form"
+        onSubmit={submitTransaction}
+      >
+        <label className="transaction-quick-amount-field">
+          <span>금액</span>
+          <input
+            ref={txAmountInputRef}
+            data-testid="transaction-quick-amount"
+            type="text"
+            inputMode="decimal"
+            enterKeyHint="next"
+            autoComplete="off"
+            placeholder="0"
+            value={txForm.amount}
+            onChange={(event) => handleGroupedDecimalInput(event, setTxForm, "amount")}
+            onKeyDown={handleTransactionQuickAmountKeyDown}
+            disabled={transactionFormDisabled}
+            required
+          />
+        </label>
+
+        {showTransactionQuickResume && (
+          <button
+            type="button"
+            className="secondary transaction-quick-resume"
+            data-testid="transaction-quick-resume"
+            onClick={focusTransactionQuickAmount}
+            disabled={transactionFormDisabled}
+          >
+            입력 계속하기
+          </button>
+        )}
+
+        <section className="transaction-quick-category-panel" aria-label="추천 카테고리">
+          <div className="transaction-quick-section-title">
+            <span>추천 카테고리</span>
+            <small>{selectedCategoryLabel}</small>
+          </div>
+          <div className="transaction-quick-category-chips">
+            {transactionQuickCategoryChips.length > 0 ? (
+              transactionQuickCategoryChips.map((chip) => {
+                const isSelected = selectedCategoryId === chip.id;
+                return (
+                  <button
+                    key={chip.id}
+                    type="button"
+                    className={`transaction-quick-category-chip${isSelected ? " selected" : ""}`}
+                    data-testid="transaction-quick-category-chip"
+                    aria-pressed={isSelected}
+                    onClick={() => selectTransactionQuickCategory(chip.id)}
+                    disabled={transactionFormDisabled}
+                  >
+                    <span>{chip.label}</span>
+                    {chip.count > 0 && <small>최근 {chip.count}회</small>}
+                  </button>
+                );
+              })
+            ) : (
+              <p className="table-summary">아직 사용할 수 있는 카테고리가 없습니다. 카테고리 관리에서 먼저 만들어 주세요.</p>
+            )}
+          </div>
+        </section>
+
+        <label className="transaction-quick-memo-field">
+          메모
+          <input
+            ref={txQuickMemoInputRef}
+            enterKeyHint="done"
+            value={txForm.memo}
+            placeholder="선택 입력"
+            onChange={(e) => setTxForm((prev) => ({ ...prev, memo: e.target.value }))}
+            onKeyDown={handleTransactionQuickMemoKeyDown}
+            disabled={transactionFormDisabled}
+          />
+        </label>
+
+        {transactionQuickOwnerSuggestion && (
+          <p className="transaction-quick-owner-hint">
+            거래자 기본값: {transactionQuickOwnerSuggestion.displayName || transactionQuickOwnerSuggestion.label}
+          </p>
+        )}
+
+        <details className="transaction-quick-details">
+          <summary>전체 카테고리</summary>
+          <div className="transaction-quick-detail-grid">
+            <label>
+              카테고리 그룹
+              <select
+                enterKeyHint="next"
+                value={txCategoryMajor}
+                disabled={transactionFormDisabled}
+                onChange={(e) => {
+                  setTxCategoryMajor(e.target.value);
+                  setTxForm((prev) => ({ ...prev, category_id: "" }));
+                }}
+              >
+                <option value="">(선택 안함)</option>
+                {categoryMajorOptions.map((major) => (
+                  <option key={major} value={major}>
+                    {toCategoryMajorLabel(major)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              카테고리
+              <select
+                enterKeyHint="next"
+                value={txForm.category_id}
+                disabled={transactionFormDisabled || !txCategoryMajor}
+                onChange={(e) => setTxForm((prev) => ({ ...prev, category_id: e.target.value }))}
+              >
+                <option value="">(선택 안함)</option>
+                {categoryMinorOptions.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {toCategoryMinorLabel(item.minor)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </details>
+
+        <details className="transaction-quick-details">
+          <summary>추가 입력</summary>
+          <div className="transaction-quick-detail-grid">
+            <label className="date-field">
+              일자
+              <div className="date-input-wrap">
+                <input
+                  ref={txDateInputRef}
+                  type="date"
+                  enterKeyHint="next"
+                  value={txForm.occurred_on}
+                  onChange={(e) => setTxForm((prev) => ({ ...prev, occurred_on: e.target.value }))}
+                  disabled={transactionFormDisabled}
+                  required
+                />
+                <button
+                  type="button"
+                  className="secondary today-btn"
+                  onClick={() => setTxForm((prev) => ({ ...prev, occurred_on: todayIso() }))}
+                  disabled={transactionFormDisabled}
+                >
+                  오늘
+                </button>
+              </div>
+            </label>
+            <label>
+              유형
+              <select
+                enterKeyHint="next"
+                value={txForm.flow_type}
+                disabled={transactionFormDisabled}
+                onChange={(e) => {
+                  setTxForm((prev) => ({ ...prev, flow_type: e.target.value, category_id: "" }));
+                  setTxCategoryMajor("");
+                }}
+              >
+                {FLOW_TYPE_OPTIONS.map((item) => (
+                  <option key={item.value} value={item.value}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              거래자
+              <select
+                enterKeyHint="done"
+                value={ownerSelectValue(txForm.owner_user_id, txForm.owner_name)}
+                disabled={transactionFormDisabled}
+                onChange={(event) => {
+                  const nextOwner = ownerSelectionFromValue(event.target.value, transactionOwnerOptions);
+                  setTxQuickOwnerTouched(true);
+                  setTxForm((prev) => ({ ...prev, ...nextOwner }));
+                }}
+              >
+                <option value="">(선택 안함)</option>
+                {transactionOwnerOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </details>
+
+        <div className="transaction-quick-sticky-actions">
+          <button
+            type="button"
+            className="secondary"
+            data-testid="transaction-quick-reset"
+            onClick={resetTransactionDraft}
+            disabled={transactionFormDisabled}
+          >
+            초기화
+          </button>
+          <button type="submit" data-testid="transaction-quick-save" disabled={transactionFormDisabled}>
+            거래 등록
+          </button>
+        </div>
+      </form>
+    );
+  };
+
   const renderTransactionFormFields = ({ sheetMode = false } = {}) => {
     const transactionFormDisabled = !canEditRecords || loading;
+    if (sheetMode && isCompactViewport) {
+      return renderTransactionQuickEntryForm();
+    }
     return (
       <form
         className={`form-grid transactions-form-grid${sheetMode ? " transaction-entry-sheet-form" : ""}`}
@@ -6272,6 +6734,7 @@ function App() {
           disabled={transactionFormDisabled}
           onChange={(event) => {
             const nextOwner = ownerSelectionFromValue(event.target.value, transactionOwnerOptions);
+            setTxQuickOwnerTouched(true);
             setTxForm((prev) => ({ ...prev, ...nextOwner }));
           }}
         >
@@ -6287,10 +6750,7 @@ function App() {
         <button
           type="button"
           className="secondary"
-          onClick={() => {
-            setTxForm(createTransactionForm());
-            setTxCategoryMajor("");
-          }}
+          onClick={resetTransactionDraft}
           disabled={transactionFormDisabled}
         >
           초기화

@@ -460,6 +460,58 @@ export async function selectFirstNonEmptyOption(selectLocator) {
   return true;
 }
 
+export async function createCategoryViaApi(page, { major, minor, flowType = "expense" }) {
+  const result = await page.evaluate(
+    async ({ activeHouseholdKey, csrfCookieName, csrfHeaderName, flowType, householdHeaderName, major, minor }) => {
+      const cookieValue = (name) => {
+        const prefix = `${name}=`;
+        return String(document.cookie || "")
+          .split(";")
+          .map((item) => item.trim())
+          .find((item) => item.startsWith(prefix))
+          ?.slice(prefix.length) || "";
+      };
+      const householdId = String(localStorage.getItem(activeHouseholdKey) || "").trim();
+      const headers = {
+        "Content-Type": "application/json",
+        [csrfHeaderName]: decodeURIComponent(cookieValue(csrfCookieName)),
+      };
+      if (householdId) {
+        headers[householdHeaderName] = householdId;
+      }
+      const response = await fetch("/api/v1/categories", {
+        method: "POST",
+        credentials: "include",
+        headers,
+        body: JSON.stringify({
+          flow_type: flowType,
+          major,
+          minor,
+        }),
+      });
+      const text = await response.text();
+      let payload = null;
+      try {
+        payload = text ? JSON.parse(text) : null;
+      } catch {
+        payload = null;
+      }
+      return { ok: response.ok, status: response.status, payload, text };
+    },
+    {
+      activeHouseholdKey: ACTIVE_HOUSEHOLD_KEY,
+      csrfCookieName: DEFAULT_CSRF_COOKIE_NAME,
+      csrfHeaderName: DEFAULT_CSRF_HEADER_NAME,
+      flowType,
+      householdHeaderName: DEFAULT_HOUSEHOLD_HEADER_NAME,
+      major,
+      minor,
+    }
+  );
+  expect(result.ok, `category api create failed: ${result.status} ${result.text}`).toBe(true);
+  return result.payload;
+}
+
 function formatGroupedNumber(value) {
   const digits = String(value ?? "").replace(/[^\d-]/g, "");
   if (!digits) {
@@ -476,7 +528,7 @@ async function ensureTransactionFormValues(container, { memo, amount, occurredOn
   const dateInput = occurredOn ? labeledField(container, "일자", "input") : null;
   const expectedAmount = formatGroupedNumber(amount);
 
-  await expect(container.locator("form.transactions-form-grid").first()).toBeVisible();
+  await expect(container.locator("form.transactions-form-grid, form.transaction-quick-form").first()).toBeVisible();
   if (dateInput) {
     await dateInput.scrollIntoViewIfNeeded();
   }
@@ -503,6 +555,24 @@ async function ensureTransactionFormValues(container, { memo, amount, occurredOn
   await expect(amountInput).toHaveValue(expectedAmount);
   await expect(memoInput).toHaveValue(memo);
   return { amountInput, memoInput, dateInput };
+}
+
+async function expandQuickTransactionDetails(container) {
+  const quickForm = container.locator("form.transaction-quick-form").first();
+  if (!(await quickForm.isVisible().catch(() => false))) {
+    return;
+  }
+
+  for (const summaryText of ["추가 입력", "전체 카테고리"]) {
+    const details = quickForm.locator("details.transaction-quick-details", { hasText: summaryText }).first();
+    if ((await details.count()) === 0) {
+      continue;
+    }
+    if ((await details.getAttribute("open")) !== null) {
+      continue;
+    }
+    await details.locator("summary").click();
+  }
 }
 
 async function fillInputUntilValue(locator, inputValue, expectedValue, fieldName) {
@@ -558,6 +628,7 @@ export async function createBasicTransaction(
     await expect(transactionSheet).toBeVisible();
     transactionContainer = transactionSheet;
   }
+  await expandQuickTransactionDetails(transactionContainer);
 
   if (flowType) {
     await labeledField(transactionContainer, "유형", "select").selectOption(flowType);
@@ -627,10 +698,28 @@ export async function createBasicTransaction(
 
 export async function createTransactionViaApi(
   page,
-  { memo, amount = "12000", flowType = "expense", occurredOn = currentE2EHistoryDateIso(), ownerName = "" }
+  {
+    memo,
+    amount = "12000",
+    flowType = "expense",
+    occurredOn = currentE2EHistoryDateIso(),
+    ownerName = "",
+    categoryId = "",
+  }
 ) {
   const result = await page.evaluate(
-    async ({ activeHouseholdKey, amount, csrfCookieName, csrfHeaderName, flowType, householdHeaderName, memo, occurredOn, ownerName }) => {
+    async ({
+      activeHouseholdKey,
+      amount,
+      categoryId,
+      csrfCookieName,
+      csrfHeaderName,
+      flowType,
+      householdHeaderName,
+      memo,
+      occurredOn,
+      ownerName,
+    }) => {
       const cookieValue = (name) => {
         const prefix = `${name}=`;
         return String(document.cookie || "")
@@ -655,6 +744,7 @@ export async function createTransactionViaApi(
           occurred_on: occurredOn,
           flow_type: flowType,
           amount,
+          category_id: categoryId || null,
           currency: "KRW",
           memo,
           owner_name: ownerName,
@@ -672,6 +762,7 @@ export async function createTransactionViaApi(
     {
       activeHouseholdKey: ACTIVE_HOUSEHOLD_KEY,
       amount,
+      categoryId,
       csrfCookieName: DEFAULT_CSRF_COOKIE_NAME,
       csrfHeaderName: DEFAULT_CSRF_HEADER_NAME,
       flowType,

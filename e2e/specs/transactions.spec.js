@@ -4,6 +4,7 @@ import {
   assertResponsiveShell,
   capture,
   createBasicTransaction,
+  createCategoryViaApi,
   createTransactionViaApi,
   currentE2EHistoryDateIso,
   expectBackgroundNotPlainWhite,
@@ -308,6 +309,365 @@ async function scrollHistoryRowIntoViewport(page, text, expectedIsoDate, block =
     .toBe("ready");
   await page.waitForTimeout(250);
 }
+
+async function openMobileTransactionQuickEntry(page) {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openTab(page, "거래");
+  await page.waitForLoadState("networkidle");
+  const transactionFab = page.getByTestId("transactions-fab");
+  const transactionSheet = page.getByTestId("transaction-entry-sheet");
+  await expect(transactionFab).toBeVisible();
+  await expect(transactionFab).toBeEnabled();
+  await transactionFab.click();
+  await expect(transactionSheet).toBeVisible();
+  return transactionSheet;
+}
+
+async function expectMobileQuickEntryDefaults(page, transactionSheet) {
+  const today = currentE2EHistoryDateIso();
+  const dateInput = labeledField(transactionSheet, "일자", "input");
+  if ((await dateInput.count()) > 0 && (await dateInput.isVisible().catch(() => false))) {
+    await expect(dateInput).toHaveValue(today);
+  }
+
+  const typeSelect = labeledField(transactionSheet, "유형", "select");
+  if ((await typeSelect.count()) > 0 && (await typeSelect.isVisible().catch(() => false))) {
+    await expect(typeSelect).toHaveValue("expense");
+  }
+}
+
+async function expectQuickCategoryReflectedInFullFallback(transactionSheet, selectedChipText) {
+  const categoryTrigger = transactionSheet
+    .getByRole("button", { name: /전체 카테고리|카테고리 선택|카테고리 변경|자세히|추가 입력/ })
+    .first();
+  if ((await categoryTrigger.count()) > 0 && (await categoryTrigger.isVisible().catch(() => false))) {
+    await categoryTrigger.click();
+  }
+
+  const categorySelect = labeledField(transactionSheet, "카테고리", "select");
+  const legacyMinorSelect = labeledField(transactionSheet, "중분류", "select");
+  const selectedText = await (async () => {
+    const target = (await categorySelect.count()) > 0 ? categorySelect : legacyMinorSelect;
+    if ((await target.count()) === 0 || !(await target.isVisible().catch(() => false))) {
+      return "";
+    }
+    return target.evaluate((select) => select.options[select.selectedIndex]?.textContent?.trim() || "");
+  })();
+
+  if (selectedText) {
+    const normalizedChip = selectedChipText.replace(/\s+/g, " ").trim();
+    expect(
+      normalizedChip.includes(selectedText) || selectedText.includes(normalizedChip),
+      `full category fallback should reflect quick chip ${normalizedChip}; selected ${selectedText}`
+    ).toBe(true);
+  }
+}
+
+async function installStaleCategoryHistoryFixture(page, { staleCategoryMajor, staleCategoryMinor, staleMemo }) {
+  const staleCategoryId = `stale-category-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+  const staleRowId = `stale-row-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+  const routePattern = "**/api/v1/transactions/history**";
+  let injected = false;
+
+  await page.route(routePattern, async (route) => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.get("direction") !== "initial") {
+      await route.continue();
+      return;
+    }
+
+    const response = await route.fetch();
+    const payload = await response.json().catch(() => null);
+    const items = Array.isArray(payload?.items) ? payload.items : [];
+    if (!payload || injected || items.length === 0) {
+      await route.fulfill({ response, json: payload ?? {} });
+      return;
+    }
+
+    const template = items.find((item) => String(item?.flow_type || "") === "expense") || items[0];
+    const nowIso = new Date().toISOString();
+    payload.items = [
+      {
+        ...template,
+        id: staleRowId,
+        memo: staleMemo,
+        amount: "888888",
+        flow_type: "expense",
+        occurred_on: currentE2EHistoryDateIso(),
+        created_at: nowIso,
+        updated_at: nowIso,
+        category_id: staleCategoryId,
+        category_major: staleCategoryMajor,
+        category_minor: staleCategoryMinor,
+        category_label: `${staleCategoryMajor} / ${staleCategoryMinor}`,
+      },
+      ...items,
+    ];
+    injected = true;
+    await route.fulfill({ response, json: payload });
+  });
+
+  return {
+    wasInjected: () => injected,
+    unroute: () => page.unroute(routePattern),
+  };
+}
+
+test("mobile quick entry creates an expense through amount-first chip path", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("tx-quick-create")}@example.com`;
+  const displayName = unique("tx-quick-create-name");
+  const seedMemo = unique("tx-quick-seed");
+  const memo = unique("tx-quick-created");
+
+  await registerAndVerify(page, { email, displayName });
+  const seedCategory = await createCategoryViaApi(page, {
+    major: unique("빠른입력"),
+    minor: unique("최근카테고리"),
+  });
+  await createTransactionViaApi(page, {
+    memo: seedMemo,
+    amount: "13579",
+    categoryId: seedCategory.id,
+    ownerName: displayName,
+  });
+  await page.reload();
+
+  const transactionSheet = await openMobileTransactionQuickEntry(page);
+  const quickForm = page.getByTestId("transaction-quick-form");
+  await expect(quickForm).toBeVisible();
+  const quickAmount = page.getByTestId("transaction-quick-amount");
+  await expect(quickAmount).toBeVisible();
+  await expect(quickAmount).toBeFocused();
+  const amountBox = await quickAmount.boundingBox();
+  const firstSheetFieldTop = await quickForm.locator("input, select, textarea, button").evaluateAll((nodes) => {
+    const visibleTops = nodes
+      .map((node) => {
+        const box = node.getBoundingClientRect();
+        const style = getComputedStyle(node);
+        return box.width > 0 && box.height > 0 && style.visibility !== "hidden" && style.display !== "none" ? box.top : null;
+      })
+      .filter((top) => top !== null);
+    return visibleTops.length ? Math.min(...visibleTops) : Number.POSITIVE_INFINITY;
+  });
+  expect(amountBox?.y ?? Number.POSITIVE_INFINITY, "quick amount should be the first meaningful sheet field").toBeLessThanOrEqual(
+    firstSheetFieldTop + 4
+  );
+  await expectMobileQuickEntryDefaults(page, transactionSheet);
+
+  await quickAmount.fill("24680");
+  const memoInput = labeledField(transactionSheet, "메모", "input");
+  await expect(memoInput).toBeVisible();
+  await quickAmount.press("Enter");
+  await expect(memoInput).toBeFocused();
+  await memoInput.fill(memo);
+
+  const quickCategoryChip = page.getByTestId("transaction-quick-category-chip").first();
+  await expect(quickCategoryChip).toBeVisible();
+  const selectedChipText = String((await quickCategoryChip.textContent()) || "").trim();
+  await quickCategoryChip.click();
+  await expectQuickCategoryReflectedInFullFallback(transactionSheet, selectedChipText);
+  await capture(page, "transactions-quick-entry-create");
+
+  const quickSave = page.getByTestId("transaction-quick-save");
+  await expect(quickSave).toBeVisible();
+  await expect(quickSave).toBeEnabled();
+  await quickSave.click();
+
+  const createdRow = page.locator("tr.transaction-row", { hasText: memo }).first();
+  await expect(createdRow).toBeVisible({ timeout: 20_000 });
+});
+
+test("mobile quick entry preserves a closed draft and clears it only through reset", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("tx-quick-draft")}@example.com`;
+  const displayName = unique("tx-quick-draft-name");
+  const seedMemo = unique("tx-quick-draft-seed");
+  const draftMemo = unique("tx-quick-draft-memo");
+
+  await registerAndVerify(page, { email, displayName });
+  const seedCategory = await createCategoryViaApi(page, {
+    major: unique("초안입력"),
+    minor: unique("최근카테고리"),
+  });
+  await createTransactionViaApi(page, {
+    memo: seedMemo,
+    amount: "97531",
+    categoryId: seedCategory.id,
+    ownerName: displayName,
+  });
+  await page.reload();
+
+  let transactionSheet = await openMobileTransactionQuickEntry(page);
+  const quickAmount = page.getByTestId("transaction-quick-amount");
+  await expect(quickAmount).toBeVisible();
+  await quickAmount.fill("11223");
+  const memoInput = labeledField(transactionSheet, "메모", "input");
+  await expect(memoInput).toBeVisible();
+  await memoInput.fill(draftMemo);
+  const quickCategoryChip = page.getByTestId("transaction-quick-category-chip").first();
+  await expect(quickCategoryChip).toBeVisible();
+  await quickCategoryChip.click();
+
+  await page.evaluate(() => {
+    document.dispatchEvent(new Event("visibilitychange"));
+    window.dispatchEvent(new Event("focus"));
+  });
+  const quickResume = page.getByTestId("transaction-quick-resume");
+  const resumeVisible = await quickResume.isVisible().catch(() => false);
+  if (resumeVisible) {
+    await expect(quickResume).toBeEnabled();
+  } else {
+    await expect(quickAmount).toHaveValue("11,223");
+    await expect(memoInput).toHaveValue(draftMemo);
+  }
+
+  await page.getByTestId("transaction-entry-sheet-close").click();
+  await expect(transactionSheet).toBeHidden();
+
+  transactionSheet = await openMobileTransactionQuickEntry(page);
+  await expect(page.getByTestId("transaction-quick-amount")).toHaveValue("11,223");
+  await expect(labeledField(transactionSheet, "메모", "input")).toHaveValue(draftMemo);
+  await capture(page, "transactions-quick-entry-draft");
+
+  const quickReset = page.getByTestId("transaction-quick-reset");
+  await expect(quickReset).toBeVisible();
+  await expect(quickReset).toBeEnabled();
+  await quickReset.click();
+
+  await expect(page.getByTestId("transaction-quick-amount")).toHaveValue("");
+  await expect(labeledField(transactionSheet, "메모", "input")).toHaveValue("");
+  await expectMobileQuickEntryDefaults(page, transactionSheet);
+});
+
+test("mobile quick entry keeps owner override and filters ordered category chips", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("tx-quick-owner")}@example.com`;
+  const displayName = unique("tx-quick-owner-name");
+  const recentExpenseCategory = {
+    major: unique("정렬최근"),
+    minor: unique("나중발생"),
+  };
+  const olderExpenseCategory = {
+    major: unique("정렬과거"),
+    minor: unique("나중생성"),
+  };
+  const incomeCategory = {
+    major: unique("수입제외"),
+    minor: unique("잘못된흐름"),
+  };
+  const staleCategory = {
+    major: unique("삭제된분류"),
+    minor: unique("오래된아이디"),
+  };
+  const staleMemo = unique("tx-quick-stale-category");
+
+  await registerAndVerify(page, { email, displayName });
+  const recentExpense = await createCategoryViaApi(page, recentExpenseCategory);
+  const olderExpense = await createCategoryViaApi(page, olderExpenseCategory);
+  const income = await createCategoryViaApi(page, { ...incomeCategory, flowType: "income" });
+  await createTransactionViaApi(page, {
+    memo: unique("tx-quick-recent-expense"),
+    amount: "1000",
+    categoryId: recentExpense.id,
+    occurredOn: isoDaysAgo(1),
+    ownerName: displayName,
+  });
+  await createTransactionViaApi(page, {
+    memo: unique("tx-quick-older-expense"),
+    amount: "2000",
+    categoryId: olderExpense.id,
+    occurredOn: isoDaysAgo(7),
+    ownerName: displayName,
+  });
+  await createTransactionViaApi(page, {
+    memo: unique("tx-quick-income-filter"),
+    amount: "3000",
+    flowType: "income",
+    categoryId: income.id,
+    occurredOn: currentE2EHistoryDateIso(),
+    ownerName: displayName,
+  });
+  await createTransactionViaApi(page, {
+    memo: unique("tx-quick-empty-category"),
+    amount: "4000",
+    occurredOn: currentE2EHistoryDateIso(),
+    ownerName: displayName,
+  });
+  const staleHistoryFixture = await installStaleCategoryHistoryFixture(page, {
+    staleCategoryMajor: staleCategory.major,
+    staleCategoryMinor: staleCategory.minor,
+    staleMemo,
+  });
+  await page.reload();
+
+  const transactionSheet = await openMobileTransactionQuickEntry(page);
+  expect(staleHistoryFixture.wasInjected(), "stale category fixture should be present in transaction history").toBe(true);
+  await expect(page.locator("tr.transaction-row", { hasText: staleMemo }).first()).toBeVisible();
+  const chips = page.getByTestId("transaction-quick-category-chip");
+  await expect(chips.first()).toBeVisible();
+  await expect(chips.first()).toContainText(recentExpenseCategory.minor);
+  const chipTexts = (await chips.allTextContents()).join(" ");
+  expect(chipTexts).toContain(recentExpenseCategory.minor);
+  expect(chipTexts).toContain(olderExpenseCategory.minor);
+  expect(chipTexts).not.toContain(incomeCategory.minor);
+  expect(chipTexts).not.toContain(staleCategory.minor);
+
+  await transactionSheet.getByText("추가 입력").click();
+  const ownerSelect = labeledField(transactionSheet, "거래자", "select");
+  await expect(ownerSelect).toBeVisible();
+  await ownerSelect.selectOption("");
+  await expect(ownerSelect).toHaveValue("");
+  await page.waitForTimeout(500);
+  await expect(ownerSelect).toHaveValue("");
+  await capture(page, "transactions-quick-entry-owner-order");
+  await staleHistoryFixture.unroute();
+});
+
+test("mobile quick entry stays usable across viewport and Korean font fallbacks", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("tx-quick-matrix")}@example.com`;
+  const displayName = unique("tx-quick-matrix-name");
+  const seedMemo = unique("tx-quick-matrix-seed");
+  const seedCategory = { major: unique("행렬입력"), minor: unique("최근카테고리") };
+  const scenarios = [
+    { width: 390, height: 844, font: "Apple SD Gothic Neo", slug: "apple-sd-gothic" },
+    { width: 375, height: 812, font: "Malgun Gothic", slug: "malgun-gothic" },
+    { width: 412, height: 915, font: "Noto Sans KR", slug: "noto-sans-kr" },
+  ];
+
+  await registerAndVerify(page, { email, displayName });
+  const category = await createCategoryViaApi(page, seedCategory);
+  await createTransactionViaApi(page, {
+    memo: seedMemo,
+    amount: "54321",
+    categoryId: category.id,
+    ownerName: displayName,
+  });
+  await page.reload();
+
+  for (const scenario of scenarios) {
+    await page.setViewportSize({ width: scenario.width, height: scenario.height });
+    await page.addStyleTag({
+      content: `html, body, button, input, select, textarea { font-family: "${scenario.font}", "Noto Sans KR", sans-serif !important; }`,
+    });
+    const transactionSheet = await openMobileTransactionQuickEntry(page);
+    await expect(page.getByTestId("transaction-quick-form")).toBeVisible();
+    await expect(page.getByTestId("transaction-quick-amount")).toBeVisible();
+    await expect(page.getByTestId("transaction-quick-save")).toBeVisible();
+    await expect(page.getByTestId("transaction-quick-category-chip").first()).toBeVisible();
+    await expectNoHorizontalOverflow(page, 12);
+    const sheetBox = await transactionSheet.boundingBox();
+    expect(sheetBox?.width ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(scenario.width);
+    await capture(page, `transactions-quick-entry-${scenario.slug}`);
+    await page.getByTestId("transaction-entry-sheet-close").click();
+    await expect(transactionSheet).toBeHidden();
+  }
+});
 
 test("transactions flow: create, inline edit, delete, responsive", async ({ page }) => {
   test.setTimeout(240_000);
