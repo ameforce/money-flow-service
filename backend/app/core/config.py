@@ -10,6 +10,8 @@ from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 INSECURE_DEFAULT_SECRET_KEY = "change-this-secret-key-please-at-least-32-bytes"
+NON_STRICT_EMAIL_ENVS = {"local", "test"}
+PRODUCTION_ENVS = {"prod", "production"}
 
 
 def _get_local_ips() -> list[str]:
@@ -34,7 +36,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     app_name: str = "money-flow"
-    env: str = "dev"
+    env: str = "local"
     api_prefix: str = "/api/v1"
     secret_key: str = Field(min_length=32)
     access_token_minutes: int = 60 * 24
@@ -98,12 +100,20 @@ class Settings(BaseSettings):
     smtp_starttls: bool = True
     smtp_ssl: bool = False
     smtp_from_email: str = ""
-    smtp_from_name: str = "money-flow"
-    smtp_account_label: str = "money-flow-default"
+    smtp_from_name: str = "Money Flow Service"
+    smtp_account_label: str = ""
 
     @property
     def allowed_origins(self) -> list[str]:
         return [item.strip() for item in self.cors_origins.split(",") if item.strip()]
+
+    @property
+    def is_strict_email_environment(self) -> bool:
+        return str(self.env or "").strip().lower() not in NON_STRICT_EMAIL_ENVS
+
+    @property
+    def blocks_email_delivery_failures(self) -> bool:
+        return self.is_strict_email_environment or self.email_delivery_mode == "smtp"
 
     @model_validator(mode="after")
     def validate_secret_key(self) -> "Settings":
@@ -137,32 +147,48 @@ class Settings(BaseSettings):
         if not csrf_cookie:
             raise ValueError("AUTH_CSRF_COOKIE_NAME must not be empty.")
         self.auth_csrf_cookie_name = csrf_cookie
+        env_name = str(self.env or "").strip().lower() or "local"
+        self.env = env_name
+        is_prod = env_name in PRODUCTION_ENVS
+        is_strict_email = self.is_strict_email_environment
+
         mode = str(self.email_delivery_mode or "").strip().lower()
         if mode not in {"log", "smtp"}:
             raise ValueError("EMAIL_DELIVERY_MODE must be one of: log, smtp.")
+        mode_was_supplied = "email_delivery_mode" in self.model_fields_set
+        if is_strict_email:
+            if mode_was_supplied and mode != "smtp":
+                raise ValueError("EMAIL_DELIVERY_MODE is local/test-only; strict environments require SMTP delivery.")
+            mode = "smtp"
         self.email_delivery_mode = mode
+
+        if is_strict_email and not self.auth_email_verification_required:
+            raise ValueError("AUTH_EMAIL_VERIFICATION_REQUIRED must be true in strict email environments.")
+        if is_strict_email and self.auth_debug_return_verify_token:
+            raise ValueError("AUTH_DEBUG_RETURN_VERIFY_TOKEN must be false in strict email environments.")
+
         if mode == "smtp":
             smtp_host = str(self.smtp_host or "").strip()
             if not smtp_host:
-                raise ValueError("SMTP_HOST must be set when EMAIL_DELIVERY_MODE=smtp.")
+                raise ValueError("SMTP_HOST must be set when SMTP delivery is required.")
             smtp_from_email = str(self.smtp_from_email or "").strip()
             if not smtp_from_email:
-                raise ValueError("SMTP_FROM_EMAIL must be set when EMAIL_DELIVERY_MODE=smtp.")
+                raise ValueError("SMTP_FROM_EMAIL must be set when SMTP delivery is required.")
             smtp_account_label = str(self.smtp_account_label or "").strip()
             if not smtp_account_label:
-                raise ValueError("SMTP_ACCOUNT_LABEL must be set when EMAIL_DELIVERY_MODE=smtp.")
+                raise ValueError("SMTP_ACCOUNT_LABEL must be set when SMTP delivery is required.")
             smtp_port = int(self.smtp_port or 0)
             if smtp_port <= 0 or smtp_port > 65535:
-                raise ValueError("SMTP_PORT must be a valid TCP port when EMAIL_DELIVERY_MODE=smtp.")
+                raise ValueError("SMTP_PORT must be a valid TCP port when SMTP delivery is required.")
             if self.smtp_ssl and self.smtp_starttls:
                 raise ValueError("SMTP_SSL and SMTP_STARTTLS cannot both be true.")
+            if is_strict_email and (str(self.smtp_user or "").strip() or str(self.smtp_pass or "").strip()):
+                if not self.smtp_ssl and not self.smtp_starttls:
+                    raise ValueError("Authenticated SMTP in strict environments must use SMTP_SSL or SMTP_STARTTLS.")
             self.smtp_host = smtp_host
             self.smtp_from_email = smtp_from_email
             self.smtp_port = smtp_port
             self.smtp_account_label = smtp_account_label
-
-        env_name = str(self.env or "").strip().lower()
-        is_prod = env_name in {"prod", "production"}
 
         origins = [_normalize_origin(item) for item in self.allowed_origins]
 
