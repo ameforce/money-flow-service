@@ -5,9 +5,16 @@ from decimal import Decimal
 import re
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
-from app.db.models import AssetType, FlowType, InvitationStatus, MemberRole
+from app.db.models import AssetType, DisplayNameMode, FlowType, InvitationStatus, MemberRole
+from app.services.profile import (
+    DEFAULT_HOLDING_SETTINGS,
+    DEFAULT_TRANSACTION_ROW_COLORS,
+    normalize_holding_settings,
+    normalize_optional_text,
+    normalize_transaction_row_colors,
+)
 
 SUPPORTED_CURRENCIES = {"KRW", "USD", "JPY", "EUR"}
 
@@ -17,6 +24,9 @@ class UserRead(BaseModel):
 
     id: str
     email: str
+    real_name: str | None = None
+    nickname: str | None = None
+    display_name_mode: DisplayNameMode = DisplayNameMode.real_name
     display_name: str
     email_verified: bool
     email_verified_at: datetime | None = None
@@ -44,6 +54,9 @@ class RegisterResponse(BaseModel):
     email: str
     message: str
     verification_expires_in_seconds: int | None = None
+    verification_resend_limit: int | None = None
+    verification_resend_window_seconds: int | None = None
+    verification_resend_cooldown_seconds: int | None = None
     debug_verification_token: str | None = None
     access_token: str | None = None
     token_type: Literal["bearer"] | None = None
@@ -74,10 +87,20 @@ class AuthClientConfigResponse(BaseModel):
 
 
 class VerifyEmailRequest(BaseModel):
-    token: str = Field(min_length=12, max_length=512)
-    password: str = Field(min_length=8, max_length=128)
+    token: str | None = Field(default=None, min_length=12, max_length=512)
+    email: EmailStr | None = None
+    verification_code: str | None = Field(default=None, min_length=6, max_length=6, pattern=r"^\d{6}$")
+    password: str | None = Field(default=None, min_length=8, max_length=128)
     display_name: str | None = Field(default=None, min_length=1, max_length=120)
     remember_me: bool = True
+
+    @field_validator("token", "verification_code", mode="before")
+    @classmethod
+    def normalize_optional_secret(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
 
     @field_validator("display_name")
     @classmethod
@@ -89,9 +112,37 @@ class VerifyEmailRequest(BaseModel):
             raise ValueError("display_name must not be blank")
         return text
 
+    @model_validator(mode="after")
+    def validate_single_verification_path(self) -> VerifyEmailRequest:
+        has_token = bool(self.token)
+        has_code_path = bool(self.email) and bool(self.verification_code)
+        has_partial_code_path = bool(self.email) or bool(self.verification_code)
+        if has_token and has_partial_code_path:
+            raise ValueError("token and verification_code paths are mutually exclusive")
+        if not has_token and not has_code_path:
+            raise ValueError("token or email with verification_code is required")
+        return self
+
 
 class ResendVerificationRequest(BaseModel):
     email: EmailStr
+
+
+class ProfilePatchRequest(BaseModel):
+    real_name: str | None = Field(default=None, max_length=120)
+    nickname: str | None = Field(default=None, max_length=120)
+    display_name_mode: DisplayNameMode | None = None
+
+    @field_validator("real_name", "nickname")
+    @classmethod
+    def normalize_profile_text(cls, value: str | None) -> str | None:
+        return normalize_optional_text(value)
+
+    @model_validator(mode="after")
+    def validate_non_empty_patch(self) -> ProfilePatchRequest:
+        if not self.model_fields_set:
+            raise ValueError("at least one profile field is required")
+        return self
 
 
 class HouseholdRead(BaseModel):
@@ -139,12 +190,14 @@ class HouseholdInvitationCreate(BaseModel):
 class HouseholdInvitationRead(BaseModel):
     id: str
     household_id: str
+    household_name: str | None = None
     email: str
     role: MemberRole
     status: InvitationStatus
     expires_at: datetime
     accepted_at: datetime | None = None
     created_at: datetime
+    inviter_user_id: str | None = None
     inviter_display_name: str | None = None
     debug_invite_token: str | None = None
 
@@ -155,12 +208,59 @@ class HouseholdInvitationAcceptRequest(BaseModel):
 
 class HouseholdInvitationAcceptResponse(BaseModel):
     status: Literal["accepted"]
+    invitation_id: str
     household_id: str
+    household_name: str
     role: MemberRole
+    active_household_selected: bool
 
 
 class HouseholdMemberRolePatch(BaseModel):
     role: MemberRole
+
+
+class HouseholdSettingsRead(BaseModel):
+    household_id: str
+    name: str
+    base_currency: str
+    transaction_row_colors: dict[str, str] = Field(default_factory=lambda: dict(DEFAULT_TRANSACTION_ROW_COLORS))
+    holding_settings: dict[str, Any] = Field(default_factory=lambda: dict(DEFAULT_HOLDING_SETTINGS))
+
+
+class HouseholdSettingsPatch(BaseModel):
+    name: str | None = Field(default=None, max_length=120)
+    transaction_row_colors: dict[str, str] | None = None
+    holding_settings: dict[str, Any] | None = None
+
+    @field_validator("name")
+    @classmethod
+    def validate_household_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        if not text:
+            raise ValueError("name must not be blank")
+        return text
+
+    @field_validator("transaction_row_colors")
+    @classmethod
+    def validate_transaction_row_colors(cls, value: dict[str, str] | None) -> dict[str, str] | None:
+        if value is None:
+            return None
+        return normalize_transaction_row_colors(value)
+
+    @field_validator("holding_settings")
+    @classmethod
+    def validate_holding_settings(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        if value is None:
+            return None
+        return normalize_holding_settings(value)
+
+    @model_validator(mode="after")
+    def validate_non_empty_patch(self) -> HouseholdSettingsPatch:
+        if not self.model_fields_set:
+            raise ValueError("at least one household setting is required")
+        return self
 
 
 class CategoryRead(BaseModel):
@@ -171,6 +271,71 @@ class CategoryRead(BaseModel):
     major: str
     minor: str
     sort_order: int
+    usage_count: int = 0
+
+
+class CategoryCreate(BaseModel):
+    flow_type: FlowType
+    major: str = Field(min_length=1, max_length=120)
+    minor: str = Field(min_length=1, max_length=120)
+
+    @field_validator("major", "minor")
+    @classmethod
+    def normalize_category_text(cls, value: str) -> str:
+        text = str(value or "").strip()
+        if not text:
+            raise ValueError("blank value is not allowed")
+        return text
+
+
+class CategoryPatch(BaseModel):
+    major: str | None = Field(default=None, min_length=1, max_length=120)
+    minor: str | None = Field(default=None, min_length=1, max_length=120)
+
+    @field_validator("major", "minor")
+    @classmethod
+    def normalize_optional_category_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        if not text:
+            raise ValueError("blank value is not allowed")
+        return text
+
+    @model_validator(mode="after")
+    def validate_non_empty_patch(self) -> CategoryPatch:
+        if not self.model_fields_set:
+            raise ValueError("at least one category field is required")
+        return self
+
+
+class CategoryRenameMajorRequest(BaseModel):
+    flow_type: FlowType
+    current_major: str = Field(min_length=1, max_length=120)
+    next_major: str = Field(min_length=1, max_length=120)
+
+    @field_validator("current_major", "next_major")
+    @classmethod
+    def normalize_major_text(cls, value: str) -> str:
+        text = str(value or "").strip()
+        if not text:
+            raise ValueError("blank value is not allowed")
+        return text
+
+
+class CategoryUsageEntry(BaseModel):
+    transaction_id: str
+    occurred_on: date
+    amount: Decimal
+    memo: str
+    owner_name: str | None = None
+
+
+class CategoryUsageMonth(BaseModel):
+    month: str
+    total_amount: Decimal
+    count: int
+    items: list[CategoryUsageEntry]
 
 
 class TransactionCreate(BaseModel):
@@ -180,6 +345,7 @@ class TransactionCreate(BaseModel):
     currency: str = Field(default="KRW", min_length=3, max_length=8)
     category_id: str | None = None
     memo: str = Field(default="", max_length=2000)
+    owner_user_id: str | None = Field(default=None, max_length=36)
     owner_name: str | None = Field(default=None, max_length=80)
 
     @field_validator("currency")
@@ -190,13 +356,18 @@ class TransactionCreate(BaseModel):
             raise ValueError("unsupported transaction currency")
         return code
 
-    @field_validator("category_id")
+    @field_validator("category_id", "owner_user_id")
     @classmethod
-    def normalize_category_id(cls, value: str | None) -> str | None:
+    def normalize_identifier(cls, value: str | None) -> str | None:
         if value is None:
             return None
         text = str(value).strip()
         return text or None
+
+    @field_validator("owner_name")
+    @classmethod
+    def normalize_owner_name(cls, value: str | None) -> str | None:
+        return normalize_optional_text(value)
 
 
 class TransactionPatch(BaseModel):
@@ -207,6 +378,7 @@ class TransactionPatch(BaseModel):
     currency: str | None = Field(default=None, min_length=3, max_length=8)
     category_id: str | None = None
     memo: str | None = Field(default=None, max_length=2000)
+    owner_user_id: str | None = Field(default=None, max_length=36)
     owner_name: str | None = Field(default=None, max_length=80)
 
     @field_validator("currency")
@@ -219,18 +391,21 @@ class TransactionPatch(BaseModel):
             raise ValueError("unsupported transaction currency")
         return code
 
-    @field_validator("category_id")
+    @field_validator("category_id", "owner_user_id")
     @classmethod
-    def normalize_patch_category_id(cls, value: str | None) -> str | None:
+    def normalize_patch_identifier(cls, value: str | None) -> str | None:
         if value is None:
             return None
         text = str(value).strip()
         return text or None
 
+    @field_validator("owner_name")
+    @classmethod
+    def normalize_patch_owner_name(cls, value: str | None) -> str | None:
+        return normalize_optional_text(value)
+
 
 class TransactionRead(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
     id: str
     household_id: str
     category_id: str | None
@@ -239,6 +414,7 @@ class TransactionRead(BaseModel):
     amount: Decimal
     currency: str
     memo: str
+    owner_user_id: str | None = None
     owner_name: str | None
     source_ref: str | None
     version: int
@@ -248,15 +424,18 @@ class TransactionRead(BaseModel):
 
 class HoldingCreate(BaseModel):
     asset_type: AssetType
+    type_key: str | None = Field(default=None, max_length=80)
     symbol: str = Field(min_length=1, max_length=40)
     market_symbol: str = Field(min_length=1, max_length=40)
     name: str = Field(min_length=1, max_length=120)
     category: str = Field(default="기타", min_length=1, max_length=80)
+    owner_user_id: str | None = Field(default=None, max_length=36)
     owner_name: str | None = Field(default=None, max_length=80)
     account_name: str | None = Field(default=None, max_length=120)
     quantity: Decimal = Field(gt=0)
     average_cost: Decimal = Field(ge=0)
     currency: str = Field(default="KRW", min_length=3, max_length=8)
+    display_order: int | None = Field(default=None, ge=1)
 
     @field_validator("symbol", "market_symbol", "name", "category")
     @classmethod
@@ -266,13 +445,20 @@ class HoldingCreate(BaseModel):
             raise ValueError("blank value is not allowed")
         return text
 
+    @field_validator("owner_user_id")
+    @classmethod
+    def normalize_owner_user_id(cls, value: str | None) -> str | None:
+        return normalize_optional_text(value)
+
+    @field_validator("type_key")
+    @classmethod
+    def normalize_type_key(cls, value: str | None) -> str | None:
+        return normalize_optional_text(value)
+
     @field_validator("owner_name", "account_name")
     @classmethod
-    def normalize_optional_text(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        text = str(value).strip()
-        return text or None
+    def normalize_optional_text_fields(cls, value: str | None) -> str | None:
+        return normalize_optional_text(value)
 
     @field_validator("currency")
     @classmethod
@@ -287,14 +473,32 @@ class HoldingCreate(BaseModel):
 
 class HoldingPatch(BaseModel):
     base_version: int = Field(ge=1)
+    type_key: str | None = Field(default=None, max_length=80)
     market_symbol: str | None = Field(default=None, min_length=1, max_length=40)
     name: str | None = Field(default=None, min_length=1, max_length=120)
     category: str | None = Field(default=None, min_length=1, max_length=80)
+    owner_user_id: str | None = Field(default=None, max_length=36)
     owner_name: str | None = Field(default=None, max_length=80)
     account_name: str | None = Field(default=None, max_length=120)
     quantity: Decimal | None = Field(default=None, gt=0)
     average_cost: Decimal | None = Field(default=None, ge=0)
     currency: str | None = Field(default=None, min_length=3, max_length=8)
+    display_order: int | None = Field(default=None, ge=1)
+
+    @field_validator("owner_user_id")
+    @classmethod
+    def normalize_patch_owner_user_id(cls, value: str | None) -> str | None:
+        return normalize_optional_text(value)
+
+    @field_validator("type_key")
+    @classmethod
+    def normalize_patch_type_key(cls, value: str | None) -> str | None:
+        return normalize_optional_text(value)
+
+    @field_validator("owner_name", "account_name")
+    @classmethod
+    def normalize_patch_text_fields(cls, value: str | None) -> str | None:
+        return normalize_optional_text(value)
 
     @field_validator("currency")
     @classmethod
@@ -310,20 +514,21 @@ class HoldingPatch(BaseModel):
 
 
 class HoldingRead(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
     id: str
     household_id: str
     asset_type: AssetType
+    type_key: str | None = None
     symbol: str
     market_symbol: str
     name: str
     category: str
+    owner_user_id: str | None = None
     owner_name: str | None
     account_name: str | None
     quantity: Decimal
     average_cost: Decimal
     currency: str
+    display_order: int
     source_ref: str | None
     version: int
     updated_at: datetime
@@ -362,6 +567,7 @@ class OverviewResponse(BaseModel):
 class PortfolioItem(BaseModel):
     holding_id: str
     asset_type: AssetType
+    type_key: str | None = None
     symbol: str
     market_symbol: str
     name: str
@@ -371,6 +577,7 @@ class PortfolioItem(BaseModel):
     quantity: Decimal
     average_cost: Decimal
     currency: str
+    display_order: int
     latest_price: Decimal | None
     latest_price_currency: str | None
     market_value_krw: Decimal

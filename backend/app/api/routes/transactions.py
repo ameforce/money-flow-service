@@ -13,6 +13,7 @@ from app.db.models import Category, Transaction, User
 from app.db.session import get_db
 from app.schemas import PatchConflict, TransactionCreate, TransactionPatch, TransactionRead
 from app.services.merge import MergeConflictError, merge_patch_or_raise
+from app.services.owner_links import resolve_owner_fields
 from app.services.runtime import hub
 
 
@@ -35,6 +36,37 @@ def _ensure_category_flow_matches(category: Category, flow_type) -> None:
     )
 
 
+def _to_transaction_read(transaction: Transaction, linked_owner_name: str | None = None) -> TransactionRead:
+    return TransactionRead(
+        id=str(transaction.id),
+        household_id=str(transaction.household_id),
+        category_id=str(transaction.category_id).strip() if str(transaction.category_id or "").strip() else None,
+        occurred_on=transaction.occurred_on,
+        flow_type=transaction.flow_type,
+        amount=transaction.amount,
+        currency=str(transaction.currency),
+        memo=str(transaction.memo or ""),
+        owner_user_id=str(transaction.owner_user_id).strip() if str(transaction.owner_user_id or "").strip() else None,
+        owner_name=str(linked_owner_name or transaction.owner_name or "").strip() or None,
+        source_ref=str(transaction.source_ref).strip() if str(transaction.source_ref or "").strip() else None,
+        version=int(transaction.version),
+        created_at=transaction.created_at,
+        updated_at=transaction.updated_at,
+    )
+
+
+def _load_transaction_read(db: Session, transaction_id: str) -> TransactionRead:
+    row = db.execute(
+        select(Transaction, User.display_name)
+        .outerjoin(User, User.id == Transaction.owner_user_id)
+        .where(Transaction.id == transaction_id)
+    ).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="transaction not found")
+    transaction, linked_owner_name = row
+    return _to_transaction_read(transaction, linked_owner_name)
+
+
 @router.get("", response_model=list[TransactionRead])
 def list_transactions(
     year: int | None = Query(default=None, ge=1970, le=2100),
@@ -46,7 +78,11 @@ def list_transactions(
     db: Session = Depends(get_db),
 ) -> list[TransactionRead]:
     household, _ = ctx
-    query = select(Transaction).where(Transaction.household_id == household.id)
+    query = (
+        select(Transaction, User.display_name)
+        .outerjoin(User, User.id == Transaction.owner_user_id)
+        .where(Transaction.household_id == household.id)
+    )
     if (start_date is None) != (end_date is None):
         raise HTTPException(status_code=400, detail="start_date and end_date must be provided together")
     if start_date and end_date:
@@ -62,8 +98,10 @@ def list_transactions(
     elif month is not None:
         raise HTTPException(status_code=400, detail="month filter requires year")
 
-    items = db.scalars(query.order_by(desc(Transaction.occurred_on), desc(Transaction.created_at)).limit(limit)).all()
-    return [TransactionRead.model_validate(item) for item in items]
+    rows = db.execute(
+        query.order_by(desc(Transaction.occurred_on), desc(Transaction.created_at)).limit(limit)
+    ).all()
+    return [_to_transaction_read(transaction, linked_owner_name) for transaction, linked_owner_name in rows]
 
 
 @router.post("", response_model=TransactionRead, status_code=status.HTTP_201_CREATED)
@@ -81,7 +119,16 @@ def create_transaction(
             raise HTTPException(status_code=400, detail="invalid category_id")
         _ensure_category_flow_matches(category, payload.flow_type)
 
-    tx = Transaction(
+    owner_user_id, owner_name = resolve_owner_fields(
+        db,
+        household_id=str(household.id),
+        owner_user_id=payload.owner_user_id,
+        owner_name=payload.owner_name,
+        invalid_code="TRANSACTION_OWNER_INVALID",
+        invalid_message="거래자는 현재 가계 구성원만 선택할 수 있습니다.",
+        invalid_action="가계 구성원 목록에서 거래자를 다시 선택해 주세요.",
+    )
+    transaction = Transaction(
         household_id=household.id,
         category_id=payload.category_id,
         occurred_on=payload.occurred_on,
@@ -89,10 +136,11 @@ def create_transaction(
         amount=payload.amount,
         currency=payload.currency.upper(),
         memo=payload.memo.strip(),
-        owner_name=(payload.owner_name or "").strip() or None,
+        owner_user_id=owner_user_id,
+        owner_name=owner_name,
         created_by_user_id=user.id,
     )
-    db.add(tx)
+    db.add(transaction)
     try:
         db.commit()
     except IntegrityError as error:
@@ -105,17 +153,17 @@ def create_transaction(
                 action="가계 내 카테고리 ID를 확인해 주세요.",
             ) from error
         raise
-    db.refresh(tx)
+    db.refresh(transaction)
     background_tasks.add_task(
         hub.broadcast,
         household.id,
         {
             "event": "transaction.created",
-            "entity_id": tx.id,
-            "version": tx.version,
+            "entity_id": transaction.id,
+            "version": transaction.version,
         },
     )
-    return TransactionRead.model_validate(tx)
+    return _load_transaction_read(db, str(transaction.id))
 
 
 @router.patch("/{transaction_id}", response_model=TransactionRead)
@@ -128,7 +176,7 @@ def patch_transaction(
     db: Session = Depends(get_db),
 ) -> TransactionRead:
     household, _ = ctx
-    tx = db.scalar(
+    transaction = db.scalar(
         select(Transaction)
         .where(
             Transaction.id == transaction_id,
@@ -136,7 +184,7 @@ def patch_transaction(
         )
         .with_for_update()
     )
-    if tx is None:
+    if transaction is None:
         raise HTTPException(status_code=404, detail="transaction not found")
 
     fields_set = set(payload.model_fields_set)
@@ -156,22 +204,31 @@ def patch_transaction(
         patch_data["currency"] = str(patch_data["currency"]).upper()
     if "memo" in patch_data and patch_data["memo"] is not None:
         patch_data["memo"] = str(patch_data["memo"]).strip()
-    if "owner_name" in patch_data:
-        patch_data["owner_name"] = (patch_data["owner_name"] or "").strip() or None
-    next_flow_type = patch_data.get("flow_type", tx.flow_type)
-    next_category_id = patch_data.get("category_id", tx.category_id)
+    if "owner_user_id" in patch_data or "owner_name" in patch_data:
+        patch_data["owner_user_id"], patch_data["owner_name"] = resolve_owner_fields(
+            db,
+            household_id=str(household.id),
+            owner_user_id=patch_data.get("owner_user_id", transaction.owner_user_id),
+            owner_name=patch_data.get("owner_name", transaction.owner_name),
+            invalid_code="TRANSACTION_OWNER_INVALID",
+            invalid_message="거래자는 현재 가계 구성원만 선택할 수 있습니다.",
+            invalid_action="가계 구성원 목록에서 거래자를 다시 선택해 주세요.",
+        )
+
+    next_flow_type = patch_data.get("flow_type", transaction.flow_type)
+    next_category_id = patch_data.get("category_id", transaction.category_id)
     if next_category_id:
         category = db.get(Category, next_category_id)
         if category is None or category.household_id != household.id:
             raise HTTPException(status_code=400, detail="invalid category_id")
         _ensure_category_flow_matches(category, next_flow_type)
 
-    current_data = TransactionRead.model_validate(tx).model_dump(mode="json")
+    current_data = _load_transaction_read(db, str(transaction.id)).model_dump(mode="json")
     try:
         merged, changed_fields = merge_patch_or_raise(
             db=db,
             entity_type="transaction",
-            entity=tx,
+            entity=transaction,
             household_id=household.id,
             actor_user_id=user.id,
             base_version=payload.base_version,
@@ -191,7 +248,7 @@ def patch_transaction(
         ) from error
 
     if not changed_fields:
-        return TransactionRead.model_validate(tx)
+        return _load_transaction_read(db, str(transaction.id))
 
     try:
         db.commit()
@@ -205,19 +262,19 @@ def patch_transaction(
                 action="가계 내 카테고리 ID를 확인해 주세요.",
             ) from error
         raise
-    db.refresh(tx)
+    db.refresh(transaction)
     background_tasks.add_task(
         hub.broadcast,
         household.id,
         {
             "event": "transaction.patch.applied",
-            "entity_id": tx.id,
-            "version": tx.version,
+            "entity_id": transaction.id,
+            "version": transaction.version,
             "changed_fields": changed_fields,
             "merged": merged,
         },
     )
-    return TransactionRead.model_validate(tx)
+    return _load_transaction_read(db, str(transaction.id))
 
 
 @router.delete("/{transaction_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -228,10 +285,10 @@ def delete_transaction(
     db: Session = Depends(get_db),
 ) -> None:
     household, _ = ctx
-    tx = db.get(Transaction, transaction_id)
-    if tx is None or tx.household_id != household.id:
+    transaction = db.get(Transaction, transaction_id)
+    if transaction is None or transaction.household_id != household.id:
         raise HTTPException(status_code=404, detail="transaction not found")
-    db.delete(tx)
+    db.delete(transaction)
     db.commit()
     background_tasks.add_task(
         hub.broadcast,
@@ -241,4 +298,3 @@ def delete_transaction(
             "entity_id": transaction_id,
         },
     )
-
