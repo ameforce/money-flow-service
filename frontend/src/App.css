@@ -2620,11 +2620,70 @@ thead {
   color: #0b4ab4;
 }
 
+.sort-header-static,
+.sort-header-static:hover {
+  cursor: default;
+  opacity: 1;
+}
+
 .sort-indicator {
   width: 0.8rem;
   text-align: center;
   display: inline-block;
   font-size: 0.7rem;
+}
+
+.transaction-history-status {
+  margin: 0.35rem 0 0.45rem;
+  color: #355177;
+}
+
+.transaction-history-status.is-error {
+  color: #b42318;
+}
+
+.transaction-history-date-row td {
+  padding: 0.22rem 0.46rem 0.16rem;
+  background: linear-gradient(180deg, #f8fbff, #ffffff);
+  border-top: 1px solid #e2ebf7;
+  border-bottom: 1px solid #edf3fb;
+  color: #496586;
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+}
+
+.transaction-history-date-row span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.transaction-history-date-row span::before {
+  content: "";
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 999px;
+  background: #9cb8dd;
+}
+
+.transaction-history-sentinel td {
+  height: 1px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: transparent;
+  font-size: 0;
+  line-height: 0;
+}
+
+.transaction-history-sentinel td:not(:empty) {
+  height: auto;
+  padding: 0.18rem 0.46rem;
+  color: #5f7596;
+  font-size: 0.72rem;
+  line-height: 1.2;
+  text-align: center;
 }
 
 .report {
@@ -4905,6 +4964,33 @@ thead {
     background: transparent;
     color: #355177;
     box-shadow: none;
+  }
+
+  .transactions-surface-table tbody tr.transaction-history-date-row,
+  .transactions-surface-table tbody tr.transaction-history-sentinel {
+    display: block;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .transactions-surface-table tbody tr.transaction-history-date-row td {
+    display: flex;
+    min-height: 1.28rem;
+    align-items: center;
+    padding: 0.16rem 0.58rem;
+    border: 0;
+    border-bottom: 1px solid #edf3fb;
+    background: #f7fbff;
+    font-size: 0.7rem;
+  }
+
+  .transactions-surface-table tbody tr.transaction-history-sentinel td {
+    display: block;
+    height: 1px;
+    padding: 0;
   }
 
   .transactions-surface-table td,

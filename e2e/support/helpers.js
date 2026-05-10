@@ -5,6 +5,10 @@ import path from "node:path";
 import { expect, test } from "@playwright/test";
 
 export const TEST_PASSWORD = "Password1234";
+const ACTIVE_HOUSEHOLD_KEY = "money-flow-active-household-id";
+const DEFAULT_CSRF_COOKIE_NAME = "mf_csrf_token";
+const DEFAULT_CSRF_HEADER_NAME = "x-csrf-token";
+const DEFAULT_HOUSEHOLD_HEADER_NAME = "x-household-id";
 const SHARED_E2E_LOCAL_HOSTS = new Set(["", "localhost", "127.0.0.1", "::1"]);
 const SHARED_AUTH_READY_TIMEOUT_MS = 12_000;
 const SHARED_E2E_UNIQUE_ACCOUNT_PREFIXES = ["auth-user", "dashboard-user", "owner-user", "guest-user"];
@@ -458,25 +462,39 @@ function formatGroupedNumber(value) {
   return `${sign}${body.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}`;
 }
 
-async function ensureTransactionFormValues(container, { memo, amount }) {
+async function ensureTransactionFormValues(container, { memo, amount, occurredOn = "" }) {
   const amountInput = labeledField(container, "금액", "input");
   const memoInput = labeledField(container, "메모", "input");
+  const dateInput = occurredOn ? labeledField(container, "일자", "input") : null;
   const expectedAmount = formatGroupedNumber(amount);
 
   await expect(container.locator("form.transactions-form-grid").first()).toBeVisible();
+  if (dateInput) {
+    await dateInput.scrollIntoViewIfNeeded();
+  }
   await amountInput.scrollIntoViewIfNeeded();
   await memoInput.scrollIntoViewIfNeeded();
+  if (dateInput) {
+    await expect(dateInput).toBeVisible();
+    await expect(dateInput).toBeEnabled();
+  }
   await expect(amountInput).toBeVisible();
   await expect(memoInput).toBeVisible();
   await expect(amountInput).toBeEnabled();
   await expect(memoInput).toBeEnabled();
 
+  if (dateInput) {
+    await fillInputUntilValue(dateInput, occurredOn, occurredOn, "거래 일자");
+  }
   await fillInputUntilValue(amountInput, String(amount), expectedAmount, "거래 금액");
   await fillInputUntilValue(memoInput, memo, memo, "거래 메모");
 
+  if (dateInput) {
+    await expect(dateInput).toHaveValue(occurredOn);
+  }
   await expect(amountInput).toHaveValue(expectedAmount);
   await expect(memoInput).toHaveValue(memo);
-  return { amountInput, memoInput };
+  return { amountInput, memoInput, dateInput };
 }
 
 async function fillInputUntilValue(locator, inputValue, expectedValue, fieldName) {
@@ -504,7 +522,7 @@ async function fillInputUntilValue(locator, inputValue, expectedValue, fieldName
   await expect(locator, `${fieldName} 입력값 확인`).toHaveValue(expectedValue);
 }
 
-export async function createBasicTransaction(page, { memo, amount = "12000", flowType = "", ownerless = false }) {
+export async function createBasicTransaction(page, { memo, amount = "12000", flowType = "", ownerless = false, occurredOn = "" }) {
   await openTab(page, "거래");
   const transactionCard = page.locator("article.card", {
     has: page.getByRole("heading", { name: "거래 입력" }),
@@ -534,7 +552,7 @@ export async function createBasicTransaction(page, { memo, amount = "12000", flo
   }
 
   const ownerSelect = labeledField(transactionContainer, "거래자", "select");
-  await ensureTransactionFormValues(transactionContainer, { memo, amount });
+  await ensureTransactionFormValues(transactionContainer, { memo, amount, occurredOn });
 
   if (ownerless) {
     await ownerSelect.selectOption("");
@@ -556,7 +574,7 @@ export async function createBasicTransaction(page, { memo, amount = "12000", flo
     await selectFirstNonEmptyOption(minorSelect);
   }
 
-  const { amountInput } = await ensureTransactionFormValues(transactionContainer, { memo, amount });
+  const { amountInput } = await ensureTransactionFormValues(transactionContainer, { memo, amount, occurredOn });
   const amountInputHandle = await amountInput.elementHandle();
   await transactionContainer.getByRole("button", { name: "거래 등록" }).click();
   const validationMessage = amountInputHandle
@@ -566,7 +584,7 @@ export async function createBasicTransaction(page, { memo, amount = "12000", flo
     : "";
   await amountInputHandle?.dispose();
   if (validationMessage) {
-    await ensureTransactionFormValues(transactionContainer, { memo, amount });
+    await ensureTransactionFormValues(transactionContainer, { memo, amount, occurredOn });
     await transactionContainer.getByRole("button", { name: "거래 등록" }).click();
   }
   const row = page.locator("tr.transaction-row", { hasText: memo }).first();
@@ -589,6 +607,66 @@ export async function createBasicTransaction(page, { memo, amount = "12000", flo
     await expect(transactionSheet).toBeHidden({ timeout: 20_000 });
   }
   return row;
+}
+
+export async function createTransactionViaApi(
+  page,
+  { memo, amount = "12000", flowType = "expense", occurredOn, ownerName = "" }
+) {
+  const result = await page.evaluate(
+    async ({ activeHouseholdKey, amount, csrfCookieName, csrfHeaderName, flowType, householdHeaderName, memo, occurredOn, ownerName }) => {
+      const cookieValue = (name) => {
+        const prefix = `${name}=`;
+        return String(document.cookie || "")
+          .split(";")
+          .map((item) => item.trim())
+          .find((item) => item.startsWith(prefix))
+          ?.slice(prefix.length) || "";
+      };
+      const householdId = String(localStorage.getItem(activeHouseholdKey) || "").trim();
+      const headers = {
+        "Content-Type": "application/json",
+        [csrfHeaderName]: decodeURIComponent(cookieValue(csrfCookieName)),
+      };
+      if (householdId) {
+        headers[householdHeaderName] = householdId;
+      }
+      const response = await fetch("/api/v1/transactions", {
+        method: "POST",
+        credentials: "include",
+        headers,
+        body: JSON.stringify({
+          occurred_on: occurredOn,
+          flow_type: flowType,
+          amount,
+          currency: "KRW",
+          memo,
+          owner_name: ownerName,
+        }),
+      });
+      const text = await response.text();
+      let payload = null;
+      try {
+        payload = text ? JSON.parse(text) : null;
+      } catch {
+        payload = null;
+      }
+      return { ok: response.ok, status: response.status, payload, text };
+    },
+    {
+      activeHouseholdKey: ACTIVE_HOUSEHOLD_KEY,
+      amount,
+      csrfCookieName: DEFAULT_CSRF_COOKIE_NAME,
+      csrfHeaderName: DEFAULT_CSRF_HEADER_NAME,
+      flowType,
+      householdHeaderName: DEFAULT_HOUSEHOLD_HEADER_NAME,
+      memo,
+      occurredOn,
+      ownerName,
+    }
+  );
+  expect(result.ok, `transaction api create failed: ${result.status} ${result.text}`).toBe(true);
+  return result.payload;
 }
 
 export async function createBasicHolding(page, { name, category = "현금성" }) {

@@ -422,6 +422,16 @@ class TransactionRead(BaseModel):
     updated_at: datetime
 
 
+class TransactionHistoryPage(BaseModel):
+    items: list[TransactionRead]
+    older_cursor: str | None = None
+    newer_cursor: str | None = None
+    has_older: bool = False
+    has_newer: bool = False
+    anchor_date: date
+    today: date
+
+
 class HoldingCreate(BaseModel):
     asset_type: AssetType
     type_key: str | None = Field(default=None, max_length=80)

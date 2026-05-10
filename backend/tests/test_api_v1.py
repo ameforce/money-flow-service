@@ -4768,6 +4768,175 @@ def test_transaction_patch_rejects_null_for_required_fields() -> None:
         assert "memo" in (memo_error.get("context", {}).get("fields") or [])
 
 
+def _create_history_transaction(
+    *,
+    household_id: str,
+    occurred_on: date,
+    memo: str,
+    created_at: datetime | None = None,
+) -> str:
+    with SessionLocal() as db:
+        tx = Transaction(
+            household_id=household_id,
+            occurred_on=occurred_on,
+            flow_type=FlowType.expense,
+            amount=Decimal("1000"),
+            currency="KRW",
+            memo=memo,
+            created_at=created_at or datetime.now(UTC),
+            updated_at=created_at or datetime.now(UTC),
+        )
+        db.add(tx)
+        db.commit()
+        return str(tx.id)
+
+
+def test_transaction_history_initial_older_newer_and_future_cap() -> None:
+    with TestClient(app) as client:
+        token = _auth(client, f"tx-history-{uuid.uuid4().hex}@example.com", "Password1234", "TxHistory")
+        household_id = client.get("/api/v1/household/current", headers=_headers(token)).json()["household"]["id"]
+        today = datetime.now(UTC).date()
+        older_date = today - timedelta(days=40)
+        middle_date = today - timedelta(days=10)
+        future_date = today + timedelta(days=3)
+        _create_history_transaction(
+            household_id=household_id,
+            occurred_on=older_date,
+            memo="history-older",
+            created_at=datetime(2026, 1, 1, 8, 0, tzinfo=UTC),
+        )
+        _create_history_transaction(
+            household_id=household_id,
+            occurred_on=middle_date,
+            memo="history-middle",
+            created_at=datetime(2026, 1, 1, 9, 0, tzinfo=UTC),
+        )
+        _create_history_transaction(
+            household_id=household_id,
+            occurred_on=today,
+            memo="history-today",
+            created_at=datetime(2026, 1, 1, 10, 0, tzinfo=UTC),
+        )
+        _create_history_transaction(
+            household_id=household_id,
+            occurred_on=future_date,
+            memo="history-future",
+            created_at=datetime(2026, 1, 1, 11, 0, tzinfo=UTC),
+        )
+
+        initial = client.get("/api/v1/transactions/history?limit=2", headers=_headers(token))
+        assert initial.status_code == 200
+        payload = initial.json()
+        assert payload["today"] == str(today)
+        assert payload["anchor_date"] == str(today)
+        assert payload["has_older"] is True
+        assert payload["has_newer"] is False
+        assert [item["memo"] for item in payload["items"]] == ["history-middle", "history-today"]
+        assert "history-future" not in [item["memo"] for item in payload["items"]]
+        assert payload["older_cursor"]
+        assert payload["newer_cursor"]
+
+        older = client.get(
+            f"/api/v1/transactions/history?direction=older&limit=2&cursor={payload['older_cursor']}",
+            headers=_headers(token),
+        )
+        assert older.status_code == 200
+        older_payload = older.json()
+        assert [item["memo"] for item in older_payload["items"]] == ["history-older"]
+        assert older_payload["has_older"] is False
+        assert older_payload["has_newer"] is True
+
+        newer = client.get(
+            f"/api/v1/transactions/history?direction=newer&limit=5&cursor={older_payload['newer_cursor']}",
+            headers=_headers(token),
+        )
+        assert newer.status_code == 200
+        newer_payload = newer.json()
+        assert [item["memo"] for item in newer_payload["items"]] == ["history-middle", "history-today"]
+        assert newer_payload["has_newer"] is False
+        assert "history-future" not in [item["memo"] for item in newer_payload["items"]]
+
+        future_anchor = client.get(
+            f"/api/v1/transactions/history?anchor_date={future_date}&limit=10",
+            headers=_headers(token),
+        )
+        assert future_anchor.status_code == 200
+        assert future_anchor.json()["anchor_date"] == str(today)
+
+
+def test_transaction_history_cursor_safety_and_tie_breaking() -> None:
+    shared_created_at = datetime(2026, 1, 2, 9, 30, tzinfo=UTC)
+    with TestClient(app) as client:
+        token = _auth(client, f"tx-history-cursor-{uuid.uuid4().hex}@example.com", "Password1234", "TxHistoryCursor")
+        household_id = client.get("/api/v1/household/current", headers=_headers(token)).json()["household"]["id"]
+        other_token = _auth(
+            client,
+            f"tx-history-cursor-other-{uuid.uuid4().hex}@example.com",
+            "Password1234",
+            "TxHistoryOther",
+        )
+        other_household_id = client.get(
+            "/api/v1/household/current",
+            headers=_headers(other_token),
+        ).json()["household"]["id"]
+        today = datetime.now(UTC).date()
+        tie_date = today - timedelta(days=2)
+        _create_history_transaction(
+            household_id=household_id,
+            occurred_on=tie_date,
+            memo="tie-a",
+            created_at=shared_created_at,
+        )
+        _create_history_transaction(
+            household_id=household_id,
+            occurred_on=tie_date,
+            memo="tie-b",
+            created_at=shared_created_at,
+        )
+        _create_history_transaction(
+            household_id=household_id,
+            occurred_on=today,
+            memo="tie-latest",
+            created_at=datetime(2026, 1, 2, 10, 0, tzinfo=UTC),
+        )
+        _create_history_transaction(
+            household_id=other_household_id,
+            occurred_on=today,
+            memo="foreign-latest",
+            created_at=datetime(2026, 1, 2, 10, 5, tzinfo=UTC),
+        )
+
+        first = client.get("/api/v1/transactions/history?limit=2", headers=_headers(token))
+        assert first.status_code == 200
+        first_payload = first.json()
+        first_memos = [item["memo"] for item in first_payload["items"]]
+        assert first_memos == sorted(first_memos)
+        assert len({item["id"] for item in first_payload["items"]}) == 2
+        assert first_payload["has_older"] is True
+
+        older = client.get(
+            f"/api/v1/transactions/history?direction=older&limit=2&cursor={first_payload['older_cursor']}",
+            headers=_headers(token),
+        )
+        assert older.status_code == 200
+        all_ids = [item["id"] for item in first_payload["items"]] + [item["id"] for item in older.json()["items"]]
+        assert len(all_ids) == len(set(all_ids))
+
+        malformed = client.get("/api/v1/transactions/history?direction=older&cursor=not-a-cursor", headers=_headers(token))
+        assert malformed.status_code == 400
+        assert malformed.json()["error"]["code"] == "TRANSACTION_HISTORY_CURSOR_INVALID"
+
+        foreign = client.get("/api/v1/transactions/history?limit=1", headers=_headers(other_token))
+        assert foreign.status_code == 200
+        foreign_cursor = foreign.json()["newer_cursor"]
+        blocked = client.get(
+            f"/api/v1/transactions/history?direction=newer&cursor={foreign_cursor}",
+            headers=_headers(token),
+        )
+        assert blocked.status_code == 400
+        assert blocked.json()["error"]["code"] == "TRANSACTION_HISTORY_CURSOR_INVALID"
+
+
 def test_transaction_patch_merge_conflict_and_tenant_isolation() -> None:
     with TestClient(app) as client:
         token_a = _auth(client, "merge-a@example.com", "Password1234", "A")

@@ -262,6 +262,7 @@ class Transaction(Base):
     __table_args__ = (
         UniqueConstraint("household_id", "source_ref", name="uq_transaction_source_ref"),
         Index("idx_tx_household_date", "household_id", "occurred_on"),
+        Index("idx_tx_household_cursor", "household_id", "occurred_on", "created_at", "id"),
         Index("idx_tx_household_type_date", "household_id", "flow_type", "occurred_on"),
         Index("idx_tx_household_owner_user", "household_id", "owner_user_id"),
     )

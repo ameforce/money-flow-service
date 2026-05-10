@@ -144,6 +144,12 @@ def _create_holding_identity_index(bind, dialect_name: str) -> None:
 
 
 def _create_indexes(bind, dialect_name: str) -> None:
+    bind.execute(
+        text(
+            "CREATE INDEX IF NOT EXISTS idx_tx_household_cursor "
+            "ON transactions (household_id, occurred_on, created_at, id)"
+        )
+    )
     bind.execute(text("CREATE INDEX IF NOT EXISTS idx_tx_household_owner_user ON transactions (household_id, owner_user_id)"))
     bind.execute(text("CREATE INDEX IF NOT EXISTS idx_holding_household_owner_user ON holdings (household_id, owner_user_id)"))
     _create_holding_identity_index(bind, dialect_name)

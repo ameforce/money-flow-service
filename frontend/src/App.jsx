@@ -122,6 +122,9 @@ const AUTO_PRICE_REFRESH_COOLDOWN_MS = 30_000;
 const WS_REFRESH_DEBOUNCE_MS = 300;
 const REALTIME_FALLBACK_SYNC_INTERVAL_MS = 45_000;
 const COLLAB_ACTIVE_SYNC_INTERVAL_MS = 8_000;
+const TRANSACTION_HISTORY_PAGE_LIMIT = 80;
+const TRANSACTION_HISTORY_AUTO_FILL_THRESHOLD = 12;
+const TRANSACTION_HISTORY_SENTINEL_ROOT_MARGIN = "360px 0px";
 const IMPORT_MISMATCH_PREVIEW_LIMIT = 20;
 const IMPORT_ISSUE_PREVIEW_LIMIT = 20;
 const MOBILE_BREAKPOINT_PX = 760;
@@ -542,6 +545,61 @@ function todayIso() {
 function currentMonth() {
   const now = new Date();
   return { year: now.getFullYear(), month: now.getMonth() + 1 };
+}
+
+function isoDateFromUtcDate(value) {
+  const year = value.getUTCFullYear();
+  const month = String(value.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(value.getUTCDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function normalizeIsoDateKey(value, fallback = todayIso()) {
+  const normalized = String(value || "").trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(normalized) ? normalized : fallback;
+}
+
+function yearMonthEndDateKey(value, todayKey = todayIso()) {
+  const parsed = {
+    year: Number(value?.year),
+    month: Number(value?.month),
+  };
+  if (!Number.isFinite(parsed.year) || !Number.isFinite(parsed.month)) {
+    return normalizeIsoDateKey(todayKey);
+  }
+  const month = Math.max(1, Math.min(12, parsed.month));
+  const lastDay = isoDateFromUtcDate(new Date(Date.UTC(parsed.year, month, 0)));
+  const normalizedToday = normalizeIsoDateKey(todayKey);
+  return lastDay > normalizedToday ? normalizedToday : lastDay;
+}
+
+function compareTransactionHistoryItems(left, right) {
+  const leftDate = String(left?.occurred_on || "");
+  const rightDate = String(right?.occurred_on || "");
+  if (leftDate !== rightDate) {
+    return leftDate.localeCompare(rightDate);
+  }
+  const leftCreated = Date.parse(String(left?.created_at || ""));
+  const rightCreated = Date.parse(String(right?.created_at || ""));
+  if (Number.isFinite(leftCreated) && Number.isFinite(rightCreated) && leftCreated !== rightCreated) {
+    return leftCreated - rightCreated;
+  }
+  return String(left?.id || "").localeCompare(String(right?.id || ""));
+}
+
+function mergeTransactionHistoryItems(currentItems, incomingItems) {
+  const byId = new Map();
+  for (const item of currentItems || []) {
+    if (item?.id) {
+      byId.set(String(item.id), item);
+    }
+  }
+  for (const item of incomingItems || []) {
+    if (item?.id) {
+      byId.set(String(item.id), item);
+    }
+  }
+  return Array.from(byId.values()).sort(compareTransactionHistoryItems);
 }
 
 function shiftMonth(base, delta) {
@@ -1550,6 +1608,20 @@ function App() {
   const [overview, setOverview] = useState(null);
   const [portfolio, setPortfolio] = useState(null);
   const [transactions, setTransactions] = useState([]);
+  const [transactionHistoryItems, setTransactionHistoryItems] = useState([]);
+  const [transactionHistoryOlderCursor, setTransactionHistoryOlderCursor] = useState("");
+  const [transactionHistoryNewerCursor, setTransactionHistoryNewerCursor] = useState("");
+  const [transactionHistoryHasOlder, setTransactionHistoryHasOlder] = useState(false);
+  const [transactionHistoryHasNewer, setTransactionHistoryHasNewer] = useState(false);
+  const [transactionHistoryAnchorDate, setTransactionHistoryAnchorDate] = useState(todayIso());
+  const [transactionHistoryToday, setTransactionHistoryToday] = useState(todayIso());
+  const [transactionHistoryInitialized, setTransactionHistoryInitialized] = useState(false);
+  const [transactionHistoryLoading, setTransactionHistoryLoading] = useState({
+    initial: false,
+    older: false,
+    newer: false,
+  });
+  const [transactionHistoryError, setTransactionHistoryError] = useState("");
   const [holdings, setHoldings] = useState([]);
   const [priceStatus, setPriceStatus] = useState(null);
   const [importReport, setImportReport] = useState(null);
@@ -1568,6 +1640,14 @@ function App() {
   const lastAutoRefreshAtRef = useRef(0);
   const priceRefreshRequestInFlightRef = useRef(false);
   const realtimeFallbackSyncInFlightRef = useRef(false);
+  const tabRef = useRef(tab);
+  const transactionHistoryLoadingRef = useRef({ initial: false, older: false, newer: false });
+  const transactionHistoryInitializedRef = useRef(false);
+  const transactionHistoryAnchorDateRef = useRef(todayIso());
+  const transactionHistoryTodayRef = useRef(todayIso());
+  const transactionHistoryTopSentinelRef = useRef(null);
+  const transactionHistoryBottomSentinelRef = useRef(null);
+  const transactionHistoryScrollDirectionRef = useRef("");
   const roleNoticeStateRef = useRef({ householdId: "", role: "" });
   const receivedInviteIdsRef = useRef(new Set());
   const confirmResolveRef = useRef(null);
@@ -1692,13 +1772,17 @@ function App() {
     void submitTxInlineEdit();
   }
 
-  const transactionById = useMemo(() => new Map(transactions.map((item) => [item.id, item])), [transactions]);
+  const transactionLedgerItems = transactionHistoryInitialized ? transactionHistoryItems : transactions;
+  const transactionById = useMemo(
+    () => new Map(transactionLedgerItems.map((item) => [item.id, item])),
+    [transactionLedgerItems]
+  );
   const filteredTransactions = useMemo(() => {
     const keyword = normalizeCategoryText(txListFilter.keyword).toLowerCase();
     const amountMin = parseAmountFilterNumber(txListFilter.amount_min);
     const amountMax = parseAmountFilterNumber(txListFilter.amount_max);
     const isAmountFilterActive = amountMin !== null || amountMax !== null;
-    return transactions.filter((item) => {
+    return transactionLedgerItems.filter((item) => {
       if (txListFilter.flow_type !== "all" && item.flow_type !== txListFilter.flow_type) {
         return false;
       }
@@ -1736,9 +1820,9 @@ function App() {
         .toLowerCase();
       return source.includes(keyword);
     });
-  }, [categoryById, transactions, txListFilter]);
+  }, [categoryById, transactionLedgerItems, txListFilter]);
   const sortedTransactions = useMemo(() => {
-    const direction = txSortDirection === "asc" ? 1 : -1;
+    const direction = transactionHistoryInitialized || txSortDirection === "asc" ? 1 : -1;
     const next = [...filteredTransactions];
     return next.sort((left, right) => {
       const leftDate = String(left?.occurred_on || "");
@@ -1753,7 +1837,7 @@ function App() {
       }
       return String(left?.id || "").localeCompare(String(right?.id || "")) * direction;
     });
-  }, [filteredTransactions, txSortDirection]);
+  }, [filteredTransactions, transactionHistoryInitialized, txSortDirection]);
   const txFlowCategorySummary = useMemo(() => {
     const base = {
       income: { total: 0, categories: new Map() },
@@ -1817,7 +1901,11 @@ function App() {
       amount_max: "",
     });
   }
-  const transactionSortSummary = txSortDirection === "asc" ? "오래된순" : "최신순";
+  const transactionSortSummary = transactionHistoryInitialized
+    ? "연속 내역순"
+    : txSortDirection === "asc"
+      ? "오래된순"
+      : "최신순";
   const areAllFilteredTransactionsSelected = useMemo(() => {
     if (sortedTransactions.length === 0) {
       return false;
@@ -2251,6 +2339,113 @@ function App() {
   }, [transactionById]);
 
   useEffect(() => {
+    tabRef.current = tab;
+  }, [tab]);
+
+  useEffect(() => {
+    transactionHistoryInitializedRef.current = transactionHistoryInitialized;
+  }, [transactionHistoryInitialized]);
+
+  useEffect(() => {
+    transactionHistoryAnchorDateRef.current = transactionHistoryAnchorDate;
+  }, [transactionHistoryAnchorDate]);
+
+  useEffect(() => {
+    transactionHistoryTodayRef.current = transactionHistoryToday;
+  }, [transactionHistoryToday]);
+
+  useEffect(() => {
+    resetTransactionHistoryState();
+  }, [household?.id]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+    let lastScrollY = window.scrollY;
+    const updateScrollDirection = () => {
+      const nextScrollY = window.scrollY;
+      if (Math.abs(nextScrollY - lastScrollY) > 2) {
+        transactionHistoryScrollDirectionRef.current = nextScrollY > lastScrollY ? "down" : "up";
+      }
+      lastScrollY = nextScrollY;
+    };
+    window.addEventListener("scroll", updateScrollDirection, { passive: true });
+    return () => window.removeEventListener("scroll", updateScrollDirection);
+  }, []);
+
+  useEffect(() => {
+    if (!token || !household?.id || tab !== "transactions") {
+      return;
+    }
+    if (!transactionHistoryInitialized && !transactionHistoryLoadingRef.current.initial) {
+      refreshTransactionHistoryAtAnchor(transactionHistoryToday || todayIso(), { alignToEnd: true }).catch(() => undefined);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [household?.id, tab, token, transactionHistoryInitialized]);
+
+  useEffect(() => {
+    if (!token || !household?.id || tab !== "transactions" || !transactionHistoryInitialized) {
+      return undefined;
+    }
+    if (typeof IntersectionObserver === "undefined") {
+      return undefined;
+    }
+    const topSentinel = transactionHistoryTopSentinelRef.current;
+    const bottomSentinel = transactionHistoryBottomSentinelRef.current;
+    if (!topSentinel && !bottomSentinel) {
+      return undefined;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) {
+            continue;
+          }
+          const direction = transactionHistoryScrollDirectionRef.current;
+          if (
+            entry.target === topSentinel &&
+            direction === "up" &&
+            transactionHistoryHasOlder &&
+            transactionHistoryOlderCursor &&
+            !transactionHistoryLoadingRef.current.older
+          ) {
+            loadOlderTransactionHistory().catch(() => undefined);
+          }
+          if (
+            entry.target === bottomSentinel &&
+            direction !== "up" &&
+            transactionHistoryHasNewer &&
+            transactionHistoryNewerCursor &&
+            !transactionHistoryLoadingRef.current.newer
+          ) {
+            loadNewerTransactionHistory().catch(() => undefined);
+          }
+        }
+      },
+      { root: null, rootMargin: TRANSACTION_HISTORY_SENTINEL_ROOT_MARGIN, threshold: 0 }
+    );
+    if (topSentinel) {
+      observer.observe(topSentinel);
+    }
+    if (bottomSentinel) {
+      observer.observe(bottomSentinel);
+    }
+    return () => observer.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    household?.id,
+    tab,
+    token,
+    transactionHistoryHasNewer,
+    transactionHistoryHasOlder,
+    transactionHistoryInitialized,
+    transactionHistoryNewerCursor,
+    transactionHistoryOlderCursor,
+    sortedTransactions.length,
+  ]);
+
+  useEffect(() => {
     setSelectedHoldingIds((prev) => {
       const next = new Set([...prev].filter((holdingId) => holdingPortfolioById.has(holdingId)));
       if (next.size === prev.size) {
@@ -2349,6 +2544,9 @@ function App() {
   }, [isCompactViewport, tab, sortedTransactions.length]);
 
   function toggleTxSortDirection() {
+    if (transactionHistoryInitialized) {
+      return;
+    }
     setTxSortDirection((prev) => (prev === "asc" ? "desc" : "asc"));
   }
 
@@ -2891,6 +3089,205 @@ function App() {
     };
   }
 
+  function setTransactionHistoryLoadingMode(mode, value) {
+    transactionHistoryLoadingRef.current = {
+      ...transactionHistoryLoadingRef.current,
+      [mode]: value,
+    };
+    setTransactionHistoryLoading((prev) => ({ ...prev, [mode]: value }));
+  }
+
+  function resetTransactionHistoryState() {
+    const today = todayIso();
+    transactionHistoryLoadingRef.current = { initial: false, older: false, newer: false };
+    transactionHistoryInitializedRef.current = false;
+    transactionHistoryAnchorDateRef.current = today;
+    transactionHistoryTodayRef.current = today;
+    setTransactionHistoryItems([]);
+    setTransactionHistoryOlderCursor("");
+    setTransactionHistoryNewerCursor("");
+    setTransactionHistoryHasOlder(false);
+    setTransactionHistoryHasNewer(false);
+    setTransactionHistoryAnchorDate(today);
+    setTransactionHistoryToday(today);
+    setTransactionHistoryInitialized(false);
+    setTransactionHistoryLoading({ initial: false, older: false, newer: false });
+    setTransactionHistoryError("");
+  }
+
+  function captureTransactionHistoryScrollAnchor() {
+    if (typeof document === "undefined") {
+      return null;
+    }
+    const rows = Array.from(document.querySelectorAll("tr.transaction-row[data-transaction-id]"));
+    const topbarBottom = document.querySelector("header.topbar")?.getBoundingClientRect()?.bottom ?? 0;
+    const ledgerBottom =
+      document.querySelector(".transactions-mobile-ledger-head")?.getBoundingClientRect()?.bottom ?? 0;
+    const threshold = Math.max(topbarBottom, ledgerBottom, 0) + 4;
+    const anchorRow = rows.find((row) => {
+      const box = row.getBoundingClientRect();
+      return box.bottom > threshold && box.top < window.innerHeight;
+    });
+    if (!anchorRow) {
+      return null;
+    }
+    return {
+      id: anchorRow.getAttribute("data-transaction-id"),
+      top: anchorRow.getBoundingClientRect().top,
+    };
+  }
+
+  function restoreTransactionHistoryScrollAnchor(anchor) {
+    if (!anchor?.id || typeof document === "undefined") {
+      return;
+    }
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const row = Array.from(document.querySelectorAll("tr.transaction-row[data-transaction-id]")).find(
+          (element) => element.getAttribute("data-transaction-id") === anchor.id
+        );
+        if (!row) {
+          return;
+        }
+        window.scrollBy({ top: row.getBoundingClientRect().top - anchor.top, behavior: "auto" });
+      });
+    });
+  }
+
+  function scrollTransactionHistoryToEnd() {
+    if (typeof document === "undefined") {
+      return;
+    }
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const rows = document.querySelectorAll("tr.transaction-row[data-transaction-id]");
+        const lastRow = rows[rows.length - 1];
+        lastRow?.scrollIntoView?.({ block: "end", inline: "nearest", behavior: "auto" });
+      });
+    });
+  }
+
+  async function loadTransactionHistoryPage(options = {}) {
+    const direction = ["older", "newer"].includes(options.direction) ? options.direction : "initial";
+    const cursor = String(options.cursor || "").trim();
+    const nextToken = options.nextToken || token;
+    if (!nextToken || (direction !== "initial" && !cursor)) {
+      return null;
+    }
+    if (transactionHistoryLoadingRef.current[direction]) {
+      return null;
+    }
+    if (direction === "initial") {
+      transactionHistoryScrollDirectionRef.current = "";
+    }
+
+    const preserveAnchor = Boolean(options.preserveScroll);
+    const scrollAnchor = preserveAnchor ? captureTransactionHistoryScrollAnchor() : null;
+    setTransactionHistoryLoadingMode(direction, true);
+    try {
+      const params = new URLSearchParams({
+        direction,
+        limit: String(TRANSACTION_HISTORY_PAGE_LIMIT),
+      });
+      if (direction === "initial" || options.anchorDate) {
+        params.set("anchor_date", normalizeIsoDateKey(options.anchorDate || transactionHistoryToday));
+      }
+      if (cursor) {
+        params.set("cursor", cursor);
+      }
+      const payload = await api(`${API_PREFIX}/transactions/history?${params.toString()}`, {}, nextToken);
+      const pageItems = Array.isArray(payload?.items) ? payload.items : [];
+      const nextToday = normalizeIsoDateKey(payload?.today, transactionHistoryToday || todayIso());
+      const currentAnchorDate =
+        transactionHistoryAnchorDateRef.current || transactionHistoryAnchorDate || transactionHistoryToday || nextToday;
+      const nextAnchorDate =
+        direction === "initial"
+          ? normalizeIsoDateKey(payload?.anchor_date, nextToday)
+          : normalizeIsoDateKey(currentAnchorDate, nextToday);
+      transactionHistoryTodayRef.current = nextToday;
+      transactionHistoryAnchorDateRef.current = nextAnchorDate;
+      transactionHistoryInitializedRef.current = true;
+      setTransactionHistoryToday(nextToday);
+      setTransactionHistoryAnchorDate(nextAnchorDate);
+      setTransactionHistoryInitialized(true);
+      setTransactionHistoryError("");
+
+      if (direction === "older") {
+        setTransactionHistoryItems((prev) => mergeTransactionHistoryItems(prev, pageItems));
+        setTransactionHistoryOlderCursor(String(payload?.older_cursor || ""));
+        setTransactionHistoryHasOlder(Boolean(payload?.has_older));
+      } else if (direction === "newer") {
+        setTransactionHistoryItems((prev) => mergeTransactionHistoryItems(prev, pageItems));
+        setTransactionHistoryNewerCursor(String(payload?.newer_cursor || ""));
+        setTransactionHistoryHasNewer(Boolean(payload?.has_newer));
+      } else {
+        setTransactionHistoryItems(mergeTransactionHistoryItems([], pageItems));
+        setTransactionHistoryOlderCursor(String(payload?.older_cursor || ""));
+        setTransactionHistoryNewerCursor(String(payload?.newer_cursor || ""));
+        setTransactionHistoryHasOlder(Boolean(payload?.has_older));
+        setTransactionHistoryHasNewer(Boolean(payload?.has_newer));
+      }
+
+      if (preserveAnchor) {
+        restoreTransactionHistoryScrollAnchor(scrollAnchor);
+      } else if (options.alignToEnd && pageItems.length > 0) {
+        scrollTransactionHistoryToEnd();
+      }
+      if (
+        direction === "initial" &&
+        pageItems.length < TRANSACTION_HISTORY_AUTO_FILL_THRESHOLD &&
+        Boolean(payload?.has_newer) &&
+        String(payload?.newer_cursor || "") &&
+        !transactionHistoryLoadingRef.current.newer
+      ) {
+        await loadTransactionHistoryPage({
+          direction: "newer",
+          cursor: String(payload?.newer_cursor || ""),
+          preserveScroll: false,
+          silent: true,
+          nextToken,
+        });
+      }
+      return payload;
+    } catch (error) {
+      setTransactionHistoryError(formatApiError(error, "transaction_history"));
+      if (!options.silent) {
+        setMessage(formatApiError(error, "transaction_history"));
+      }
+      return null;
+    } finally {
+      setTransactionHistoryLoadingMode(direction, false);
+    }
+  }
+
+  function refreshTransactionHistoryAtAnchor(anchorDate = transactionHistoryToday, options = {}) {
+    return loadTransactionHistoryPage({
+      direction: "initial",
+      anchorDate: normalizeIsoDateKey(anchorDate, transactionHistoryToday || todayIso()),
+      alignToEnd: options.alignToEnd !== false,
+      silent: options.silent,
+      nextToken: options.nextToken,
+    });
+  }
+
+  function loadOlderTransactionHistory() {
+    return loadTransactionHistoryPage({
+      direction: "older",
+      cursor: transactionHistoryOlderCursor,
+      preserveScroll: true,
+      silent: true,
+    });
+  }
+
+  function loadNewerTransactionHistory() {
+    return loadTransactionHistoryPage({
+      direction: "newer",
+      cursor: transactionHistoryNewerCursor,
+      preserveScroll: true,
+      silent: true,
+    });
+  }
+
   async function refreshData(REFRESH_PRICES = false, nextToken = token, filterOverride = null, options = {}) {
     const silent = Boolean(options?.silent);
     void REFRESH_PRICES;
@@ -2982,6 +3379,18 @@ function App() {
           setPriceRefreshPolling(Boolean(item.data?.refresh_in_progress));
         }
       }
+      if (includeTransactions && (tabRef.current === "transactions" || transactionHistoryInitializedRef.current)) {
+        const historyAnchor =
+          transactionHistoryAnchorDateRef.current || transactionHistoryTodayRef.current || todayIso();
+        await loadTransactionHistoryPage({
+          direction: "initial",
+          anchorDate: historyAnchor,
+          preserveScroll: tabRef.current === "transactions",
+          alignToEnd: false,
+          silent: true,
+          nextToken,
+        });
+      }
       setDashboardLoaded(true);
     } finally {
       if (!silent) {
@@ -3020,6 +3429,12 @@ function App() {
     const normalized = clampYearMonth(targetYearMonth, minMonth, maxMonth);
     setFilterMode("month");
     setYearMonth(normalized);
+    if (tab === "transactions" || transactionHistoryInitialized) {
+      refreshTransactionHistoryAtAnchor(yearMonthEndDateKey(normalized, transactionHistoryToday || todayIso()), {
+        alignToEnd: true,
+        silent: true,
+      }).catch(() => undefined);
+    }
     refreshDataWithUiFeedback({ filterMode: "month", yearMonth: normalized }).catch(() => undefined);
   }
 
@@ -3036,6 +3451,12 @@ function App() {
     setRange(nextRange);
     if (!nextRange.start || !nextRange.end) {
       return;
+    }
+    if (tab === "transactions" || transactionHistoryInitialized) {
+      refreshTransactionHistoryAtAnchor(normalizeIsoDateKey(nextRange.end, transactionHistoryToday || todayIso()), {
+        alignToEnd: true,
+        silent: true,
+      }).catch(() => undefined);
     }
     refreshDataWithUiFeedback({ filterMode: "range", range: nextRange }).catch(() => undefined);
   }
@@ -3535,6 +3956,12 @@ function App() {
       setShowTransactionForm(false);
       setTxEntrySheetStep("form");
       await refreshData(false);
+      if (transactionHistoryInitialized || tab === "transactions") {
+        await refreshTransactionHistoryAtAnchor(
+          normalizeIsoDateKey(payload.occurred_on, transactionHistoryAnchorDate || transactionHistoryToday || todayIso()),
+          { alignToEnd: true }
+        );
+      }
       setMessage(uiGuideMessage("거래를 등록했습니다.", "목록에서 반영 결과를 확인해 주세요."));
     } catch (error) {
       setMessage(formatApiError(error, "transaction_submit"));
@@ -3681,6 +4108,15 @@ function App() {
       );
       closeTxInlineEdit();
       await refreshData(false);
+      if (transactionHistoryInitialized || tab === "transactions") {
+        await refreshTransactionHistoryAtAnchor(
+          normalizeIsoDateKey(
+            dirtyPatch.occurred_on || transactionHistoryAnchorDate || transactionHistoryToday,
+            transactionHistoryToday || todayIso()
+          ),
+          { alignToEnd: Boolean(dirtyPatch.occurred_on) }
+        );
+      }
       setMessage(uiGuideMessage("거래를 수정했습니다.", "목록에서 변경 내용을 확인해 주세요."));
     } catch (error) {
       setMessage(formatApiError(error, "transaction_submit"));
@@ -4092,6 +4528,9 @@ function App() {
     try {
       await api(`${API_PREFIX}/transactions/${id}`, { method: "DELETE" }, token);
       await refreshData(false);
+      if (transactionHistoryInitialized || tab === "transactions") {
+        await refreshTransactionHistoryAtAnchor(transactionHistoryAnchorDate || transactionHistoryToday, { alignToEnd: false });
+      }
       setMessage(uiGuideMessage("거래를 삭제했습니다.", "필요하면 새 거래를 다시 등록해 주세요."));
     } catch (error) {
       setMessage(formatApiError(error, "transaction_delete"));
@@ -6515,11 +6954,16 @@ function App() {
                 </button>
               )}
               <p className="table-summary surface-count-summary">
-                총 {transactions.length}건 중 {sortedTransactions.length}건 표시
+                {transactionHistoryInitialized ? "불러온" : "총"} {transactionLedgerItems.length}건 중 {sortedTransactions.length}건 표시
               </p>
             </div>
             <div className="surface-control-strip" aria-label="거래 목록 상태">
               <span className="surface-chip surface-chip-strong">{transactionSortSummary}</span>
+              {transactionHistoryInitialized && (
+                <span className="surface-chip surface-chip-muted">
+                  기준 {transactionHistoryAnchorDate || transactionHistoryToday}
+                </span>
+              )}
               <span className={`surface-chip${isTransactionFilterActive ? " surface-chip-strong" : " surface-chip-muted"}`}>
                 필터 {isTransactionFilterActive ? "적용됨" : "기본"}
               </span>
@@ -6641,12 +7085,33 @@ function App() {
                 </button>
               </div>
             )}
+            {(transactionHistoryLoading.initial ||
+              transactionHistoryLoading.older ||
+              transactionHistoryLoading.newer ||
+              transactionHistoryError) && (
+              <p
+                className={`table-summary transaction-history-status${transactionHistoryError ? " is-error" : ""}`}
+                role={transactionHistoryError ? "alert" : "status"}
+              >
+                {transactionHistoryError ||
+                  (transactionHistoryLoading.initial
+                    ? "오늘 기준 거래 내역을 불러오는 중입니다."
+                    : transactionHistoryLoading.older
+                      ? "이전 거래를 불러오는 중입니다."
+                      : "다음 거래를 불러오는 중입니다.")}
+              </p>
+            )}
             <TransactionSurfaceTable
               sortedTransactions={sortedTransactions}
               areAllFilteredTransactionsSelected={areAllFilteredTransactionsSelected}
               toggleAllFilteredTransactionSelection={toggleAllFilteredTransactionSelection}
-              txSortDirection={txSortDirection}
+              txSortDirection={transactionHistoryInitialized ? "asc" : txSortDirection}
               toggleTxSortDirection={toggleTxSortDirection}
+              historyMode={transactionHistoryInitialized}
+              historyTopSentinelRef={transactionHistoryTopSentinelRef}
+              historyBottomSentinelRef={transactionHistoryBottomSentinelRef}
+              historyLoadingOlder={transactionHistoryLoading.older}
+              historyLoadingNewer={transactionHistoryLoading.newer}
               selectedTransactionIds={selectedTransactionIds}
               toggleTransactionSelection={toggleTransactionSelection}
               txInlineEdit={txInlineEdit}

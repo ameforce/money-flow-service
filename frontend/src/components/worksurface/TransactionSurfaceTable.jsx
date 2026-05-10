@@ -29,6 +29,11 @@ export function TransactionSurfaceTable({
   toggleAllFilteredTransactionSelection,
   txSortDirection,
   toggleTxSortDirection,
+  historyMode = false,
+  historyTopSentinelRef = null,
+  historyBottomSentinelRef = null,
+  historyLoadingOlder = false,
+  historyLoadingNewer = false,
   selectedTransactionIds,
   toggleTransactionSelection,
   txInlineEdit,
@@ -289,15 +294,25 @@ export function TransactionSurfaceTable({
                     data-field-key={field.key}
                     data-mobile-priority={transactionMobilePriority(field.key)}
                   >
-                    <button
-                      type="button"
-                      className={`sort-header${txSortDirection ? " active" : ""}`}
-                      aria-label={`일자 정렬 ${txSortDirection === "asc" ? "내림차순으로 변경" : "오름차순으로 변경"}`}
-                      onClick={toggleTxSortDirection}
-                    >
-                      {field.label}
-                      <span className="sort-indicator" aria-hidden="true">{txSortDirection === "asc" ? "↑" : "↓"}</span>
-                    </button>
+                    {historyMode ? (
+                      <span
+                        className="sort-header active sort-header-static"
+                        aria-label="일자 정렬 연속 내역순 고정"
+                      >
+                        {field.label}
+                        <span className="sort-indicator" aria-hidden="true">↑</span>
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        className={`sort-header${txSortDirection ? " active" : ""}`}
+                        aria-label={`일자 정렬 ${txSortDirection === "asc" ? "내림차순으로 변경" : "오름차순으로 변경"}`}
+                        onClick={toggleTxSortDirection}
+                      >
+                        {field.label}
+                        <span className="sort-indicator" aria-hidden="true">{txSortDirection === "asc" ? "↑" : "↓"}</span>
+                      </button>
+                    )}
                   </th>
                 );
               }
@@ -316,6 +331,11 @@ export function TransactionSurfaceTable({
           </tr>
         </thead>
         <tbody>
+          {historyMode && (
+            <tr ref={historyTopSentinelRef} className="transaction-history-sentinel transaction-history-sentinel-top">
+              <td colSpan={columnSpan}>{historyLoadingOlder ? "이전 거래 로딩" : ""}</td>
+            </tr>
+          )}
           {sortedTransactions.length === 0 && (
             <tr className="surface-empty-row">
               <td colSpan={columnSpan} className="empty-state surface-empty-state" data-testid="transactions-empty-state">
@@ -323,7 +343,7 @@ export function TransactionSurfaceTable({
               </td>
             </tr>
           )}
-          {sortedTransactions.map((item) => {
+          {sortedTransactions.map((item, index) => {
             const isEditing = Boolean(item && txInlineEdit?.id === item.id);
             const editForm = isEditing ? txInlineEdit : null;
             const editOwnerOptions = ownerOptionsWithFallback(editForm?.owner_user_id || "", editForm?.owner_name || "");
@@ -355,6 +375,9 @@ export function TransactionSurfaceTable({
             const hasConfiguredCategoryColor = Boolean(String(configuredCategoryColor || "").trim());
             const rowAccent = hasConfiguredCategoryColor ? categoryColor : flowAccent;
             const isExpanded = expandedTransactionRows.has(item.id);
+            const previousItem = index > 0 ? sortedTransactions[index - 1] : null;
+            const shouldRenderDateHeader =
+              historyMode && String(previousItem?.occurred_on || "") !== String(item.occurred_on || "");
             const handleRowToggle = (event) => {
               if (isEditing || isInteractiveRowTarget(event.target)) {
                 return;
@@ -384,9 +407,17 @@ export function TransactionSurfaceTable({
             };
             return (
               <Fragment key={rowKey}>
+                {shouldRenderDateHeader && (
+                  <tr className="transaction-history-date-row">
+                    <td colSpan={columnSpan}>
+                      <span>{item.occurred_on}</span>
+                    </td>
+                  </tr>
+                )}
                 <tr
                   className={`transaction-row transaction-row-${item.flow_type} ${isEditing ? "transaction-row-editing" : ""} ${isExpanded ? "mobile-row-expanded" : ""}`}
                   data-row-expanded={isExpanded ? "true" : "false"}
+                  data-transaction-id={item.id}
                   onClick={handleRowToggle}
                   style={{
                     "--transaction-row-bg": rowAccent,
@@ -659,6 +690,11 @@ export function TransactionSurfaceTable({
               </Fragment>
             );
           })}
+          {historyMode && (
+            <tr ref={historyBottomSentinelRef} className="transaction-history-sentinel transaction-history-sentinel-bottom">
+              <td colSpan={columnSpan}>{historyLoadingNewer ? "다음 거래 로딩" : ""}</td>
+            </tr>
+          )}
         </tbody>
       </table>
     </>

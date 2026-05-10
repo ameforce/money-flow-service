@@ -4,6 +4,7 @@ import {
   assertResponsiveShell,
   capture,
   createBasicTransaction,
+  createTransactionViaApi,
   expectBackgroundNotPlainWhite,
   expectCompactLedgerRow,
   expectNoHorizontalOverflow,
@@ -16,6 +17,51 @@ import {
   registerAndVerify,
   unique,
 } from "../support/helpers";
+
+function isoDaysAgo(days) {
+  return isoDaysFromToday(-days);
+}
+
+function isoDaysFromToday(days) {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+function yearMonthFromIso(value) {
+  const [year, month] = String(value || "").split("-").map((part) => Number(part));
+  return { year, month };
+}
+
+async function jumpTransactionListToMonth(page, isoDate) {
+  const { year, month } = yearMonthFromIso(isoDate);
+  const listCard = page.locator(".transaction-list-card").first();
+  await listCard.getByLabel("연도").fill(String(year));
+  await listCard.getByLabel("월").fill(String(month));
+  await listCard.getByLabel("월").press("Enter");
+}
+
+async function captureVisibleHistoryAnchor(page) {
+  return page.evaluate(() => {
+    const rows = Array.from(document.querySelectorAll("tr.transaction-row[data-transaction-id]"));
+    const topbarBottom = document.querySelector("header.topbar")?.getBoundingClientRect()?.bottom ?? 0;
+    const ledgerBottom = document.querySelector(".transactions-mobile-ledger-head")?.getBoundingClientRect()?.bottom ?? 0;
+    const threshold = Math.max(topbarBottom, ledgerBottom, 0) + 4;
+    const row = rows.find((candidate) => {
+      const box = candidate.getBoundingClientRect();
+      return box.bottom > threshold && box.top < window.innerHeight;
+    });
+    if (!row) {
+      return null;
+    }
+    return {
+      id: row.getAttribute("data-transaction-id"),
+      top: row.getBoundingClientRect().top,
+    };
+  });
+}
 
 test("transactions flow: create, inline edit, delete, responsive", async ({ page }) => {
   test.setTimeout(240_000);
@@ -111,6 +157,164 @@ test("transactions form keeps grouped number format", async ({ page }) => {
   await expect(memoInput).toHaveValue("빠른 메모 입력");
 });
 
+test("transactions history shows compact date groups with fixed chronological order", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("tx-history")}@example.com`;
+  const displayName = unique("tx-history-name");
+  const olderDate = isoDaysAgo(45);
+  const middleDate = isoDaysAgo(20);
+  const todayDate = isoDaysAgo(0);
+  const olderMemo = unique("tx-history-older");
+  const middleMemo = unique("tx-history-middle");
+  const todayMemo = unique("tx-history-today");
+
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 1366, height: 960 });
+
+  await createBasicTransaction(page, { memo: olderMemo, amount: "10101", occurredOn: olderDate });
+  await createBasicTransaction(page, { memo: middleMemo, amount: "20202", occurredOn: middleDate });
+  await createBasicTransaction(page, { memo: todayMemo, amount: "30303", occurredOn: todayDate });
+
+  await openTab(page, "거래");
+  await expect(page.locator("tr.transaction-row", { hasText: todayMemo })).toBeVisible();
+  await expect(page.locator("th .sort-header-static").first()).toHaveAttribute("aria-label", /연속 내역순 고정/);
+  await expect(page.locator(".transaction-history-date-row", { hasText: olderDate })).toHaveCount(1);
+  await expect(page.locator(".transaction-history-date-row", { hasText: middleDate })).toHaveCount(1);
+  await expect(page.locator(".transaction-history-date-row", { hasText: todayDate })).toHaveCount(1);
+
+  const renderedMemos = await page.locator("tr.transaction-row .transaction-memo-text").evaluateAll((nodes) =>
+    nodes.map((node) => String(node.textContent || "").trim())
+  );
+  expect(renderedMemos.indexOf(olderMemo)).toBeLessThan(renderedMemos.indexOf(middleMemo));
+  expect(renderedMemos.indexOf(middleMemo)).toBeLessThan(renderedMemos.indexOf(todayMemo));
+
+  const dateHeaderHeights = await page.locator(".transaction-history-date-row").evaluateAll((rows) =>
+    rows.map((row) => row.getBoundingClientRect().height)
+  );
+  expect(
+    dateHeaderHeights.every((height) => height <= 32),
+    `history date headers should stay thin: ${JSON.stringify(dateHeaderHeights)}`
+  ).toBe(true);
+  await capture(page, "transactions-history-groups");
+});
+
+test("transactions history scrolls older and newer without future rows while keeping compact anchors", async ({ page }) => {
+  test.setTimeout(300_000);
+
+  const email = `${unique("tx-history-scroll")}@example.com`;
+  const displayName = unique("tx-history-scroll-name");
+  const prefix = unique("tx-history-scroll-row");
+  const seeded = [];
+  const totalSeedRows = 90;
+  const oldestDaysAgo = totalSeedRows - 1;
+  const createAnchorDate = isoDaysAgo(86);
+  const futureDate = isoDaysFromToday(3);
+  const futureMemo = `${prefix}-future`;
+
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 1366, height: 960 });
+
+  await createTransactionViaApi(page, {
+    memo: futureMemo,
+    amount: "99999",
+    occurredOn: futureDate,
+    ownerName: displayName,
+  });
+  for (let index = 0; index < totalSeedRows; index += 1) {
+    const daysAgo = oldestDaysAgo - index;
+    const memo = `${prefix}-${String(index).padStart(2, "0")}`;
+    const occurredOn = isoDaysAgo(daysAgo);
+    seeded.push({ memo, occurredOn, daysAgo });
+    await createTransactionViaApi(page, {
+      memo,
+      amount: String(10000 + index),
+      occurredOn,
+      ownerName: displayName,
+    });
+  }
+
+  await page.reload();
+  await assertResponsiveShell(page);
+  await openTab(page, "거래");
+
+  const oldestMemo = seeded[0].memo;
+  const initialAnchorMemo = seeded[10].memo;
+  const todayMemo = seeded[seeded.length - 1].memo;
+  await expect(page.locator("tr.transaction-row", { hasText: todayMemo }).first()).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator("tr.transaction-row", { hasText: oldestMemo })).toHaveCount(0);
+  await expect(page.locator("tr.transaction-row", { hasText: futureMemo })).toHaveCount(0);
+  await expect(page.locator(".transaction-history-date-row", { hasText: futureDate })).toHaveCount(0);
+  await expect(page.locator("th .sort-header-static").first()).toHaveAttribute("aria-label", /연속 내역순 고정/);
+  await expect(page.locator("th button.sort-header")).toHaveCount(0);
+
+  const historyRoutePattern = "**/api/v1/transactions/history**";
+  let resolveOlderRoute;
+  let heldOlderRoute = null;
+  const olderRoutePromise = new Promise((resolve) => {
+    resolveOlderRoute = resolve;
+  });
+  const holdOlderHistoryRoute = async (route) => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.get("direction") === "older" && !heldOlderRoute) {
+      heldOlderRoute = route;
+      resolveOlderRoute(route);
+      return;
+    }
+    await route.continue();
+  };
+  await page.route(historyRoutePattern, holdOlderHistoryRoute);
+
+  const anchorRow = page.locator("tr.transaction-row", { hasText: initialAnchorMemo }).first();
+  await anchorRow.scrollIntoViewIfNeeded();
+  await expect(anchorRow).toBeVisible();
+
+  let olderRoute = await Promise.race([olderRoutePromise, page.waitForTimeout(750).then(() => null)]);
+  if (!olderRoute) {
+    await page.evaluate(() => window.scrollBy(0, -2400));
+    olderRoute = await olderRoutePromise;
+  }
+  const anchorBefore = await captureVisibleHistoryAnchor(page);
+  expect(anchorBefore?.id, "history anchor row should be capturable while older page is loading").toBeTruthy();
+  await olderRoute.continue();
+  await page.unroute(historyRoutePattern, holdOlderHistoryRoute);
+  await expect(page.locator("tr.transaction-row", { hasText: oldestMemo }).first()).toBeVisible({ timeout: 40_000 });
+  const anchorAfter = await page.locator(`tr.transaction-row[data-transaction-id="${anchorBefore.id}"]`).boundingBox();
+  expect(anchorAfter, "history anchor row should have a bounding box after older load").not.toBeNull();
+  expect(Math.abs((anchorAfter?.y ?? 0) - (anchorBefore?.top ?? 0))).toBeLessThanOrEqual(120);
+  const rowIds = await page.locator("tr.transaction-row").evaluateAll((rows) =>
+    rows.map((row) => row.getAttribute("data-transaction-id")).filter(Boolean)
+  );
+  expect(new Set(rowIds).size).toBe(rowIds.length);
+
+  const monthAnchorSeed = seeded.find((item) => item.occurredOn === createAnchorDate) || seeded[3];
+  await jumpTransactionListToMonth(page, monthAnchorSeed.occurredOn);
+  await expect(page.locator("tr.transaction-row", { hasText: monthAnchorSeed.memo }).first()).toBeVisible({ timeout: 30_000 });
+
+  const backdatedMemo = `${prefix}-backdated-create`;
+  const backdatedRow = await createBasicTransaction(page, {
+    memo: backdatedMemo,
+    amount: "90909",
+    occurredOn: monthAnchorSeed.occurredOn,
+  });
+  await expect(backdatedRow).toBeVisible();
+
+  const todayRow = page.locator("tr.transaction-row", { hasText: todayMemo }).first();
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    if (await todayRow.isVisible().catch(() => false)) {
+      break;
+    }
+    await page.evaluate(() => window.scrollBy(0, -200));
+    await page.waitForTimeout(100);
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await page.waitForTimeout(1_000);
+  }
+  await expect(todayRow).toBeVisible({ timeout: 40_000 });
+  await expect(page.locator("tr.transaction-row", { hasText: futureMemo })).toHaveCount(0);
+  await expect(page.locator(".transaction-history-date-row", { hasText: futureDate })).toHaveCount(0);
+  await capture(page, "transactions-history-scroll-continuity");
+});
+
 test("transactions list affordance: top filters, compact ledger, ownerless marker", async ({ page }) => {
   test.setTimeout(240_000);
 
@@ -166,10 +370,10 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   expect(findHeaderIndex("메모")).toBeGreaterThan(findHeaderIndex("카테고리"));
   expect(findHeaderIndex("금액")).toBeGreaterThan(findHeaderIndex("메모"));
 
-  const sortButton = page.locator("th button.sort-header").first();
-  await expect(sortButton).toHaveAttribute("aria-label", /내림차순으로 변경/);
-  await sortButton.click();
-  await expect(sortButton).toHaveAttribute("aria-label", /오름차순으로 변경/);
+  const staticDateSort = page.locator("th .sort-header-static").first();
+  await expect(staticDateSort).toBeVisible();
+  await expect(staticDateSort).toHaveAttribute("aria-label", /연속 내역순 고정/);
+  await expect(page.locator("th button.sort-header")).toHaveCount(0);
 
   await createdRow.locator("td").first().locator("input[type='checkbox']").check();
   const selectedSummaryBanner = page.locator(".message", { hasText: "선택 1건" }).first();
