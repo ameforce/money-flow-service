@@ -14,7 +14,7 @@ if str(ROOT) not in sys.path:
 import orchestrator
 
 
-def test_make_backend_env_forces_dev_when_prod_uses_sqlite_fallback(
+def test_make_backend_env_forces_local_when_prod_uses_sqlite_fallback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("ENV", "prod")
@@ -22,7 +22,7 @@ def test_make_backend_env_forces_dev_when_prod_uses_sqlite_fallback(
     monkeypatch.setenv("SECRET_KEY", "test-secret-key")
     env = orchestrator.make_backend_env(None)
     assert env["DATABASE_URL"] == "sqlite:///./dev_orchestrator.db"
-    assert env["ENV"] == "dev"
+    assert env["ENV"] == "local"
 
 
 def test_make_backend_env_keeps_prod_with_explicit_database_url(
@@ -112,4 +112,3 @@ def test_wait_for_backend_ready_probes_localhost_for_wildcard_host(
     ready = orchestrator.wait_for_backend_ready(DummyProc(), "0.0.0.0", 8123, timeout_sec=1)
     assert ready is True
     assert captured_urls == ["http://127.0.0.1:8123/healthz"]
-

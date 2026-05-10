@@ -14,6 +14,7 @@ from app.core.config import settings
 
 
 RESERVED_JWT_CLAIMS = {"sub", "typ", "jti", "iat", "exp"}
+JWT_CLOCK_SKEW_LEEWAY_SECONDS = 5
 
 
 def _derive_hash(password: str, salt: bytes) -> bytes:
@@ -84,7 +85,12 @@ def create_ws_ticket(subject: str, household_id: str, *, ttl_seconds: int = 30) 
 
 
 def decode_access_token(token: str) -> dict[str, Any]:
-    payload = jwt.decode(token, settings.secret_key, algorithms=["HS256"])
+    payload = jwt.decode(
+        token,
+        settings.secret_key,
+        algorithms=["HS256"],
+        leeway=JWT_CLOCK_SKEW_LEEWAY_SECONDS,
+    )
     if str(payload.get("typ") or "") != "access":
         raise jwt.InvalidTokenError("invalid token type")
     if not str(payload.get("jti") or "").strip():
@@ -93,7 +99,12 @@ def decode_access_token(token: str) -> dict[str, Any]:
 
 
 def decode_refresh_token(token: str) -> dict[str, Any]:
-    payload = jwt.decode(token, settings.secret_key, algorithms=["HS256"])
+    payload = jwt.decode(
+        token,
+        settings.secret_key,
+        algorithms=["HS256"],
+        leeway=JWT_CLOCK_SKEW_LEEWAY_SECONDS,
+    )
     if str(payload.get("typ") or "") != "refresh":
         raise jwt.InvalidTokenError("invalid token type")
     if not str(payload.get("jti") or "").strip():
@@ -102,7 +113,12 @@ def decode_refresh_token(token: str) -> dict[str, Any]:
 
 
 def decode_ws_ticket(ticket: str) -> dict[str, Any]:
-    payload = jwt.decode(ticket, settings.secret_key, algorithms=["HS256"])
+    payload = jwt.decode(
+        ticket,
+        settings.secret_key,
+        algorithms=["HS256"],
+        leeway=JWT_CLOCK_SKEW_LEEWAY_SECONDS,
+    )
     if str(payload.get("typ") or "") != "ws_ticket":
         raise jwt.InvalidTokenError("invalid ticket type")
     if not str(payload.get("jti") or "").strip():
@@ -118,4 +134,3 @@ def hash_opaque_token(token: str) -> str:
     normalized = str(token or "").strip()
     digest = hmac.new(settings.secret_key.encode("utf-8"), normalized.encode("utf-8"), hashlib.sha256).hexdigest()
     return digest
-

@@ -2,8 +2,11 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 import hmac
-from typing import Annotated
+import logging
+import secrets
+from typing import Annotated, Callable
 from urllib.parse import urlparse
+import uuid
 
 from fastapi import APIRouter, Depends, Request, Response, status
 from fastapi.responses import JSONResponse
@@ -12,6 +15,7 @@ from sqlalchemy import case, delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.api.debug_tokens import debug_token_response_enabled
 from app.api.deps import bearer_scheme, get_current_user
 from app.core.errors import app_error
 from app.core.security import (
@@ -25,6 +29,7 @@ from app.core.security import (
     verify_password,
 )
 from app.db.models import (
+    DisplayNameMode,
     EmailVerificationToken,
     Household,
     HouseholdMember,
@@ -41,6 +46,7 @@ from app.schemas import (
     AuthRefreshResponse,
     AuthResponse,
     LoginRequest,
+    ProfilePatchRequest,
     RegisterRequest,
     RegisterResponse,
     ResendVerificationRequest,
@@ -48,17 +54,26 @@ from app.schemas import (
     VerifyEmailRequest,
 )
 from app.services.email_service import email_service
+from app.services.owner_links import ensure_unique_household_member_display_name
+from app.services.profile import (
+    effective_user_real_name,
+    normalize_display_name_mode,
+    sync_user_display_name,
+)
 
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+logger = logging.getLogger(__name__)
 
 _LOGIN_WINDOW_SECONDS = 300
 _LOGIN_MAX_ATTEMPTS = 5
 _LOGIN_IP_MAX_ATTEMPTS = 40
 _RESEND_VERIFICATION_MAX_ATTEMPTS = 5
 _RESEND_VERIFICATION_IP_MAX_ATTEMPTS = 20
-_DEBUG_TOKEN_OPT_IN_HEADER = "x-debug-token-opt-in"
+_VERIFICATION_CODE_MAX_ATTEMPTS = 5
+_VERIFICATION_CODE_IP_MAX_ATTEMPTS = 30
 _VERIFICATION_TOKEN_ISSUE_RETRIES = 3
+_REGISTRATION_CONTINUATION_COOKIE_NAME = "mf_registration_continuation"
 _HOUSEHOLD_NAME_SUFFIX = "의 가계부"
 _HOUSEHOLD_NAME_MAX_LENGTH = 120
 
@@ -85,6 +100,18 @@ def _login_attempt_key(email: str, ip: str | None) -> str:
 
 def _login_ip_attempt_key(ip: str | None) -> str:
     return f"ip::{ip or 'unknown'}"
+
+
+def _verification_code_email_attempt_key(email: str) -> str:
+    return f"verify-code-email::{email.lower()}"
+
+
+def _verification_code_challenge_attempt_key(challenge_id: str) -> str:
+    return f"verify-code-challenge::{challenge_id}"
+
+
+def _verification_code_ip_attempt_key(ip: str | None) -> str:
+    return f"verify-code-ip::{ip or 'unknown'}"
 
 
 def _should_enforce_ip_global_auth_throttle() -> bool:
@@ -146,6 +173,38 @@ def _clear_auth_cookies(response: Response) -> None:
     response.delete_cookie(key=settings.auth_access_cookie_name, path="/")
     response.delete_cookie(key=settings.auth_refresh_cookie_name, path="/")
     response.delete_cookie(key=settings.auth_csrf_cookie_name, path="/")
+
+
+def _new_registration_continuation() -> tuple[str, str]:
+    secret = secrets.token_urlsafe(32)
+    return secret, hash_opaque_token(secret)
+
+
+def _set_registration_continuation_cookie(response: Response, *, secret: str, expires_at: datetime) -> None:
+    max_age = max(60, int((_as_utc(expires_at) - datetime.now(UTC)).total_seconds()))
+    response.set_cookie(
+        key=_REGISTRATION_CONTINUATION_COOKIE_NAME,
+        value=secret,
+        httponly=True,
+        secure=bool(settings.auth_cookie_secure),
+        samesite=settings.auth_cookie_samesite,
+        path="/",
+        max_age=max_age,
+    )
+
+
+def _clear_registration_continuation_cookie(response: Response) -> None:
+    response.delete_cookie(key=_REGISTRATION_CONTINUATION_COOKIE_NAME, path="/")
+
+
+def _registration_continuation_matches(request: Request, token_row: EmailVerificationToken) -> bool:
+    expected_hash = str(token_row.registration_continuation_hash or "").strip()
+    if not expected_hash:
+        return False
+    supplied = str(request.cookies.get(_REGISTRATION_CONTINUATION_COOKIE_NAME) or "").strip()
+    if not supplied:
+        return False
+    return hmac.compare_digest(hash_opaque_token(supplied), expected_hash)
 
 
 def _auth_error_response(
@@ -314,11 +373,56 @@ def _create_household_for_user(db: Session, user: User) -> Household:
     return household
 
 
-def _issue_verification_token(db: Session, user: User) -> tuple[str, datetime]:
+def _apply_registration_real_name(user: User, real_name: str) -> None:
+    normalized_real_name = str(real_name or "").strip()
+    user.real_name = normalized_real_name
+    if normalize_display_name_mode(user.display_name_mode) != DisplayNameMode.nickname.value or not str(user.nickname or "").strip():
+        user.display_name_mode = DisplayNameMode.real_name.value
+    sync_user_display_name(user)
+
+
+def _to_user_read(user: User) -> UserRead:
+    return UserRead(
+        id=str(user.id),
+        email=str(user.email),
+        real_name=effective_user_real_name(user),
+        nickname=str(user.nickname).strip() if str(user.nickname or "").strip() else None,
+        display_name_mode=DisplayNameMode(normalize_display_name_mode(user.display_name_mode)),
+        display_name=str(user.display_name),
+        email_verified=bool(user.email_verified),
+        email_verified_at=user.email_verified_at,
+        active_household_id=str(user.active_household_id).strip() if str(user.active_household_id or "").strip() else None,
+        created_at=user.created_at,
+    )
+
+
+def _generate_verification_code() -> str:
+    return f"{secrets.randbelow(1_000_000):06d}"
+
+
+def _hash_verification_code(*, token_row_id: str, user_id: str, verification_code: str) -> str:
+    return hash_opaque_token(f"email-code:{token_row_id}:{user_id}:{verification_code}")
+
+
+def _issue_verification_token(
+    db: Session,
+    user: User,
+    *,
+    pending_password_hash: str | None = None,
+    pending_display_name: str | None = None,
+    registration_continuation_hash: str | None = None,
+) -> tuple[str, str, datetime]:
     for _attempt in range(_VERIFICATION_TOKEN_ISSUE_RETRIES):
         now = datetime.now(UTC)
         raw_token = generate_opaque_token()
         token_hash = hash_opaque_token(raw_token)
+        verification_code = _generate_verification_code()
+        token_row_id = str(uuid.uuid4())
+        verification_code_hash = _hash_verification_code(
+            token_row_id=token_row_id,
+            user_id=user.id,
+            verification_code=verification_code,
+        )
         expires_at = now + timedelta(minutes=max(5, int(settings.auth_verification_token_minutes)))
         try:
             with db.begin_nested():
@@ -328,14 +432,19 @@ def _issue_verification_token(db: Session, user: User) -> tuple[str, datetime]:
                 ).update({"consumed_at": now}, synchronize_session=False)
                 db.add(
                     EmailVerificationToken(
+                        id=token_row_id,
                         user_id=user.id,
                         token_hash=token_hash,
+                        verification_code_hash=verification_code_hash,
+                        pending_password_hash=pending_password_hash,
+                        pending_display_name=pending_display_name,
+                        registration_continuation_hash=registration_continuation_hash,
                         sent_to=user.email,
                         expires_at=expires_at,
                     )
                 )
                 db.flush()
-            return raw_token, expires_at
+            return raw_token, verification_code, expires_at
         except IntegrityError as error:
             detail = str(getattr(error, "orig", error)).lower()
             if "token_hash" in detail:
@@ -349,36 +458,46 @@ def _issue_verification_token(db: Session, user: User) -> tuple[str, datetime]:
     )
 
 
-def _is_debug_token_opted_in(request: Request | None) -> bool:
-    if request is None:
-        return False
-    value = str(request.headers.get(_DEBUG_TOKEN_OPT_IN_HEADER) or "").strip().lower()
-    return value in {"1", "true", "yes", "y", "on"}
-
-
-def _is_debug_token_enabled(request: Request | None) -> bool:
-    if not settings.auth_debug_return_verify_token:
-        return False
-    env_name = settings.env.lower()
-    if env_name not in {"dev", "test", "local"}:
-        return False
-    return _is_debug_token_opted_in(request)
-
-
 def _maybe_debug_verification_token(token: str, request: Request | None) -> str | None:
-    if not _is_debug_token_enabled(request):
+    if not debug_token_response_enabled(request):
         return None
     return token
 
 
-def _verification_ack_message() -> str:
-    base_message = "요청이 접수되었습니다. 가입된 계정이 있으면 인증 메일을 발송합니다."
+def _is_internal_mail_capture() -> bool:
     env_name = str(settings.env or "").strip().lower()
+    if env_name not in {"dev", "test", "local"}:
+        return False
+    if settings.email_delivery_mode != "smtp":
+        return False
+    smtp_host = str(settings.smtp_host or "").strip().lower()
+    return smtp_host in {"enm-mail-smtp", "mailpit", "localhost", "127.0.0.1"}
+
+
+def _verification_metadata() -> dict[str, int]:
+    return {
+        "verification_resend_limit": int(_RESEND_VERIFICATION_MAX_ATTEMPTS),
+        "verification_resend_window_seconds": int(settings.register_rate_limit_window_seconds),
+        "verification_resend_cooldown_seconds": max(0, int(settings.auth_verification_resend_cooldown_seconds)),
+    }
+
+
+def _verification_ack_message(*, resend: bool = False) -> str:
+    if resend:
+        base_message = "입력한 이메일로 인증 메일 재전송을 요청했습니다. 받은 편지함에서 최신 인증 메일을 확인해 주세요."
+    else:
+        base_message = "인증 메일을 보냈습니다. 메일의 버튼을 누르면 회원가입이 자동으로 완료됩니다."
+    if _is_internal_mail_capture():
+        return (
+            f"{base_message} "
+            "현재 dev 서버 메일은 외부 메일함이 아니라 내부 캡처함(Mailpit)으로 전달됩니다. "
+            "이 환경에서는 Gmail 등 외부 메일함 미도착이 정상 동작입니다."
+        )
     if settings.email_delivery_mode != "log":
         return base_message
-    if env_name in {"prod", "production"}:
+    if settings.is_strict_email_environment:
         return base_message
-    # Local/dev/test should make delivery mode explicit to avoid false-positive signup UX.
+    # Local/test should make delivery mode explicit to avoid false-positive signup UX.
     return (
         f"{base_message} "
         "현재 서버는 EMAIL_DELIVERY_MODE=log 설정이어서 실제 이메일은 전송되지 않습니다. "
@@ -404,6 +523,7 @@ def _verification_response(
         message=message,
         verification_expires_in_seconds=remaining,
         debug_verification_token=_maybe_debug_verification_token(token, request),
+        **_verification_metadata(),
     )
 
 
@@ -412,8 +532,9 @@ def _resend_ack_response(email: str) -> RegisterResponse:
     return RegisterResponse(
         status="verification_required",
         email=email,
-        message=_verification_ack_message(),
+        message=_verification_ack_message(resend=True),
         verification_expires_in_seconds=ttl_seconds,
+        **_verification_metadata(),
     )
 
 
@@ -438,7 +559,7 @@ def _raise_if_smtp_delivery_failed(
     raw_token: str | None = None,
     cleanup_unverified_user_id: str | None = None,
 ) -> None:
-    if sent or settings.email_delivery_mode != "smtp":
+    if sent or not settings.blocks_email_delivery_failures:
         return
     if db is not None:
         try:
@@ -482,15 +603,20 @@ def _maybe_cleanup_auth_artifacts(db: Session, now: datetime) -> None:
     )
 
 
-def _consume_register_attempt(
+def _consume_register_throttle_attempt(
     db: Session,
     *,
     key: str,
     now: datetime,
-    max_attempts_override: int | None = None,
+    max_attempts: int,
+    rate_limited_code: str,
+    rate_limited_message: str,
+    rate_limited_action: str,
+    unavailable_code: str,
+    unavailable_message: str,
+    unavailable_action: str,
 ) -> None:
     window_seconds = max(60, int(settings.register_rate_limit_window_seconds))
-    max_attempts = max_attempts_override or int(settings.register_rate_limit_max_attempts)
     max_attempts = max(1, int(max_attempts))
     window_cutoff = now - timedelta(seconds=window_seconds)
     _maybe_cleanup_auth_artifacts(db, now)
@@ -524,17 +650,38 @@ def _consume_register_attempt(
         if now - started_at <= timedelta(seconds=window_seconds) and int(throttle.attempt_count) > max_attempts:
             raise app_error(
                 status_code=429,
-                code="AUTH_REGISTER_RATE_LIMITED",
-                message="회원가입 시도 횟수가 너무 많습니다.",
-                action="잠시 후 다시 시도해 주세요.",
+                code=rate_limited_code,
+                message=rate_limited_message,
+                action=rate_limited_action,
             )
         return
 
     raise app_error(
         status_code=503,
-        code="AUTH_REGISTER_THROTTLE_UNAVAILABLE",
-        message="회원가입 보호 장치를 일시적으로 사용할 수 없습니다.",
-        action="잠시 후 다시 시도해 주세요.",
+        code=unavailable_code,
+        message=unavailable_message,
+        action=unavailable_action,
+    )
+
+
+def _consume_register_attempt(
+    db: Session,
+    *,
+    key: str,
+    now: datetime,
+    max_attempts_override: int | None = None,
+) -> None:
+    _consume_register_throttle_attempt(
+        db,
+        key=key,
+        now=now,
+        max_attempts=max_attempts_override or int(settings.register_rate_limit_max_attempts),
+        rate_limited_code="AUTH_REGISTER_RATE_LIMITED",
+        rate_limited_message="회원가입 시도 횟수가 너무 많습니다.",
+        rate_limited_action="잠시 후 다시 시도해 주세요.",
+        unavailable_code="AUTH_REGISTER_THROTTLE_UNAVAILABLE",
+        unavailable_message="회원가입 보호 장치를 일시적으로 사용할 수 없습니다.",
+        unavailable_action="잠시 후 다시 시도해 주세요.",
     )
 
 
@@ -571,53 +718,67 @@ def _consume_resend_attempt(
     now: datetime,
     max_attempts_override: int | None = None,
 ) -> None:
-    window_seconds = max(60, int(settings.register_rate_limit_window_seconds))
-    max_attempts = max_attempts_override or _RESEND_VERIFICATION_MAX_ATTEMPTS
-    max_attempts = max(1, int(max_attempts))
-    window_cutoff = now - timedelta(seconds=window_seconds)
-    _maybe_cleanup_auth_artifacts(db, now)
-    for _ in range(4):
-        try:
-            updated = db.execute(
-                update(RegisterThrottle)
-                .where(RegisterThrottle.key == key)
-                .values(
-                    attempt_count=case(
-                        (RegisterThrottle.window_started_at < window_cutoff, 1),
-                        else_=RegisterThrottle.attempt_count + 1,
-                    ),
-                    window_started_at=case(
-                        (RegisterThrottle.window_started_at < window_cutoff, now),
-                        else_=RegisterThrottle.window_started_at,
-                    ),
-                )
-            )
-            if int(updated.rowcount or 0) == 0:
-                db.add(RegisterThrottle(key=key, attempt_count=1, window_started_at=now))
-            db.commit()
-        except IntegrityError:
-            db.rollback()
-            continue
-
-        throttle = db.get(RegisterThrottle, key)
-        if throttle is None:
-            return
-        started_at = _as_utc(throttle.window_started_at)
-        if now - started_at <= timedelta(seconds=window_seconds) and int(throttle.attempt_count) > max_attempts:
-            raise app_error(
-                status_code=429,
-                code="AUTH_RESEND_RATE_LIMITED",
-                message="인증 메일 재전송 시도 횟수가 너무 많습니다.",
-                action="잠시 후 다시 시도해 주세요.",
-            )
-        return
-
-    raise app_error(
-        status_code=503,
-        code="AUTH_RESEND_THROTTLE_UNAVAILABLE",
-        message="재전송 보호 장치를 일시적으로 사용할 수 없습니다.",
-        action="잠시 후 다시 시도해 주세요.",
+    _consume_register_throttle_attempt(
+        db,
+        key=key,
+        now=now,
+        max_attempts=max_attempts_override or _RESEND_VERIFICATION_MAX_ATTEMPTS,
+        rate_limited_code="AUTH_RESEND_RATE_LIMITED",
+        rate_limited_message="인증 메일 재전송 시도 횟수가 너무 많습니다.",
+        rate_limited_action="잠시 후 다시 시도해 주세요.",
+        unavailable_code="AUTH_RESEND_THROTTLE_UNAVAILABLE",
+        unavailable_message="재전송 보호 장치를 일시적으로 사용할 수 없습니다.",
+        unavailable_action="잠시 후 다시 시도해 주세요.",
     )
+
+
+def _consume_verification_code_attempt(
+    db: Session,
+    *,
+    key: str,
+    now: datetime,
+    max_attempts_override: int | None = None,
+) -> None:
+    _consume_register_throttle_attempt(
+        db,
+        key=key,
+        now=now,
+        max_attempts=max_attempts_override or _VERIFICATION_CODE_MAX_ATTEMPTS,
+        rate_limited_code="AUTH_VERIFICATION_CODE_RATE_LIMITED",
+        rate_limited_message="인증번호 확인 시도 횟수가 너무 많습니다.",
+        rate_limited_action="잠시 후 인증 메일을 다시 요청해 주세요.",
+        unavailable_code="AUTH_VERIFICATION_CODE_THROTTLE_UNAVAILABLE",
+        unavailable_message="인증번호 보호 장치를 일시적으로 사용할 수 없습니다.",
+        unavailable_action="잠시 후 다시 시도해 주세요.",
+    )
+
+
+def _consume_verification_code_attempts(
+    db: Session,
+    *,
+    email: str,
+    challenge_id: str | None,
+    client_ip: str | None,
+    now: datetime,
+) -> None:
+    _consume_verification_code_attempt(
+        db,
+        key=_verification_code_email_attempt_key(email),
+        now=now,
+    )
+    if challenge_id:
+        _consume_verification_code_attempt(
+            db,
+            key=_verification_code_challenge_attempt_key(challenge_id),
+            now=now,
+        )
+    if _should_enforce_ip_global_auth_throttle():
+        _consume_verification_code_attempt(
+            db,
+            key=_verification_code_ip_attempt_key(client_ip),
+            now=now,
+            max_attempts_override=_VERIFICATION_CODE_IP_MAX_ATTEMPTS,
+        )
 
 
 def _delete_user_and_orphan_households(db: Session, user: User) -> None:
@@ -691,7 +852,12 @@ def _ensure_default_household_membership(db: Session, user: User) -> None:
         user.active_household_id = fallback_household_id
 
 
-@router.post("/register", response_model=RegisterResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/register",
+    response_model=RegisterResponse,
+    response_model_exclude_none=True,
+    status_code=status.HTTP_201_CREATED,
+)
 def register(payload: RegisterRequest, request: Request, response: Response, db: Session = Depends(get_db)) -> RegisterResponse:
     now = datetime.now(UTC)
     normalized_email = payload.email.lower()
@@ -705,11 +871,23 @@ def register(payload: RegisterRequest, request: Request, response: Response, db:
             now=now,
             max_attempts_override=_register_ip_max_attempts(),
         )
+    if settings.is_strict_email_environment and not settings.auth_email_verification_required:
+        raise app_error(
+            status_code=503,
+            code="AUTH_EMAIL_VERIFICATION_CONFIG_INVALID",
+            message="이메일 인증 설정이 올바르지 않습니다.",
+            action="관리자에게 SMTP 이메일 인증 설정을 확인해 달라고 요청해 주세요.",
+        )
 
     existing = db.scalar(select(User).where(func.lower(User.email) == normalized_email))
     if existing is not None and bool(existing.email_verified):
         _clear_auth_cookies(response)
-        return _resend_ack_response(normalized_email)
+        raise app_error(
+            status_code=409,
+            code="AUTH_EMAIL_ALREADY_EXISTS",
+            message="이미 가입된 이메일입니다.",
+            action="로그인하거나 다른 이메일로 가입해 주세요.",
+        )
     if existing is not None and not bool(existing.email_verified):
         ttl_hours = max(1, int(settings.register_unverified_ttl_hours))
         created_at = _as_utc(existing.created_at)
@@ -720,19 +898,26 @@ def register(payload: RegisterRequest, request: Request, response: Response, db:
 
     user = existing
     created_new_user = False
+    pending_password_hash = hash_password(payload.password)
+    pending_display_name = payload.display_name.strip()
     if user is None:
         created_new_user = True
-        initial_password_hash = hash_password(payload.password)
+        initial_password_hash = pending_password_hash
         if settings.auth_email_verification_required:
-            # Credentials are finalized at verify-email step to avoid pre-verification account takeover races.
+            # The chosen credential is stored on the verification challenge and is
+            # applied only when the same browser proves its continuation cookie.
             initial_password_hash = hash_password(generate_opaque_token())
         user = User(
             email=normalized_email,
             password_hash=initial_password_hash,
+            real_name=payload.display_name.strip(),
+            nickname=None,
+            display_name_mode=DisplayNameMode.real_name.value,
             display_name=payload.display_name.strip(),
             email_verified=not settings.auth_email_verification_required,
             email_verified_at=now if not settings.auth_email_verification_required else None,
         )
+        sync_user_display_name(user)
         db.add(user)
         try:
             db.flush()
@@ -750,12 +935,13 @@ def register(payload: RegisterRequest, request: Request, response: Response, db:
         if locked_user is not None:
             user = locked_user
 
+    _apply_registration_real_name(user, payload.display_name)
     _ensure_default_household_membership(db, user)
 
     if not settings.auth_email_verification_required:
         # Verification-disabled mode must finalize credentials for reused unverified accounts.
         user.password_hash = hash_password(payload.password)
-        user.display_name = payload.display_name.strip()
+        _apply_registration_real_name(user, payload.display_name)
         user.email_verified = True
         if user.email_verified_at is None:
             user.email_verified_at = now
@@ -785,10 +971,17 @@ def register(payload: RegisterRequest, request: Request, response: Response, db:
             message="회원가입이 완료되었습니다.",
             access_token=access_token if include_body_token else None,
             token_type="bearer" if include_body_token else None,
-            user=UserRead.model_validate(user),
+            user=_to_user_read(user),
         )
 
-    raw_token, expires_at = _issue_verification_token(db, user)
+    continuation_secret, continuation_hash = _new_registration_continuation()
+    raw_token, verification_code, expires_at = _issue_verification_token(
+        db,
+        user,
+        pending_password_hash=pending_password_hash,
+        pending_display_name=pending_display_name,
+        registration_continuation_hash=continuation_hash,
+    )
     try:
         db.commit()
     except IntegrityError as error:
@@ -802,6 +995,7 @@ def register(payload: RegisterRequest, request: Request, response: Response, db:
     sent = email_service.send_verification_email(
         to_email=user.email,
         token=raw_token,
+        verification_code=verification_code,
         expires_minutes=max(5, int(settings.auth_verification_token_minutes)),
     )
     _raise_if_smtp_delivery_failed(
@@ -811,6 +1005,7 @@ def register(payload: RegisterRequest, request: Request, response: Response, db:
         raw_token=raw_token,
         cleanup_unverified_user_id=user.id if created_new_user else None,
     )
+    _set_registration_continuation_cookie(response, secret=continuation_secret, expires_at=expires_at)
     _clear_auth_cookies(response)
     return _verification_response(
         email=user.email,
@@ -900,7 +1095,7 @@ def login(payload: LoginRequest, request: Request, response: Response, db: Sessi
     return AuthResponse(
         access_token=access_token if include_body_token else None,
         token_type="bearer" if include_body_token else None,
-        user=UserRead.model_validate(user),
+        user=_to_user_read(user),
     )
 
 
@@ -998,34 +1193,133 @@ def refresh_session(request: Request, response: Response, db: Session = Depends(
     )
 
 
-@router.post("/verify-email", response_model=AuthResponse)
-def verify_email(payload: VerifyEmailRequest, request: Request, response: Response, db: Session = Depends(get_db)) -> AuthResponse:
-    now = datetime.now(UTC)
-    token_hash = hash_opaque_token(payload.token)
+def _raise_verification_token_invalid() -> None:
+    raise app_error(
+        status_code=400,
+        code="AUTH_VERIFICATION_TOKEN_INVALID",
+        message="이메일 인증 토큰이 유효하지 않습니다.",
+        action="인증 메일 재전송 후 다시 시도해 주세요.",
+    )
+
+
+def _raise_verification_code_invalid() -> None:
+    raise app_error(
+        status_code=400,
+        code="AUTH_VERIFICATION_CODE_INVALID",
+        message="이메일 인증번호가 유효하지 않습니다.",
+        action="인증 메일 재전송 후 다시 시도해 주세요.",
+    )
+
+
+def _raise_verification_expired(*, code: str) -> None:
+    raise app_error(
+        status_code=400,
+        code=code,
+        message="이메일 인증이 만료되었습니다.",
+        action="인증 메일을 재전송해 주세요.",
+    )
+
+
+def _raise_registration_password_setup_required(user: User) -> None:
+    logger.info("[auth:verify] registration password setup required user_id=%s", user.id)
+    raise app_error(
+        status_code=409,
+        code="AUTH_REGISTRATION_PASSWORD_SETUP_REQUIRED",
+        message="다른 브라우저에서 인증 링크를 열었습니다.",
+        action=(
+            "회원가입을 시작했던 브라우저와 현재 브라우저가 달라, "
+            "보안을 위해 이 브라우저에서 사용할 비밀번호를 다시 설정해 주세요."
+        ),
+    )
+
+
+def _raise_verification_password_required() -> None:
+    raise app_error(
+        status_code=400,
+        code="AUTH_VERIFICATION_PASSWORD_REQUIRED",
+        message="이메일 인증을 완료하려면 비밀번호 설정 정보가 필요합니다.",
+        action="다시 회원가입을 진행한 뒤 최신 인증 메일을 열어 주세요.",
+    )
+
+
+def _pending_verification_by_token(db: Session, raw_token: str, now: datetime) -> EmailVerificationToken:
+    token_hash = hash_opaque_token(raw_token)
     token_row = db.scalar(select(EmailVerificationToken).where(EmailVerificationToken.token_hash == token_hash))
-    if token_row is None:
-        raise app_error(
-            status_code=400,
-            code="AUTH_VERIFICATION_TOKEN_INVALID",
-            message="이메일 인증 토큰이 유효하지 않습니다.",
-            action="인증 메일 재전송 후 다시 시도해 주세요.",
-        )
-    if token_row.consumed_at is not None:
-        raise app_error(
-            status_code=400,
-            code="AUTH_VERIFICATION_TOKEN_INVALID",
-            message="이미 사용된 인증 토큰입니다.",
-            action="인증 메일 재전송 후 다시 시도해 주세요.",
-        )
+    if token_row is None or token_row.consumed_at is not None:
+        _raise_verification_token_invalid()
     if _as_utc(token_row.expires_at) < now:
         token_row.consumed_at = now
         db.commit()
-        raise app_error(
-            status_code=400,
-            code="AUTH_VERIFICATION_TOKEN_EXPIRED",
-            message="이메일 인증 토큰이 만료되었습니다.",
-            action="인증 메일을 재전송해 주세요.",
+        _raise_verification_expired(code="AUTH_VERIFICATION_TOKEN_EXPIRED")
+    return token_row
+
+
+def _latest_pending_verification_for_user(db: Session, user_id: str) -> EmailVerificationToken | None:
+    return db.scalar(
+        select(EmailVerificationToken)
+        .where(
+            EmailVerificationToken.user_id == user_id,
+            EmailVerificationToken.consumed_at.is_(None),
         )
+        .order_by(EmailVerificationToken.created_at.desc())
+    )
+
+
+def _latest_verification_for_user(db: Session, user_id: str) -> EmailVerificationToken | None:
+    return db.scalar(
+        select(EmailVerificationToken)
+        .where(EmailVerificationToken.user_id == user_id)
+        .order_by(EmailVerificationToken.created_at.desc())
+    )
+
+
+def _pending_verification_by_code(
+    db: Session,
+    *,
+    email: str,
+    verification_code: str,
+    client_ip: str | None,
+    now: datetime,
+) -> EmailVerificationToken:
+    normalized_email = email.lower()
+    user = db.scalar(select(User).where(func.lower(User.email) == normalized_email))
+    token_row = _latest_pending_verification_for_user(db, user.id) if user is not None else None
+    challenge_id = token_row.id if token_row is not None else None
+    _consume_verification_code_attempts(
+        db,
+        email=normalized_email,
+        challenge_id=challenge_id,
+        client_ip=client_ip,
+        now=now,
+    )
+    if user is None or token_row is None:
+        _raise_verification_code_invalid()
+
+    token_row = db.get(EmailVerificationToken, token_row.id)
+    if token_row is None or token_row.consumed_at is not None:
+        _raise_verification_code_invalid()
+    if _as_utc(token_row.expires_at) < now:
+        token_row.consumed_at = now
+        db.commit()
+        _raise_verification_expired(code="AUTH_VERIFICATION_CODE_EXPIRED")
+    expected_hash = _hash_verification_code(
+        token_row_id=token_row.id,
+        user_id=user.id,
+        verification_code=verification_code,
+    )
+    stored_hash = str(token_row.verification_code_hash or "")
+    if not stored_hash or not hmac.compare_digest(stored_hash, expected_hash):
+        _raise_verification_code_invalid()
+    return token_row
+
+
+def _consume_verification_row(
+    db: Session,
+    token_row: EmailVerificationToken,
+    now: datetime,
+    *,
+    invalid_handler: Callable[[], None] = _raise_verification_token_invalid,
+) -> None:
     consumed_rows = db.execute(
         update(EmailVerificationToken)
         .where(
@@ -1035,11 +1329,25 @@ def verify_email(payload: VerifyEmailRequest, request: Request, response: Respon
         .values(consumed_at=now)
     ).rowcount
     if int(consumed_rows or 0) != 1:
-        raise app_error(
-            status_code=400,
-            code="AUTH_VERIFICATION_TOKEN_INVALID",
-            message="이미 사용된 인증 토큰입니다.",
-            action="인증 메일 재전송 후 다시 시도해 주세요.",
+        invalid_handler()
+
+
+@router.post("/verify-email", response_model=AuthResponse)
+def verify_email(payload: VerifyEmailRequest, request: Request, response: Response, db: Session = Depends(get_db)) -> AuthResponse:
+    _verify_allowed_origin(request, allow_missing=False)
+    now = datetime.now(UTC)
+    client_ip = getattr(getattr(request, "client", None), "host", None)
+    invalid_handler = _raise_verification_token_invalid
+    if payload.token:
+        token_row = _pending_verification_by_token(db, payload.token, now)
+    else:
+        invalid_handler = _raise_verification_code_invalid
+        token_row = _pending_verification_by_code(
+            db,
+            email=str(payload.email or ""),
+            verification_code=str(payload.verification_code or ""),
+            client_ip=client_ip,
+            now=now,
         )
 
     user = db.get(User, token_row.user_id)
@@ -1050,11 +1358,27 @@ def verify_email(payload: VerifyEmailRequest, request: Request, response: Respon
             message="사용자 정보를 찾을 수 없습니다.",
             action="다시 회원가입을 시도해 주세요.",
         )
+    if bool(user.email_verified):
+        invalid_handler()
 
-    user.password_hash = hash_password(payload.password)
-    display_name = str(payload.display_name or "").strip()
+    pending_password_hash = str(token_row.pending_password_hash or "").strip()
+    if pending_password_hash:
+        if _registration_continuation_matches(request, token_row):
+            user.password_hash = pending_password_hash
+        elif payload.password:
+            user.password_hash = hash_password(payload.password)
+        else:
+            _raise_registration_password_setup_required(user)
+    elif payload.password:
+        user.password_hash = hash_password(payload.password)
+    else:
+        _raise_verification_password_required()
+
+    _consume_verification_row(db, token_row, now, invalid_handler=invalid_handler)
+
+    display_name = str(token_row.pending_display_name or payload.display_name or "").strip()
     if display_name:
-        user.display_name = display_name
+        _apply_registration_real_name(user, display_name)
     user.email_verified = True
     user.email_verified_at = now
     if user.active_household_id is None:
@@ -1072,15 +1396,16 @@ def verify_email(payload: VerifyEmailRequest, request: Request, response: Respon
         refresh_token=refresh_token,
         remember_me=bool(payload.remember_me),
     )
+    _clear_registration_continuation_cookie(response)
     include_body_token = _should_include_body_token(request)
     return AuthResponse(
         access_token=access_token if include_body_token else None,
         token_type="bearer" if include_body_token else None,
-        user=UserRead.model_validate(user),
+        user=_to_user_read(user),
     )
 
 
-@router.post("/resend-verification", response_model=RegisterResponse)
+@router.post("/resend-verification", response_model=RegisterResponse, response_model_exclude_none=True)
 def resend_verification(
     payload: ResendVerificationRequest,
     request: Request,
@@ -1121,14 +1446,45 @@ def resend_verification(
         _clear_auth_cookies(response)
         return _resend_ack_response(normalized_email)
 
-    raw_token, expires_at = _issue_verification_token(db, user)
+    credential_source = latest or _latest_verification_for_user(db, user.id)
+    pending_password_hash = str(getattr(credential_source, "pending_password_hash", "") or "").strip() or None
+    pending_display_name = str(getattr(credential_source, "pending_display_name", "") or "").strip() or None
+    continuation_secret: str | None = None
+    continuation_hash: str | None = None
+    if pending_password_hash:
+        previous_continuation_hash = str(
+            getattr(credential_source, "registration_continuation_hash", "") or ""
+        ).strip()
+        if not previous_continuation_hash:
+            _clear_auth_cookies(response)
+            _clear_registration_continuation_cookie(response)
+            return _resend_ack_response(normalized_email)
+        if _registration_continuation_matches(request, credential_source):
+            continuation_secret, continuation_hash = _new_registration_continuation()
+        else:
+            # A different browser may request a resend, but it must not receive a
+            # fresh continuation cookie that can activate the pending password.
+            # Reuse the original same-browser proof so the latest email still
+            # completes only in the browser that started registration.
+            continuation_hash = previous_continuation_hash
+
+    raw_token, verification_code, expires_at = _issue_verification_token(
+        db,
+        user,
+        pending_password_hash=pending_password_hash,
+        pending_display_name=pending_display_name,
+        registration_continuation_hash=continuation_hash,
+    )
     db.commit()
     sent = email_service.send_verification_email(
         to_email=user.email,
         token=raw_token,
+        verification_code=verification_code,
         expires_minutes=max(5, int(settings.auth_verification_token_minutes)),
     )
     _raise_if_smtp_delivery_failed(sent=sent, scope="인증 메일 재발송", db=db, raw_token=raw_token)
+    if continuation_secret:
+        _set_registration_continuation_cookie(response, secret=continuation_secret, expires_at=expires_at)
     _clear_auth_cookies(response)
     return _verification_response(
         email=user.email,
@@ -1141,7 +1497,56 @@ def resend_verification(
 
 @router.get("/me", response_model=UserRead)
 def me(user: User = Depends(get_current_user)) -> UserRead:
-    return UserRead.model_validate(user)
+    return _to_user_read(user)
+
+
+@router.patch("/me", response_model=UserRead)
+def patch_me(
+    payload: ProfilePatchRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> UserRead:
+    if "real_name" in payload.model_fields_set:
+        user.real_name = payload.real_name
+    if "nickname" in payload.model_fields_set:
+        user.nickname = payload.nickname
+    if "display_name_mode" in payload.model_fields_set:
+        user.display_name_mode = payload.display_name_mode or DisplayNameMode.real_name.value
+
+    if normalize_display_name_mode(user.display_name_mode) == DisplayNameMode.nickname.value and not str(user.nickname or "").strip():
+        raise app_error(
+            status_code=400,
+            code="AUTH_NICKNAME_REQUIRED",
+            message="닉네임 표시명을 선택한 경우 nickname 이 필요합니다.",
+            action="닉네임을 입력하거나 표시명 모드를 본명으로 바꿔 주세요.",
+        )
+
+    previous_display_name = str(user.display_name or "").strip()
+    sync_user_display_name(user)
+    if not str(user.display_name or "").strip():
+        raise app_error(
+            status_code=400,
+            code="AUTH_DISPLAY_NAME_REQUIRED",
+            message="표시 이름이 비어 있을 수 없습니다.",
+            action="본명 또는 닉네임을 입력해 주세요.",
+        )
+    if str(user.display_name or "").strip() != previous_display_name:
+        household_ids = {
+            str(item or "").strip()
+            for item in db.scalars(select(HouseholdMember.household_id).where(HouseholdMember.user_id == user.id)).all()
+            if str(item or "").strip()
+        }
+        for household_id in household_ids:
+            ensure_unique_household_member_display_name(
+                db,
+                household_id=household_id,
+                user_id=str(user.id),
+                display_name=user.display_name,
+            )
+    db.flush()
+    db.commit()
+    db.refresh(user)
+    return _to_user_read(user)
 
 
 @router.post("/logout")

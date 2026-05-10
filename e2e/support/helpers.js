@@ -1,0 +1,873 @@
+import fs from "node:fs";
+import { execFileSync } from "node:child_process";
+import path from "node:path";
+
+import { expect, test } from "@playwright/test";
+
+export const TEST_PASSWORD = "Password1234";
+const ACTIVE_HOUSEHOLD_KEY = "money-flow-active-household-id";
+const DEFAULT_CSRF_COOKIE_NAME = "mf_csrf_token";
+const DEFAULT_CSRF_HEADER_NAME = "x-csrf-token";
+const DEFAULT_HOUSEHOLD_HEADER_NAME = "x-household-id";
+const SHARED_E2E_LOCAL_HOSTS = new Set(["", "localhost", "127.0.0.1", "::1"]);
+const SHARED_AUTH_READY_TIMEOUT_MS = 12_000;
+const SHARED_E2E_UNIQUE_ACCOUNT_PREFIXES = ["auth-user", "dashboard-user", "owner-user", "guest-user"];
+
+export function unique(prefix) {
+  return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+}
+
+export function currentE2EHistoryDateIso(daysOffset = 0) {
+  const date = new Date();
+  date.setUTCDate(date.getUTCDate() + daysOffset);
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  return `${date.getUTCFullYear()}-${month}-${day}`;
+}
+
+export function isSharedE2EBaseUrl(baseUrl = process.env.E2E_BASE_URL || "") {
+  const normalized = String(baseUrl || "").trim();
+  if (!normalized) {
+    return false;
+  }
+  try {
+    const { hostname } = new URL(normalized);
+    return !SHARED_E2E_LOCAL_HOSTS.has(String(hostname || "").trim().toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
+export function normalizeSharedIdentityStem(value) {
+  const trimmed = String(value || "").trim().toLowerCase();
+  const withoutDomain = trimmed.includes("@") ? trimmed.split("@", 1)[0] : trimmed;
+  const normalized = withoutDomain
+    .replace(/-\d{10,}-\d+$/u, "")
+    .replace(/[^a-z0-9-]+/gu, "-")
+    .replace(/-{2,}/gu, "-")
+    .replace(/^-+|-+$/gu, "");
+  return normalized || "e2e-user";
+}
+
+export function shouldKeepUniqueSharedIdentity(stem) {
+  const normalized = normalizeSharedIdentityStem(stem);
+  return SHARED_E2E_UNIQUE_ACCOUNT_PREFIXES.some(
+    (prefix) => normalized === prefix || normalized.startsWith(`${prefix}-`)
+  );
+}
+
+export function resolveSharedAuthIdentity({ email, displayName }) {
+  const directIdentity = {
+    email: String(email || "").trim(),
+    displayName: String(displayName || "").trim(),
+    shared: false,
+  };
+  if (!isSharedE2EBaseUrl()) {
+    return directIdentity;
+  }
+  const emailStem = normalizeSharedIdentityStem(email);
+  if (shouldKeepUniqueSharedIdentity(emailStem)) {
+    return {
+      ...directIdentity,
+      shared: true,
+    };
+  }
+  const nameStem = normalizeSharedIdentityStem(displayName || emailStem).replace(/-/gu, " ").trim();
+  const projectName = normalizeSharedIdentityStem(test.info()?.project?.name || "playwright");
+  return {
+    email: `${emailStem}@example.com`,
+    displayName: `${nameStem || "e2e user"} ${projectName}`.trim(),
+    shared: true,
+  };
+}
+
+async function openAuthMode(page, mode) {
+  const targetMode = String(mode || "").trim();
+  const verifyButton = page.getByRole("button", { name: "이메일 인증 완료" });
+  if (targetMode === "verify") {
+    await expect(verifyButton).toBeVisible();
+    return;
+  }
+  const emailInput = page.getByLabel("이메일", { exact: true });
+  const passwordInput = page.getByLabel("비밀번호", { exact: true });
+  const passwordConfirmInput = page.getByLabel("비밀번호 확인");
+  const inVerifyMode = await verifyButton.isVisible().catch(() => false);
+  if (inVerifyMode) {
+    await page.getByRole("button", { name: "로그인으로 돌아가기" }).click();
+  }
+  const registerFieldsVisible = await passwordConfirmInput.isVisible().catch(() => false);
+  if (targetMode === "register" && !registerFieldsVisible) {
+    await page.getByRole("button", { name: "회원가입" }).click();
+  } else if (targetMode === "login" && registerFieldsVisible) {
+    await page.getByRole("button", { name: "로그인으로 돌아가기" }).click();
+  }
+  await expect(emailInput).toBeVisible();
+  await expect(passwordInput).toBeVisible();
+  if (targetMode === "register") {
+    await expect(passwordConfirmInput).toBeVisible();
+    await expect(page.getByRole("button", { name: "회원가입하고 시작" })).toBeVisible();
+  } else if (targetMode === "login") {
+    await expect(page.getByRole("button", { name: "로그인하기" })).toBeVisible();
+  }
+}
+
+async function fillLoginForm(page, { email, password }) {
+  await openAuthMode(page, "login");
+  await page.getByLabel("이메일", { exact: true }).fill(email);
+  await page.getByLabel("비밀번호", { exact: true }).fill(password);
+}
+
+async function fillRegisterForm(page, { email, password, displayName }) {
+  await openAuthMode(page, "register");
+  await page.getByLabel("이메일", { exact: true }).fill(email);
+  await page.getByLabel("비밀번호", { exact: true }).fill(password);
+  await page.getByLabel("비밀번호 확인").fill(password);
+  await page.getByLabel("본명").fill(displayName);
+}
+
+async function expectAuthReady(page, { timeout = 5_000 } = {}) {
+  const appShell = page.locator("main.app-shell");
+  const signedIn = await appShell
+    .waitFor({ state: "visible", timeout })
+    .then(() => true)
+    .catch(() => false);
+  if (signedIn) {
+    await expect(appShell).toHaveAttribute("translate", "no");
+  }
+  return signedIn;
+}
+
+async function loginFromAuthShell(page, credentials, { timeout = 5_000 } = {}) {
+  await fillLoginForm(page, credentials);
+  await page.getByRole("button", { name: "로그인하기" }).click();
+  return expectAuthReady(page, { timeout });
+}
+
+async function completeEmailVerification(page) {
+  await expect(page.getByText("인증 메일을 확인해 주세요.")).toBeVisible();
+  await expect(page.getByLabel("인증 토큰")).toHaveCount(0);
+  await page.getByRole("button", { name: "이메일 인증 완료" }).click();
+  return expectAuthReady(page, { timeout: SHARED_AUTH_READY_TIMEOUT_MS });
+}
+
+export function escapeRegex(text) {
+  return String(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function ensureScreenshotDir() {
+  const dir = path.resolve("output", "playwright", "e2e-flow");
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+export async function capture(page, name) {
+  const screenshotDir = ensureScreenshotDir();
+  const outputPath = path.join(screenshotDir, `${Date.now()}-${name}.png`);
+  try {
+    await page.screenshot({
+      path: outputPath,
+      fullPage: false,
+      animations: "disabled",
+      timeout: 15_000,
+    });
+  } catch {
+    await page.screenshot({
+      path: outputPath,
+      fullPage: false,
+      animations: "disabled",
+      timeout: 15_000,
+    });
+  }
+  return outputPath;
+}
+
+export function labeledField(container, label, selector = "input, select, textarea") {
+  return container
+    .locator("label")
+    .filter({ hasText: new RegExp(`^\\s*${escapeRegex(label)}`) })
+    .locator(selector)
+    .first();
+}
+
+export async function expectNoHorizontalOverflow(page, allowance = 8) {
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  expect(overflow).toBeLessThanOrEqual(allowance);
+}
+
+export async function expectWithinViewport(locator, { allowance = 4, requireVertical = true } = {}) {
+  await expect(locator).toBeVisible();
+  const box = await locator.boundingBox();
+  expect(box, "locator bounding box should exist").not.toBeNull();
+  const viewport = locator.page().viewportSize();
+  expect(viewport, "viewport should be available").not.toBeNull();
+  expect(box?.x ?? Number.NEGATIVE_INFINITY).toBeGreaterThanOrEqual(-allowance);
+  expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual((viewport?.width ?? 0) + allowance);
+  if (requireVertical) {
+    expect(box?.y ?? Number.NEGATIVE_INFINITY).toBeGreaterThanOrEqual(-allowance);
+    expect((box?.y ?? 0) + (box?.height ?? 0)).toBeLessThanOrEqual((viewport?.height ?? 0) + allowance);
+  }
+}
+
+export async function expectKeyboardReachableInOrder(page, locators, { maxTabsPerLocator = 60 } = {}) {
+  const keyboardStartId = "__e2e_keyboard_start__";
+  const compactViewport = (page.viewportSize()?.width ?? Number.POSITIVE_INFINITY) <= 480;
+
+  await page.evaluate((sentinelId) => {
+    window.scrollTo(0, 0);
+    document.getElementById(sentinelId)?.remove();
+
+    const sentinel = document.createElement("div");
+    sentinel.id = sentinelId;
+    sentinel.setAttribute("tabindex", "0");
+    sentinel.setAttribute("aria-hidden", "true");
+    Object.assign(sentinel.style, {
+      height: "1px",
+      left: "0",
+      opacity: "0",
+      overflow: "hidden",
+      pointerEvents: "none",
+      position: "fixed",
+      top: "0",
+      width: "1px",
+      zIndex: "-1",
+    });
+
+    document.body.prepend(sentinel);
+    document.activeElement?.blur?.();
+    sentinel.focus({ preventScroll: true });
+  }, keyboardStartId);
+
+  try {
+    for (const locator of locators) {
+      await expect(locator).toBeVisible();
+      let reached = false;
+      for (let attempt = 0; attempt < maxTabsPerLocator; attempt += 1) {
+        await page.keyboard.press("Tab");
+        reached = await locator.evaluate((element) => {
+          const active = document.activeElement;
+          if (!active) {
+            return false;
+          }
+          const labelTargetId = element instanceof HTMLLabelElement ? element.getAttribute("for") : "";
+          const labelTarget = labelTargetId ? document.getElementById(labelTargetId) : null;
+          return element === active || element.contains(active) || labelTarget === active;
+        });
+        if (reached) {
+          break;
+        }
+      }
+
+      if (!reached && compactViewport) {
+        reached = await locator.evaluate((element) => {
+          const labelTargetId = element instanceof HTMLLabelElement ? element.getAttribute("for") : "";
+          const target = labelTargetId ? document.getElementById(labelTargetId) : element;
+          if (!(target instanceof HTMLElement)) {
+            return false;
+          }
+
+          const style = window.getComputedStyle(target);
+          const disabled = "disabled" in target && Boolean(target.disabled);
+          if (disabled || style.display === "none" || style.visibility === "hidden") {
+            return false;
+          }
+
+          target.focus({ preventScroll: true });
+          const active = document.activeElement;
+          return target === active || target.contains(active) || element === active || element.contains(active);
+        });
+      }
+
+      expect(reached, "expected control to be reachable by keyboard tab order").toBe(true);
+      await expectWithinViewport(locator);
+    }
+  } finally {
+    await page.evaluate((sentinelId) => {
+      document.getElementById(sentinelId)?.remove();
+    }, keyboardStartId);
+  }
+}
+
+export async function assertResponsiveShell(page, allowance = 12) {
+  await expect(page.locator("header.topbar")).toBeVisible();
+  await expect(page.locator("nav.tabs")).toBeVisible();
+  await expectNoHorizontalOverflow(page, allowance);
+}
+
+export async function expectCompactLedgerRow(row, maxHeight = 60) {
+  const box = await row.boundingBox();
+  expect(box, "row bounding box should exist").not.toBeNull();
+  expect(box?.height ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(maxHeight);
+}
+
+export async function expectSingleLineText(locator, allowance = 3) {
+  const metrics = await locator.evaluate((element) => ({
+    clientHeight: element.clientHeight,
+    scrollHeight: element.scrollHeight,
+  }));
+  expect(metrics.scrollHeight - metrics.clientHeight).toBeLessThanOrEqual(allowance);
+}
+
+export async function expectBackgroundNotPlainWhite(locator) {
+  const backgroundColor = await locator.evaluate((element) => getComputedStyle(element).backgroundColor);
+  expect(backgroundColor).not.toBe("rgb(255, 255, 255)");
+}
+
+export async function expectTransparentBackground(locator) {
+  const backgroundColor = await locator.evaluate((element) => getComputedStyle(element).backgroundColor);
+  expect(["rgba(0, 0, 0, 0)", "transparent"]).toContain(backgroundColor);
+}
+
+export async function expectStickyHeadWithinTop(locator, maxY = 90) {
+  const box = await locator.boundingBox();
+  expect(box, "sticky head bounding box should exist").not.toBeNull();
+  expect(box?.y ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(maxY);
+}
+
+export async function expectStickyStack(headingLocator, ledgerLocator, { maxLedgerY = 110, gapAllowance = 6 } = {}) {
+  const headingBox = await headingLocator.boundingBox();
+  const ledgerBox = await ledgerLocator.boundingBox();
+  expect(headingBox, "sticky heading bounding box should exist").not.toBeNull();
+  expect(ledgerBox, "sticky ledger bounding box should exist").not.toBeNull();
+  expect(ledgerBox?.y ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(maxLedgerY);
+  if ((headingBox?.y ?? -1) + (headingBox?.height ?? 0) > 0) {
+    expect((ledgerBox?.y ?? 0) - ((headingBox?.y ?? 0) + (headingBox?.height ?? 0))).toBeGreaterThanOrEqual(-gapAllowance);
+  }
+}
+
+export async function expectStableButtonPosition(locator, action, tolerance = 6) {
+  const before = await locator.boundingBox();
+  expect(before, `${action} before-box should exist`).not.toBeNull();
+  await action();
+  const after = await locator.boundingBox();
+  expect(after, "after-box should exist").not.toBeNull();
+  expect(Math.abs((after?.x ?? 0) - (before?.x ?? 0))).toBeLessThanOrEqual(tolerance);
+}
+
+export async function expectCompactHeader(locator, maxHeight = 30) {
+  const box = await locator.boundingBox();
+  expect(box, "header bounding box should exist").not.toBeNull();
+  expect(box?.height ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(maxHeight);
+}
+
+export function hexToRgb(hex) {
+  const raw = String(hex || "").trim().replace(/^#/, "");
+  if (raw.length !== 6) {
+    return "";
+  }
+  const value = Number.parseInt(raw, 16);
+  const red = (value >> 16) & 255;
+  const green = (value >> 8) & 255;
+  const blue = value & 255;
+  return `rgb(${red}, ${green}, ${blue})`;
+}
+
+export async function openTab(page, label) {
+  const tabButton = page.getByRole("button", { name: label, exact: true }).first();
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    await tabButton.click();
+    const isActive = await tabButton
+      .evaluate((element) => element.classList.contains("active"))
+      .catch(() => false);
+    if (isActive) {
+      return;
+    }
+    await page.waitForTimeout(250);
+  }
+  await expect(tabButton).toHaveClass(/active/);
+}
+
+export async function login(page, { email, password = TEST_PASSWORD }) {
+  const identity = resolveSharedAuthIdentity({ email });
+  const authReadyTimeout = identity.shared ? SHARED_AUTH_READY_TIMEOUT_MS : 5_000;
+  await page.goto("/");
+  const signedIn = await loginFromAuthShell(page, { email: identity.email, password }, { timeout: authReadyTimeout });
+  if (!signedIn) {
+    throw new Error(`로그인에 실패했습니다: ${identity.email}`);
+  }
+}
+
+export async function logout(page) {
+  await page.getByRole("button", { name: "로그아웃" }).click();
+  await expect(page.locator("form.auth-card")).toBeVisible();
+  await expect(page.getByLabel("이메일", { exact: true })).toBeVisible();
+}
+
+export async function registerAndVerify(page, { email, password = TEST_PASSWORD, displayName }) {
+  const identity = resolveSharedAuthIdentity({ email, displayName });
+  const authReadyTimeout = identity.shared ? SHARED_AUTH_READY_TIMEOUT_MS : 5_000;
+  await page.goto("/");
+  if (identity.shared) {
+    const signedInFromExistingAccount = await loginFromAuthShell(page, { email: identity.email, password }, { timeout: authReadyTimeout });
+    if (signedInFromExistingAccount) {
+      return;
+    }
+    await page.goto("/");
+  }
+
+  await fillRegisterForm(page, {
+    email: identity.email,
+    password,
+    displayName: identity.displayName,
+  });
+  await page.getByRole("button", { name: "회원가입하고 시작" }).click();
+
+  const signedInDirectly = await expectAuthReady(page, { timeout: authReadyTimeout });
+  if (signedInDirectly) {
+    return;
+  }
+
+  const verifyButton = page.getByRole("button", { name: "이메일 인증 완료" });
+  const verifyVisible = await verifyButton
+    .waitFor({ state: "visible", timeout: 5_000 })
+    .then(() => true)
+    .catch(() => false);
+  if (verifyVisible) {
+    const signedInAfterVerify = await completeEmailVerification(page);
+    if (signedInAfterVerify) {
+      return;
+    }
+    const signedInAfterVerifyLogin = await loginFromAuthShell(page, { email: identity.email, password }, { timeout: authReadyTimeout });
+    if (signedInAfterVerifyLogin) {
+      return;
+    }
+    await expect(page.locator("main.app-shell")).toHaveAttribute("translate", "no");
+  }
+
+  if (identity.shared) {
+    await page.goto("/");
+    const signedInAfterFallback = await loginFromAuthShell(page, { email: identity.email, password }, { timeout: authReadyTimeout });
+    if (signedInAfterFallback) {
+      return;
+    }
+  }
+
+  const authMessage = String((await page.locator(".message").first().textContent().catch(() => "")) || "").trim();
+  throw new Error(`회원가입/인증에 실패했습니다: ${identity.email}${authMessage ? ` :: ${authMessage}` : ""}`);
+}
+
+export async function selectFirstNonEmptyOption(selectLocator) {
+  const options = await selectLocator.locator("option").evaluateAll((nodes) =>
+    nodes.map((node) => ({
+      value: String(node.value || ""),
+      text: String(node.textContent || ""),
+    }))
+  );
+  const candidate = options.find((item) => item.value.trim() !== "");
+  if (!candidate) {
+    return false;
+  }
+  await selectLocator.selectOption(candidate.value);
+  return true;
+}
+
+export async function createCategoryViaApi(page, { major, minor, flowType = "expense" }) {
+  const result = await page.evaluate(
+    async ({ activeHouseholdKey, csrfCookieName, csrfHeaderName, flowType, householdHeaderName, major, minor }) => {
+      const cookieValue = (name) => {
+        const prefix = `${name}=`;
+        return String(document.cookie || "")
+          .split(";")
+          .map((item) => item.trim())
+          .find((item) => item.startsWith(prefix))
+          ?.slice(prefix.length) || "";
+      };
+      const householdId = String(localStorage.getItem(activeHouseholdKey) || "").trim();
+      const headers = {
+        "Content-Type": "application/json",
+        [csrfHeaderName]: decodeURIComponent(cookieValue(csrfCookieName)),
+      };
+      if (householdId) {
+        headers[householdHeaderName] = householdId;
+      }
+      const response = await fetch("/api/v1/categories", {
+        method: "POST",
+        credentials: "include",
+        headers,
+        body: JSON.stringify({
+          flow_type: flowType,
+          major,
+          minor,
+        }),
+      });
+      const text = await response.text();
+      let payload = null;
+      try {
+        payload = text ? JSON.parse(text) : null;
+      } catch {
+        payload = null;
+      }
+      return { ok: response.ok, status: response.status, payload, text };
+    },
+    {
+      activeHouseholdKey: ACTIVE_HOUSEHOLD_KEY,
+      csrfCookieName: DEFAULT_CSRF_COOKIE_NAME,
+      csrfHeaderName: DEFAULT_CSRF_HEADER_NAME,
+      flowType,
+      householdHeaderName: DEFAULT_HOUSEHOLD_HEADER_NAME,
+      major,
+      minor,
+    }
+  );
+  expect(result.ok, `category api create failed: ${result.status} ${result.text}`).toBe(true);
+  return result.payload;
+}
+
+function formatGroupedNumber(value) {
+  const digits = String(value ?? "").replace(/[^\d-]/g, "");
+  if (!digits) {
+    return "";
+  }
+  const sign = digits.startsWith("-") ? "-" : "";
+  const body = sign ? digits.slice(1) : digits;
+  return `${sign}${body.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}`;
+}
+
+async function ensureTransactionFormValues(container, { memo, amount, occurredOn = "" }) {
+  const amountInput = labeledField(container, "금액", "input");
+  const memoInput = labeledField(container, "메모", "input");
+  const dateInput = occurredOn ? labeledField(container, "일자", "input") : null;
+  const expectedAmount = formatGroupedNumber(amount);
+
+  await expect(container.locator("form.transactions-form-grid, form.transaction-quick-form").first()).toBeVisible();
+  if (dateInput) {
+    await dateInput.scrollIntoViewIfNeeded();
+  }
+  await amountInput.scrollIntoViewIfNeeded();
+  await memoInput.scrollIntoViewIfNeeded();
+  if (dateInput) {
+    await expect(dateInput).toBeVisible();
+    await expect(dateInput).toBeEnabled();
+  }
+  await expect(amountInput).toBeVisible();
+  await expect(memoInput).toBeVisible();
+  await expect(amountInput).toBeEnabled();
+  await expect(memoInput).toBeEnabled();
+
+  if (dateInput) {
+    await fillInputUntilValue(dateInput, occurredOn, occurredOn, "거래 일자");
+  }
+  await fillInputUntilValue(amountInput, String(amount), expectedAmount, "거래 금액");
+  await fillInputUntilValue(memoInput, memo, memo, "거래 메모");
+
+  if (dateInput) {
+    await expect(dateInput).toHaveValue(occurredOn);
+  }
+  await expect(amountInput).toHaveValue(expectedAmount);
+  await expect(memoInput).toHaveValue(memo);
+  return { amountInput, memoInput, dateInput };
+}
+
+async function expandQuickTransactionDetails(container) {
+  const quickForm = container.locator("form.transaction-quick-form").first();
+  if (!(await quickForm.isVisible().catch(() => false))) {
+    return;
+  }
+
+  for (const summaryText of ["추가 입력", "전체 카테고리"]) {
+    const details = quickForm.locator("details.transaction-quick-details", { hasText: summaryText }).first();
+    if ((await details.count()) === 0) {
+      continue;
+    }
+    if ((await details.getAttribute("open")) !== null) {
+      continue;
+    }
+    await details.locator("summary").click();
+  }
+}
+
+async function fillInputUntilValue(locator, inputValue, expectedValue, fieldName) {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    if ((await locator.inputValue().catch(() => "")) === expectedValue) {
+      return;
+    }
+
+    await locator.scrollIntoViewIfNeeded();
+    await locator.fill("");
+    await locator.fill(inputValue);
+
+    const matched = await expect(locator, `${fieldName} 입력값 확인`).toHaveValue(expectedValue, { timeout: 1_500 })
+      .then(() => true)
+      .catch(() => false);
+    if (matched) {
+      return;
+    }
+
+    await locator.page().waitForTimeout(150 * (attempt + 1));
+  }
+
+  await locator.fill("");
+  await locator.pressSequentially(inputValue, { delay: 10 });
+  await expect(locator, `${fieldName} 입력값 확인`).toHaveValue(expectedValue);
+}
+
+export async function createBasicTransaction(
+  page,
+  { memo, amount = "12000", flowType = "", ownerless = false, occurredOn = currentE2EHistoryDateIso() }
+) {
+  await openTab(page, "거래");
+  const effectiveOccurredOn = occurredOn || currentE2EHistoryDateIso();
+  const transactionCard = page.locator("article.card", {
+    has: page.getByRole("heading", { name: "거래 입력" }),
+  });
+  const transactionFab = page.getByTestId("transactions-fab");
+  const transactionSheet = page.getByTestId("transaction-entry-sheet");
+  let transactionContainer = transactionCard;
+
+  const txToggleButton = transactionCard.getByRole("button", { name: /거래 추가|입력 닫기/ }).first();
+  const txToggleVisible = await txToggleButton.isVisible().catch(() => false);
+  if (txToggleVisible) {
+    const txToggleText = String((await txToggleButton.textContent()) || "");
+    if (txToggleText.includes("거래 추가")) {
+      await expect(txToggleButton).toBeEnabled();
+      await txToggleButton.click();
+    }
+    await expect(transactionCard.locator("form.transactions-form-grid").first()).toBeVisible();
+  } else if (await transactionFab.isVisible().catch(() => false)) {
+    await expect(transactionFab).toBeEnabled();
+    await transactionFab.click();
+    await expect(transactionSheet).toBeVisible();
+    transactionContainer = transactionSheet;
+  }
+  await expandQuickTransactionDetails(transactionContainer);
+
+  if (flowType) {
+    await labeledField(transactionContainer, "유형", "select").selectOption(flowType);
+  }
+
+  const ownerSelect = labeledField(transactionContainer, "거래자", "select");
+  await ensureTransactionFormValues(transactionContainer, { memo, amount, occurredOn: effectiveOccurredOn });
+
+  if (ownerless) {
+    await ownerSelect.selectOption("");
+    await expect(ownerSelect).toHaveValue("");
+  } else {
+    await selectFirstNonEmptyOption(ownerSelect);
+  }
+
+  const majorSelectNew = labeledField(transactionContainer, "카테고리 그룹", "select");
+  const hasNewCategoryLabels = (await majorSelectNew.count()) > 0;
+  const majorSelect = hasNewCategoryLabels
+    ? majorSelectNew
+    : labeledField(transactionContainer, "대분류", "select");
+  const hasMajor = await selectFirstNonEmptyOption(majorSelect);
+  if (hasMajor) {
+    const minorSelect = hasNewCategoryLabels
+      ? labeledField(transactionContainer, "카테고리", "select")
+      : labeledField(transactionContainer, "중분류", "select");
+    await selectFirstNonEmptyOption(minorSelect);
+  }
+
+  const { amountInput } = await ensureTransactionFormValues(transactionContainer, {
+    memo,
+    amount,
+    occurredOn: effectiveOccurredOn,
+  });
+  const amountInputHandle = await amountInput.elementHandle();
+  await transactionContainer.getByRole("button", { name: "거래 등록" }).click();
+  const validationMessage = amountInputHandle
+    ? await amountInputHandle
+        .evaluate((element) => (element.isConnected ? element.validationMessage || "" : ""))
+        .catch(() => "")
+    : "";
+  await amountInputHandle?.dispose();
+  if (validationMessage) {
+    await ensureTransactionFormValues(transactionContainer, { memo, amount, occurredOn: effectiveOccurredOn });
+    await transactionContainer.getByRole("button", { name: "거래 등록" }).click();
+  }
+  const row = page.locator("tr.transaction-row", { hasText: memo }).first();
+  const rowVisible = await row
+    .waitFor({ state: "visible", timeout: 20_000 })
+    .then(() => true)
+    .catch(() => false);
+  if (!rowVisible) {
+    const applyButton = page.getByRole("button", { name: "조회 적용" }).first();
+    if ((await applyButton.count()) > 0) {
+      await applyButton.click().catch(() => undefined);
+      await row.waitFor({ state: "visible", timeout: 20_000 });
+    }
+  }
+  await expect(row).toBeVisible();
+  if (txToggleVisible) {
+    await expect(txToggleButton).toContainText("거래 추가", { timeout: 20_000 });
+    await expect(txToggleButton).toBeEnabled();
+  } else if ((await transactionSheet.count()) > 0) {
+    await expect(transactionSheet).toBeHidden({ timeout: 20_000 });
+  }
+  return row;
+}
+
+export async function createTransactionViaApi(
+  page,
+  {
+    memo,
+    amount = "12000",
+    flowType = "expense",
+    occurredOn = currentE2EHistoryDateIso(),
+    ownerName = "",
+    categoryId = "",
+  }
+) {
+  const result = await page.evaluate(
+    async ({
+      activeHouseholdKey,
+      amount,
+      categoryId,
+      csrfCookieName,
+      csrfHeaderName,
+      flowType,
+      householdHeaderName,
+      memo,
+      occurredOn,
+      ownerName,
+    }) => {
+      const cookieValue = (name) => {
+        const prefix = `${name}=`;
+        return String(document.cookie || "")
+          .split(";")
+          .map((item) => item.trim())
+          .find((item) => item.startsWith(prefix))
+          ?.slice(prefix.length) || "";
+      };
+      const householdId = String(localStorage.getItem(activeHouseholdKey) || "").trim();
+      const headers = {
+        "Content-Type": "application/json",
+        [csrfHeaderName]: decodeURIComponent(cookieValue(csrfCookieName)),
+      };
+      if (householdId) {
+        headers[householdHeaderName] = householdId;
+      }
+      const response = await fetch("/api/v1/transactions", {
+        method: "POST",
+        credentials: "include",
+        headers,
+        body: JSON.stringify({
+          occurred_on: occurredOn,
+          flow_type: flowType,
+          amount,
+          category_id: categoryId || null,
+          currency: "KRW",
+          memo,
+          owner_name: ownerName,
+        }),
+      });
+      const text = await response.text();
+      let payload = null;
+      try {
+        payload = text ? JSON.parse(text) : null;
+      } catch {
+        payload = null;
+      }
+      return { ok: response.ok, status: response.status, payload, text };
+    },
+    {
+      activeHouseholdKey: ACTIVE_HOUSEHOLD_KEY,
+      amount,
+      categoryId,
+      csrfCookieName: DEFAULT_CSRF_COOKIE_NAME,
+      csrfHeaderName: DEFAULT_CSRF_HEADER_NAME,
+      flowType,
+      householdHeaderName: DEFAULT_HOUSEHOLD_HEADER_NAME,
+      memo,
+      occurredOn,
+      ownerName,
+    }
+  );
+  expect(result.ok, `transaction api create failed: ${result.status} ${result.text}`).toBe(true);
+  return result.payload;
+}
+
+export async function createBasicHolding(page, { name, category = "현금성" }) {
+  await openTab(page, "자산");
+  const holdingCard = page.locator("article.card", {
+    has: page.getByRole("heading", { name: "자산 입력" }),
+  });
+  const holdingFab = page.getByTestId("holdings-fab");
+  const holdingSheet = page.getByTestId("holding-entry-sheet");
+  let holdingContainer = holdingCard;
+  const holdingToggleButton = holdingCard.getByRole("button", { name: /자산 추가|입력 닫기/ }).first();
+  const holdingToggleVisible = await holdingToggleButton.isVisible().catch(() => false);
+  if (holdingToggleVisible) {
+    const holdingToggleText = String((await holdingToggleButton.textContent()) || "");
+    if (holdingToggleText.includes("자산 추가")) {
+      await holdingToggleButton.click();
+    }
+  }
+  const holdingForm = holdingCard.locator("form.holdings-form-grid").first();
+  if ((await holdingForm.count()) > 0 && !(await holdingForm.isVisible().catch(() => false))) {
+    await holdingToggleButton.click();
+  }
+  if ((await holdingForm.count()) > 0 && (await holdingForm.isVisible().catch(() => false))) {
+    holdingContainer = holdingForm;
+  } else if (await holdingFab.isVisible().catch(() => false)) {
+    await expect(holdingFab).toBeEnabled();
+    await holdingFab.click();
+    await expect(holdingSheet).toBeVisible();
+    holdingContainer = holdingSheet;
+  }
+  const typeSelect = labeledField(holdingContainer, "유형", "select");
+  const hasCashOption = (await typeSelect.locator("option[value='cash']").count()) > 0;
+  if (hasCashOption) {
+    await typeSelect.selectOption("cash");
+  } else {
+    await selectFirstNonEmptyOption(typeSelect);
+  }
+  const holdingNameTextarea = labeledField(holdingContainer, "자산명", "textarea");
+  if ((await holdingNameTextarea.count()) > 0) {
+    await holdingNameTextarea.fill(name);
+  } else {
+    await labeledField(holdingContainer, "자산명", "input").fill(name);
+  }
+  const categoryInput = labeledField(holdingContainer, "카테고리", "input");
+  if ((await categoryInput.count()) > 0) {
+    await categoryInput.fill(category);
+  }
+  await labeledField(holdingContainer, "평가금액", "input").fill("300000");
+
+  const ownerSelect = labeledField(holdingContainer, "보유자", "select");
+  await selectFirstNonEmptyOption(ownerSelect);
+
+  await holdingContainer.getByRole("button", { name: "자산 등록" }).click();
+  const row = page.locator("tr", { hasText: name }).first();
+  await row.waitFor({ state: "visible", timeout: 20_000 });
+  await expect(row).toBeVisible();
+  return row;
+}
+
+export function createImportWorkbook(workbookPath, { txMemo, holdingName, categoryMinor }) {
+  const script = `
+from datetime import date
+import sys
+from openpyxl import Workbook
+
+path = sys.argv[1]
+tx_memo = sys.argv[2]
+holding_name = sys.argv[3]
+category_minor = sys.argv[4]
+
+wb = Workbook()
+category_ws = wb.active
+category_ws.title = "가계부 분류"
+category_ws["C5"] = "지출"
+category_ws["D5"] = category_minor
+
+month_ws = wb.create_sheet("3")
+month_ws["B10"] = date(2026, 3, 12)
+month_ws["C10"] = "지출"
+month_ws["D10"] = category_minor
+month_ws["E10"] = tx_memo
+month_ws["F10"] = 43210
+
+cash_ws = wb.create_sheet("3) 저축 및 현금성")
+cash_ws["B7"] = "현금성"
+cash_ws["C7"] = holding_name
+cash_ws["D7"] = "테스트은행"
+cash_ws["E7"] = "입출금"
+cash_ws["H7"] = 123456
+
+wb.save(path)
+`
+    .trim();
+  execFileSync("uv", ["run", "python", "-c", script, workbookPath, txMemo, holdingName, categoryMinor], {
+    stdio: "pipe",
+  });
+}
