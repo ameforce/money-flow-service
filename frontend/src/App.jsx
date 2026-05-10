@@ -1138,18 +1138,8 @@ function formatSharePercent(value) {
   return `${numeric.toFixed(1)}%`;
 }
 
-function buildDonutCenterSummaryMeta(items) {
-  const normalizedItems = Array.isArray(items) ? items : [];
-  const visibleItems = normalizedItems.filter((item) => Number(item?.value || 0) > 0);
-  if (!visibleItems.length) {
-    return null;
-  }
-  return {
-    primaryText: "분포",
-    secondaryText: `${visibleItems.length}개 항목`,
-    ariaText: `분포 ${visibleItems.length}개 항목`,
-  };
-}
+const DONUT_CUTOUT_PERCENT = 56;
+const DONUT_LABEL_RADIUS_PERCENT = 25 * (1 + DONUT_CUTOUT_PERCENT / 100);
 
 function buildDonutSliceLabelMeta(items, { maxLabels = 6 } = {}) {
   const normalizedItems = Array.isArray(items)
@@ -1173,13 +1163,16 @@ function buildDonutSliceLabelMeta(items, { maxLabels = 6 } = {}) {
     const midpointShare = cumulativeShare + share / 2;
     cumulativeShare += share;
     const angle = (midpointShare / 100) * Math.PI * 2 - Math.PI / 2;
-    const radius = normalizedItems.length > 4 ? 38 : 34;
+    const angleDeg = (angle * 180) / Math.PI;
+    const radius = DONUT_LABEL_RADIUS_PERCENT;
     return {
       ...item,
       visualIndex,
       share,
       shareText: formatSharePercent(share),
       color: colors[visualIndex],
+      angleDeg,
+      radius,
       left: 50 + Math.cos(angle) * radius,
       top: 50 + Math.sin(angle) * radius,
     };
@@ -5595,6 +5588,7 @@ function App() {
     () => ({
       responsive: true,
       maintainAspectRatio: false,
+      cutout: `${DONUT_CUTOUT_PERCENT}%`,
       plugins: {
         legend: {
           display: !isCompactViewport,
@@ -5616,9 +5610,30 @@ function App() {
           ariaText: `총 자산 ${fmtKrw(safeTotal)}`,
         };
       }
-      return buildDonutCenterSummaryMeta(dashboardPortfolioChartSource?.items);
+      const items = Array.isArray(dashboardPortfolioChartSource?.items)
+        ? dashboardPortfolioChartSource.items
+        : [];
+      const visibleItems = items.filter((item) => Number(item?.value || 0) > 0);
+      const selectedMonth = Number(yearMonth?.month || 0);
+      const primaryText = filterMode === "range"
+        ? "기간 거래"
+        : `${selectedMonth || currentMonth().month}월 거래`;
+      const secondaryText = visibleItems.length > 0
+        ? `${visibleItems.length}개 유형`
+        : "거래내역";
+      return {
+        primaryText,
+        secondaryText,
+        ariaText: `${primaryText} ${secondaryText}`,
+      };
     },
-    [dashboardPortfolioChartSource, dashboardPortfolioViewMode, portfolio?.total_market_value_krw]
+    [
+      dashboardPortfolioChartSource,
+      dashboardPortfolioViewMode,
+      filterMode,
+      portfolio?.total_market_value_krw,
+      yearMonth?.month,
+    ]
   );
   const holdingPortfolioCenterLabel = useMemo(
     () => {
@@ -5684,6 +5699,11 @@ function App() {
   );
   const isDashboardInitialLoading = dashboardLoading && !dashboardLoaded;
   const isDashboardRefreshing = dashboardLoading && dashboardLoaded;
+  const socketStatusLabel = SOCKET_STATUS_LABELS[socketStatus] || socketStatus;
+  const realtimeChipLabel = isDashboardRefreshing ? "동기화 중" : socketStatusLabel;
+  const realtimeChipAriaLabel = isDashboardRefreshing
+    ? `실시간 연결: ${socketStatusLabel}, 최신 데이터 동기화 중`
+    : `실시간 연결: ${socketStatusLabel}`;
   const { minMonth, maxMonth } = getMonthBounds();
   const isPrevMonthDisabled = compareYearMonth(yearMonth, minMonth) <= 0;
   const isNextMonthDisabled = compareYearMonth(yearMonth, maxMonth) >= 0;
@@ -5895,6 +5915,9 @@ function App() {
             key={`${item.label}:${item.index}`}
             className="portfolio-donut-slice-label"
             data-testid={testId}
+            data-donut-angle={item.angleDeg.toFixed(3)}
+            data-donut-radius={(item.radius * 2).toFixed(3)}
+            data-donut-share={item.share.toFixed(3)}
             title={`${labelPrefix} ${item.label} ${item.shareText}`}
             style={{
               left: `${item.left}%`,
@@ -6512,7 +6535,14 @@ function App() {
           <div className="meta topbar-meta">
             <span>사용자: {user?.display_name}</span>
             <span>가계: {household?.name}</span>
-            <span className={`socket-chip socket-chip-${socketStatus}`}>실시간 연결: {SOCKET_STATUS_LABELS[socketStatus] || socketStatus}</span>
+            <span
+              className={`socket-chip socket-chip-${socketStatus}${isDashboardRefreshing ? " socket-chip-syncing" : ""}`}
+              role="status"
+              aria-live="polite"
+              aria-label={realtimeChipAriaLabel}
+            >
+              <span className="socket-chip-text">실시간 연결: {realtimeChipLabel}</span>
+            </span>
           </div>
         </div>
         <div className="actions topbar-actions">
@@ -6583,11 +6613,6 @@ function App() {
               대시보드 데이터를 불러오는 중입니다.
             </div>
           )}
-          {isDashboardRefreshing && (
-            <div className="dashboard-refresh-note" role="status" aria-live="polite">
-              최신 데이터를 새로 불러오고 있습니다.
-            </div>
-          )}
 
           <article className="card summary-card dashboard-hero-card">
             <div className="dashboard-hero-copy">
@@ -6656,28 +6681,32 @@ function App() {
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
                     </button>
                     <div className="date-inputs">
-                      <input
-                        type="number"
-                        aria-label="연도"
-                        value={yearMonth.year}
-                        onChange={(e) => setYearMonth({ ...yearMonth, year: Number(e.target.value) })}
-                        onBlur={handleApplyYearMonth}
-                        onKeyDown={handleYearMonthInputKeyDown}
-                        enterKeyHint="done"
-                      />
-                      <span>년</span>
-                      <input
-                        type="number"
-                        min="1"
-                        max="12"
-                        aria-label="월"
-                        value={yearMonth.month}
-                        onChange={(e) => setYearMonth({ ...yearMonth, month: Number(e.target.value) })}
-                        onBlur={handleApplyYearMonth}
-                        onKeyDown={handleYearMonthInputKeyDown}
-                        enterKeyHint="done"
-                      />
-                      <span>월</span>
+                      <span className="month-value-group">
+                        <input
+                          type="number"
+                          aria-label="연도"
+                          value={yearMonth.year}
+                          onChange={(e) => setYearMonth({ ...yearMonth, year: Number(e.target.value) })}
+                          onBlur={handleApplyYearMonth}
+                          onKeyDown={handleYearMonthInputKeyDown}
+                          enterKeyHint="done"
+                        />
+                        <span aria-hidden="true">년</span>
+                      </span>
+                      <span className="month-value-group month-value-group-month">
+                        <input
+                          type="number"
+                          min="1"
+                          max="12"
+                          aria-label="월"
+                          value={yearMonth.month}
+                          onChange={(e) => setYearMonth({ ...yearMonth, month: Number(e.target.value) })}
+                          onBlur={handleApplyYearMonth}
+                          onKeyDown={handleYearMonthInputKeyDown}
+                          enterKeyHint="done"
+                        />
+                        <span aria-hidden="true">월</span>
+                      </span>
                     </div>
                     <button
                       type="button"

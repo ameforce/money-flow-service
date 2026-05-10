@@ -34,7 +34,7 @@
   --mf-space-5: 1.25rem;
   --mf-space-6: 1.5rem;
   --mf-focus-ring: 0 0 0 3px rgba(15, 124, 255, 0.18);
-  font-family: "Pretendard", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", "Segoe UI", sans-serif;
+  font-family: var(--mf-font-family);
   color: var(--mf-color-ink-900);
   background:
     radial-gradient(circle at 10% 0%, rgba(15, 124, 255, 0.12), transparent 32rem),

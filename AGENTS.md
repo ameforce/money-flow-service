@@ -27,6 +27,10 @@
 - Backend coverage is driven by `pytest`; add narrow regression tests when fixing bugs.
 - UI and workflow validation use Playwright in `e2e/specs/`.
 - For changes affecting local verification, rerun at least: `uv run python -m pytest -q`, `npm run frontend:build`, `npm run lint --prefix frontend`, and `npm run e2e`.
+- For mobile UI work, verify at more than one viewport/font condition before claiming the UX is stable. At minimum cover Chrome DevTools-style mobile width around 390px, a narrower iPhone-sized viewport, a taller/wider Android-sized viewport, and Korean font fallbacks such as Apple SD Gothic Neo, Malgun Gothic, and Noto Sans KR.
+- Do not fix mobile visual alignment by hard-coding one captured coordinate. Prefer layout invariants that survive font/device changes: shared control heights, center-line alignment, tabular numeric line boxes, chart cutout/ring-derived label positions, and no horizontal overflow.
+- Dashboard passive refresh feedback must not insert or remove document-flow banners after user taps filter/month controls. Reuse persistent status surfaces such as the topbar real-time chip for non-blocking sync state, and reserve dismissible fixed-position messages for errors, permission issues, or user-actionable notices.
+- For donut charts, labels should be positioned from the chart geometry and slice midpoint, not from screenshot-specific offsets. E2E should assert both text clipping and geometric placement against the chart ring.
 
 ## Commit & Pull Request Guidelines
 - Commit format: `<prefix>: <summary>` using only `fix`, `feat`, `chore`, or `refact`.
