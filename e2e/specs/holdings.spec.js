@@ -54,6 +54,17 @@ test("holdings flow: create, inline edit, delete, responsive", async ({ page }) 
     await expect(assetsPortfolioSelect).toBeVisible();
     await assetsPortfolioSelect.selectOption("transaction_flow");
     await expect(holdingSummaryCard).toContainText("거래 유형 비중");
+    await expect(holdingSummaryCard).toContainText("표시할 포트폴리오 데이터가 없습니다.");
+    const emptyPortfolioChartHeight = await holdingSummaryCard
+      .locator(".compact-support-section")
+      .first()
+      .locator(".chart-wrap")
+      .first()
+      .evaluate((element) => element.getBoundingClientRect().height);
+    expect(emptyPortfolioChartHeight).toBeLessThanOrEqual(120);
+    await assetsPortfolioSelect.selectOption("holding_category");
+    await expect(assetsPortfolioSelect).toHaveValue("holding_category");
+    await expect(holdingSummaryCard).toContainText("보유 카테고리 비중");
     const holdingSummarySelect = holdingSummaryCard.getByLabel("자산 요약 보기 기준");
     await expect(holdingSummarySelect).toBeVisible();
     await holdingSummarySelect.selectOption("category");
@@ -95,14 +106,55 @@ test("holdings flow: create, inline edit, delete, responsive", async ({ page }) 
   await expect(holdingSummaryCard).toBeVisible();
   const holdingsJumpCue = page.getByTestId("holdings-summary-jump-cue");
   const holdingEntryCard = page.locator(".holding-entry-card").first();
+  const holdingsFab = page.getByTestId("holdings-fab");
+  const holdingSheet = page.getByTestId("holding-entry-sheet");
+  const holdingSheetClose = page.getByTestId("holding-entry-sheet-close");
   const holdingListCard = page.locator(".holding-list-card").first();
   const summaryBox = await holdingSummaryCard.boundingBox();
-  const entryBox = await holdingEntryCard.boundingBox();
   const listBox = await holdingListCard.boundingBox();
   expect(summaryBox, "holding summary card should have a bounding box").not.toBeNull();
-  expect(entryBox, "holding entry card should have a bounding box").not.toBeNull();
   expect(listBox, "holding list card should have a bounding box").not.toBeNull();
-  expect(summaryBox?.y ?? 0).toBeGreaterThanOrEqual((entryBox?.y ?? 0) - 1);
+  const mobileTopbarBox = await page.locator("header.topbar").boundingBox();
+  const holdingHeadingBox = await page.locator(".holding-list-card > .surface-list-heading").first().boundingBox();
+  await expect(page.locator(".holding-list-card > .surface-control-strip").first()).toBeHidden();
+  const holdingJumpBox = await holdingsJumpCue.boundingBox();
+  const holdingSubTabsBox = await page.locator(".holding-list-card > .sub-tabs").first().boundingBox();
+  const holdingLedgerBoxInitial = await page.locator(".holdings-mobile-ledger-head").boundingBox();
+  const holdingTableBoxInitial = await page.locator(".holdings-surface-table").boundingBox();
+  const inFlowMessage = page.locator(".app-content > .message, .app-shell > .message").first();
+  const inFlowMessageVisible =
+    (await inFlowMessage.count()) > 0 && (await inFlowMessage.isVisible().catch(() => false));
+  const inFlowMessageBox = inFlowMessageVisible ? await inFlowMessage.boundingBox() : null;
+  expect(mobileTopbarBox, "mobile topbar should have a bounding box").not.toBeNull();
+  expect(holdingHeadingBox, "holding heading should have a bounding box").not.toBeNull();
+  expect(holdingJumpBox, "holding summary jump should have a bounding box").not.toBeNull();
+  expect(holdingSubTabsBox, "holding sub tabs should have a bounding box").not.toBeNull();
+  expect(holdingLedgerBoxInitial, "holding ledger head should have a bounding box").not.toBeNull();
+  expect(holdingTableBoxInitial, "holding table should have a bounding box").not.toBeNull();
+  expect(mobileTopbarBox?.height ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(88);
+  if (inFlowMessageBox) {
+    expect(inFlowMessageBox.y + inFlowMessageBox.height).toBeLessThanOrEqual((holdingHeadingBox?.y ?? 0) + 8);
+    expect(holdingHeadingBox?.y ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
+      inFlowMessageBox.y + inFlowMessageBox.height + 80,
+    );
+  } else {
+    expect(holdingHeadingBox?.y ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
+      Math.max(0, (mobileTopbarBox?.y ?? 0) + (mobileTopbarBox?.height ?? 0)) + 96,
+    );
+  }
+  expect(holdingHeadingBox?.y ?? Number.POSITIVE_INFINITY).toBeLessThan(holdingJumpBox?.y ?? 0);
+  expect(holdingJumpBox?.y ?? Number.POSITIVE_INFINITY).toBeLessThan(holdingSubTabsBox?.y ?? 0);
+  expect(holdingSubTabsBox?.y ?? Number.POSITIVE_INFINITY).toBeLessThan(holdingLedgerBoxInitial?.y ?? 0);
+  expect(holdingLedgerBoxInitial?.y ?? Number.POSITIVE_INFINITY).toBeLessThan(holdingTableBoxInitial?.y ?? 0);
+  await expect(holdingEntryCard).toBeHidden();
+  await expect(holdingsFab).toBeVisible();
+  const activeTabBeforeHoldingSheet = await page.locator("nav.tabs button.active").first().innerText();
+  await holdingsFab.click();
+  await expect(holdingSheet).toBeVisible();
+  await expect(labeledField(holdingSheet, "자산명", "textarea")).toBeVisible();
+  await holdingSheetClose.click();
+  await expect(holdingSheet).toBeHidden();
+  await expect(page.locator("nav.tabs button.active").first()).toHaveText(activeTabBeforeHoldingSheet);
   expect(summaryBox?.y ?? 0).toBeGreaterThanOrEqual((listBox?.y ?? 0) - 1);
   await expect(holdingsJumpCue).toBeVisible();
   const summaryTopBeforeJump = summaryBox?.y ?? Number.POSITIVE_INFINITY;
@@ -180,6 +232,16 @@ test("holdings stock fields keep grouped decimals", async ({ page }) => {
   const email = `${unique("holding-format")}@example.com`;
   const displayName = unique("holding-format-name");
   await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openTab(page, "자산");
+  const holdingEmptyState = page.getByTestId("holdings-empty-state");
+  await expect(holdingEmptyState).toBeVisible();
+  await expect(holdingEmptyState).toContainText("자산 내역이 없습니다.");
+  const holdingEmptyBorder = await holdingEmptyState.evaluate((element) => getComputedStyle(element).borderTopStyle);
+  expect(holdingEmptyBorder).toBe("none");
+  await expect(page.getByTestId("holdings-fab")).toBeVisible();
+
+  await page.setViewportSize({ width: 1366, height: 960 });
   await openTab(page, "자산");
 
   const holdingCard = page.locator("article.card", {

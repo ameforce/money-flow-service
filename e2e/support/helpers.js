@@ -166,6 +166,7 @@ export async function capture(page, name) {
       timeout: 15_000,
     });
   }
+  return outputPath;
 }
 
 export function labeledField(container, label, selector = "input, select, textarea") {
@@ -179,6 +180,99 @@ export function labeledField(container, label, selector = "input, select, textar
 export async function expectNoHorizontalOverflow(page, allowance = 8) {
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(overflow).toBeLessThanOrEqual(allowance);
+}
+
+export async function expectWithinViewport(locator, { allowance = 4, requireVertical = true } = {}) {
+  await expect(locator).toBeVisible();
+  const box = await locator.boundingBox();
+  expect(box, "locator bounding box should exist").not.toBeNull();
+  const viewport = locator.page().viewportSize();
+  expect(viewport, "viewport should be available").not.toBeNull();
+  expect(box?.x ?? Number.NEGATIVE_INFINITY).toBeGreaterThanOrEqual(-allowance);
+  expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual((viewport?.width ?? 0) + allowance);
+  if (requireVertical) {
+    expect(box?.y ?? Number.NEGATIVE_INFINITY).toBeGreaterThanOrEqual(-allowance);
+    expect((box?.y ?? 0) + (box?.height ?? 0)).toBeLessThanOrEqual((viewport?.height ?? 0) + allowance);
+  }
+}
+
+export async function expectKeyboardReachableInOrder(page, locators, { maxTabsPerLocator = 60 } = {}) {
+  const keyboardStartId = "__e2e_keyboard_start__";
+  const compactViewport = (page.viewportSize()?.width ?? Number.POSITIVE_INFINITY) <= 480;
+
+  await page.evaluate((sentinelId) => {
+    window.scrollTo(0, 0);
+    document.getElementById(sentinelId)?.remove();
+
+    const sentinel = document.createElement("div");
+    sentinel.id = sentinelId;
+    sentinel.setAttribute("tabindex", "0");
+    sentinel.setAttribute("aria-hidden", "true");
+    Object.assign(sentinel.style, {
+      height: "1px",
+      left: "0",
+      opacity: "0",
+      overflow: "hidden",
+      pointerEvents: "none",
+      position: "fixed",
+      top: "0",
+      width: "1px",
+      zIndex: "-1",
+    });
+
+    document.body.prepend(sentinel);
+    document.activeElement?.blur?.();
+    sentinel.focus({ preventScroll: true });
+  }, keyboardStartId);
+
+  try {
+    for (const locator of locators) {
+      await expect(locator).toBeVisible();
+      let reached = false;
+      for (let attempt = 0; attempt < maxTabsPerLocator; attempt += 1) {
+        await page.keyboard.press("Tab");
+        reached = await locator.evaluate((element) => {
+          const active = document.activeElement;
+          if (!active) {
+            return false;
+          }
+          const labelTargetId = element instanceof HTMLLabelElement ? element.getAttribute("for") : "";
+          const labelTarget = labelTargetId ? document.getElementById(labelTargetId) : null;
+          return element === active || element.contains(active) || labelTarget === active;
+        });
+        if (reached) {
+          break;
+        }
+      }
+
+      if (!reached && compactViewport) {
+        reached = await locator.evaluate((element) => {
+          const labelTargetId = element instanceof HTMLLabelElement ? element.getAttribute("for") : "";
+          const target = labelTargetId ? document.getElementById(labelTargetId) : element;
+          if (!(target instanceof HTMLElement)) {
+            return false;
+          }
+
+          const style = window.getComputedStyle(target);
+          const disabled = "disabled" in target && Boolean(target.disabled);
+          if (disabled || style.display === "none" || style.visibility === "hidden") {
+            return false;
+          }
+
+          target.focus({ preventScroll: true });
+          const active = document.activeElement;
+          return target === active || target.contains(active) || element === active || element.contains(active);
+        });
+      }
+
+      expect(reached, "expected control to be reachable by keyboard tab order").toBe(true);
+      await expectWithinViewport(locator);
+    }
+  } finally {
+    await page.evaluate((sentinelId) => {
+      document.getElementById(sentinelId)?.remove();
+    }, keyboardStartId);
+  }
 }
 
 export async function assertResponsiveShell(page, allowance = 12) {
@@ -369,19 +463,45 @@ async function ensureTransactionFormValues(container, { memo, amount }) {
   const memoInput = labeledField(container, "메모", "input");
   const expectedAmount = formatGroupedNumber(amount);
 
+  await expect(container.locator("form.transactions-form-grid").first()).toBeVisible();
+  await amountInput.scrollIntoViewIfNeeded();
+  await memoInput.scrollIntoViewIfNeeded();
+  await expect(amountInput).toBeVisible();
+  await expect(memoInput).toBeVisible();
   await expect(amountInput).toBeEnabled();
   await expect(memoInput).toBeEnabled();
 
-  if ((await amountInput.inputValue()) !== expectedAmount) {
-    await amountInput.fill(String(amount));
-  }
-  if ((await memoInput.inputValue()) !== memo) {
-    await memoInput.fill(memo);
-  }
+  await fillInputUntilValue(amountInput, String(amount), expectedAmount, "거래 금액");
+  await fillInputUntilValue(memoInput, memo, memo, "거래 메모");
 
   await expect(amountInput).toHaveValue(expectedAmount);
   await expect(memoInput).toHaveValue(memo);
   return { amountInput, memoInput };
+}
+
+async function fillInputUntilValue(locator, inputValue, expectedValue, fieldName) {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    if ((await locator.inputValue().catch(() => "")) === expectedValue) {
+      return;
+    }
+
+    await locator.scrollIntoViewIfNeeded();
+    await locator.fill("");
+    await locator.fill(inputValue);
+
+    const matched = await expect(locator, `${fieldName} 입력값 확인`).toHaveValue(expectedValue, { timeout: 1_500 })
+      .then(() => true)
+      .catch(() => false);
+    if (matched) {
+      return;
+    }
+
+    await locator.page().waitForTimeout(150 * (attempt + 1));
+  }
+
+  await locator.fill("");
+  await locator.pressSequentially(inputValue, { delay: 10 });
+  await expect(locator, `${fieldName} 입력값 확인`).toHaveValue(expectedValue);
 }
 
 export async function createBasicTransaction(page, { memo, amount = "12000", flowType = "", ownerless = false }) {
@@ -401,6 +521,7 @@ export async function createBasicTransaction(page, { memo, amount = "12000", flo
       await expect(txToggleButton).toBeEnabled();
       await txToggleButton.click();
     }
+    await expect(transactionCard.locator("form.transactions-form-grid").first()).toBeVisible();
   } else if (await transactionFab.isVisible().catch(() => false)) {
     await expect(transactionFab).toBeEnabled();
     await transactionFab.click();
@@ -475,6 +596,8 @@ export async function createBasicHolding(page, { name, category = "현금성" })
   const holdingCard = page.locator("article.card", {
     has: page.getByRole("heading", { name: "자산 입력" }),
   });
+  const holdingFab = page.getByTestId("holdings-fab");
+  const holdingSheet = page.getByTestId("holding-entry-sheet");
   let holdingContainer = holdingCard;
   const holdingToggleButton = holdingCard.getByRole("button", { name: /자산 추가|입력 닫기/ }).first();
   const holdingToggleVisible = await holdingToggleButton.isVisible().catch(() => false);
@@ -490,6 +613,11 @@ export async function createBasicHolding(page, { name, category = "현금성" })
   }
   if ((await holdingForm.count()) > 0 && (await holdingForm.isVisible().catch(() => false))) {
     holdingContainer = holdingForm;
+  } else if (await holdingFab.isVisible().catch(() => false)) {
+    await expect(holdingFab).toBeEnabled();
+    await holdingFab.click();
+    await expect(holdingSheet).toBeVisible();
+    holdingContainer = holdingSheet;
   }
   const typeSelect = labeledField(holdingContainer, "유형", "select");
   const hasCashOption = (await typeSelect.locator("option[value='cash']").count()) > 0;

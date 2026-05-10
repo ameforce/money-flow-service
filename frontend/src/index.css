@@ -66,6 +66,15 @@ body,
   touch-action: pan-y;
 }
 
+@media (max-width: 760px) {
+  html,
+  body,
+  #root {
+    overflow-x: clip;
+    overflow-y: visible;
+  }
+}
+
 body {
   margin: 0;
   min-width: 0;

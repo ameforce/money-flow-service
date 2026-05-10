@@ -14,6 +14,7 @@ import { Doughnut, Line } from "react-chartjs-2";
 import { HoldingSurfaceTable } from "./components/worksurface/HoldingSurfaceTable";
 import { TransactionSurfaceTable } from "./components/worksurface/TransactionSurfaceTable";
 import { extractVisibleInitial, resolveSemanticColor, withAlpha } from "./components/worksurface/colorSemantics";
+import { getWorkSurfaceMobilePriority } from "./components/worksurface/fieldPriority";
 import "./App.css";
 import packageJson from "../package.json";
 
@@ -56,7 +57,7 @@ const TAB_NAV_META = {
   transactions: { icon: "↔", helper: "흐름" },
   holdings: { icon: "◆", helper: "자산" },
   collaboration: { icon: "◉", helper: "공유" },
-  import: { icon: "⇣", helper: "가져오기" },
+  import: { icon: "⇣", helper: "가져오기", mobileLabel: "가져오기" },
   settings: { icon: "⚙", helper: "설정" },
 };
 const TAB_GROUPS = {
@@ -69,10 +70,10 @@ const DISPLAY_NAME_MODE_OPTIONS = [
   { value: "nickname", label: "닉네임 우선" },
 ];
 const DEFAULT_TRANSACTION_ROW_COLORS = {
-  income: "#EDF9F0",
-  expense: "#FFF1F0",
-  investment: "#EFF4FF",
-  transfer: "#FFF7E8",
+  income: "#16A34A",
+  expense: "#E11D48",
+  investment: "#4F46E5",
+  transfer: "#D97706",
 };
 const DEFAULT_HOLDING_TYPES = [
   { key: "cash", label: "현금성", asset_type: "cash", tracked: false, show_average_cost: true, show_gain_loss: false },
@@ -713,6 +714,15 @@ function normalizeDecimalForCompare(value) {
   return numeric.toString();
 }
 
+function parseAmountFilterNumber(value) {
+  const text = stripGrouping(value);
+  if (!text) {
+    return null;
+  }
+  const numeric = Number(text);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
 function normalizeDecimalInputValue(value) {
   const text = stripGrouping(value);
   if (!text) {
@@ -1064,19 +1074,86 @@ function formatSharePercent(value) {
   return `${numeric.toFixed(1)}%`;
 }
 
-function buildDominantShareMeta(items) {
+function buildDonutCenterSummaryMeta(items) {
   const normalizedItems = Array.isArray(items) ? items : [];
-  const total = normalizedItems.reduce((sum, item) => sum + Number(item?.value || 0), 0);
-  if (!normalizedItems.length || total <= 0) {
+  const visibleItems = normalizedItems.filter((item) => Number(item?.value || 0) > 0);
+  if (!visibleItems.length) {
     return null;
   }
-  const leadingItem = [...normalizedItems]
-    .sort((left, right) => Number(right?.value || 0) - Number(left?.value || 0))[0];
-  const share = (Number(leadingItem?.value || 0) / total) * 100;
   return {
-    label: String(leadingItem?.label || "").trim() || "비중",
-    share,
-    shareText: formatSharePercent(share),
+    primaryText: "분포",
+    secondaryText: `${visibleItems.length}개 항목`,
+    ariaText: `분포 ${visibleItems.length}개 항목`,
+  };
+}
+
+function buildDonutSliceLabelMeta(items, { maxLabels = 6 } = {}) {
+  const normalizedItems = Array.isArray(items)
+    ? items
+        .map((item, index) => ({
+          index,
+          label: String(item?.label || "").trim() || "비중",
+          value: Number(item?.value || 0),
+        }))
+        .filter((item) => Number.isFinite(item.value) && item.value > 0)
+    : [];
+  const total = normalizedItems.reduce((sum, item) => sum + item.value, 0);
+  if (!normalizedItems.length || total <= 0) {
+    return [];
+  }
+
+  const colors = categoryPalette(normalizedItems.length);
+  let cumulativeShare = 0;
+  const positionedItems = normalizedItems.map((item, visualIndex) => {
+    const share = (item.value / total) * 100;
+    const midpointShare = cumulativeShare + share / 2;
+    cumulativeShare += share;
+    const angle = (midpointShare / 100) * Math.PI * 2 - Math.PI / 2;
+    const radius = normalizedItems.length > 4 ? 38 : 34;
+    return {
+      ...item,
+      visualIndex,
+      share,
+      shareText: formatSharePercent(share),
+      color: colors[visualIndex],
+      left: 50 + Math.cos(angle) * radius,
+      top: 50 + Math.sin(angle) * radius,
+    };
+  });
+
+  return positionedItems
+    .filter((item) => item.share >= 3 || positionedItems.length <= 3)
+    .slice(0, maxLabels);
+}
+
+function buildPortfolioChartSourceForMode(
+  viewMode,
+  { overviewTotals, portfolioCategories, transactionCategoryChartItems }
+) {
+  if (viewMode === "transaction_flow") {
+    return {
+      title: "거래 유형 비중",
+      items: FLOW_TYPE_OPTIONS
+        .map((option) => ({
+          label: option.label,
+          value: Number(overviewTotals?.[option.value] || 0),
+        }))
+        .filter((item) => Number(item.value) > 0),
+    };
+  }
+  if (viewMode === "transaction_category") {
+    return {
+      title: "거래 카테고리 비중",
+      items: transactionCategoryChartItems,
+    };
+  }
+  const categories = portfolioCategories || [];
+  return {
+    title: "보유 카테고리 비중",
+    items: categories.map((item) => ({
+      label: item.category,
+      value: Number(item.market_value_krw || 0),
+    })),
   };
 }
 
@@ -1321,6 +1398,21 @@ function shouldAutoRefreshPrice(status) {
   return staleCount > 0 || snapshotCount < trackedHoldingsCount;
 }
 
+const MOBILE_FORM_FIELD_SELECTOR = [
+  "input:not([type='hidden']):not([type='button']):not([type='submit']):not([type='reset'])",
+  "select",
+  "textarea",
+].join(", ");
+
+function isFocusableFormField(control) {
+  return Boolean(
+      control &&
+      !control.disabled &&
+      control.getAttribute("aria-hidden") !== "true" &&
+      control.getClientRects().length > 0
+  );
+}
+
 function App() {
   const [token, setToken] = useState("");
   const [authReady, setAuthReady] = useState(false);
@@ -1372,7 +1464,8 @@ function App() {
     () => (typeof window !== "undefined" ? window.innerWidth <= MOBILE_BREAKPOINT_PX : false)
   );
   const [socketStatus, setSocketStatus] = useState("disconnected");
-  const [portfolioViewMode, setPortfolioViewMode] = useState("holding_category");
+  const [dashboardPortfolioViewMode, setDashboardPortfolioViewMode] = useState("transaction_flow");
+  const [holdingPortfolioViewMode, setHoldingPortfolioViewMode] = useState("holding_category");
   const [txFlowBreakdownExpanded, setTxFlowBreakdownExpanded] = useState({
     income: false,
     expense: false,
@@ -1392,6 +1485,71 @@ function App() {
   useEffect(() => { filterModeRef.current = filterMode; }, [filterMode]);
   useEffect(() => { yearMonthRef.current = yearMonth; }, [yearMonth]);
   useEffect(() => { rangeRef.current = range; }, [range]);
+
+  useEffect(() => {
+    if (!isCompactViewport) {
+      return undefined;
+    }
+
+    const handleMobileFormEnter = (event) => {
+      if (
+        event.defaultPrevented ||
+        event.key !== "Enter" ||
+        event.shiftKey ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey ||
+        event.isComposing
+      ) {
+        return;
+      }
+      const target = event.target;
+      if (!(target instanceof HTMLElement) || !target.matches(MOBILE_FORM_FIELD_SELECTOR)) {
+        return;
+      }
+      if (target.tagName === "TEXTAREA" && target.getAttribute("enterkeyhint") !== "next") {
+        return;
+      }
+      const form = target.closest("form");
+      if (!form) {
+        return;
+      }
+      const fields = Array.from(form.querySelectorAll(MOBILE_FORM_FIELD_SELECTOR)).filter(isFocusableFormField);
+      const currentIndex = fields.indexOf(target);
+      const nextField = fields.slice(currentIndex + 1).find(isFocusableFormField);
+      if (!nextField) {
+        return;
+      }
+      event.preventDefault();
+      nextField.focus({ preventScroll: false });
+      if (nextField instanceof HTMLInputElement && typeof nextField.select === "function") {
+        nextField.select();
+      }
+    };
+
+    document.addEventListener("keydown", handleMobileFormEnter, true);
+    return () => document.removeEventListener("keydown", handleMobileFormEnter, true);
+  }, [isCompactViewport]);
+
+  useEffect(() => {
+    if (!isCompactViewport) {
+      return undefined;
+    }
+
+    const releaseTouchButtonFocus = () => {
+      const activeElement = document.activeElement;
+      if (activeElement instanceof HTMLElement && activeElement.matches("button, [role='button']")) {
+        activeElement.blur();
+      }
+    };
+
+    document.addEventListener("pointerup", releaseTouchButtonFocus, true);
+    document.addEventListener("touchend", releaseTouchButtonFocus, true);
+    return () => {
+      document.removeEventListener("pointerup", releaseTouchButtonFocus, true);
+      document.removeEventListener("touchend", releaseTouchButtonFocus, true);
+    };
+  }, [isCompactViewport]);
 
   const [overview, setOverview] = useState(null);
   const [portfolio, setPortfolio] = useState(null);
@@ -1431,6 +1589,8 @@ function App() {
     flow_type: "all",
     start: "",
     end: "",
+    amount_min: "",
+    amount_max: "",
   });
   const [txSortDirection, setTxSortDirection] = useState("asc");
   const [holdingListTab, setHoldingListTab] = useState("all");
@@ -1465,6 +1625,7 @@ function App() {
   const transactionListHeadingRef = useRef(null);
   const transactionListCardRef = useRef(null);
   const transactionSheetScrollYRef = useRef(0);
+  const holdingSheetScrollYRef = useRef(0);
   const holdingSummaryCardRef = useRef(null);
   const receivedInviteSectionRef = useRef(null);
 
@@ -1503,6 +1664,23 @@ function App() {
     setMessage("");
   }
 
+  useEffect(() => {
+    const normalizedMessage = String(message || "").trim();
+    if (!normalizedMessage) {
+      return undefined;
+    }
+    const requiresUserAttention = /실패|오류|확인|입력|선택|권한|필요|수 없습니다|토큰|링크|메일|비밀번호|먼저/u.test(
+      normalizedMessage
+    );
+    if (requiresUserAttention) {
+      return undefined;
+    }
+    const timer = window.setTimeout(() => {
+      setMessage("");
+    }, 3800);
+    return () => window.clearTimeout(timer);
+  }, [message]);
+
   function handleTxInlineEditKeyDown(event) {
     if (event.key !== "Enter") {
       return;
@@ -1521,6 +1699,9 @@ function App() {
   const transactionById = useMemo(() => new Map(transactions.map((item) => [item.id, item])), [transactions]);
   const filteredTransactions = useMemo(() => {
     const keyword = normalizeCategoryText(txListFilter.keyword).toLowerCase();
+    const amountMin = parseAmountFilterNumber(txListFilter.amount_min);
+    const amountMax = parseAmountFilterNumber(txListFilter.amount_max);
+    const isAmountFilterActive = amountMin !== null || amountMax !== null;
     return transactions.filter((item) => {
       if (txListFilter.flow_type !== "all" && item.flow_type !== txListFilter.flow_type) {
         return false;
@@ -1530,6 +1711,18 @@ function App() {
       }
       if (txListFilter.end && String(item.occurred_on) > txListFilter.end) {
         return false;
+      }
+      if (isAmountFilterActive) {
+        const amount = parseAmountFilterNumber(item.amount);
+        if (amount === null) {
+          return false;
+        }
+        if (amountMin !== null && amount < amountMin) {
+          return false;
+        }
+        if (amountMax !== null && amount > amountMax) {
+          return false;
+        }
       }
       if (!keyword) {
         return true;
@@ -1614,8 +1807,20 @@ function App() {
     String(txListFilter.keyword || "").trim() ||
       txListFilter.flow_type !== "all" ||
       txListFilter.start ||
-      txListFilter.end
+      txListFilter.end ||
+      String(txListFilter.amount_min || "").trim() ||
+      String(txListFilter.amount_max || "").trim()
   );
+  function clearTxListFilter() {
+    setTxListFilter({
+      keyword: "",
+      flow_type: "all",
+      start: "",
+      end: "",
+      amount_min: "",
+      amount_max: "",
+    });
+  }
   const transactionSortSummary = txSortDirection === "asc" ? "오래된순" : "최신순";
   const areAllFilteredTransactionsSelected = useMemo(() => {
     if (sortedTransactions.length === 0) {
@@ -2129,12 +2334,20 @@ function App() {
       setIsCompactViewport(Boolean(event?.matches ?? mediaQuery.matches));
     };
     syncViewportMode(mediaQuery);
+    const syncViewportModeFromResize = () => syncViewportMode(mediaQuery);
+    window.addEventListener("resize", syncViewportModeFromResize);
     if (typeof mediaQuery.addEventListener === "function") {
       mediaQuery.addEventListener("change", syncViewportMode);
-      return () => mediaQuery.removeEventListener("change", syncViewportMode);
+      return () => {
+        window.removeEventListener("resize", syncViewportModeFromResize);
+        mediaQuery.removeEventListener("change", syncViewportMode);
+      };
     }
     mediaQuery.addListener(syncViewportMode);
-    return () => mediaQuery.removeListener(syncViewportMode);
+    return () => {
+      window.removeEventListener("resize", syncViewportModeFromResize);
+      mediaQuery.removeListener(syncViewportMode);
+    };
   }, []);
 
   useEffect(() => {
@@ -2144,17 +2357,18 @@ function App() {
     }
     const updateStickyState = () => {
       const listCard = transactionListCardRef.current;
-      const listHeading = transactionListHeadingRef.current;
-      if (!listCard || !listHeading) {
+      const ledgerHead = listCard?.querySelector(".transactions-mobile-ledger-head");
+      if (!listCard) {
         setTransactionsMobileStickyActive(false);
         return;
       }
       const threshold = 88;
       const listCardRect = listCard.getBoundingClientRect();
-      const listHeadingRect = listHeading.getBoundingClientRect();
+      const ledgerRect = ledgerHead?.getBoundingClientRect();
       const nextActive =
-        listCardRect.top <= threshold &&
-        listHeadingRect.top <= threshold + 8 &&
+        window.scrollY > 16 &&
+        listCardRect.top <= threshold + 160 &&
+        (ledgerRect?.top ?? Number.POSITIVE_INFINITY) <= threshold + 180 &&
         listCardRect.bottom >= threshold + 180;
       setTransactionsMobileStickyActive(nextActive);
     };
@@ -2192,6 +2406,26 @@ function App() {
     }
     window.setTimeout(() => {
       window.scrollTo({ top: transactionSheetScrollYRef.current, behavior: "auto" });
+    }, 0);
+  }
+
+  function openHoldingEntrySheet() {
+    if (loading) {
+      return;
+    }
+    if (isCompactViewport && typeof window !== "undefined") {
+      holdingSheetScrollYRef.current = window.scrollY;
+    }
+    setShowHoldingForm(true);
+  }
+
+  function closeHoldingEntrySheet() {
+    setShowHoldingForm(false);
+    if (!isCompactViewport || typeof window === "undefined") {
+      return;
+    }
+    window.setTimeout(() => {
+      window.scrollTo({ top: holdingSheetScrollYRef.current, behavior: "auto" });
     }, 0);
   }
 
@@ -2830,11 +3064,32 @@ function App() {
     applyMonthFilter(yearMonth);
   }
 
+  function applyRangeFilter(nextRange = range) {
+    setFilterMode("range");
+    setRange(nextRange);
+    if (!nextRange.start || !nextRange.end) {
+      return;
+    }
+    refreshDataWithUiFeedback({ filterMode: "range", range: nextRange }).catch(() => undefined);
+  }
+
+  function handleRangeInputChange(field, value) {
+    applyRangeFilter({ ...range, [field]: value });
+  }
+
+  function handleYearMonthInputKeyDown(event) {
+    if (event.key !== "Enter") {
+      return;
+    }
+    event.preventDefault();
+    event.currentTarget.blur();
+  }
+
   function handleMoveToCurrentMonth() {
     applyMonthFilter(currentMonth());
   }
 
-  async function finishAuthFlow(authPayload, successMessage = null) {
+  async function finishAuthFlow(authPayload, successMessage = null, { showSuccessMessage = true } = {}) {
     const accountEmail = authPayload?.user?.email || authForm.email || verifyForm.email;
     if (saveAccountInfo && accountEmail) {
       localStorage.setItem(SAVED_EMAIL_KEY, accountEmail);
@@ -2850,13 +3105,17 @@ function App() {
     if (inviteAcceptToken) {
       setTab("collaboration");
     }
-    setMessage(
-      successMessage ||
-        uiGuideMessage(
-          "인증이 완료되었습니다.",
-          inviteAcceptToken ? "협업 탭에서 초대를 수락해 주세요." : "원하는 메뉴를 선택해 계속 진행해 주세요."
-        )
-    );
+    if (showSuccessMessage) {
+      setMessage(
+        successMessage ||
+          uiGuideMessage(
+            "인증이 완료되었습니다.",
+            inviteAcceptToken ? "협업 탭에서 초대를 수락해 주세요." : "원하는 메뉴를 선택해 계속 진행해 주세요."
+          )
+      );
+    } else {
+      setMessage("");
+    }
   }
 
   async function verifyEmailTokenFromLink(verifyToken) {
@@ -3017,7 +3276,7 @@ function App() {
         }
       }
 
-      await finishAuthFlow(null);
+      await finishAuthFlow(null, null, { showSuccessMessage: currentMode !== "login" });
     } catch (error) {
       setActiveHouseholdId("");
       setToken("");
@@ -3406,7 +3665,7 @@ function App() {
         token
       );
       setHoldingForm(createHoldingForm(holdingForm.asset_type, holdingForm.type_key, holdingFormType?.label));
-      setShowHoldingForm(false);
+      closeHoldingEntrySheet();
       await refreshData(false);
       setMessage(uiGuideMessage("자산을 저장했습니다.", "목록에서 반영 결과를 확인해 주세요."));
     } catch (error) {
@@ -4160,6 +4419,7 @@ function App() {
     const ownerInitial = extractVisibleInitial(item.owner_name);
     const holdingCompactMeta = item.category || typeLabel || "-";
     const isExpanded = expandedHoldingRows.has(item.holding_id);
+    const holdingMobilePriority = (fieldKey) => getWorkSurfaceMobilePriority("holdings", fieldKey);
     const handleHoldingEditToggle = () => {
       if (!canEditRecords) {
         return;
@@ -4188,7 +4448,7 @@ function App() {
             "--holding-owner-chip-ring": withAlpha(ownerColor, 0.22),
           } : undefined}
         >
-          <td data-label="선택" className="holding-col-select">
+          <td data-label="선택" className="holding-col-select" data-mobile-priority="hidden">
             <input
               type="checkbox"
               checked={selectedHoldingIds.has(item.holding_id)}
@@ -4196,8 +4456,8 @@ function App() {
               aria-label={`${item.name} 자산 선택`}
             />
           </td>
-          <td data-label="이름" className="holding-col-name holding-name-cell">{item.name}</td>
-          <td data-label="유형" className="holding-col-type">
+          <td data-label="이름" className="holding-col-name holding-name-cell" data-field-key="name" data-mobile-priority={holdingMobilePriority("name")}>{item.name}</td>
+          <td data-label="유형" className="holding-col-type" data-field-key="type_category_summary" data-mobile-priority={holdingMobilePriority("type_category_summary")}>
             <span className="holding-type-label">{typeLabel}</span>
             <span className="holding-type-category-hint">{item.category || "-"}</span>
             <span className="holding-mobile-meta">{holdingCompactMeta || "-"}</span>
@@ -4207,14 +4467,14 @@ function App() {
               </span>
             ) : null}
           </td>
-          <td data-label="보유자" className="holding-col-owner">{item.owner_name || "-"}</td>
-          <td data-label="카테고리" className="holding-col-category">{item.category}</td>
-          <td data-label="수량" className="holding-col-quantity">{fmt(item.quantity)}</td>
-          <td data-label="평균단가" className="holding-col-average">{itemType?.show_average_cost ?? true ? fmt(item.average_cost) : "-"}</td>
-          <td data-label="평가(KRW)" className="holding-col-market">{fmtKrw(item.market_value_krw)}</td>
-          <td data-label="손익(KRW)" className="holding-col-gain">{showGainLoss ? fmtKrw(item.gain_loss_krw) : "-"}</td>
-          <td data-label="최종 수정일" className="holding-col-updated">{fmtDate(holdingUpdatedAtById.get(item.holding_id))}</td>
-          <td data-label="동작" className="holding-col-actions">
+          <td data-label="보유자" className="holding-col-owner" data-field-key="owner_name" data-mobile-priority={holdingMobilePriority("owner_name")}>{item.owner_name || "-"}</td>
+          <td data-label="카테고리" className="holding-col-category" data-field-key="category" data-mobile-priority={holdingMobilePriority("category")}>{item.category}</td>
+          <td data-label="수량" className="holding-col-quantity" data-field-key="quantity" data-mobile-priority={holdingMobilePriority("quantity")}>{fmt(item.quantity)}</td>
+          <td data-label="평균단가" className="holding-col-average" data-field-key="average_cost" data-mobile-priority={holdingMobilePriority("average_cost")}>{itemType?.show_average_cost ?? true ? fmt(item.average_cost) : "-"}</td>
+          <td data-label="평가(KRW)" className="holding-col-market" data-field-key="market_value_krw" data-mobile-priority={holdingMobilePriority("market_value_krw")}>{fmtKrw(item.market_value_krw)}</td>
+          <td data-label="손익(KRW)" className="holding-col-gain" data-field-key="gain_loss_krw" data-mobile-priority={holdingMobilePriority("gain_loss_krw")}>{showGainLoss ? fmtKrw(item.gain_loss_krw) : "-"}</td>
+          <td data-label="최종 수정일" className="holding-col-updated" data-field-key="updated_at" data-mobile-priority={holdingMobilePriority("updated_at")}>{fmtDate(holdingUpdatedAtById.get(item.holding_id))}</td>
+          <td data-label="동작" className="holding-col-actions" data-mobile-priority="action">
             <div className="inline">
               <button type="button" className="secondary row-order-btn" disabled={!canEditRecords || loading} onClick={() => moveHoldingDisplayOrder(item, -1).catch(() => undefined)}>
                 ↑
@@ -4897,56 +5157,67 @@ function App() {
       ],
     };
   }, [overview]);
-  const portfolioChartSource = useMemo(() => {
-    if (portfolioViewMode === "transaction_flow") {
-      return {
-        title: "거래 유형 비중",
-        items: FLOW_TYPE_OPTIONS
-          .map((option) => ({
-            label: option.label,
-            value: Number(overview?.totals?.[option.value] || 0),
-          }))
-          .filter((item) => Number(item.value) > 0),
-      };
-    }
-    if (portfolioViewMode === "transaction_category") {
-      return {
-        title: "거래 카테고리 비중",
-        items: transactionCategoryChartItems,
-      };
-    }
-    const categories = portfolio?.categories || [];
-    return {
-      title: "보유 카테고리 비중",
-      items: categories.map((item) => ({
-        label: item.category,
-        value: Number(item.market_value_krw || 0),
-      })),
-    };
-  }, [overview?.totals, portfolio?.categories, portfolioViewMode, transactionCategoryChartItems]);
-  const portfolioChartData = useMemo(() => {
-    if (!portfolioChartSource?.items?.length) {
+  const dashboardPortfolioChartSource = useMemo(() => {
+    return buildPortfolioChartSourceForMode(dashboardPortfolioViewMode, {
+      overviewTotals: overview?.totals,
+      portfolioCategories: portfolio?.categories,
+      transactionCategoryChartItems,
+    });
+  }, [dashboardPortfolioViewMode, overview?.totals, portfolio?.categories, transactionCategoryChartItems]);
+  const holdingPortfolioChartSource = useMemo(() => {
+    return buildPortfolioChartSourceForMode(holdingPortfolioViewMode, {
+      overviewTotals: overview?.totals,
+      portfolioCategories: portfolio?.categories,
+      transactionCategoryChartItems,
+    });
+  }, [holdingPortfolioViewMode, overview?.totals, portfolio?.categories, transactionCategoryChartItems]);
+  const buildPortfolioChartData = (chartSource) => {
+    if (!chartSource?.items?.length) {
       return null;
     }
-    const colors = categoryPalette(portfolioChartSource.items.length);
+    const colors = categoryPalette(chartSource.items.length);
     return {
-      labels: portfolioChartSource.items.map((item) => item.label),
+      labels: chartSource.items.map((item) => item.label),
       datasets: [
         {
-          data: portfolioChartSource.items.map((item) => Number(item.value || 0)),
+          data: chartSource.items.map((item) => Number(item.value || 0)),
           backgroundColor: colors,
         },
       ],
     };
-  }, [portfolioChartSource]);
-  const portfolioViewLabel = PORTFOLIO_VIEW_LABELS[portfolioViewMode] || portfolioViewMode;
-  const portfolioViewSummaryText = `${portfolioChartSource?.title || "보유 카테고리 비중"} · 보기 기준 ${portfolioViewLabel}`;
-  const portfolioCenterLabel = useMemo(
-    () => buildDominantShareMeta(portfolioChartSource?.items),
-    [portfolioChartSource]
+  };
+  const dashboardPortfolioChartData = useMemo(() => {
+    return buildPortfolioChartData(dashboardPortfolioChartSource);
+  }, [dashboardPortfolioChartSource]);
+  const holdingPortfolioChartData = useMemo(() => {
+    return buildPortfolioChartData(holdingPortfolioChartSource);
+  }, [holdingPortfolioChartSource]);
+  const mobileDoughnutOptions = useMemo(
+    () => ({
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          display: !isCompactViewport,
+        },
+      },
+    }),
+    [isCompactViewport]
+  );
+  const dashboardPortfolioViewLabel = PORTFOLIO_VIEW_LABELS[dashboardPortfolioViewMode] || dashboardPortfolioViewMode;
+  const holdingPortfolioViewLabel = PORTFOLIO_VIEW_LABELS[holdingPortfolioViewMode] || holdingPortfolioViewMode;
+  const dashboardPortfolioChartDescription = `${dashboardPortfolioChartSource?.title || "포트폴리오 비중"} 기준 ${dashboardPortfolioViewLabel}`;
+  const holdingPortfolioViewSummaryText = `${holdingPortfolioChartSource?.title || "보유 카테고리 비중"} · 보기 기준 ${holdingPortfolioViewLabel}`;
+  const dashboardPortfolioCenterLabel = useMemo(
+    () => buildDonutCenterSummaryMeta(dashboardPortfolioChartSource?.items),
+    [dashboardPortfolioChartSource]
+  );
+  const holdingPortfolioCenterLabel = useMemo(
+    () => buildDonutCenterSummaryMeta(holdingPortfolioChartSource?.items),
+    [holdingPortfolioChartSource]
   );
   const holdingSummaryCenterLabel = useMemo(
-    () => buildDominantShareMeta(holdingSummarySource.items),
+    () => buildDonutCenterSummaryMeta(holdingSummarySource.items),
     [holdingSummarySource]
   );
   const txFlowSummaryTotal = useMemo(
@@ -5055,13 +5326,6 @@ function App() {
       .sort((left, right) => Number(right?.market_value_krw || 0) - Number(left?.market_value_krw || 0))
       .slice(0, 5);
   }, [holdingItems]);
-  const dashboardImportStatus = importLoadingMode
-    ? `${IMPORT_MODE_LABELS[importLoadingMode] || "가져오기"} 처리 중`
-    : importReport
-      ? `최근 보고서 · 거래 ${fmt(importReport.applied_transactions)}건 / 보유 ${fmt(
-          Number(importReport.applied_holdings_added || 0) + Number(importReport.applied_holdings_updated || 0)
-        )}건`
-      : "대기 중";
   const holdingFormType =
     holdingTypeByKey.get(normalizeHoldingTypeKey(holdingForm.type_key || holdingForm.asset_type || "")) ||
     holdingTypeOptions[0] ||
@@ -5133,6 +5397,13 @@ function App() {
     : importReport
       ? "최근 결과 표시"
       : "파일 대기";
+  const dashboardImportStatus = importLoadingMode
+    ? `${IMPORT_MODE_LABELS[importLoadingMode] || "가져오기"} 처리 중`
+    : importReport
+      ? `최근 보고서 · 거래 ${fmt(importReport.applied_transactions)}건 / 보유 ${fmt(
+          Number(importReport.applied_holdings_added || 0) + Number(importReport.applied_holdings_updated || 0)
+        )}건`
+      : "대기 중";
 
   useEffect(() => {
     if (canEditRecords) {
@@ -5155,14 +5426,43 @@ function App() {
     if (!centerLabel) {
       return null;
     }
+    const primaryText = centerLabel.primaryText || centerLabel.shareText;
+    const secondaryText = centerLabel.secondaryText || centerLabel.label;
     return (
       <div
         className="portfolio-donut-center-label"
         data-testid={testId}
-        aria-label={`${labelPrefix} ${centerLabel.label} ${centerLabel.shareText}`}
+        aria-label={`${labelPrefix} ${centerLabel.ariaText || `${secondaryText} ${primaryText}`}`}
       >
-        <strong>{centerLabel.shareText}</strong>
-        <span>{centerLabel.label}</span>
+        <strong>{primaryText}</strong>
+        <span>{secondaryText}</span>
+      </div>
+    );
+  };
+
+  const renderDonutSliceLabels = (items, { testId, labelPrefix = "포트폴리오 세그먼트" } = {}) => {
+    const labels = buildDonutSliceLabelMeta(items);
+    if (labels.length === 0) {
+      return null;
+    }
+    return (
+      <div className="portfolio-donut-slice-labels" aria-hidden="true">
+        {labels.map((item) => (
+          <span
+            key={`${item.label}:${item.index}`}
+            className="portfolio-donut-slice-label"
+            data-testid={testId}
+            title={`${labelPrefix} ${item.label} ${item.shareText}`}
+            style={{
+              left: `${item.left}%`,
+              top: `${item.top}%`,
+              "--slice-label-color": item.color,
+            }}
+          >
+            <strong>{item.shareText}</strong>
+            <small>{item.label}</small>
+          </span>
+        ))}
       </div>
     );
   };
@@ -5180,6 +5480,7 @@ function App() {
           <input
             ref={txDateInputRef}
             type="date"
+            enterKeyHint="next"
             value={txForm.occurred_on}
             onChange={(e) => setTxForm((prev) => ({ ...prev, occurred_on: e.target.value }))}
             disabled={transactionFormDisabled}
@@ -5198,6 +5499,7 @@ function App() {
       <label>
         유형
         <select
+          enterKeyHint="next"
           value={txForm.flow_type}
           disabled={transactionFormDisabled}
           onChange={(e) => {
@@ -5217,6 +5519,7 @@ function App() {
         <input
           type="text"
           inputMode="decimal"
+          enterKeyHint="next"
           value={txForm.amount}
           onChange={(event) => handleGroupedDecimalInput(event, setTxForm, "amount")}
           disabled={transactionFormDisabled}
@@ -5226,6 +5529,7 @@ function App() {
       <label>
         카테고리 그룹
         <select
+          enterKeyHint="next"
           value={txCategoryMajor}
           disabled={transactionFormDisabled}
           onChange={(e) => {
@@ -5244,6 +5548,7 @@ function App() {
       <label>
         카테고리
         <select
+          enterKeyHint="next"
           value={txForm.category_id}
           disabled={transactionFormDisabled || !txCategoryMajor}
           onChange={(e) => setTxForm((prev) => ({ ...prev, category_id: e.target.value }))}
@@ -5259,6 +5564,7 @@ function App() {
       <label>
         메모
         <input
+          enterKeyHint="next"
           value={txForm.memo}
           onChange={(e) => setTxForm((prev) => ({ ...prev, memo: e.target.value }))}
           disabled={transactionFormDisabled}
@@ -5267,6 +5573,7 @@ function App() {
       <label>
         거래자
         <select
+          enterKeyHint="done"
           value={ownerSelectValue(txForm.owner_user_id, txForm.owner_name)}
           disabled={transactionFormDisabled}
           onChange={(event) => {
@@ -5744,7 +6051,9 @@ function App() {
         <span className="tab-icon" aria-hidden="true">{meta.icon || "•"}</span>
         <span className="tab-text-break" aria-hidden="true">{"\n"}</span>
         <span className="tab-copy" data-helper={meta.helper || undefined}>
-          <span className="tab-label">{TAB_LABELS[item] || item}</span>
+          <span className="tab-label" data-mobile-label={meta.mobileLabel || TAB_LABELS[item] || item}>
+            {TAB_LABELS[item] || item}
+          </span>
         </span>
         {unreadInviteCount > 0 && <span className="tab-badge" aria-label={`새 초대 ${unreadInviteCount}건`}>{unreadInviteCount}</span>}
       </button>
@@ -5885,8 +6194,8 @@ function App() {
             </div>
             <div className="filter-container">
               <div className="filter-modes-segmented">
-                <button className={filterMode === "month" ? "active" : ""} onClick={() => setFilterMode("month")}>월별</button>
-                <button className={filterMode === "range" ? "active" : ""} onClick={() => setFilterMode("range")}>기간</button>
+                <button className={filterMode === "month" ? "active" : ""} onClick={() => applyMonthFilter(yearMonth)}>월별</button>
+                <button className={filterMode === "range" ? "active" : ""} onClick={() => applyRangeFilter(range)}>기간</button>
               </div>
               <div className="filter-inputs-wrapper">
                 {filterMode === "month" ? (
@@ -5901,9 +6210,27 @@ function App() {
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
                     </button>
                     <div className="date-inputs">
-                      <input type="number" aria-label="연도" value={yearMonth.year} onChange={(e) => setYearMonth({ ...yearMonth, year: Number(e.target.value) })} />
+                      <input
+                        type="number"
+                        aria-label="연도"
+                        value={yearMonth.year}
+                        onChange={(e) => setYearMonth({ ...yearMonth, year: Number(e.target.value) })}
+                        onBlur={handleApplyYearMonth}
+                        onKeyDown={handleYearMonthInputKeyDown}
+                        enterKeyHint="done"
+                      />
                       <span>년</span>
-                      <input type="number" min="1" max="12" aria-label="월" value={yearMonth.month} onChange={(e) => setYearMonth({ ...yearMonth, month: Number(e.target.value) })} />
+                      <input
+                        type="number"
+                        min="1"
+                        max="12"
+                        aria-label="월"
+                        value={yearMonth.month}
+                        onChange={(e) => setYearMonth({ ...yearMonth, month: Number(e.target.value) })}
+                        onBlur={handleApplyYearMonth}
+                        onKeyDown={handleYearMonthInputKeyDown}
+                        enterKeyHint="done"
+                      />
                       <span>월</span>
                     </div>
                     <button
@@ -5925,31 +6252,27 @@ function App() {
                   </div>
                 ) : (
                   <div className="range-picker">
-                    <input type="date" value={range.start} onChange={(e) => setRange({ ...range, start: e.target.value })} />
+                    <input
+                      type="date"
+                      value={range.start}
+                      onChange={(e) => handleRangeInputChange("start", e.target.value)}
+                      enterKeyHint="done"
+                    />
                     <span className="range-separator">~</span>
-                    <input type="date" value={range.end} onChange={(e) => setRange({ ...range, end: e.target.value })} />
+                    <input
+                      type="date"
+                      value={range.end}
+                      onChange={(e) => handleRangeInputChange("end", e.target.value)}
+                      enterKeyHint="done"
+                    />
                   </div>
                 )}
               </div>
-              <button
-                className="filter-apply-btn primary"
-                onClick={() =>
-                  filterMode === "month"
-                    ? handleApplyYearMonth()
-                    : refreshDataWithUiFeedback().catch(() => undefined)
-                }
-                disabled={dashboardLoading}
-              >
-                {dashboardLoading ? "로딩중..." : "조회 적용"}
-              </button>
             </div>
           </article>
 
           <div className="dashboard-main-grid">
-            <article
-              className="card chart-card dashboard-flow-card"
-              data-portfolio-palette={portfolioChartData?.datasets?.[0]?.backgroundColor?.join(",") || ""}
-            >
+            <article className="card chart-card dashboard-flow-card">
               <div className="dashboard-card-heading">
                 <div>
                   <span className="dashboard-eyebrow">Cashflow radar</span>
@@ -5957,7 +6280,7 @@ function App() {
                 </div>
                 <span className="dashboard-chip">현금흐름 추이</span>
               </div>
-              <div className="chart-wrap dashboard-line-chart-wrap">
+              <div className={`chart-wrap dashboard-line-chart-wrap${isDashboardInitialLoading || trendChartData ? "" : " chart-wrap-empty"}`}>
                 {isDashboardInitialLoading ? (
                   <div className="chart-loading" role="status" aria-live="polite">
                     <span className="loading-spinner" aria-hidden="true" />
@@ -5979,9 +6302,9 @@ function App() {
                 </div>
                 <select
                   aria-label="포트폴리오 보기 기준"
-                  value={portfolioViewMode}
+                  value={dashboardPortfolioViewMode}
                   disabled={dashboardLoading}
-                  onChange={(event) => setPortfolioViewMode(event.target.value)}
+                  onChange={(event) => setDashboardPortfolioViewMode(event.target.value)}
                 >
                   {PORTFOLIO_VIEW_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>
@@ -5990,17 +6313,22 @@ function App() {
                   ))}
                 </select>
               </div>
-              <p className="table-summary portfolio-view-summary">{portfolioViewSummaryText}</p>
-              <div className="chart-wrap dashboard-donut-wrap">
+              <div
+                className={`chart-wrap dashboard-donut-wrap${isDashboardInitialLoading || dashboardPortfolioChartData ? "" : " chart-wrap-empty"}`}
+                aria-label={dashboardPortfolioChartDescription}
+              >
                 {isDashboardInitialLoading ? (
                   <div className="chart-loading" role="status" aria-live="polite">
                     <span className="loading-spinner" aria-hidden="true" />
                     <p>차트 데이터를 불러오는 중...</p>
                   </div>
-                ) : portfolioChartData ? (
+                ) : dashboardPortfolioChartData ? (
                   <>
-                    <Doughnut data={portfolioChartData} options={{ responsive: true, maintainAspectRatio: false }} />
-                    {renderDonutCenterLabel(portfolioCenterLabel, { testId: "portfolio-donut-center-label" })}
+                    <Doughnut data={dashboardPortfolioChartData} options={mobileDoughnutOptions} />
+                    {renderDonutSliceLabels(dashboardPortfolioChartSource.items, {
+                      testId: "portfolio-donut-slice-label",
+                    })}
+                    {renderDonutCenterLabel(dashboardPortfolioCenterLabel, { testId: "portfolio-donut-center-label" })}
                   </>
                 ) : (
                   <p className="dashboard-empty-state">데이터 없음</p>
@@ -6066,7 +6394,6 @@ function App() {
                   <span className="dashboard-eyebrow">Recent updates</span>
                   <h2>최근 거래</h2>
                 </div>
-                <button type="button" className="text-button" onClick={() => setTab("transactions")}>전체 보기</button>
               </div>
               <div className="dashboard-activity-list">
                 {dashboardRecentTransactions.length === 0 ? (
@@ -6086,6 +6413,7 @@ function App() {
                   })
                 )}
               </div>
+              <button type="button" className="text-button dashboard-card-footer-action" onClick={() => setTab("transactions")}>전체 보기</button>
             </article>
 
             <article className="card dashboard-side-card dashboard-holdings-card">
@@ -6094,7 +6422,6 @@ function App() {
                   <span className="dashboard-eyebrow">Holdings</span>
                   <h2>보유 자산</h2>
                 </div>
-                <button type="button" className="text-button" onClick={() => setTab("holdings")}>전체 보기</button>
               </div>
               <div className="dashboard-activity-list holdings-highlight-list">
                 {dashboardHoldingHighlights.length === 0 ? (
@@ -6111,6 +6438,7 @@ function App() {
                   ))
                 )}
               </div>
+              <button type="button" className="text-button dashboard-card-footer-action" onClick={() => setTab("holdings")}>전체 보기</button>
             </article>
           </div>
         </section>
@@ -6160,6 +6488,18 @@ function App() {
                 <span className="surface-eyebrow">작업 원장</span>
                 <h2>거래 목록</h2>
               </div>
+              {isCompactViewport && (
+                <button
+                  type="button"
+                  className="transactions-fab transactions-fab-inline surface-heading-action"
+                  data-testid="transactions-fab"
+                  aria-label="거래 추가"
+                  disabled={loading}
+                  onClick={() => openTransactionEntrySheet("form")}
+                >
+                  <span aria-hidden="true">＋</span>
+                </button>
+              )}
               <p className="table-summary surface-count-summary">
                 총 {transactions.length}건 중 {sortedTransactions.length}건 표시
               </p>
@@ -6189,6 +6529,9 @@ function App() {
                       aria-label="연도"
                       value={yearMonth.year}
                       onChange={(event) => setYearMonth({ ...yearMonth, year: Number(event.target.value) })}
+                      onBlur={handleApplyYearMonth}
+                      onKeyDown={handleYearMonthInputKeyDown}
+                      enterKeyHint="done"
                     />
                     <span>년</span>
                     <input
@@ -6198,6 +6541,9 @@ function App() {
                       aria-label="월"
                       value={yearMonth.month}
                       onChange={(event) => setYearMonth({ ...yearMonth, month: Number(event.target.value) })}
+                      onBlur={handleApplyYearMonth}
+                      onKeyDown={handleYearMonthInputKeyDown}
+                      enterKeyHint="done"
                     />
                     <span>월</span>
                   </div>
@@ -6213,73 +6559,60 @@ function App() {
                   <button type="button" className="text-btn" onClick={handleMoveToCurrentMonth}>
                     이번 달
                   </button>
-                  <button type="button" className="text-btn apply-btn" onClick={handleApplyYearMonth}>
-                    조회 적용
-                  </button>
                 </div>
                 <p className="table-summary">
                   조회 가능 월: {toYearMonthKey(minMonth)} ~ {toYearMonthKey(maxMonth)}
                 </p>
               </div>
             </div>
-            <details className="compact-inline-details tx-filter-details">
-              <summary>검색·필터</summary>
-              <p className="table-summary compact-support-summary">검색과 기간 필터를 위에서 바로 열어 원하는 거래만 빠르게 찾습니다.</p>
-              <div className="table-toolbar">
-                <label>
-                  검색
-                  <input
-                    placeholder="메모, 거래자, 카테고리"
-                    value={txListFilter.keyword}
-                    onChange={(e) => setTxListFilter({ ...txListFilter, keyword: e.target.value })}
-                  />
-                </label>
-                <label>
-                  유형
-                  <select
-                    value={txListFilter.flow_type}
-                    onChange={(e) => setTxListFilter({ ...txListFilter, flow_type: e.target.value })}
-                  >
-                    <option value="all">전체</option>
-                    {FLOW_TYPE_OPTIONS.map((item) => (
-                      <option key={item.value} value={item.value}>
-                        {item.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  시작일
-                  <input
-                    type="date"
-                    value={txListFilter.start}
-                    onChange={(e) => setTxListFilter({ ...txListFilter, start: e.target.value })}
-                  />
-                </label>
-                <label>
-                  종료일
-                  <input
-                    type="date"
-                    value={txListFilter.end}
-                    onChange={(e) => setTxListFilter({ ...txListFilter, end: e.target.value })}
-                  />
-                </label>
-                <button
-                  type="button"
-                  className="secondary"
-                  onClick={() =>
-                    setTxListFilter({
-                      keyword: "",
-                      flow_type: "all",
-                      start: "",
-                      end: "",
-                    })
-                  }
+            <div className="tx-header-filters" aria-label="거래 제목행 필터">
+              <label className="tx-header-filter tx-header-filter-search">
+                <span>메모</span>
+                <input
+                  placeholder="검색"
+                  value={txListFilter.keyword}
+                  onChange={(e) => setTxListFilter({ ...txListFilter, keyword: e.target.value })}
+                  enterKeyHint="search"
+                />
+              </label>
+              <label className="tx-header-filter tx-header-filter-type">
+                <span>유형</span>
+                <select
+                  value={txListFilter.flow_type}
+                  onChange={(e) => setTxListFilter({ ...txListFilter, flow_type: e.target.value })}
                 >
-                  필터 초기화
-                </button>
-              </div>
-            </details>
+                  <option value="all">전체</option>
+                  {FLOW_TYPE_OPTIONS.map((item) => (
+                    <option key={item.value} value={item.value}>
+                      {item.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="tx-header-filter">
+                <span>시작</span>
+                <input
+                  type="date"
+                  value={txListFilter.start}
+                  onChange={(e) => setTxListFilter({ ...txListFilter, start: e.target.value })}
+                />
+              </label>
+              <label className="tx-header-filter">
+                <span>종료</span>
+                <input
+                  type="date"
+                  value={txListFilter.end}
+                  onChange={(e) => setTxListFilter({ ...txListFilter, end: e.target.value })}
+                />
+              </label>
+              <button
+                type="button"
+                className="secondary tx-header-filter-reset"
+                onClick={clearTxListFilter}
+              >
+                초기화
+              </button>
+            </div>
             {selectedTransactionSummary.count > 0 && (
               <div className="message" role="status">
                 <span>
@@ -6313,6 +6646,9 @@ function App() {
               renderCategoryCell={renderCategoryCell}
               FLOW_TYPE_LABELS={FLOW_TYPE_LABELS}
               FLOW_TYPE_OPTIONS={FLOW_TYPE_OPTIONS}
+              txListFilter={txListFilter}
+              setTxListFilter={setTxListFilter}
+              clearTxListFilter={clearTxListFilter}
               householdSettings={householdSettings}
               normalizeTransactionRowColors={normalizeTransactionRowColors}
               DEFAULT_TRANSACTION_ROW_COLORS={DEFAULT_TRANSACTION_ROW_COLORS}
@@ -6461,16 +6797,6 @@ function App() {
           </details>
           {isCompactViewport && (
             <>
-              <button
-                type="button"
-                className="transactions-fab"
-                data-testid="transactions-fab"
-                aria-label="거래 추가"
-                disabled={loading}
-                onClick={() => openTransactionEntrySheet("form")}
-              >
-                <span aria-hidden="true">＋</span>
-              </button>
               {showTransactionForm && (
                 <div className="transaction-entry-sheet-backdrop" role="presentation" onClick={closeTransactionEntrySheet}>
                   <section
@@ -6538,13 +6864,24 @@ function App() {
 
       {tab === "holdings" && (
         <section className="grid-1">
-          <article className="card surface-entry-card holding-entry-card">
+          <article
+            className={`card surface-entry-card holding-entry-card${isCompactViewport && showHoldingForm ? " holding-entry-sheet" : ""}`}
+            data-testid={isCompactViewport && showHoldingForm ? "holding-entry-sheet" : undefined}
+            role={isCompactViewport && showHoldingForm ? "dialog" : undefined}
+            aria-modal={isCompactViewport && showHoldingForm ? "true" : undefined}
+            aria-label={isCompactViewport && showHoldingForm ? "자산 추가 레이어" : undefined}
+          >
             <div className="work-surface-header">
               <div className="work-surface-title">
                 <span className="surface-eyebrow">자산 입력 흐름</span>
                 <h2>자산 입력</h2>
               </div>
-              <button type="button" className="secondary" onClick={() => setShowHoldingForm((prev) => !prev)}>
+              <button
+                type="button"
+                className="secondary"
+                data-testid={isCompactViewport && showHoldingForm ? "holding-entry-sheet-close" : undefined}
+                onClick={() => (showHoldingForm ? closeHoldingEntrySheet() : openHoldingEntrySheet())}
+              >
                 {showHoldingForm ? "입력 닫기" : "자산 추가"}
               </button>
             </div>
@@ -6731,6 +7068,18 @@ function App() {
                 <span className="surface-eyebrow">자산 원장</span>
                 <h2>자산 목록</h2>
               </div>
+              {isCompactViewport && (
+                <button
+                  type="button"
+                  className="holdings-fab holdings-fab-inline surface-heading-action"
+                  data-testid="holdings-fab"
+                  aria-label="자산 추가"
+                  disabled={loading}
+                  onClick={openHoldingEntrySheet}
+                >
+                  <span aria-hidden="true">＋</span>
+                </button>
+              )}
               <p className="table-summary surface-count-summary">
                 총 {holdingItems.length}건 중 {filteredHoldingItems.length}건 표시
               </p>
@@ -6848,9 +7197,9 @@ function App() {
                   <h3>포트폴리오</h3>
                   <select
                     aria-label="자산 포트폴리오 보기 기준"
-                    value={portfolioViewMode}
+                    value={holdingPortfolioViewMode}
                     disabled={dashboardLoading}
-                    onChange={(event) => setPortfolioViewMode(event.target.value)}
+                    onChange={(event) => setHoldingPortfolioViewMode(event.target.value)}
                   >
                     {PORTFOLIO_VIEW_OPTIONS.map((option) => (
                       <option key={option.value} value={option.value}>
@@ -6859,12 +7208,15 @@ function App() {
                     ))}
                   </select>
                 </div>
-                <p className="table-summary compact-support-summary portfolio-view-summary">{portfolioViewSummaryText}</p>
-                <div className="chart-wrap compact-chart-wrap">
-                  {portfolioChartData ? (
+                <p className="table-summary compact-support-summary portfolio-view-summary">{holdingPortfolioViewSummaryText}</p>
+                <div className={`chart-wrap compact-chart-wrap${holdingPortfolioChartData ? "" : " chart-wrap-empty"}`}>
+                  {holdingPortfolioChartData ? (
                     <>
-                      <Doughnut data={portfolioChartData} options={{ responsive: true, maintainAspectRatio: false }} />
-                      {renderDonutCenterLabel(portfolioCenterLabel, { testId: "portfolio-donut-center-label" })}
+                      <Doughnut data={holdingPortfolioChartData} options={mobileDoughnutOptions} />
+                      {renderDonutSliceLabels(holdingPortfolioChartSource.items, {
+                        testId: "portfolio-donut-slice-label",
+                      })}
+                      {renderDonutCenterLabel(holdingPortfolioCenterLabel, { testId: "portfolio-donut-center-label" })}
                     </>
                   ) : (
                     <p>표시할 포트폴리오 데이터가 없습니다.</p>
@@ -6890,10 +7242,14 @@ function App() {
                     <option value="owner">보유자</option>
                   </select>
                 </label>
-                <div className="chart-wrap compact-chart-wrap">
+                <div className={`chart-wrap compact-chart-wrap${holdingSummaryChartData ? "" : " chart-wrap-empty"}`}>
                   {holdingSummaryChartData ? (
                     <>
-                      <Doughnut data={holdingSummaryChartData} options={{ responsive: true, maintainAspectRatio: false }} />
+                      <Doughnut data={holdingSummaryChartData} options={mobileDoughnutOptions} />
+                      {renderDonutSliceLabels(holdingSummarySource.items, {
+                        testId: "holding-donut-slice-label",
+                        labelPrefix: `${holdingSummarySource.title} 세그먼트`,
+                      })}
                       {renderDonutCenterLabel(holdingSummaryCenterLabel, {
                         labelPrefix: `${holdingSummarySource.title} 비중`,
                       })}

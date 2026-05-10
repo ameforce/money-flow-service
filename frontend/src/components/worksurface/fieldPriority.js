@@ -31,3 +31,45 @@ export const WORK_SURFACE_FIELDS = {
 
 export const TRANSACTION_SURFACE_FIELDS = WORK_SURFACE_FIELDS.transactions.desktop;
 export const HOLDING_SURFACE_FIELDS = WORK_SURFACE_FIELDS.holdings.desktop;
+
+function createMobilePriorityLookup(surfaceKey) {
+  const surface = WORK_SURFACE_FIELDS[surfaceKey] || {};
+  const entries = new Map();
+  for (const key of surface.mobileCompact || []) {
+    entries.set(key, "compact");
+  }
+  for (const key of surface.cues || []) {
+    entries.set(key, entries.get(key) || "cue");
+  }
+  for (const key of surface.secondary || []) {
+    entries.set(key, entries.get(key) || "secondary");
+  }
+  return entries;
+}
+
+export const TRANSACTION_MOBILE_PRIORITY = createMobilePriorityLookup("transactions");
+export const HOLDING_MOBILE_PRIORITY = createMobilePriorityLookup("holdings");
+
+const HOLDING_MOBILE_FIELD_ALIASES = {
+  type_key: "type_category_summary",
+  category: "type_category_summary",
+};
+
+export function getWorkSurfaceMobilePriority(surfaceKey, fieldKey) {
+  const normalizedSurfaceKey = String(surfaceKey || "").trim();
+  const normalizedFieldKey = String(fieldKey || "").trim();
+  const priorityMap =
+    normalizedSurfaceKey === "transactions"
+      ? TRANSACTION_MOBILE_PRIORITY
+      : normalizedSurfaceKey === "holdings"
+        ? HOLDING_MOBILE_PRIORITY
+        : null;
+  if (!priorityMap || !normalizedFieldKey) {
+    return "hidden";
+  }
+  const lookupKey =
+    normalizedSurfaceKey === "holdings"
+      ? HOLDING_MOBILE_FIELD_ALIASES[normalizedFieldKey] || normalizedFieldKey
+      : normalizedFieldKey;
+  return priorityMap.get(lookupKey) || "hidden";
+}

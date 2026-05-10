@@ -2,7 +2,16 @@ import path from "node:path";
 
 import { expect, test } from "@playwright/test";
 
-import { assertResponsiveShell, capture, createImportWorkbook, registerAndVerify, unique } from "../support/helpers";
+import {
+  assertResponsiveShell,
+  capture,
+  createImportWorkbook,
+  expectKeyboardReachableInOrder,
+  expectNoHorizontalOverflow,
+  expectWithinViewport,
+  registerAndVerify,
+  unique,
+} from "../support/helpers";
 
 test("import flow: workbook dry-run and apply", async ({ page }, testInfo) => {
   test.setTimeout(240_000);
@@ -21,26 +30,42 @@ test("import flow: workbook dry-run and apply", async ({ page }, testInfo) => {
   });
 
   await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 390, height: 844 });
   await assertResponsiveShell(page);
   await page.getByRole("button", { name: "데이터 가져오기", exact: true }).click();
-  await capture(page, "import-entry");
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "import-mobile-entry");
 
-  await page.getByLabel("엑셀 파일 업로드").setInputFiles(importWorkbookPath);
+  const fileInput = page.getByLabel("엑셀 파일 업로드");
+  const fileDropArea = page.locator(".file-drop-area");
+  const dryRunButton = page.getByRole("button", { name: "미리 검증" });
+  const applyButton = page.getByRole("button", { name: "적용" });
+  await expect(fileInput).toBeEnabled();
+  await expectWithinViewport(fileDropArea);
+  await expectWithinViewport(dryRunButton);
+  await expectKeyboardReachableInOrder(page, [dryRunButton, applyButton], { maxTabsPerLocator: 40 });
+
+  await fileInput.setInputFiles(importWorkbookPath);
   await expect(page.getByText(path.basename(importWorkbookPath))).toBeVisible();
 
-  await page.getByRole("button", { name: "미리 검증" }).click();
+  await dryRunButton.click();
   await expect(page.getByText("미리 검증 완료")).toBeVisible();
   await expect(page.locator(".import-report")).toContainText(path.basename(importWorkbookPath));
-  await capture(page, "import-dry-run");
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "import-mobile-dry-run");
 
-  await page.getByRole("button", { name: "적용" }).click();
+  await expectWithinViewport(applyButton);
+  await expectKeyboardReachableInOrder(page, [applyButton], { maxTabsPerLocator: 40 });
+  await applyButton.click();
   await expect(page.getByText("적용 완료")).toBeVisible();
   await expect(page.locator(".import-report")).toContainText("적용된 거래");
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "import-mobile-apply-result");
 
   await page.getByRole("button", { name: "거래", exact: true }).click();
   await page.getByLabel("연도", { exact: true }).fill("2026");
   await page.getByLabel("월", { exact: true }).fill("3");
-  await page.getByRole("button", { name: "조회 적용" }).click();
+  await page.getByLabel("월", { exact: true }).press("Enter");
   await expect(page.locator("tr.transaction-row", { hasText: importTxMemo }).first()).toBeVisible();
 
   await page.getByRole("button", { name: "자산", exact: true }).click();

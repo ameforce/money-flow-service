@@ -1,4 +1,4 @@
-import { HOLDING_SURFACE_FIELDS } from "./fieldPriority";
+import { HOLDING_SURFACE_FIELDS, getWorkSurfaceMobilePriority } from "./fieldPriority";
 
 export function HoldingSurfaceTable({
   holdingColumnWidths,
@@ -12,6 +12,7 @@ export function HoldingSurfaceTable({
   fmtKrw,
 }) {
   const columnSpan = HOLDING_SURFACE_FIELDS.length + 2;
+  const holdingMobilePriority = (fieldKey) => getWorkSurfaceMobilePriority("holdings", fieldKey);
 
   return (
     <>
@@ -38,19 +39,27 @@ export function HoldingSurfaceTable({
       >
         <thead>
           <tr>
-            <th className="holding-col-select">선택</th>
+            <th className="holding-col-select" data-mobile-priority="hidden">선택</th>
             {HOLDING_SURFACE_FIELDS.map((field) => (
-              <th key={field.key} className={field.className} aria-sort={renderHoldingSortAria(field.key)}>
+              <th
+                key={field.key}
+                className={field.className}
+                aria-sort={renderHoldingSortAria(field.key)}
+                data-field-key={field.key}
+                data-mobile-priority={holdingMobilePriority(field.key)}
+              >
                 {renderHoldingSortHeader(field.key)}
               </th>
             ))}
-            <th className="holding-col-actions">동작</th>
+            <th className="holding-col-actions" data-mobile-priority="action">동작</th>
           </tr>
         </thead>
         <tbody>
           {sortedHoldingItems.length === 0 && (
-            <tr>
-              <td colSpan={columnSpan} className="empty-state">조건에 맞는 자산이 없습니다.</td>
+            <tr className="surface-empty-row">
+              <td colSpan={columnSpan} className="empty-state surface-empty-state" data-testid="holdings-empty-state">
+                자산 내역이 없습니다.
+              </td>
             </tr>
           )}
           {holdingListTab === "all"

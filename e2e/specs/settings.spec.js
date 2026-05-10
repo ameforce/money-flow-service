@@ -3,6 +3,9 @@ import { expect, test } from "@playwright/test";
 import {
   assertResponsiveShell,
   capture,
+  expectKeyboardReachableInOrder,
+  expectNoHorizontalOverflow,
+  expectWithinViewport,
   labeledField,
   openTab,
   registerAndVerify,
@@ -31,10 +34,21 @@ test("settings flow: profile, household, colors, categories CRUD", async ({ page
   await openTab(page, "설정");
   await capture(page, "settings-entry");
 
+  await page.setViewportSize({ width: 390, height: 844 });
+  await assertResponsiveShell(page);
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "settings-mobile-entry");
+
   const profileCard = page.locator("article.card", { has: page.getByRole("heading", { name: "내 프로필" }) });
-  await labeledField(profileCard, "닉네임", "input").fill(nickname);
+  await profileCard.scrollIntoViewIfNeeded();
+  const nicknameInput = labeledField(profileCard, "닉네임", "input");
+  const profileSaveButton = profileCard.getByRole("button", { name: "프로필 저장" });
+  await expectWithinViewport(nicknameInput);
+  await expectWithinViewport(profileSaveButton);
+  await expectKeyboardReachableInOrder(page, [nicknameInput, profileSaveButton]);
+  await nicknameInput.fill(nickname);
   await labeledField(profileCard, "표시명 방식", "select").selectOption("nickname");
-  await profileCard.getByRole("button", { name: "프로필 저장" }).click();
+  await profileSaveButton.click();
   const profileSavedMessage = page.locator(".message").first();
   await expect(profileSavedMessage).toBeVisible();
   const dismissButton = profileSavedMessage.locator(".message-close").first();
@@ -46,6 +60,8 @@ test("settings flow: profile, household, colors, categories CRUD", async ({ page
   await expect(page.locator(".topbar .meta")).toContainText(`사용자: ${nickname}`);
 
   const householdCard = page.locator("article.card", { has: page.getByRole("heading", { name: "가계 설정" }) });
+  await householdCard.scrollIntoViewIfNeeded();
+  await expectNoHorizontalOverflow(page, 12);
   await labeledField(householdCard, "가계 이름", "input").fill(householdName);
   await householdCard.getByRole("button", { name: "가계 설정 저장" }).click();
   await expect(page.getByText("가계 설정을 저장했습니다.")).toBeVisible();
@@ -65,6 +81,9 @@ test("settings flow: profile, household, colors, categories CRUD", async ({ page
   await expect(page.getByText("가계 설정을 저장했습니다.")).toBeVisible();
 
   const categoryCard = page.locator("article.card", { has: page.getByRole("heading", { name: "카테고리 관리" }) });
+  await categoryCard.scrollIntoViewIfNeeded();
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "settings-mobile-controls");
   const quickCategorySelect = labeledField(categoryCard, "기존 카테고리 선택", "select");
   const findCategoryOptionValue = async (major, minor) => {
     if ((await quickCategorySelect.count()) === 0) {
@@ -109,11 +128,18 @@ test("settings flow: profile, household, colors, categories CRUD", async ({ page
       await labeledField(categoryCard, "새 중분류", "input").fill(minor);
     }
   };
-  await labeledField(categoryCard, "유형", "select").selectOption("expense");
+  const categoryTypeSelect = labeledField(categoryCard, "유형", "select");
+  const categoryAddButton = categoryCard.getByRole("button", { name: "카테고리 추가" });
+  await expectWithinViewport(categoryTypeSelect);
+  await expectWithinViewport(categoryAddButton);
+  await expectKeyboardReachableInOrder(page, [categoryTypeSelect, categoryAddButton], { maxTabsPerLocator: 40 });
+  await categoryTypeSelect.selectOption("expense");
   await createCategoryPairCompat(majorSeed, minorSeed);
   await categoryCard.getByRole("button", { name: "카테고리 추가" }).click();
   await expect(page.getByText("카테고리를 추가했습니다.")).toBeVisible();
 
+  await page.setViewportSize({ width: 1366, height: 960 });
+  await assertResponsiveShell(page);
   const usageMemo = unique("usage-memo");
   await openTab(page, "거래");
   const transactionCard = page.locator("article.card", {
@@ -152,6 +178,9 @@ test("settings flow: profile, household, colors, categories CRUD", async ({ page
   await transactionCard.getByRole("button", { name: "거래 등록" }).click();
   await expect(page.locator("tr.transaction-row", { hasText: usageMemo }).first()).toBeVisible();
   await openTab(page, "설정");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await assertResponsiveShell(page);
+  await categoryCard.scrollIntoViewIfNeeded();
 
   await createCategoryPairCompat(deleteMajor, deleteMinor);
   await categoryCard.getByRole("button", { name: "카테고리 추가" }).click();
@@ -214,4 +243,9 @@ test("settings flow: profile, household, colors, categories CRUD", async ({ page
   await expect(page.getByText("카테고리를 삭제했습니다.")).toBeVisible();
   await expect(categoryCard).not.toContainText(deleteMajor);
   await capture(page, "settings-result");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openTab(page, "설정");
+  await assertResponsiveShell(page);
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "settings-mobile-result");
 });

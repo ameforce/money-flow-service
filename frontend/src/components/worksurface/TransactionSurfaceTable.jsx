@@ -1,7 +1,7 @@
-import { Fragment } from "react";
+import { Fragment, useState } from "react";
 
 import { extractVisibleInitial, resolveSemanticColor, withAlpha } from "./colorSemantics";
-import { TRANSACTION_SURFACE_FIELDS } from "./fieldPriority";
+import { TRANSACTION_SURFACE_FIELDS, getWorkSurfaceMobilePriority } from "./fieldPriority";
 
 function formatCompactDate(value) {
   const trimmed = String(value || "").trim();
@@ -13,6 +13,14 @@ function formatCompactDate(value) {
 
 function firstDefinedValue(values) {
   return values.find((value) => String(value || "").trim()) || "";
+}
+
+function isInteractiveRowTarget(target) {
+  return Boolean(
+    target?.closest?.(
+      "button, input, select, textarea, a, label, summary, details, [role='button'], [data-row-action='true']"
+    )
+  );
 }
 
 export function TransactionSurfaceTable({
@@ -34,6 +42,9 @@ export function TransactionSurfaceTable({
   renderCategoryCell,
   FLOW_TYPE_LABELS,
   FLOW_TYPE_OPTIONS,
+  txListFilter,
+  setTxListFilter,
+  clearTxListFilter,
   householdSettings,
   normalizeTransactionRowColors,
   DEFAULT_TRANSACTION_ROW_COLORS,
@@ -58,28 +69,209 @@ export function TransactionSurfaceTable({
   const rowColors = normalizeTransactionRowColors(householdSettings?.transaction_row_colors);
   const ownerColors = householdSettings?.holding_settings?.owner_colors || {};
   const categoryColors = householdSettings?.holding_settings?.category_colors || {};
+  const transactionMobilePriority = (fieldKey) => getWorkSurfaceMobilePriority("transactions", fieldKey);
+  const [mobileFilterKey, setMobileFilterKey] = useState("");
+  const safeTxListFilter = txListFilter || {
+    keyword: "",
+    flow_type: "all",
+    start: "",
+    end: "",
+    amount_min: "",
+    amount_max: "",
+  };
+  const updateTxListFilter = (patch) => {
+    if (typeof setTxListFilter !== "function") {
+      return;
+    }
+    setTxListFilter((prev) => ({ ...(prev || safeTxListFilter), ...patch }));
+  };
+  const updateAmountFilter = (event, field) => {
+    if (typeof handleGroupedDecimalInput === "function" && typeof setTxListFilter === "function") {
+      handleGroupedDecimalInput(event, setTxListFilter, field);
+      return;
+    }
+    updateTxListFilter({ [field]: event.target.value });
+  };
+  const openMobileFilter = (key) => {
+    setMobileFilterKey((current) => (current === key ? "" : key));
+  };
+  const mobileFilterLabelByKey = {
+    date: "일자",
+    memo: "메모",
+    amount: "금액",
+    type: "유형",
+  };
+  const mobileFilterLabel = mobileFilterLabelByKey[mobileFilterKey] || "";
+  const isDateFilterActive = Boolean(safeTxListFilter.start || safeTxListFilter.end);
+  const isMemoFilterActive = Boolean(String(safeTxListFilter.keyword || "").trim());
+  const isAmountFilterActive = Boolean(
+    String(safeTxListFilter.amount_min || "").trim() || String(safeTxListFilter.amount_max || "").trim()
+  );
+  const isTypeFilterActive = safeTxListFilter.flow_type !== "all";
+
+  const renderMobileFilterTrigger = ({ keyName, className, label, active }) => {
+    const isOpen = mobileFilterKey === keyName;
+    return (
+      <button
+        type="button"
+        className={`${className} ledger-head-filter-trigger${active ? " is-active" : ""}${isOpen ? " is-open" : ""}`}
+        aria-label={`${label} 필터 ${isOpen ? "닫기" : "열기"}`}
+        aria-expanded={isOpen ? "true" : "false"}
+        aria-controls="tx-ledger-filter-panel"
+        onClick={() => openMobileFilter(keyName)}
+      >
+        <span>{label}</span>
+        {active && <span className="ledger-head-filter-indicator" aria-hidden="true" />}
+      </button>
+    );
+  };
 
   return (
     <>
       <div
         className="surface-ledger-mobile-head transactions-mobile-ledger-head"
         data-sticky-active={mobileStickyActive ? "true" : "false"}
-        aria-hidden="true"
+        aria-label="거래 제목행 필터"
       >
         <span className="ledger-head-select" />
-        <span className="ledger-head-date">일자</span>
-        <span className="ledger-head-main">메모</span>
-        <span className="ledger-head-amount">금액</span>
-        <span className="ledger-head-cues">유형·사용자</span>
+        {renderMobileFilterTrigger({
+          keyName: "date",
+          className: "ledger-head-date",
+          label: "일자",
+          active: isDateFilterActive,
+        })}
+        {renderMobileFilterTrigger({
+          keyName: "memo",
+          className: "ledger-head-main",
+          label: "메모",
+          active: isMemoFilterActive,
+        })}
+        {renderMobileFilterTrigger({
+          keyName: "amount",
+          className: "ledger-head-amount",
+          label: "금액",
+          active: isAmountFilterActive,
+        })}
+        {renderMobileFilterTrigger({
+          keyName: "type",
+          className: "ledger-head-cues",
+          label: "유형",
+          active: isTypeFilterActive,
+        })}
         <span className="ledger-head-actions">⋯</span>
       </div>
+      {mobileFilterKey && (
+        <div
+          id="tx-ledger-filter-panel"
+          className="tx-ledger-filter-panel"
+          data-testid="tx-ledger-filter-panel"
+          role="dialog"
+          aria-label={`${mobileFilterLabel} 필터`}
+        >
+          <div className="tx-ledger-filter-title">
+            <strong>{mobileFilterLabel} 필터</strong>
+            <button type="button" className="secondary" onClick={() => setMobileFilterKey("")}>
+              닫기
+            </button>
+          </div>
+          {mobileFilterKey === "memo" && (
+            <label className="tx-ledger-filter-field">
+              <span>메모</span>
+              <input
+                aria-label="메모"
+                placeholder="메모 검색"
+                value={safeTxListFilter.keyword}
+                onChange={(event) => updateTxListFilter({ keyword: event.target.value })}
+                enterKeyHint="search"
+              />
+            </label>
+          )}
+          {mobileFilterKey === "type" && (
+            <label className="tx-ledger-filter-field">
+              <span>유형</span>
+              <select
+                aria-label="유형"
+                value={safeTxListFilter.flow_type}
+                onChange={(event) => updateTxListFilter({ flow_type: event.target.value })}
+              >
+                <option value="all">전체</option>
+                {FLOW_TYPE_OPTIONS.map((item) => (
+                  <option key={item.value} value={item.value}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {mobileFilterKey === "date" && (
+            <div className="tx-ledger-filter-date-grid">
+              <label className="tx-ledger-filter-field">
+                <span>시작일</span>
+                <input
+                  type="date"
+                  aria-label="시작일"
+                  value={safeTxListFilter.start}
+                  onChange={(event) => updateTxListFilter({ start: event.target.value })}
+                />
+              </label>
+              <label className="tx-ledger-filter-field">
+                <span>종료일</span>
+                <input
+                  type="date"
+                  aria-label="종료일"
+                  value={safeTxListFilter.end}
+                  onChange={(event) => updateTxListFilter({ end: event.target.value })}
+                />
+              </label>
+            </div>
+          )}
+          {mobileFilterKey === "amount" && (
+            <div className="tx-ledger-filter-date-grid tx-ledger-filter-amount-grid">
+              <label className="tx-ledger-filter-field">
+                <span>최소 금액</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  aria-label="최소 금액"
+                  placeholder="0"
+                  value={safeTxListFilter.amount_min}
+                  onChange={(event) => updateAmountFilter(event, "amount_min")}
+                  enterKeyHint="next"
+                />
+              </label>
+              <label className="tx-ledger-filter-field">
+                <span>최대 금액</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  aria-label="최대 금액"
+                  placeholder="100,000"
+                  value={safeTxListFilter.amount_max}
+                  onChange={(event) => updateAmountFilter(event, "amount_max")}
+                  enterKeyHint="done"
+                />
+              </label>
+            </div>
+          )}
+          <button
+            type="button"
+            className="secondary tx-ledger-filter-reset"
+            onClick={() => {
+              clearTxListFilter();
+              setMobileFilterKey("");
+            }}
+          >
+            필터 초기화
+          </button>
+        </div>
+      )}
       <table
         className={`transactions-surface-table${mobileStickyActive ? " mobile-sticky-active" : " mobile-sticky-inactive"}`}
         aria-label="거래 작업 표"
       >
         <thead>
           <tr>
-            <th>
+            <th data-mobile-priority="hidden">
               <input
                 type="checkbox"
                 aria-label="표시된 거래 전체 선택"
@@ -90,7 +282,13 @@ export function TransactionSurfaceTable({
             {TRANSACTION_SURFACE_FIELDS.map((field) => {
               if (field.key === "occurred_on") {
                 return (
-                  <th key={field.key} className={field.className} aria-sort={txSortDirection === "asc" ? "ascending" : "descending"}>
+                  <th
+                    key={field.key}
+                    className={field.className}
+                    aria-sort={txSortDirection === "asc" ? "ascending" : "descending"}
+                    data-field-key={field.key}
+                    data-mobile-priority={transactionMobilePriority(field.key)}
+                  >
                     <button
                       type="button"
                       className={`sort-header${txSortDirection ? " active" : ""}`}
@@ -103,15 +301,26 @@ export function TransactionSurfaceTable({
                   </th>
                 );
               }
-              return <th key={field.key} className={field.className}>{field.label}</th>;
+              return (
+                <th
+                  key={field.key}
+                  className={field.className}
+                  data-field-key={field.key}
+                  data-mobile-priority={transactionMobilePriority(field.key)}
+                >
+                  {field.label}
+                </th>
+              );
             })}
-            <th>동작</th>
+            <th data-mobile-priority="action">동작</th>
           </tr>
         </thead>
         <tbody>
           {sortedTransactions.length === 0 && (
-            <tr>
-              <td colSpan={columnSpan} className="empty-state">조건에 맞는 거래가 없습니다.</td>
+            <tr className="surface-empty-row">
+              <td colSpan={columnSpan} className="empty-state surface-empty-state" data-testid="transactions-empty-state">
+                거래 내역이 없습니다.
+              </td>
             </tr>
           )}
           {sortedTransactions.map((item) => {
@@ -146,6 +355,12 @@ export function TransactionSurfaceTable({
             const hasConfiguredCategoryColor = Boolean(String(configuredCategoryColor || "").trim());
             const rowAccent = hasConfiguredCategoryColor ? categoryColor : flowAccent;
             const isExpanded = expandedTransactionRows.has(item.id);
+            const handleRowToggle = (event) => {
+              if (isEditing || isInteractiveRowTarget(event.target)) {
+                return;
+              }
+              toggleExpandedTransactionRow(item.id);
+            };
             const handleEditToggle = () => {
               if (!canEditRecords) {
                 return;
@@ -171,6 +386,8 @@ export function TransactionSurfaceTable({
               <Fragment key={rowKey}>
                 <tr
                   className={`transaction-row transaction-row-${item.flow_type} ${isEditing ? "transaction-row-editing" : ""} ${isExpanded ? "mobile-row-expanded" : ""}`}
+                  data-row-expanded={isExpanded ? "true" : "false"}
+                  onClick={handleRowToggle}
                   style={{
                     "--transaction-row-bg": rowAccent,
                     "--transaction-row-accent": rowAccent,
@@ -183,7 +400,7 @@ export function TransactionSurfaceTable({
                     "--transaction-owner-chip-ring": withAlpha(ownerColor, 0.22),
                   }}
                 >
-                  <td data-label="선택" className="transaction-col-select">
+                  <td data-label="선택" className="transaction-col-select" data-mobile-priority="hidden">
                     <input
                       type="checkbox"
                       aria-label={`${item.occurred_on} 거래 선택`}
@@ -191,11 +408,11 @@ export function TransactionSurfaceTable({
                       onChange={() => toggleTransactionSelection(item.id)}
                     />
                   </td>
-                  <td data-label="일자" className="transaction-col-date">
+                  <td data-label="일자" className="transaction-col-date" data-field-key="occurred_on" data-mobile-priority={transactionMobilePriority("occurred_on")}>
                     <span className="desktop-date-text">{item.occurred_on}</span>
                     <span className="mobile-date-text">{formatCompactDate(item.occurred_on)}</span>
                   </td>
-                  <td data-label="유형" className="transaction-col-type">
+                  <td data-label="유형" className="transaction-col-type" data-field-key="flow_type" data-mobile-priority={transactionMobilePriority("flow_type")}>
                     <span className={`transaction-flow-badge transaction-flow-full transaction-flow-${item.flow_type}`}>
                       {flowLabel}
                     </span>
@@ -214,19 +431,19 @@ export function TransactionSurfaceTable({
                       <span className="transaction-owner-empty" title="거래자 미입력" aria-label="거래자 미입력">-</span>
                     )}
                   </td>
-                  <td data-label="카테고리" className="transaction-col-category">{renderCategoryCell(category)}</td>
-                  <td data-label="메모" className="transaction-col-memo">
+                  <td data-label="카테고리" className="transaction-col-category" data-field-key="category" data-mobile-priority={transactionMobilePriority("category")}>{renderCategoryCell(category)}</td>
+                  <td data-label="메모" className="transaction-col-memo" data-field-key="memo" data-mobile-priority={transactionMobilePriority("memo")}>
                     <span className="transaction-mobile-category-cue">{compactCategoryLabel}</span>
                     <span className="transaction-memo-text">{item.memo || "-"}</span>
                   </td>
-                  <td data-label="금액" className="transaction-col-amount">
+                  <td data-label="금액" className="transaction-col-amount" data-field-key="amount" data-mobile-priority={transactionMobilePriority("amount")}>
                     <span className="transaction-amount-text">{fmtKrw(item.amount)}</span>
                   </td>
-                  <td data-label="거래자명" className="transaction-col-owner">
+                  <td data-label="거래자명" className="transaction-col-owner" data-field-key="owner_name" data-mobile-priority={transactionMobilePriority("owner_name")}>
                     <span className="transaction-owner-cue">{item.owner_name || "-"}</span>
                   </td>
-                  <td data-label="최종 수정일" className="transaction-col-updated">{fmtDate(item.updated_at)}</td>
-                  <td data-label="동작" className="transaction-col-actions">
+                  <td data-label="최종 수정일" className="transaction-col-updated" data-field-key="updated_at" data-mobile-priority={transactionMobilePriority("updated_at")}>{fmtDate(item.updated_at)}</td>
+                  <td data-label="동작" className="transaction-col-actions" data-mobile-priority="action">
                     <div className="inline">
                       <button
                         type="button"
@@ -241,7 +458,10 @@ export function TransactionSurfaceTable({
                         className="secondary mobile-toggle-btn"
                         aria-label={isExpanded ? "거래 세부 접기" : "거래 세부 보기"}
                         aria-expanded={isExpanded ? "true" : "false"}
-                        onClick={() => toggleExpandedTransactionRow(item.id)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          toggleExpandedTransactionRow(item.id);
+                        }}
                       >
                         <span className="mobile-toggle-icon" aria-hidden="true">
                           <svg viewBox="0 0 16 16" focusable="false" aria-hidden="true">
