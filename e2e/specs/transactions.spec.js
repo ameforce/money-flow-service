@@ -542,6 +542,51 @@ test("mobile quick entry preserves a closed draft and clears it only through res
   await expectMobileQuickEntryDefaults(page, transactionSheet);
 });
 
+test("mobile quick entry restores the active field instead of jumping back to amount", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("tx-quick-focus")}@example.com`;
+  const displayName = unique("tx-quick-focus-name");
+  const seedMemo = unique("tx-quick-focus-seed");
+
+  await registerAndVerify(page, { email, displayName });
+  const seedCategory = await createCategoryViaApi(page, {
+    major: unique("포커스입력"),
+    minor: unique("최근카테고리"),
+  });
+  await createTransactionViaApi(page, {
+    memo: seedMemo,
+    amount: "12345",
+    categoryId: seedCategory.id,
+    ownerName: displayName,
+  });
+  await page.reload();
+
+  const transactionSheet = await openMobileTransactionQuickEntry(page);
+  const quickAmount = page.getByTestId("transaction-quick-amount");
+  const memoInput = labeledField(transactionSheet, "메모", "input");
+  await expect(quickAmount).toBeFocused();
+
+  await quickAmount.fill("24680");
+  await quickAmount.press("Enter");
+  await expect(memoInput).toBeFocused();
+  await memoInput.fill("포커스 유지 메모");
+
+  await page.evaluate(() => {
+    document.dispatchEvent(new Event("visibilitychange"));
+    window.dispatchEvent(new Event("focus"));
+  });
+  await expect(memoInput).toBeFocused();
+
+  const quickCategoryChip = page.getByTestId("transaction-quick-category-chip").first();
+  await expect(quickCategoryChip).toBeVisible();
+  await quickCategoryChip.click();
+  await expect(memoInput).toBeFocused();
+  await expect(quickAmount).not.toBeFocused();
+
+  await capture(page, "transactions-quick-entry-focus-restore");
+});
+
 test("mobile quick entry keeps owner override and filters ordered category chips", async ({ page }) => {
   test.setTimeout(180_000);
 

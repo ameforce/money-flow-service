@@ -955,11 +955,11 @@ function formatDurationKo(totalSeconds) {
   return `${minutes}분 ${rest}초`;
 }
 
-function createTransactionForm() {
+function createTransactionForm(defaultOccurredOn = todayIso()) {
   return {
     id: "",
     version: 0,
-    occurred_on: todayIso(),
+    occurred_on: defaultOccurredOn,
     flow_type: "expense",
     amount: "",
     category_id: "",
@@ -1704,6 +1704,7 @@ function App() {
   const txAmountInputRef = useRef(null);
   const txQuickMemoInputRef = useRef(null);
   const txQuickFormRef = useRef(null);
+  const txQuickLastFocusedFieldRef = useRef(null);
   const holdingNameInputRef = useRef(null);
   const txCategoryManagerRef = useRef(null);
   const transactionSupportDetailsRef = useRef(null);
@@ -2522,6 +2523,22 @@ function App() {
   }, [household?.id, tab, token, transactionHistoryInitialized]);
 
   useEffect(() => {
+    const nextDefaultDate = normalizeIsoDateKey(transactionHistoryToday, todayIso());
+    setTxForm((prev) => {
+      const localToday = todayIso();
+      const stillDefaultDraft =
+        !prev.amount &&
+        !prev.memo &&
+        !prev.category_id &&
+        (!prev.occurred_on || prev.occurred_on === localToday);
+      if (!stillDefaultDraft || prev.occurred_on === nextDefaultDate) {
+        return prev;
+      }
+      return { ...prev, occurred_on: nextDefaultDate };
+    });
+  }, [transactionHistoryToday]);
+
+  useEffect(() => {
     if (!token || !household?.id || tab !== "transactions" || !transactionHistoryInitialized) {
       return undefined;
     }
@@ -2624,14 +2641,33 @@ function App() {
       return undefined;
     }
 
-    const restoreQuickAmountFocus = () => {
+    const isQuickRestorableField = (element) => {
+      const quickForm = txQuickFormRef.current;
+      return Boolean(
+        quickForm &&
+        element instanceof HTMLElement &&
+        quickForm.contains(element) &&
+        element.matches(MOBILE_FORM_FIELD_SELECTOR) &&
+        isFocusableFormField(element)
+      );
+    };
+
+    const restoreQuickFieldFocus = () => {
       requestAnimationFrame(() => {
-        const quickAmountInput = txAmountInputRef.current;
-        if (!quickAmountInput) {
+        const rememberedField = txQuickLastFocusedFieldRef.current;
+        const focusTarget = isQuickRestorableField(rememberedField)
+          ? rememberedField
+          : isQuickRestorableField(txAmountInputRef.current)
+            ? txAmountInputRef.current
+            : null;
+        if (!focusTarget) {
           return;
         }
-        quickAmountInput.focus?.({ preventScroll: false });
-        const focusRestored = document.activeElement === quickAmountInput;
+        focusTarget.focus?.({ preventScroll: false });
+        const focusRestored = document.activeElement === focusTarget;
+        if (focusRestored) {
+          txQuickLastFocusedFieldRef.current = focusTarget;
+        }
         setShowTransactionQuickResume(!focusRestored);
       });
     };
@@ -2641,14 +2677,14 @@ function App() {
         setShowTransactionQuickResume(true);
         return;
       }
-      restoreQuickAmountFocus();
+      restoreQuickFieldFocus();
     };
 
     document.addEventListener("visibilitychange", handleVisibilityChange);
-    window.addEventListener("focus", restoreQuickAmountFocus);
+    window.addEventListener("focus", restoreQuickFieldFocus);
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
-      window.removeEventListener("focus", restoreQuickAmountFocus);
+      window.removeEventListener("focus", restoreQuickFieldFocus);
     };
   }, [isCompactViewport, showTransactionForm, txEntrySheetStep]);
 
@@ -2783,23 +2819,74 @@ function App() {
   }
 
   function resetTransactionDraft() {
-    setTxForm(createTransactionForm());
+    setTxForm(createTransactionForm(normalizeIsoDateKey(transactionHistoryToday, todayIso())));
     setTxCategoryMajor("");
     setShowTransactionQuickResume(false);
     setTxQuickOwnerTouched(false);
-    requestAnimationFrame(() => {
-      if (isCompactViewport && showTransactionForm) {
-        txAmountInputRef.current?.focus?.({ preventScroll: false });
-      }
-    });
+    if (isCompactViewport && showTransactionForm) {
+      focusTransactionQuickAmount();
+    }
   }
 
   function focusTransactionQuickAmount() {
+    txQuickLastFocusedFieldRef.current = txAmountInputRef.current;
     requestAnimationFrame(() => {
       txAmountInputRef.current?.focus?.({ preventScroll: false });
       if (document.activeElement === txAmountInputRef.current) {
         setShowTransactionQuickResume(false);
       }
+    });
+  }
+
+  function isTransactionQuickRestorableField(element) {
+    const quickForm = txQuickFormRef.current;
+    return Boolean(
+      quickForm &&
+      element instanceof HTMLElement &&
+      quickForm.contains(element) &&
+      element.matches(MOBILE_FORM_FIELD_SELECTOR) &&
+      isFocusableFormField(element)
+    );
+  }
+
+  function rememberTransactionQuickField(element) {
+    if (isTransactionQuickRestorableField(element)) {
+      txQuickLastFocusedFieldRef.current = element;
+    }
+  }
+
+  function rememberActiveTransactionQuickField() {
+    rememberTransactionQuickField(document.activeElement);
+  }
+
+  function getTransactionQuickFocusTarget() {
+    const rememberedField = txQuickLastFocusedFieldRef.current;
+    if (isTransactionQuickRestorableField(rememberedField)) {
+      return rememberedField;
+    }
+    if (isTransactionQuickRestorableField(txAmountInputRef.current)) {
+      return txAmountInputRef.current;
+    }
+    return null;
+  }
+
+  function focusTransactionQuickTarget(target) {
+    if (!target) {
+      return false;
+    }
+    target.focus?.({ preventScroll: false });
+    const restored = document.activeElement === target;
+    if (restored) {
+      txQuickLastFocusedFieldRef.current = target;
+    }
+    return restored;
+  }
+
+  function restoreTransactionQuickFocus() {
+    requestAnimationFrame(() => {
+      const focusTarget = getTransactionQuickFocusTarget();
+      const focusRestored = focusTransactionQuickTarget(focusTarget);
+      setShowTransactionQuickResume(!focusRestored);
     });
   }
 
@@ -2824,7 +2911,7 @@ function App() {
     const category = categoryById.get(normalizedCategoryId);
     setTxForm((prev) => ({ ...prev, category_id: normalizedCategoryId }));
     setTxCategoryMajor(category ? String(category.major || "") : "");
-    focusTransactionQuickAmount();
+    restoreTransactionQuickFocus();
   }
 
   function openHoldingEntrySheet() {
@@ -4402,7 +4489,7 @@ function App() {
         },
         token
       );
-      setTxForm(createTransactionForm());
+      setTxForm(createTransactionForm(normalizeIsoDateKey(transactionHistoryToday, todayIso())));
       setTxCategoryMajor("");
       setShowTransactionEntryBanner(false);
       setShowTransactionForm(false);
@@ -6415,6 +6502,8 @@ function App() {
         className="transaction-quick-form transaction-entry-sheet-form"
         data-testid="transaction-quick-form"
         onSubmit={submitTransaction}
+        onFocusCapture={(event) => rememberTransactionQuickField(event.target)}
+        onPointerDownCapture={rememberActiveTransactionQuickField}
       >
         <label className="transaction-quick-amount-field">
           <span>금액</span>
@@ -6439,7 +6528,7 @@ function App() {
             type="button"
             className="secondary transaction-quick-resume"
             data-testid="transaction-quick-resume"
-            onClick={focusTransactionQuickAmount}
+            onClick={restoreTransactionQuickFocus}
             disabled={transactionFormDisabled}
           >
             입력 계속하기
@@ -6554,7 +6643,7 @@ function App() {
                 <button
                   type="button"
                   className="secondary today-btn"
-                  onClick={() => setTxForm((prev) => ({ ...prev, occurred_on: todayIso() }))}
+                  onClick={() => setTxForm((prev) => ({ ...prev, occurred_on: normalizeIsoDateKey(transactionHistoryToday, todayIso()) }))}
                   disabled={transactionFormDisabled}
                 >
                   오늘
@@ -6645,7 +6734,7 @@ function App() {
           <button
             type="button"
             className="secondary today-btn"
-            onClick={() => setTxForm((prev) => ({ ...prev, occurred_on: todayIso() }))}
+            onClick={() => setTxForm((prev) => ({ ...prev, occurred_on: normalizeIsoDateKey(transactionHistoryToday, todayIso()) }))}
             disabled={transactionFormDisabled}
           >
             오늘
