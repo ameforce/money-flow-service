@@ -2140,11 +2140,15 @@ button.danger:active:not(:disabled) {
 }
 
 .transaction-quick-section-title {
-  display: grid;
-  gap: 0.14rem;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.35rem;
+  min-width: 0;
 }
 
 .transaction-quick-section-title > span {
+  flex: 0 0 auto;
   font-weight: 900;
   color: #16233a;
 }
@@ -2157,43 +2161,73 @@ button.danger:active:not(:disabled) {
   line-height: 1.35;
 }
 
-.transaction-quick-category-panel {
-  display: grid;
-  gap: 0.48rem;
+.transaction-quick-section-title small {
+  min-width: 0;
+  overflow: hidden;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.transaction-quick-category-chips {
+.transaction-quick-category-panel {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.46rem;
+  gap: 0.32rem;
   min-width: 0;
 }
 
+.transaction-quick-category-chips {
+  display: flex;
+  gap: 0.38rem;
+  min-width: 0;
+  margin: 0 -0.1rem;
+  padding: 0.02rem 0.1rem 0.14rem;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+}
+
+.transaction-quick-category-chips::-webkit-scrollbar {
+  display: none;
+}
+
 .transaction-quick-category-chip {
-  min-height: 2.86rem;
-  justify-content: flex-start;
-  align-items: flex-start;
-  padding: 0.58rem 0.68rem;
+  flex: 0 0 auto;
+  display: inline-flex;
+  min-height: 2.34rem;
+  max-width: min(12.5rem, 72vw);
+  justify-content: center;
+  align-items: center;
+  gap: 0.28rem;
+  padding: 0.42rem 0.62rem;
   border-color: #d7e2f1;
+  border-radius: 999px;
   background: #f7fbff;
   color: #21385b;
-  text-align: left;
-  white-space: normal;
-  word-break: keep-all;
-  overflow-wrap: anywhere;
+  text-align: center;
+  white-space: nowrap;
+  word-break: normal;
+  overflow-wrap: normal;
+  scroll-snap-align: start;
 }
 
 .transaction-quick-category-chip span {
   display: block;
-  width: 100%;
-  font-size: 0.88rem;
-  line-height: 1.25;
+  min-width: 0;
+  max-width: 8.8rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.84rem;
+  line-height: 1.12;
   font-weight: 900;
 }
 
 .transaction-quick-category-chip small {
   display: block;
-  margin-top: 0.14rem;
+  flex: 0 0 auto;
+  margin-top: 0;
+  font-size: 0.7rem;
+  line-height: 1.1;
 }
 
 .transaction-quick-category-chip.selected {

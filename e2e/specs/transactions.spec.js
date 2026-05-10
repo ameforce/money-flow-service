@@ -567,9 +567,31 @@ test("mobile quick entry restores the active field instead of jumping back to am
   const memoInput = labeledField(transactionSheet, "메모", "input");
   await expect(quickAmount).toBeFocused();
 
+  await page.evaluate(() => {
+    window.__e2eScrollIntoViewCalls = [];
+    const original = Element.prototype.scrollIntoView;
+    if (!window.__e2eOriginalScrollIntoView) {
+      Object.defineProperty(window, "__e2eOriginalScrollIntoView", {
+        configurable: true,
+        value: original,
+      });
+    }
+    Element.prototype.scrollIntoView = function scrollIntoViewSpy(options) {
+      window.__e2eScrollIntoViewCalls.push({
+        tagName: this.tagName,
+        testId: this.getAttribute("data-testid") || "",
+        label: this.closest("label")?.textContent?.trim() || "",
+        block: options && typeof options === "object" ? String(options.block || "") : "",
+      });
+    };
+  });
+
   await quickAmount.fill("24680");
   await quickAmount.press("Enter");
   await expect(memoInput).toBeFocused();
+  await expect
+    .poll(() => page.evaluate(() => window.__e2eScrollIntoViewCalls || []))
+    .toContainEqual(expect.objectContaining({ label: expect.stringContaining("메모") }));
   await memoInput.fill("포커스 유지 메모");
 
   await page.evaluate(() => {
@@ -585,6 +607,95 @@ test("mobile quick entry restores the active field instead of jumping back to am
   await expect(quickAmount).not.toBeFocused();
 
   await capture(page, "transactions-quick-entry-focus-restore");
+});
+
+test("mobile quick entry defaults owner to current user over recent other member", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("tx-quick-current-owner")}@example.com`;
+  const displayName = "댕";
+  const otherDisplayName = "찌";
+  const otherUserId = `other-user-${Date.now()}`;
+  const ownerCategory = {
+    major: unique("현재거래자"),
+    minor: unique("최근타인"),
+  };
+
+  await registerAndVerify(page, { email, displayName });
+  const currentUser = await page.evaluate(async () => {
+    const response = await fetch("/api/v1/auth/me", { credentials: "include" });
+    return response.json();
+  });
+  const category = await createCategoryViaApi(page, ownerCategory);
+  const createdAt = new Date().toISOString();
+
+  await page.route("**/api/v1/household/members", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([
+        {
+          member_id: "member-current",
+          user_id: currentUser.id,
+          email,
+          display_name: displayName,
+          role: "owner",
+          created_at: createdAt,
+        },
+        {
+          member_id: "member-other",
+          user_id: otherUserId,
+          email: "jji@example.com",
+          display_name: otherDisplayName,
+          role: "editor",
+          created_at: createdAt,
+        },
+      ]),
+    });
+  });
+  await page.route("**/api/v1/transactions/history**", async (route) => {
+    const today = currentE2EHistoryDateIso();
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: [
+          {
+            id: "mock-other-owner-transaction",
+            household_id: "mock-household",
+            category_id: category.id,
+            occurred_on: today,
+            flow_type: "expense",
+            amount: "1000",
+            currency: "KRW",
+            memo: "최근 타인 거래",
+            owner_user_id: otherUserId,
+            owner_name: otherDisplayName,
+            source_ref: null,
+            version: 1,
+            created_at: createdAt,
+            updated_at: createdAt,
+          },
+        ],
+        older_cursor: null,
+        newer_cursor: null,
+        has_older: false,
+        has_newer: false,
+        anchor_date: today,
+        today,
+      }),
+    });
+  });
+  await page.reload();
+
+  const transactionSheet = await openMobileTransactionQuickEntry(page);
+  await transactionSheet.getByText("추가 입력").click();
+  const ownerSelect = labeledField(transactionSheet, "거래자", "select");
+  await expect(ownerSelect).toHaveValue(currentUser.id);
+  await expect(ownerSelect.locator("option:checked")).toContainText(displayName);
+  await expect(ownerSelect.locator("option:checked")).not.toContainText(otherDisplayName);
+
+  await capture(page, "transactions-quick-entry-current-owner");
 });
 
 test("mobile quick entry keeps owner override and filters ordered category chips", async ({ page }) => {
@@ -654,6 +765,18 @@ test("mobile quick entry keeps owner override and filters ordered category chips
   await expect(page.locator("tr.transaction-row", { hasText: staleMemo }).first()).toBeVisible();
   const chips = page.getByTestId("transaction-quick-category-chip");
   await expect(chips.first()).toBeVisible();
+  const chipLayout = await page.locator(".transaction-quick-category-chips").evaluate((container) => {
+    const firstChip = container.querySelector("[data-testid='transaction-quick-category-chip']");
+    const containerStyle = getComputedStyle(container);
+    return {
+      display: containerStyle.display,
+      overflowX: containerStyle.overflowX,
+      chipHeight: firstChip?.getBoundingClientRect().height || 0,
+    };
+  });
+  expect(chipLayout.display).toBe("flex");
+  expect(["auto", "scroll"]).toContain(chipLayout.overflowX);
+  expect(chipLayout.chipHeight).toBeLessThanOrEqual(42);
   await expect(chips.first()).toContainText(recentExpenseCategory.minor);
   const chipTexts = (await chips.allTextContents()).join(" ");
   expect(chipTexts).toContain(recentExpenseCategory.minor);

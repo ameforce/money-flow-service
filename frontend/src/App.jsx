@@ -1705,6 +1705,7 @@ function App() {
   const txQuickMemoInputRef = useRef(null);
   const txQuickFormRef = useRef(null);
   const txQuickLastFocusedFieldRef = useRef(null);
+  const txQuickFocusScrollTimersRef = useRef([]);
   const holdingNameInputRef = useRef(null);
   const txCategoryManagerRef = useRef(null);
   const transactionSupportDetailsRef = useRef(null);
@@ -2252,6 +2253,7 @@ function App() {
       items: holdingTypeTotals,
     };
   }, [holdingCategoryTotals, holdingOwnerTotals, holdingSummaryViewMode, holdingTypeTotals]);
+  const currentUserId = String(user?.id || "").trim();
   const ownerMemberOptions = useMemo(() => {
     return householdMembers
       .map((member) => {
@@ -2280,30 +2282,15 @@ function App() {
       return null;
     }
 
-    const memberById = new Map(ownerMemberOptions.map((option) => [option.value, option]));
-    const recentItems = [...transactionLedgerItems].sort((left, right) => {
-      const leftDate = String(left?.occurred_on || "");
-      const rightDate = String(right?.occurred_on || "");
-      if (leftDate !== rightDate) {
-        return rightDate.localeCompare(leftDate);
-      }
-      const leftCreated = Date.parse(String(left?.created_at || left?.updated_at || ""));
-      const rightCreated = Date.parse(String(right?.created_at || right?.updated_at || ""));
-      if (Number.isFinite(leftCreated) && Number.isFinite(rightCreated) && leftCreated !== rightCreated) {
-        return rightCreated - leftCreated;
-      }
-      return String(right?.id || "").localeCompare(String(left?.id || ""));
-    });
-
-    for (const item of recentItems) {
-      const ownerUserId = String(item?.owner_user_id || "").trim();
-      if (memberById.has(ownerUserId)) {
-        return memberById.get(ownerUserId);
-      }
+    const currentOwnerOption = currentUserId
+      ? ownerMemberOptions.find((option) => option.value === currentUserId)
+      : null;
+    if (currentOwnerOption) {
+      return currentOwnerOption;
     }
 
     return ownerMemberOptions.length === 1 ? ownerMemberOptions[0] : null;
-  }, [ownerMemberOptions, transactionLedgerItems, txForm.owner_name, txForm.owner_user_id, txQuickOwnerTouched]);
+  }, [currentUserId, ownerMemberOptions, txForm.owner_name, txForm.owner_user_id, txQuickOwnerTouched]);
   const categoryGroups = useMemo(() => {
     const flows = new Map();
     for (const category of categories) {
@@ -2810,6 +2797,7 @@ function App() {
     setShowTransactionForm(false);
     setTxEntrySheetStep("form");
     setShowTransactionQuickResume(false);
+    clearTransactionQuickFocusScrollTimers();
     if (!isCompactViewport) {
       return;
     }
@@ -2849,14 +2837,74 @@ function App() {
     );
   }
 
+  function clearTransactionQuickFocusScrollTimers() {
+    if (typeof window === "undefined") {
+      txQuickFocusScrollTimersRef.current = [];
+      return;
+    }
+    for (const timerId of txQuickFocusScrollTimersRef.current) {
+      window.clearTimeout(timerId);
+    }
+    txQuickFocusScrollTimersRef.current = [];
+  }
+
+  function keepTransactionQuickFieldVisible(element) {
+    if (!isTransactionQuickRestorableField(element) || typeof window === "undefined") {
+      return;
+    }
+    clearTransactionQuickFocusScrollTimers();
+    const run = () => {
+      if (!isTransactionQuickRestorableField(element)) {
+        return;
+      }
+      element.scrollIntoView?.({
+        behavior: "smooth",
+        block: "center",
+        inline: "nearest",
+      });
+
+      const sheet = txQuickFormRef.current?.closest(".transaction-entry-sheet");
+      if (!sheet) {
+        return;
+      }
+      const viewport = window.visualViewport;
+      const visibleTop = viewport ? viewport.offsetTop : 0;
+      const visibleBottom = viewport ? viewport.offsetTop + viewport.height : window.innerHeight;
+      const rect = element.getBoundingClientRect();
+      const lowerGuard = visibleBottom - Math.max(96, Math.round(window.innerHeight * 0.18));
+      const upperGuard = visibleTop + 72;
+      if (rect.bottom > lowerGuard) {
+        sheet.scrollBy?.({ top: rect.bottom - lowerGuard + 18, behavior: "smooth" });
+      } else if (rect.top < upperGuard) {
+        sheet.scrollBy?.({ top: rect.top - upperGuard - 18, behavior: "smooth" });
+      }
+    };
+
+    window.requestAnimationFrame(run);
+    txQuickFocusScrollTimersRef.current = [120, 320].map((delay) => window.setTimeout(run, delay));
+  }
+
   function rememberTransactionQuickField(element) {
     if (isTransactionQuickRestorableField(element)) {
       txQuickLastFocusedFieldRef.current = element;
     }
   }
 
+  function handleTransactionQuickFieldFocus(element) {
+    rememberTransactionQuickField(element);
+    keepTransactionQuickFieldVisible(element);
+  }
+
   function rememberActiveTransactionQuickField() {
     rememberTransactionQuickField(document.activeElement);
+  }
+
+  function getTransactionQuickFields() {
+    const quickForm = txQuickFormRef.current;
+    if (!quickForm) {
+      return [];
+    }
+    return Array.from(quickForm.querySelectorAll(MOBILE_FORM_FIELD_SELECTOR)).filter(isFocusableFormField);
   }
 
   function getTransactionQuickFocusTarget() {
@@ -2878,6 +2926,7 @@ function App() {
     const restored = document.activeElement === target;
     if (restored) {
       txQuickLastFocusedFieldRef.current = target;
+      keepTransactionQuickFieldVisible(target);
     }
     return restored;
   }
@@ -2890,8 +2939,49 @@ function App() {
     });
   }
 
+  function focusNextTransactionQuickField(target) {
+    const fields = getTransactionQuickFields();
+    const currentIndex = fields.indexOf(target);
+    const nextField = fields.slice(currentIndex + 1).find(isFocusableFormField);
+    if (!nextField) {
+      return false;
+    }
+    focusTransactionQuickTarget(nextField);
+    if (nextField instanceof HTMLInputElement && typeof nextField.select === "function") {
+      nextField.select();
+    }
+    return true;
+  }
+
+  function handleTransactionQuickFormKeyDown(event) {
+    if (
+      event.defaultPrevented ||
+      event.key !== "Enter" ||
+      event.shiftKey ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.altKey ||
+      event.isComposing
+    ) {
+      return;
+    }
+    const target = event.target;
+    if (!isTransactionQuickRestorableField(target)) {
+      return;
+    }
+    if (target.tagName === "TEXTAREA" && target.getAttribute("enterkeyhint") !== "next") {
+      return;
+    }
+
+    const shouldSubmit = target === txQuickMemoInputRef.current || !focusNextTransactionQuickField(target);
+    event.preventDefault();
+    if (shouldSubmit) {
+      txQuickFormRef.current?.requestSubmit?.();
+    }
+  }
+
   function handleTransactionQuickAmountKeyDown(event) {
-    if (event.key !== "Enter" || event.isComposing) {
+    if (event.defaultPrevented || event.key !== "Enter" || event.isComposing) {
       return;
     }
     event.preventDefault();
@@ -2899,7 +2989,15 @@ function App() {
   }
 
   function handleTransactionQuickMemoKeyDown(event) {
-    if (event.key !== "Enter" || event.isComposing || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) {
+    if (
+      event.defaultPrevented ||
+      event.key !== "Enter" ||
+      event.isComposing ||
+      event.shiftKey ||
+      event.ctrlKey ||
+      event.metaKey ||
+      event.altKey
+    ) {
       return;
     }
     event.preventDefault();
@@ -6372,7 +6470,6 @@ function App() {
     Boolean(inviteAcceptanceNotice?.householdId) &&
     household?.id !== inviteAcceptanceNotice?.householdId &&
     householdList.some((entry) => entry.household.id === inviteAcceptanceNotice?.householdId);
-  const currentUserId = String(user?.id || "").trim();
   const mySentInvites = useMemo(
     () =>
       householdInvites.filter(
@@ -6502,7 +6599,8 @@ function App() {
         className="transaction-quick-form transaction-entry-sheet-form"
         data-testid="transaction-quick-form"
         onSubmit={submitTransaction}
-        onFocusCapture={(event) => rememberTransactionQuickField(event.target)}
+        onFocusCapture={(event) => handleTransactionQuickFieldFocus(event.target)}
+        onKeyDownCapture={handleTransactionQuickFormKeyDown}
         onPointerDownCapture={rememberActiveTransactionQuickField}
       >
         <label className="transaction-quick-amount-field">
