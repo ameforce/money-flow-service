@@ -78,8 +78,8 @@ def make_backend_env(database_url: str | None) -> dict[str, str]:
     env = os.environ.copy()
     env_name = str(env.get("ENV", "")).strip().lower()
     if not env_name:
-        env["ENV"] = "dev"
-        env_name = "dev"
+        env["ENV"] = "local"
+        env_name = "local"
     is_production_env = env_name in {"prod", "production"}
     if not env.get("SECRET_KEY"):
         env["SECRET_KEY"] = secrets.token_urlsafe(48)
@@ -91,8 +91,8 @@ def make_backend_env(database_url: str | None) -> dict[str, str]:
         env["DATABASE_URL"] = "sqlite:///./dev_orchestrator.db"
         if is_production_env:
             # sqlite fallback is for local runs only; avoid prod-mode validation mismatch.
-            env["ENV"] = "dev"
-            print("[orchestrator] ENV=production with sqlite fallback -> forcing ENV=dev", flush=True)
+            env["ENV"] = "local"
+            print("[orchestrator] ENV=production with sqlite fallback -> forcing ENV=local", flush=True)
         print(f"[orchestrator] DATABASE_URL not set -> using {env['DATABASE_URL']}", flush=True)
     effective_env_name = str(env.get("ENV", "")).strip().lower()
     if not env.get("AUTH_COOKIE_SECURE") and effective_env_name not in {"prod", "production"}:
