@@ -17,6 +17,13 @@ export function unique(prefix) {
   return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 }
 
+function utcIsoToday() {
+  const date = new Date();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  return `${date.getUTCFullYear()}-${month}-${day}`;
+}
+
 export function isSharedE2EBaseUrl(baseUrl = process.env.E2E_BASE_URL || "") {
   const normalized = String(baseUrl || "").trim();
   if (!normalized) {
@@ -522,7 +529,10 @@ async function fillInputUntilValue(locator, inputValue, expectedValue, fieldName
   await expect(locator, `${fieldName} 입력값 확인`).toHaveValue(expectedValue);
 }
 
-export async function createBasicTransaction(page, { memo, amount = "12000", flowType = "", ownerless = false, occurredOn = "" }) {
+export async function createBasicTransaction(
+  page,
+  { memo, amount = "12000", flowType = "", ownerless = false, occurredOn = utcIsoToday() }
+) {
   await openTab(page, "거래");
   const transactionCard = page.locator("article.card", {
     has: page.getByRole("heading", { name: "거래 입력" }),

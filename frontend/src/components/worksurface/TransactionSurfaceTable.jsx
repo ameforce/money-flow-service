@@ -418,6 +418,7 @@ export function TransactionSurfaceTable({
                   className={`transaction-row transaction-row-${item.flow_type} ${isEditing ? "transaction-row-editing" : ""} ${isExpanded ? "mobile-row-expanded" : ""}`}
                   data-row-expanded={isExpanded ? "true" : "false"}
                   data-transaction-id={item.id}
+                  data-transaction-date={item.occurred_on}
                   onClick={handleRowToggle}
                   style={{
                     "--transaction-row-bg": rowAccent,

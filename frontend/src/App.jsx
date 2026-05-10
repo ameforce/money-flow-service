@@ -602,6 +602,14 @@ function mergeTransactionHistoryItems(currentItems, incomingItems) {
   return Array.from(byId.values()).sort(compareTransactionHistoryItems);
 }
 
+function filterTransactionHistoryItemsToToday(items, todayKey = todayIso()) {
+  const normalizedToday = normalizeIsoDateKey(todayKey);
+  return (items || []).filter((item) => {
+    const occurredOn = normalizeIsoDateKey(item?.occurred_on, "");
+    return Boolean(occurredOn) && occurredOn <= normalizedToday;
+  });
+}
+
 function shiftMonth(base, delta) {
   const anchor = new Date(base.year, base.month - 1, 1);
   anchor.setMonth(anchor.getMonth() + delta);
@@ -1641,6 +1649,9 @@ function App() {
   const transactionHistoryTopSentinelRef = useRef(null);
   const transactionHistoryBottomSentinelRef = useRef(null);
   const transactionHistoryScrollDirectionRef = useRef("");
+  const transactionHistoryMonthSyncScrollYRef = useRef(0);
+  const transactionHistoryMonthSyncFrameRef = useRef(0);
+  const transactionHistoryRequestGenerationRef = useRef(0);
   const roleNoticeStateRef = useRef({ householdId: "", role: "" });
   const receivedInviteIdsRef = useRef(new Set());
   const confirmResolveRef = useRef(null);
@@ -2362,9 +2373,19 @@ function App() {
         transactionHistoryScrollDirectionRef.current = nextScrollY > lastScrollY ? "down" : "up";
       }
       lastScrollY = nextScrollY;
+      requestTransactionHistoryMonthSync();
     };
     window.addEventListener("scroll", updateScrollDirection, { passive: true });
-    return () => window.removeEventListener("scroll", updateScrollDirection);
+    window.addEventListener("resize", requestTransactionHistoryMonthSync, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", updateScrollDirection);
+      window.removeEventListener("resize", requestTransactionHistoryMonthSync);
+      if (transactionHistoryMonthSyncFrameRef.current) {
+        window.cancelAnimationFrame(transactionHistoryMonthSyncFrameRef.current);
+        transactionHistoryMonthSyncFrameRef.current = 0;
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -3092,8 +3113,10 @@ function App() {
 
   function resetTransactionHistoryState() {
     const today = todayIso();
+    transactionHistoryRequestGenerationRef.current += 1;
     transactionHistoryLoadingRef.current = { initial: false, older: false, newer: false };
     transactionHistoryInitializedRef.current = false;
+    transactionHistoryMonthSyncScrollYRef.current = typeof window === "undefined" ? 0 : window.scrollY || 0;
     transactionHistoryAnchorDateRef.current = today;
     transactionHistoryTodayRef.current = today;
     setTransactionHistoryItems([]);
@@ -3108,19 +3131,144 @@ function App() {
     setTransactionHistoryError("");
   }
 
-  function captureTransactionHistoryScrollAnchor() {
+  function findVisibleTransactionHistoryDateKey() {
+    if (typeof document === "undefined" || typeof window === "undefined") {
+      return "";
+    }
+    const rows = Array.from(document.querySelectorAll("tr.transaction-row[data-transaction-id]"));
+    const threshold = getTransactionHistoryViewportThreshold();
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+    const currentScrollY = window.scrollY || window.pageYOffset || 0;
+    const previousSyncScrollY = transactionHistoryMonthSyncScrollYRef.current;
+    const inferredDirection =
+      Math.abs(currentScrollY - previousSyncScrollY) > 2
+        ? currentScrollY > previousSyncScrollY
+          ? "down"
+          : "up"
+        : transactionHistoryScrollDirectionRef.current;
+    const latestRow = rows[rows.length - 1];
+    const latestRowBox = latestRow?.getBoundingClientRect();
+    const isLatestRowVisible =
+      Boolean(latestRowBox) && latestRowBox.bottom > threshold && latestRowBox.top < viewportHeight;
+    const preferLatestVisible =
+      isLatestRowVisible ||
+      inferredDirection !== "up" ||
+      currentScrollY + viewportHeight >= document.documentElement.scrollHeight - 8;
+    let fallbackDateKey = "";
+    let fallbackDistance = Number.POSITIVE_INFINITY;
+    for (const row of rows) {
+      const box = row.getBoundingClientRect();
+      if (box.bottom <= threshold || box.top >= viewportHeight) {
+        continue;
+      }
+      const dateKey =
+        row.getAttribute("data-transaction-date") ||
+        row.querySelector(".desktop-date-text")?.textContent ||
+        "";
+      const normalizedDateKey = normalizeIsoDateKey(dateKey, "");
+      if (!normalizedDateKey) {
+        continue;
+      }
+      const distance = preferLatestVisible ? Math.abs(viewportHeight - box.bottom) : Math.abs(box.top - threshold);
+      if (distance < fallbackDistance) {
+        fallbackDateKey = normalizedDateKey;
+        fallbackDistance = distance;
+      }
+    }
+    return fallbackDateKey;
+  }
+
+  function syncTransactionHistoryMonthFromViewport() {
+    if (tabRef.current !== "transactions" || !transactionHistoryInitializedRef.current) {
+      return;
+    }
     if (typeof document === "undefined") {
+      return;
+    }
+    const currentScrollY = typeof window === "undefined" ? 0 : window.scrollY || window.pageYOffset || 0;
+    const activeElement = document.activeElement;
+    const isEditingMonthStepper =
+      activeElement instanceof HTMLElement && activeElement.closest(".transaction-list-card .month-stepper");
+    if (isEditingMonthStepper && Math.abs(currentScrollY - transactionHistoryMonthSyncScrollYRef.current) <= 2) {
+      return;
+    }
+    const visibleDateKey = findVisibleTransactionHistoryDateKey();
+    if (typeof window !== "undefined") {
+      transactionHistoryMonthSyncScrollYRef.current = currentScrollY;
+    }
+    if (!visibleDateKey) {
+      return;
+    }
+    if (transactionHistoryAnchorDateRef.current !== visibleDateKey) {
+      transactionHistoryAnchorDateRef.current = visibleDateKey;
+      setTransactionHistoryAnchorDate(visibleDateKey);
+    }
+    const visibleYearMonth = parseYearMonthKey(visibleDateKey.slice(0, 7));
+    if (!visibleYearMonth) {
+      return;
+    }
+    if (compareYearMonth(visibleYearMonth, yearMonthRef.current) === 0) {
+      return;
+    }
+    const nextYearMonth = { ...visibleYearMonth };
+    yearMonthRef.current = nextYearMonth;
+    setYearMonth(nextYearMonth);
+  }
+
+  function requestTransactionHistoryMonthSync() {
+    if (typeof window === "undefined" || transactionHistoryMonthSyncFrameRef.current) {
+      return;
+    }
+    transactionHistoryMonthSyncFrameRef.current = window.requestAnimationFrame(() => {
+      transactionHistoryMonthSyncFrameRef.current = 0;
+      syncTransactionHistoryMonthFromViewport();
+    });
+  }
+
+  function getTransactionHistoryViewportThreshold() {
+    if (typeof document === "undefined" || typeof window === "undefined") {
+      return 0;
+    }
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+    return (
+      [
+        "header.topbar",
+        ".transaction-list-card > .surface-list-heading",
+        ".transaction-list-card > .table-header-group",
+        ".transactions-mobile-ledger-head",
+      ].reduce((bottom, selector) => {
+        const box = document.querySelector(selector)?.getBoundingClientRect();
+        if (!box || box.bottom <= 0 || box.top >= viewportHeight) {
+          return bottom;
+        }
+        return Math.max(bottom, box.bottom);
+      }, 0) + 4
+    );
+  }
+
+  function captureTransactionHistoryScrollAnchor() {
+    if (typeof document === "undefined" || typeof window === "undefined") {
       return null;
     }
     const rows = Array.from(document.querySelectorAll("tr.transaction-row[data-transaction-id]"));
-    const topbarBottom = document.querySelector("header.topbar")?.getBoundingClientRect()?.bottom ?? 0;
-    const ledgerBottom =
-      document.querySelector(".transactions-mobile-ledger-head")?.getBoundingClientRect()?.bottom ?? 0;
-    const threshold = Math.max(topbarBottom, ledgerBottom, 0) + 4;
-    const anchorRow = rows.find((row) => {
+    const threshold = getTransactionHistoryViewportThreshold();
+    const visibleAnchorRow = rows.find((row) => {
       const box = row.getBoundingClientRect();
       return box.bottom > threshold && box.top < window.innerHeight;
     });
+    const anchorRow =
+      visibleAnchorRow ||
+      rows.reduce((best, row) => {
+        const box = row.getBoundingClientRect();
+        if (box.bottom <= threshold - 4 || box.top >= window.innerHeight + 720) {
+          return best;
+        }
+        const distance = Math.abs(box.top - threshold);
+        if (!best || distance < best.distance) {
+          return { row, distance };
+        }
+        return best;
+      }, null)?.row;
     if (!anchorRow) {
       return null;
     }
@@ -3134,16 +3282,32 @@ function App() {
     if (!anchor?.id || typeof document === "undefined") {
       return;
     }
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        const row = Array.from(document.querySelectorAll("tr.transaction-row[data-transaction-id]")).find(
-          (element) => element.getAttribute("data-transaction-id") === anchor.id
-        );
-        if (!row) {
-          return;
+    let attempts = 0;
+    const maxAttempts = 8;
+    const minAttempts = 4;
+    const restore = () => {
+      const row = Array.from(document.querySelectorAll("tr.transaction-row[data-transaction-id]")).find(
+        (element) => element.getAttribute("data-transaction-id") === anchor.id
+      );
+      if (!row) {
+        attempts += 1;
+        if (attempts <= maxAttempts) {
+          window.requestAnimationFrame(restore);
         }
-        window.scrollBy({ top: row.getBoundingClientRect().top - anchor.top, behavior: "auto" });
-      });
+        return;
+      }
+      const delta = row.getBoundingClientRect().top - anchor.top;
+      if (Math.abs(delta) > 1) {
+        window.scrollBy({ top: delta, behavior: "auto" });
+      }
+      requestTransactionHistoryMonthSync();
+      attempts += 1;
+      if ((attempts < minAttempts || Math.abs(delta) > 2) && attempts <= maxAttempts) {
+        window.requestAnimationFrame(restore);
+      }
+    };
+    requestAnimationFrame(() => {
+      requestAnimationFrame(restore);
     });
   }
 
@@ -3156,6 +3320,7 @@ function App() {
         const rows = document.querySelectorAll("tr.transaction-row[data-transaction-id]");
         const lastRow = rows[rows.length - 1];
         lastRow?.scrollIntoView?.({ block: "end", inline: "nearest", behavior: "auto" });
+        requestTransactionHistoryMonthSync();
       });
     });
   }
@@ -3167,8 +3332,15 @@ function App() {
     if (!nextToken || (direction !== "initial" && !cursor)) {
       return null;
     }
-    if (transactionHistoryLoadingRef.current[direction]) {
+    if (direction !== "initial" && transactionHistoryLoadingRef.current[direction]) {
       return null;
+    }
+    const requestGeneration =
+      direction === "initial"
+        ? transactionHistoryRequestGenerationRef.current + 1
+        : transactionHistoryRequestGenerationRef.current;
+    if (direction === "initial") {
+      transactionHistoryRequestGenerationRef.current = requestGeneration;
     }
     if (direction === "initial") {
       transactionHistoryScrollDirectionRef.current = "";
@@ -3189,6 +3361,9 @@ function App() {
         params.set("cursor", cursor);
       }
       const payload = await api(`${API_PREFIX}/transactions/history?${params.toString()}`, {}, nextToken);
+      if (requestGeneration !== transactionHistoryRequestGenerationRef.current) {
+        return null;
+      }
       const pageItems = Array.isArray(payload?.items) ? payload.items : [];
       const nextToday = normalizeIsoDateKey(payload?.today, transactionHistoryToday || todayIso());
       const currentAnchorDate =
@@ -3206,13 +3381,21 @@ function App() {
       setTransactionHistoryError("");
 
       if (direction === "older") {
+        const restoreAnchor = preserveAnchor ? captureTransactionHistoryScrollAnchor() || scrollAnchor : null;
         setTransactionHistoryItems((prev) => mergeTransactionHistoryItems(prev, pageItems));
         setTransactionHistoryOlderCursor(String(payload?.older_cursor || ""));
         setTransactionHistoryHasOlder(Boolean(payload?.has_older));
+        if (restoreAnchor) {
+          restoreTransactionHistoryScrollAnchor(restoreAnchor);
+        }
       } else if (direction === "newer") {
+        const restoreAnchor = preserveAnchor ? captureTransactionHistoryScrollAnchor() || scrollAnchor : null;
         setTransactionHistoryItems((prev) => mergeTransactionHistoryItems(prev, pageItems));
         setTransactionHistoryNewerCursor(String(payload?.newer_cursor || ""));
         setTransactionHistoryHasNewer(Boolean(payload?.has_newer));
+        if (restoreAnchor) {
+          restoreTransactionHistoryScrollAnchor(restoreAnchor);
+        }
       } else {
         setTransactionHistoryItems(mergeTransactionHistoryItems([], pageItems));
         setTransactionHistoryOlderCursor(String(payload?.older_cursor || ""));
@@ -3221,7 +3404,7 @@ function App() {
         setTransactionHistoryHasNewer(Boolean(payload?.has_newer));
       }
 
-      if (preserveAnchor) {
+      if (preserveAnchor && direction === "initial") {
         restoreTransactionHistoryScrollAnchor(scrollAnchor);
       } else if (options.alignToEnd && pageItems.length > 0) {
         scrollTransactionHistoryToEnd();
@@ -3249,7 +3432,9 @@ function App() {
       }
       return null;
     } finally {
-      setTransactionHistoryLoadingMode(direction, false);
+      if (direction !== "initial" || requestGeneration === transactionHistoryRequestGenerationRef.current) {
+        setTransactionHistoryLoadingMode(direction, false);
+      }
     }
   }
 
@@ -3276,7 +3461,7 @@ function App() {
     return loadTransactionHistoryPage({
       direction: "newer",
       cursor: transactionHistoryNewerCursor,
-      preserveScroll: true,
+      preserveScroll: false,
       silent: true,
     });
   }
@@ -3363,6 +3548,15 @@ function App() {
           setOverview(item.data);
         } else if (item.key === "transactions") {
           setTransactions(item.data);
+          if (tabRef.current === "transactions" && transactionHistoryInitializedRef.current) {
+            const historyToday = transactionHistoryTodayRef.current || transactionHistoryToday || todayIso();
+            setTransactionHistoryItems((prev) =>
+              mergeTransactionHistoryItems(
+                filterTransactionHistoryItemsToToday(prev, historyToday),
+                filterTransactionHistoryItemsToToday(item.data, historyToday)
+              )
+            );
+          }
         } else if (item.key === "holdings") {
           setHoldings(item.data);
         } else if (item.key === "portfolio") {
@@ -3372,7 +3566,7 @@ function App() {
           setPriceRefreshPolling(Boolean(item.data?.refresh_in_progress));
         }
       }
-      if (includeTransactions && (tabRef.current === "transactions" || transactionHistoryInitializedRef.current)) {
+      if (includeTransactions && tabRef.current !== "transactions" && transactionHistoryInitializedRef.current) {
         const historyAnchor =
           transactionHistoryAnchorDateRef.current || transactionHistoryTodayRef.current || todayIso();
         await loadTransactionHistoryPage({
@@ -3420,7 +3614,14 @@ function App() {
   function applyMonthFilter(targetYearMonth) {
     const { minMonth, maxMonth } = getMonthBounds();
     const normalized = clampYearMonth(targetYearMonth, minMonth, maxMonth);
+    if (typeof document !== "undefined") {
+      const activeElement = document.activeElement;
+      if (activeElement instanceof HTMLElement && activeElement.closest(".month-stepper")) {
+        activeElement.blur();
+      }
+    }
     setFilterMode("month");
+    yearMonthRef.current = normalized;
     setYearMonth(normalized);
     if (tab === "transactions" || transactionHistoryInitialized) {
       refreshTransactionHistoryAtAnchor(yearMonthEndDateKey(normalized, transactionHistoryToday || todayIso()), {
@@ -3432,11 +3633,30 @@ function App() {
   }
 
   function handleShiftYearMonth(delta) {
-    applyMonthFilter(shiftMonth(yearMonth, delta));
+    applyMonthFilter(shiftMonth(yearMonthRef.current, delta));
+  }
+
+  function updateYearMonthInput(part, value) {
+    const numericValue = Number(value);
+    const safeValue = Number.isFinite(numericValue) ? numericValue : 0;
+    setYearMonth((prev) => {
+      const next = { ...prev, [part]: safeValue };
+      yearMonthRef.current = next;
+      return next;
+    });
   }
 
   function handleApplyYearMonth() {
-    applyMonthFilter(yearMonth);
+    applyMonthFilter(yearMonthRef.current);
+  }
+
+  function handleYearMonthInputBlur(event) {
+    const relatedTarget = event.relatedTarget;
+    const stepper = event.currentTarget.closest(".month-stepper");
+    if (relatedTarget instanceof HTMLElement && stepper?.contains(relatedTarget)) {
+      return;
+    }
+    handleApplyYearMonth();
   }
 
   function applyRangeFilter(nextRange = range) {
@@ -5479,6 +5699,14 @@ function App() {
             const eventName = String(payload?.event || "");
             if (eventName.startsWith("transaction.")) {
               kind = "transaction";
+              if (eventName === "transaction.deleted") {
+                const deletedId = String(payload?.entity_id || "").trim();
+                if (deletedId) {
+                  setTransactionHistoryItems((prev) =>
+                    prev.filter((item) => String(item?.id || "") !== deletedId)
+                  );
+                }
+              }
             } else if (eventName.startsWith("holding.")) {
               kind = "holding";
             } else if (
@@ -6686,8 +6914,8 @@ function App() {
                           type="number"
                           aria-label="연도"
                           value={yearMonth.year}
-                          onChange={(e) => setYearMonth({ ...yearMonth, year: Number(e.target.value) })}
-                          onBlur={handleApplyYearMonth}
+                          onChange={(e) => updateYearMonthInput("year", e.target.value)}
+                          onBlur={handleYearMonthInputBlur}
                           onKeyDown={handleYearMonthInputKeyDown}
                           enterKeyHint="done"
                         />
@@ -6700,8 +6928,8 @@ function App() {
                           max="12"
                           aria-label="월"
                           value={yearMonth.month}
-                          onChange={(e) => setYearMonth({ ...yearMonth, month: Number(e.target.value) })}
-                          onBlur={handleApplyYearMonth}
+                          onChange={(e) => updateYearMonthInput("month", e.target.value)}
+                          onBlur={handleYearMonthInputBlur}
                           onKeyDown={handleYearMonthInputKeyDown}
                           enterKeyHint="done"
                         />
@@ -7011,28 +7239,32 @@ function App() {
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
                   </button>
                   <div className="date-inputs">
-                    <input
-                      type="number"
-                      aria-label="연도"
-                      value={yearMonth.year}
-                      onChange={(event) => setYearMonth({ ...yearMonth, year: Number(event.target.value) })}
-                      onBlur={handleApplyYearMonth}
-                      onKeyDown={handleYearMonthInputKeyDown}
-                      enterKeyHint="done"
-                    />
-                    <span>년</span>
-                    <input
-                      type="number"
-                      min="1"
-                      max="12"
-                      aria-label="월"
-                      value={yearMonth.month}
-                      onChange={(event) => setYearMonth({ ...yearMonth, month: Number(event.target.value) })}
-                      onBlur={handleApplyYearMonth}
-                      onKeyDown={handleYearMonthInputKeyDown}
-                      enterKeyHint="done"
-                    />
-                    <span>월</span>
+                    <span className="month-value-group">
+                      <input
+                        type="number"
+                        aria-label="연도"
+                        value={yearMonth.year}
+                        onChange={(event) => updateYearMonthInput("year", event.target.value)}
+                        onBlur={handleYearMonthInputBlur}
+                        onKeyDown={handleYearMonthInputKeyDown}
+                        enterKeyHint="done"
+                      />
+                      <span aria-hidden="true">년</span>
+                    </span>
+                    <span className="month-value-group month-value-group-month">
+                      <input
+                        type="number"
+                        min="1"
+                        max="12"
+                        aria-label="월"
+                        value={yearMonth.month}
+                        onChange={(event) => updateYearMonthInput("month", event.target.value)}
+                        onBlur={handleYearMonthInputBlur}
+                        onKeyDown={handleYearMonthInputKeyDown}
+                        enterKeyHint="done"
+                      />
+                      <span aria-hidden="true">월</span>
+                    </span>
                   </div>
                   <button
                     type="button"

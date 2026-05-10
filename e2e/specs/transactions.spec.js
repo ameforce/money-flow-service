@@ -24,10 +24,10 @@ function isoDaysAgo(days) {
 
 function isoDaysFromToday(days) {
   const date = new Date();
-  date.setDate(date.getDate() + days);
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${date.getFullYear()}-${month}-${day}`;
+  date.setUTCDate(date.getUTCDate() + days);
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  return `${date.getUTCFullYear()}-${month}-${day}`;
 }
 
 function yearMonthFromIso(value) {
@@ -46,9 +46,20 @@ async function jumpTransactionListToMonth(page, isoDate) {
 async function captureVisibleHistoryAnchor(page) {
   return page.evaluate(() => {
     const rows = Array.from(document.querySelectorAll("tr.transaction-row[data-transaction-id]"));
-    const topbarBottom = document.querySelector("header.topbar")?.getBoundingClientRect()?.bottom ?? 0;
-    const ledgerBottom = document.querySelector(".transactions-mobile-ledger-head")?.getBoundingClientRect()?.bottom ?? 0;
-    const threshold = Math.max(topbarBottom, ledgerBottom, 0) + 4;
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+    const threshold =
+      [
+        "header.topbar",
+        ".transaction-list-card > .surface-list-heading",
+        ".transaction-list-card > .table-header-group",
+        ".transactions-mobile-ledger-head",
+      ].reduce((bottom, selector) => {
+        const box = document.querySelector(selector)?.getBoundingClientRect();
+        if (!box || box.bottom <= 0 || box.top >= viewportHeight) {
+          return bottom;
+        }
+        return Math.max(bottom, box.bottom);
+      }, 0) + 4;
     const row = rows.find((candidate) => {
       const box = candidate.getBoundingClientRect();
       return box.bottom > threshold && box.top < window.innerHeight;
@@ -61,6 +72,225 @@ async function captureVisibleHistoryAnchor(page) {
       top: row.getBoundingClientRect().top,
     };
   });
+}
+
+async function expectTransactionMonthControls(page, isoDate, label = "transaction month controls") {
+  const { year, month } = yearMonthFromIso(isoDate);
+  const listCard = page.locator(".transaction-list-card").first();
+  await expect(listCard.getByLabel("연도"), `${label} year`).toHaveValue(String(year), { timeout: 6_000 });
+  await expect(listCard.getByLabel("월"), `${label} month`).toHaveValue(String(month), { timeout: 6_000 });
+}
+
+async function readTransactionMonthStepperLayout(page) {
+  return page.locator(".transaction-list-card .month-stepper").first().evaluate((stepper) => {
+    const boxOf = (selector) => {
+      const element = stepper.querySelector(selector);
+      const box = element?.getBoundingClientRect();
+      return box
+        ? {
+            x: box.x,
+            y: box.y,
+            width: box.width,
+            height: box.height,
+            centerY: box.y + box.height / 2,
+            boxShadow: getComputedStyle(element).boxShadow,
+          }
+        : null;
+    };
+    const stepperBox = stepper.getBoundingClientRect();
+    const controls = Array.from(stepper.querySelectorAll("button, .date-inputs")).map((element) => {
+      const box = element.getBoundingClientRect();
+      return {
+        tag: element.tagName,
+        className: element.className,
+        height: box.height,
+        centerY: box.y + box.height / 2,
+      };
+    });
+    const monthGroups = Array.from(stepper.querySelectorAll(".month-value-group")).map((group) => {
+      const input = group.querySelector("input")?.getBoundingClientRect();
+      const unit = group.querySelector("span")?.getBoundingClientRect();
+      return {
+        inputCenterY: input ? input.y + input.height / 2 : 0,
+        unitCenterY: unit ? unit.y + unit.height / 2 : 0,
+        inputHeight: input?.height ?? 0,
+        unitHeight: unit?.height ?? 0,
+      };
+    });
+    return {
+      stepper: {
+        height: stepperBox.height,
+        centerY: stepperBox.y + stepperBox.height / 2,
+        boxShadow: getComputedStyle(stepper).boxShadow,
+      },
+      dateInputs: boxOf(".date-inputs"),
+      controls,
+      monthGroups,
+    };
+  });
+}
+
+function expectMonthStepperCentered(layout, label = "transaction month stepper") {
+  expect(layout.stepper.height, `${label} should keep compact control height`).toBeLessThanOrEqual(44);
+  expect(layout.stepper.boxShadow, `${label} should not add shadow that visually offsets the filter`).toBe("none");
+  expect(layout.dateInputs, `${label} date inputs should be measurable`).not.toBeNull();
+  expect(Math.abs((layout.dateInputs?.centerY ?? 0) - layout.stepper.centerY), `${label} date input group center`).toBeLessThanOrEqual(1.5);
+  expect(layout.monthGroups.length, `${label} should group each numeric value with its unit`).toBeGreaterThanOrEqual(2);
+  for (const group of layout.monthGroups) {
+    expect(Math.abs(group.inputCenterY - group.unitCenterY), `${label} input/unit vertical center`).toBeLessThanOrEqual(1.5);
+    expect(Math.abs(group.inputHeight - group.unitHeight), `${label} input/unit line box`).toBeLessThanOrEqual(4);
+  }
+  for (const control of layout.controls) {
+    expect(Math.abs(control.centerY - layout.stepper.centerY), `${label} ${control.tag}.${control.className} center`).toBeLessThanOrEqual(2);
+  }
+}
+
+async function expectDesktopSidebarSticky(page) {
+  const viewport = page.viewportSize();
+  if ((viewport?.width ?? 0) <= 900) {
+    return;
+  }
+  const sidebar = page.locator(".topbar-tabs").first();
+  await expect(sidebar).toBeVisible();
+  const originalScrollY = await page.evaluate(() => window.scrollY);
+  await page.waitForTimeout(100);
+  const before = await sidebar.boundingBox();
+  expect(before, "desktop sidebar should have a bounding box before scroll").not.toBeNull();
+  await page.evaluate(() => {
+    const maxScrollY = Math.max(document.documentElement.scrollHeight - window.innerHeight, 0);
+    const originalY = window.scrollY;
+    const targetY = originalY > 720 ? originalY - 640 : Math.min(maxScrollY, originalY + 640);
+    window.scrollTo(0, targetY);
+  });
+  await page.waitForTimeout(200);
+  const after = await sidebar.boundingBox();
+  const style = await sidebar.evaluate((element) => {
+    const computed = getComputedStyle(element);
+    return {
+      position: computed.position,
+      overflowY: computed.overflowY,
+      maxHeight: computed.maxHeight,
+    };
+  });
+  expect(after, "desktop sidebar should have a bounding box after scroll").not.toBeNull();
+  expect(["sticky", "fixed"]).toContain(style.position);
+  expect(style.overflowY).toMatch(/auto|overlay/);
+  expect(style.maxHeight).not.toBe("none");
+  expect(Math.abs((after?.y ?? 0) - (before?.y ?? 0)), "desktop sidebar should follow viewport while scrolling").toBeLessThanOrEqual(2);
+  await page.evaluate((scrollY) => window.scrollTo(0, scrollY), originalScrollY);
+  await page.waitForTimeout(100);
+}
+
+async function expectMobileTransactionMonthStepperSticky(page) {
+  const viewport = page.viewportSize();
+  if ((viewport?.width ?? 0) > 760) {
+    return;
+  }
+  const headerGroup = page.locator(".transaction-list-card > .table-header-group").first();
+  const stepper = page.locator(".transaction-list-card .month-stepper").first();
+  await expect(headerGroup).toBeVisible();
+  await expect(stepper).toBeVisible();
+  const state = await headerGroup.evaluate((element) => {
+    const headerBox = element.getBoundingClientRect();
+    const stepperBox = element.querySelector(".month-stepper")?.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    return {
+      position: style.position,
+      top: style.top,
+      headerTop: headerBox.top,
+      headerBottom: headerBox.bottom,
+      stepperTop: stepperBox?.top ?? null,
+      stepperBottom: stepperBox?.bottom ?? null,
+    };
+  });
+  expect(["sticky", "fixed"]).toContain(state.position);
+  expect(state.top).not.toBe("auto");
+  expect(state.stepperTop, `mobile month stepper should stay in viewport: ${JSON.stringify(state)}`).not.toBeNull();
+  expect(state.stepperTop ?? -1).toBeGreaterThanOrEqual(0);
+  expect(state.stepperBottom ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual((viewport?.height ?? 0) - 72);
+}
+
+async function expectDesktopTransactionRowsSingleLine(page) {
+  const viewport = page.viewportSize();
+  if ((viewport?.width ?? 0) <= 760) {
+    return;
+  }
+  const metrics = await page.locator(".transactions-surface-table tbody tr.transaction-row").evaluateAll((rows) =>
+    rows.slice(0, 12).map((row) => {
+      const box = row.getBoundingClientRect();
+      const category = row.querySelector(".category-cell");
+      const compact = row.querySelector(".category-cell-compact");
+      const major = row.querySelector(".category-cell-major");
+      const minor = row.querySelector(".category-cell-minor");
+      const emptyCategory = row.querySelector(".category-cell-empty");
+      const memo = row.querySelector(".transaction-memo-text");
+      return {
+        height: box.height,
+        categoryDisplay: category ? getComputedStyle(category).display : "",
+        compactDisplay: compact ? getComputedStyle(compact).display : "",
+        majorDisplay: major ? getComputedStyle(major).display : "",
+        minorDisplay: minor ? getComputedStyle(minor).display : "",
+        emptyCategoryDisplay: emptyCategory ? getComputedStyle(emptyCategory).display : "",
+        memoWhiteSpace: memo ? getComputedStyle(memo).whiteSpace : "",
+        memoOverflowY: memo ? memo.scrollHeight - memo.clientHeight : 0,
+      };
+    })
+  );
+  expect(metrics.length, "desktop transaction rows should be measurable").toBeGreaterThan(0);
+  expect(
+    metrics.every((row) => row.height <= 44),
+    `desktop rows should remain Excel-like one-line rows: ${JSON.stringify(metrics)}`
+  ).toBe(true);
+  const categoryColumnRows = metrics.filter((row) => row.categoryDisplay || row.emptyCategoryDisplay);
+  expect(categoryColumnRows.length, "desktop category column should be measured").toBeGreaterThan(0);
+  const categorizedRows = categoryColumnRows.filter((row) => row.categoryDisplay);
+  if (categorizedRows.length > 0) {
+    expect(
+      categorizedRows.every((row) => row.compactDisplay !== "none" && row.majorDisplay === "none" && row.minorDisplay === "none"),
+      `desktop category cells should render as one compact line: ${JSON.stringify(categorizedRows)}`
+    ).toBe(true);
+  }
+  expect(
+    metrics.every((row) => row.memoWhiteSpace === "nowrap" && row.memoOverflowY <= 3),
+    `desktop memo cells should stay one line: ${JSON.stringify(metrics)}`
+  ).toBe(true);
+}
+
+async function scrollHistoryRowIntoViewport(page, text, expectedIsoDate, block = "center", loadDirection = "down") {
+  await expect
+    .poll(
+      async () =>
+        page.evaluate(
+          ({ block: scrollBlock, expectedIsoDate: expectedDate, loadDirection: direction, text: rowText }) => {
+            const rows = Array.from(document.querySelectorAll("tr.transaction-row"));
+            const row = rows.find((element) => element.textContent?.includes(rowText));
+            if (!row) {
+              if (direction === "up") {
+                if ((window.scrollY || window.pageYOffset || 0) <= 8) {
+                  window.scrollTo(0, Math.min(document.body.scrollHeight, window.innerHeight * 0.75));
+                } else {
+                  window.scrollTo(0, 0);
+                }
+              } else {
+                window.scrollTo(0, document.body.scrollHeight);
+              }
+              return "missing";
+            }
+            row.scrollIntoView({ block: scrollBlock, inline: "nearest", behavior: "auto" });
+            const box = row.getBoundingClientRect();
+            const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+            if (box.bottom <= 0 || box.top >= viewportHeight) {
+              return "offscreen";
+            }
+            const dateKey = row.getAttribute("data-transaction-date") || "";
+            return dateKey === expectedDate ? "ready" : `date:${dateKey}`;
+          },
+          { block, expectedIsoDate, loadDirection, text }
+        ),
+      { message: `scroll ${text} into the transaction viewport`, timeout: 40_000 }
+    )
+    .toBe("ready");
+  await page.waitForTimeout(250);
 }
 
 test("transactions flow: create, inline edit, delete, responsive", async ({ page }) => {
@@ -208,7 +438,7 @@ test("transactions history scrolls older and newer without future rows while kee
   const seeded = [];
   const totalSeedRows = 90;
   const oldestDaysAgo = totalSeedRows - 1;
-  const createAnchorDate = isoDaysAgo(86);
+  const createAnchorDate = isoDaysAgo(45);
   const futureDate = isoDaysFromToday(3);
   const futureMemo = `${prefix}-future`;
 
@@ -247,6 +477,9 @@ test("transactions history scrolls older and newer without future rows while kee
   await expect(page.locator(".transaction-history-date-row", { hasText: futureDate })).toHaveCount(0);
   await expect(page.locator("th .sort-header-static").first()).toHaveAttribute("aria-label", /연속 내역순 고정/);
   await expect(page.locator("th button.sort-header")).toHaveCount(0);
+  await expectTransactionMonthControls(page, seeded[seeded.length - 1].occurredOn, "initial today anchor");
+  expectMonthStepperCentered(await readTransactionMonthStepperLayout(page), "desktop transaction month stepper");
+  await expectDesktopSidebarSticky(page);
 
   const historyRoutePattern = "**/api/v1/transactions/history**";
   let resolveOlderRoute;
@@ -269,19 +502,38 @@ test("transactions history scrolls older and newer without future rows while kee
   await anchorRow.scrollIntoViewIfNeeded();
   await expect(anchorRow).toBeVisible();
 
+  const oldestRow = page.locator("tr.transaction-row", { hasText: oldestMemo }).first();
   let olderRoute = await Promise.race([olderRoutePromise, page.waitForTimeout(750).then(() => null)]);
-  if (!olderRoute) {
+  for (let attempt = 0; attempt < 5 && !olderRoute; attempt += 1) {
+    if (await oldestRow.isVisible().catch(() => false)) {
+      break;
+    }
     await page.evaluate(() => window.scrollBy(0, -2400));
-    olderRoute = await olderRoutePromise;
+    olderRoute = await Promise.race([olderRoutePromise, page.waitForTimeout(1_000).then(() => null)]);
   }
   const anchorBefore = await captureVisibleHistoryAnchor(page);
   expect(anchorBefore?.id, "history anchor row should be capturable while older page is loading").toBeTruthy();
-  await olderRoute.continue();
+  if (olderRoute) {
+    await olderRoute.continue();
+  }
   await page.unroute(historyRoutePattern, holdOlderHistoryRoute);
-  await expect(page.locator("tr.transaction-row", { hasText: oldestMemo }).first()).toBeVisible({ timeout: 40_000 });
-  const anchorAfter = await page.locator(`tr.transaction-row[data-transaction-id="${anchorBefore.id}"]`).boundingBox();
-  expect(anchorAfter, "history anchor row should have a bounding box after older load").not.toBeNull();
-  expect(Math.abs((anchorAfter?.y ?? 0) - (anchorBefore?.top ?? 0))).toBeLessThanOrEqual(120);
+  await expect(oldestRow).toBeVisible({ timeout: 40_000 });
+  const anchorLocator = page.locator(`tr.transaction-row[data-transaction-id="${anchorBefore.id}"]`);
+  await expect
+    .poll(
+      async () => {
+        const anchorAfter = await anchorLocator.boundingBox();
+        if (!anchorAfter) {
+          return Number.POSITIVE_INFINITY;
+        }
+        return Math.abs(anchorAfter.y - (anchorBefore?.top ?? 0));
+      },
+      { message: "history anchor row should settle near its previous viewport position", timeout: 4_000 }
+    )
+    .toBeLessThanOrEqual(120);
+  await scrollHistoryRowIntoViewport(page, oldestMemo, seeded[0].occurredOn, "start", "up");
+  await expectTransactionMonthControls(page, seeded[0].occurredOn, "older visible anchor");
+  await expect(page.locator(".transaction-history-date-row", { hasText: seeded[0].occurredOn })).toBeVisible();
   const rowIds = await page.locator("tr.transaction-row").evaluateAll((rows) =>
     rows.map((row) => row.getAttribute("data-transaction-id")).filter(Boolean)
   );
@@ -310,8 +562,18 @@ test("transactions history scrolls older and newer without future rows while kee
     await page.waitForTimeout(1_000);
   }
   await expect(todayRow).toBeVisible({ timeout: 40_000 });
+  await scrollHistoryRowIntoViewport(page, todayMemo, seeded[seeded.length - 1].occurredOn, "end");
+  await expectTransactionMonthControls(page, seeded[seeded.length - 1].occurredOn, "newer visible anchor");
   await expect(page.locator("tr.transaction-row", { hasText: futureMemo })).toHaveCount(0);
   await expect(page.locator(".transaction-history-date-row", { hasText: futureDate })).toHaveCount(0);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await scrollHistoryRowIntoViewport(page, todayMemo, seeded[seeded.length - 1].occurredOn, "end", "down");
+  await expectTransactionMonthControls(page, seeded[seeded.length - 1].occurredOn, "mobile today anchor before older scroll");
+  await scrollHistoryRowIntoViewport(page, oldestMemo, seeded[0].occurredOn, "start", "up");
+  await expectTransactionMonthControls(page, seeded[0].occurredOn, "mobile older visible anchor");
+  expectMonthStepperCentered(await readTransactionMonthStepperLayout(page), "mobile transaction month stepper");
+  await expectMobileTransactionMonthStepperSticky(page);
   await capture(page, "transactions-history-scroll-continuity");
 });
 
@@ -374,6 +636,7 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   await expect(staticDateSort).toBeVisible();
   await expect(staticDateSort).toHaveAttribute("aria-label", /연속 내역순 고정/);
   await expect(page.locator("th button.sort-header")).toHaveCount(0);
+  await expectDesktopTransactionRowsSingleLine(page);
 
   await createdRow.locator("td").first().locator("input[type='checkbox']").check();
   const selectedSummaryBanner = page.locator(".message", { hasText: "선택 1건" }).first();
@@ -594,10 +857,16 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   await page.evaluate(() => window.scrollBy(0, 620));
   await page.waitForTimeout(400);
   await expect(page.locator(".transactions-mobile-ledger-head")).toHaveAttribute("data-sticky-active", "true");
+  await expectMobileTransactionMonthStepperSticky(page);
   await expectStickyStack(
     page.locator(".transaction-list-card > .surface-list-heading").first(),
-    page.locator(".transactions-mobile-ledger-head"),
+    page.locator(".transaction-list-card > .table-header-group").first(),
     { maxLedgerY: 128, gapAllowance: 4 }
+  );
+  await expectStickyStack(
+    page.locator(".transaction-list-card > .table-header-group").first(),
+    page.locator(".transactions-mobile-ledger-head"),
+    { maxLedgerY: 188, gapAllowance: 4 }
   );
   const stickyLedgerHead = page.locator(".transactions-mobile-ledger-head");
   const stickyHeadingBox = await page.locator(".transaction-list-card > .surface-list-heading").first().boundingBox();
