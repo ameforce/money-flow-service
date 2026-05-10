@@ -49,11 +49,15 @@ test("holdings flow: create, inline edit, delete, responsive", async ({ page }) 
       await holdingSummaryCard.locator("summary").click();
     }
     await expect(holdingSummaryCard).toHaveAttribute("open", "");
-    await expect(holdingSummaryCard.getByText("자산 포트폴리오 요약")).toBeVisible();
-    const assetsPortfolioSelect = holdingSummaryCard.getByLabel("자산 포트폴리오 보기 기준");
-    await expect(assetsPortfolioSelect).toBeVisible();
-    await assetsPortfolioSelect.selectOption("transaction_flow");
-    await expect(holdingSummaryCard).toContainText("거래 유형 비중");
+    await expect(holdingSummaryCard.getByText("자산 포트폴리오 차트")).toBeVisible();
+    await expect(holdingSummaryCard.getByRole("heading", { name: "자산 포트폴리오" })).toBeVisible();
+    await expect(holdingSummaryCard).not.toContainText("총자산");
+    await expect(holdingSummaryCard).not.toContainText("현재 보유 자산");
+    await expect(holdingSummaryCard).not.toContainText("평가금액 기준");
+    await expect(holdingSummaryCard.getByLabel("자산 포트폴리오 보기 기준")).toHaveCount(0);
+    await expect(holdingSummaryCard).not.toContainText("거래 유형 비중");
+    await expect(holdingSummaryCard).not.toContainText("거래 카테고리");
+    await expect(holdingSummaryCard).not.toContainText("보유 카테고리");
     await expect(holdingSummaryCard).toContainText("표시할 포트폴리오 데이터가 없습니다.");
     const emptyPortfolioChartHeight = await holdingSummaryCard
       .locator(".compact-support-section")
@@ -62,13 +66,12 @@ test("holdings flow: create, inline edit, delete, responsive", async ({ page }) 
       .first()
       .evaluate((element) => element.getBoundingClientRect().height);
     expect(emptyPortfolioChartHeight).toBeLessThanOrEqual(120);
-    await assetsPortfolioSelect.selectOption("holding_category");
-    await expect(assetsPortfolioSelect).toHaveValue("holding_category");
-    await expect(holdingSummaryCard).toContainText("보유 카테고리 비중");
     const holdingSummarySelect = holdingSummaryCard.getByLabel("자산 요약 보기 기준");
     await expect(holdingSummarySelect).toBeVisible();
     await holdingSummarySelect.selectOption("category");
-    await expect(holdingSummaryCard).toContainText("카테고리 비중");
+    await expect(holdingSummaryCard).toContainText("자산 분류 상위 항목");
+    await expect(holdingSummaryCard.locator(".compact-support-section .chart-wrap")).toHaveCount(1);
+    await expect(holdingSummaryCard.getByTestId("holding-donut-slice-label")).toHaveCount(0);
   }
   await capture(page, "holdings-entry");
 
@@ -133,10 +136,11 @@ test("holdings flow: create, inline edit, delete, responsive", async ({ page }) 
   expect(holdingTableBoxInitial, "holding table should have a bounding box").not.toBeNull();
   expect(mobileTopbarBox?.height ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(88);
   if (inFlowMessageBox) {
-    expect(inFlowMessageBox.y + inFlowMessageBox.height).toBeLessThanOrEqual((holdingHeadingBox?.y ?? 0) + 8);
+    await expect(inFlowMessage).toHaveCSS("position", "fixed");
     expect(holdingHeadingBox?.y ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
-      inFlowMessageBox.y + inFlowMessageBox.height + 80,
+      Math.max(0, (mobileTopbarBox?.y ?? 0) + (mobileTopbarBox?.height ?? 0)) + 96,
     );
+    expect(inFlowMessageBox.y).toBeGreaterThan((mobileTopbarBox?.y ?? 0) + (mobileTopbarBox?.height ?? 0));
   } else {
     expect(holdingHeadingBox?.y ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
       Math.max(0, (mobileTopbarBox?.y ?? 0) + (mobileTopbarBox?.height ?? 0)) + 96,
@@ -165,8 +169,29 @@ test("holdings flow: create, inline edit, delete, responsive", async ({ page }) 
   expect(summaryTopBeforeJump).toBeGreaterThan((summaryBoxAfterJump?.y ?? Number.POSITIVE_INFINITY));
   expect(summaryBoxAfterJump?.y ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(220);
   await expect(page.locator(".holdings-mobile-ledger-head")).toBeVisible();
-  await expect(holdingSummaryCard.getByLabel("자산 포트폴리오 보기 기준")).toBeVisible();
+  await expect(holdingSummaryCard.getByLabel("자산 포트폴리오 보기 기준")).toHaveCount(0);
   await expect(holdingSummaryCard.getByLabel("자산 요약 보기 기준")).toBeVisible();
+  await expect(holdingSummaryCard.locator(".compact-support-section .chart-wrap")).toHaveCount(1);
+  await expect(holdingSummaryCard.getByTestId("portfolio-donut-center-label")).toContainText("총 자산");
+  await expect(holdingSummaryCard.getByTestId("holding-donut-slice-label")).toHaveCount(0);
+  const mobileBreakdownRow = holdingSummaryCard
+    .locator(".portfolio-breakdown-list button, .portfolio-breakdown-list .portfolio-breakdown-row")
+    .first();
+  await expect(mobileBreakdownRow).toBeVisible();
+  const breakdownLayout = await mobileBreakdownRow.evaluate((button) => {
+    const value = button.querySelector(".portfolio-breakdown-value")?.getBoundingClientRect();
+    const percent = button.querySelector("strong")?.getBoundingClientRect();
+    const box = button.getBoundingClientRect();
+    return {
+      height: box.height,
+      valueY: value?.y ?? 0,
+      percentY: percent?.y ?? 0,
+      percentRightGap: Math.abs(box.right - (percent?.right ?? box.right)),
+    };
+  });
+  expect(breakdownLayout.height).toBeLessThanOrEqual(48);
+  expect(Math.abs(breakdownLayout.valueY - breakdownLayout.percentY)).toBeLessThanOrEqual(4);
+  expect(breakdownLayout.percentRightGap).toBeLessThanOrEqual(14);
   const mobileEditedRow = page.locator("tr.holding-row", { hasText: editedHoldingName }).first();
   await expect(mobileEditedRow).toBeVisible();
   await expect(mobileEditedRow).not.toHaveClass(/mobile-row-expanded/);

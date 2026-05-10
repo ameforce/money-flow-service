@@ -851,6 +851,12 @@
   font-weight: 700;
 }
 
+.dashboard-hero-metric small b {
+  margin-left: 0.28rem;
+  color: #ffffff;
+  font-weight: 900;
+}
+
 .dashboard-kpi-grid {
   grid-column: 1 / -1;
   display: grid;
@@ -879,6 +885,22 @@
   color: #12213a;
   font-size: 1.02rem;
   letter-spacing: -0.02em;
+}
+
+.dashboard-kpi-value-line {
+  display: inline-flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.42rem;
+  min-width: 0;
+}
+
+.dashboard-kpi-value-meta {
+  color: currentColor;
+  font-style: normal;
+  font-size: 0.78rem;
+  font-weight: 900;
+  white-space: nowrap;
 }
 
 .dashboard-kpi-card small,
@@ -993,8 +1015,13 @@
 }
 
 .dashboard-donut-wrap {
-  height: 272px;
-  min-height: 272px;
+  height: 304px;
+  min-height: 304px;
+}
+
+.dashboard-portfolio-chart-select {
+  margin-left: auto;
+  max-width: 220px;
 }
 
 .dashboard-side-card {
@@ -2128,10 +2155,133 @@ button.danger:active:not(:disabled) {
   min-width: 160px;
 }
 
+.asset-portfolio-chart-header {
+  align-items: flex-start;
+}
+
+.asset-portfolio-chart-select {
+  margin-left: auto;
+  max-width: 220px;
+}
+
 .portfolio-view-summary {
   display: flex;
   flex-wrap: wrap;
   gap: 0.25rem;
+}
+
+.asset-portfolio-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.asset-portfolio-metrics > div {
+  display: grid;
+  gap: 0.16rem;
+  min-width: 0;
+  padding: 0.62rem 0.68rem;
+  border: 1px solid #dbe6f4;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(239, 246, 255, 0.72));
+}
+
+.asset-portfolio-metrics span {
+  color: #5f7596;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.asset-portfolio-metrics strong {
+  min-width: 0;
+  color: #10213d;
+  font-size: 0.92rem;
+  line-height: 1.12;
+  overflow-wrap: anywhere;
+}
+
+.asset-portfolio-metrics [data-tone="positive"] strong {
+  color: #0f8a60;
+}
+
+.asset-portfolio-metrics [data-tone="negative"] strong {
+  color: #dc2626;
+}
+
+.portfolio-breakdown-list {
+  display: grid;
+  gap: 0.42rem;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.portfolio-breakdown-list button,
+.portfolio-breakdown-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content minmax(3.4rem, max-content);
+  gap: 0.5rem;
+  align-items: center;
+  width: 100%;
+  min-height: 2.46rem;
+  padding: 0.52rem 0.62rem;
+  border: 1px solid #dbe6f4;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #15365f;
+  text-align: left;
+  box-shadow: none;
+}
+
+.portfolio-breakdown-row {
+  cursor: default;
+}
+
+.portfolio-breakdown-list button:hover:not(:disabled),
+.portfolio-breakdown-list button:active:not(:disabled),
+.portfolio-breakdown-list button.active {
+  border-color: #9bbcf3;
+  background: #eff6ff;
+  color: #0b4ab4;
+  transform: none;
+  box-shadow: 0 10px 24px -22px rgba(8, 103, 232, 0.52);
+}
+
+.portfolio-breakdown-name {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  gap: 0.38rem;
+  font-weight: 900;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.portfolio-breakdown-dot {
+  width: 0.58rem;
+  height: 0.58rem;
+  flex: 0 0 auto;
+  border-radius: 999px;
+}
+
+.portfolio-breakdown-value {
+  color: #355177;
+  font-size: 0.82rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.portfolio-breakdown-list strong {
+  color: #0b4ab4;
+  font-size: 0.82rem;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.portfolio-filter-reset {
+  width: 100%;
+  min-height: 2.36rem;
 }
 
 .tx-filter-details {
@@ -3652,6 +3802,23 @@ thead {
     gap: 0.45rem;
   }
 
+  .dashboard-portfolio-card .dashboard-card-heading {
+    display: flex;
+    align-items: flex-start;
+    flex-wrap: nowrap;
+  }
+
+  .dashboard-portfolio-card .dashboard-card-heading h2 {
+    font-size: 1rem;
+    line-height: 1.18;
+  }
+
+  .dashboard-portfolio-chart-select {
+    width: min(10.5rem, 50%);
+    min-width: 8.2rem;
+    margin-left: auto;
+  }
+
   .dashboard-card-heading select,
   .dashboard-card-heading .dashboard-chip,
   .dashboard-card-heading .text-button {
@@ -3682,10 +3849,14 @@ thead {
     font-size: 0.78rem;
   }
 
-  .dashboard-line-chart-wrap,
-  .dashboard-donut-wrap {
+  .dashboard-line-chart-wrap {
     height: 204px;
     min-height: 204px;
+  }
+
+  .dashboard-donut-wrap {
+    height: 296px;
+    min-height: 296px;
   }
 
   .dashboard-portfolio-card {
@@ -3724,8 +3895,34 @@ thead {
     font-size: 0.52rem;
   }
 
+  .asset-portfolio-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .asset-portfolio-metrics > div:first-child {
+    grid-column: 1 / -1;
+  }
+
+  .portfolio-breakdown-list button,
+  .portfolio-breakdown-row {
+    grid-template-columns: minmax(0, 1fr) max-content minmax(2.9rem, max-content);
+    gap: 0.32rem;
+    min-height: 2.34rem;
+    padding: 0.48rem 0.5rem;
+  }
+
+  .portfolio-breakdown-value {
+    font-size: 0.74rem;
+  }
+
+  .portfolio-breakdown-list strong {
+    min-width: 2.9rem;
+    font-size: 0.76rem;
+    justify-self: end;
+  }
+
   .dashboard-filter-card .filter-container {
-    align-items: stretch;
+    align-items: center;
   }
 
   .transaction-list-card > .surface-list-heading {
@@ -3910,17 +4107,17 @@ thead {
 
   .app-shell > .message,
   .app-content > .message {
-    position: relative;
+    position: fixed;
     top: auto;
-    left: auto;
-    right: auto;
-    bottom: auto;
-    z-index: 1;
+    left: max(0.75rem, env(safe-area-inset-left));
+    right: max(0.75rem, env(safe-area-inset-right));
+    bottom: calc(5.15rem + env(safe-area-inset-bottom));
+    z-index: 47;
     align-items: center;
     min-height: 2.72rem;
     max-height: none;
     overflow: hidden;
-    margin-bottom: 0.78rem;
+    margin-bottom: 0;
     box-shadow: 0 12px 28px rgba(11, 30, 66, 0.12);
     backdrop-filter: blur(16px);
   }
@@ -4197,6 +4394,23 @@ thead {
     min-width: 0;
   }
 
+  .asset-portfolio-chart-header {
+    align-items: flex-start;
+    flex-wrap: nowrap;
+  }
+
+  .asset-portfolio-chart-select {
+    width: min(11rem, 54%);
+    min-width: 8.8rem;
+    margin-left: auto;
+  }
+
+  .dashboard-portfolio-chart-select {
+    width: min(10.5rem, 50%);
+    min-width: 8.2rem;
+    margin-left: auto;
+  }
+
   .settings-actions {
     justify-content: stretch;
   }
@@ -4237,6 +4451,101 @@ thead {
 
   .month-stepper .text-btn {
     padding-inline: 0.56rem;
+  }
+
+  .dashboard-filter-card {
+    padding: 0.46rem;
+  }
+
+  .dashboard-filter-card .dashboard-filter-heading {
+    display: none;
+  }
+
+  .dashboard-filter-card .filter-container {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 0.35rem;
+    align-items: center;
+    width: 100%;
+  }
+
+  .dashboard-filter-card .filter-modes-segmented {
+    width: auto;
+    min-width: max-content;
+    height: 2.5rem;
+    padding: 0.18rem;
+  }
+
+  .dashboard-filter-card .filter-modes-segmented button {
+    width: auto;
+    min-width: 2.72rem;
+    padding-inline: 0.5rem;
+    font-size: 0.78rem;
+  }
+
+  .dashboard-filter-card .filter-inputs-wrapper {
+    flex-wrap: nowrap;
+    width: 100%;
+    min-width: 0;
+    gap: 0;
+  }
+
+  .dashboard-filter-card .month-stepper,
+  .dashboard-filter-card .range-picker {
+    width: 100%;
+    height: 2.5rem;
+    min-height: 2.5rem;
+  }
+
+  .dashboard-filter-card .month-stepper {
+    gap: 0.1rem;
+    padding: 0.18rem;
+  }
+
+  .dashboard-filter-card .month-stepper .icon-btn {
+    flex: 0 0 2.1rem;
+    width: 2.1rem;
+    height: 2.1rem;
+    min-height: 2.1rem;
+  }
+
+  .dashboard-filter-card .month-stepper .date-inputs {
+    flex: 1 1 auto;
+    justify-content: center;
+    min-width: 0;
+    gap: 0.12rem;
+    font-size: 0.82rem;
+  }
+
+  .dashboard-filter-card .month-stepper .date-inputs input {
+    width: 2.8rem;
+    min-width: 2.8rem;
+    font-size: max(16px, 0.92rem);
+  }
+
+  .dashboard-filter-card .month-stepper .text-btn {
+    height: 2.1rem;
+    min-height: 2.1rem;
+    padding-inline: 0.4rem;
+    font-size: 0.74rem;
+  }
+
+  .dashboard-filter-card .range-picker {
+    gap: 0.18rem;
+    padding: 0.18rem 0.28rem;
+  }
+
+  .dashboard-filter-card .range-picker input[type="date"] {
+    flex: 1 1 0;
+    width: 0;
+    min-width: 0;
+    padding-inline: 0.12rem;
+    font-size: max(16px, 0.82rem);
+  }
+
+  .dashboard-filter-card .range-separator {
+    flex: 0 0 auto;
+    font-size: 0.8rem;
   }
 }
 

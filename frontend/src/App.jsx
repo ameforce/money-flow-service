@@ -101,9 +101,8 @@ const FLOW_TYPE_OPTIONS = [
 ];
 const FLOW_TYPE_LABELS = FLOW_TYPE_OPTIONS.reduce((acc, item) => ({ ...acc, [item.value]: item.label }), {});
 const PORTFOLIO_VIEW_OPTIONS = [
-  { value: "holding_category", label: "보유 카테고리" },
+  { value: "holding_type", label: "자산 유형" },
   { value: "transaction_flow", label: "거래 유형" },
-  { value: "transaction_category", label: "거래 카테고리" },
 ];
 const PORTFOLIO_VIEW_LABELS = PORTFOLIO_VIEW_OPTIONS.reduce((acc, item) => ({ ...acc, [item.value]: item.label }), {});
 const ASSET_TYPE_OPTIONS = [
@@ -476,6 +475,13 @@ function fmt(value) {
 function fmtKrw(value) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return "-";
   return `${Math.round(Number(value)).toLocaleString("ko-KR")}원`;
+}
+
+function fmtSignedPercent(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return "-";
+  const numeric = Number(value);
+  const sign = numeric >= 0 ? "+" : "";
+  return `${sign}${numeric.toFixed(2)}%`;
 }
 
 function parseDateTime(value) {
@@ -1128,11 +1134,11 @@ function buildDonutSliceLabelMeta(items, { maxLabels = 6 } = {}) {
 
 function buildPortfolioChartSourceForMode(
   viewMode,
-  { overviewTotals, portfolioCategories, transactionCategoryChartItems }
+  { overviewTotals, holdingTypeTotals }
 ) {
   if (viewMode === "transaction_flow") {
     return {
-      title: "거래 유형 비중",
+      title: "거래 유형",
       items: FLOW_TYPE_OPTIONS
         .map((option) => ({
           label: option.label,
@@ -1141,19 +1147,9 @@ function buildPortfolioChartSourceForMode(
         .filter((item) => Number(item.value) > 0),
     };
   }
-  if (viewMode === "transaction_category") {
-    return {
-      title: "거래 카테고리 비중",
-      items: transactionCategoryChartItems,
-    };
-  }
-  const categories = portfolioCategories || [];
   return {
-    title: "보유 카테고리 비중",
-    items: categories.map((item) => ({
-      label: item.category,
-      value: Number(item.market_value_krw || 0),
-    })),
+    title: "자산 유형",
+    items: holdingTypeTotals || [],
   };
 }
 
@@ -1464,8 +1460,8 @@ function App() {
     () => (typeof window !== "undefined" ? window.innerWidth <= MOBILE_BREAKPOINT_PX : false)
   );
   const [socketStatus, setSocketStatus] = useState("disconnected");
-  const [dashboardPortfolioViewMode, setDashboardPortfolioViewMode] = useState("transaction_flow");
-  const [holdingPortfolioViewMode, setHoldingPortfolioViewMode] = useState("holding_category");
+  const [dashboardPortfolioViewMode, setDashboardPortfolioViewMode] = useState("holding_type");
+  const [holdingTypeFilter, setHoldingTypeFilter] = useState("all");
   const [txFlowBreakdownExpanded, setTxFlowBreakdownExpanded] = useState({
     income: false,
     expense: false,
@@ -1594,7 +1590,7 @@ function App() {
   });
   const [txSortDirection, setTxSortDirection] = useState("asc");
   const [holdingListTab, setHoldingListTab] = useState("all");
-  const [holdingSummaryViewMode, setHoldingSummaryViewMode] = useState("transaction_flow");
+  const [holdingSummaryViewMode, setHoldingSummaryViewMode] = useState("type");
   const [holdingSortField, setHoldingSortField] = useState(HOLDING_SORT_DEFAULT.field);
   const [holdingSortDirection, setHoldingSortDirection] = useState(HOLDING_SORT_DEFAULT.direction);
   const [holdingColorMode, setHoldingColorMode] = useState("none");
@@ -1870,14 +1866,18 @@ function App() {
     return { count, amount };
   }, [holdingPortfolioById, selectedHoldingIds]);
   const filteredHoldingItems = useMemo(() => {
-    if (holdingListTab === "all") {
-      return holdingItems;
-    }
     return holdingItems.filter((item) => {
+      const typeKey = normalizeHoldingTypeKey(item.type_key || item.asset_type || "other") || "other";
+      if (holdingTypeFilter !== "all" && typeKey !== holdingTypeFilter) {
+        return false;
+      }
+      if (holdingListTab === "all") {
+        return true;
+      }
       const cat = String(item.category || "기타").trim() || "기타";
       return cat === holdingListTab;
     });
-  }, [holdingItems, holdingListTab]);
+  }, [holdingItems, holdingListTab, holdingTypeFilter]);
   const sortedHoldingItems = useMemo(() => {
     const direction = holdingSortDirection === "asc" ? 1 : -1;
     const next = [...filteredHoldingItems];
@@ -1988,13 +1988,27 @@ function App() {
     for (const item of holdingItems) {
       const typeKey = normalizeHoldingTypeKey(item.type_key || item.asset_type || "other") || "other";
       const typeLabel = holdingTypeByKey.get(typeKey)?.label || typeKey;
-      const current = Number(bucket.get(typeLabel) || 0);
-      bucket.set(typeLabel, current + Number(item.market_value_krw || 0));
+      const current = bucket.get(typeKey) || { key: typeKey, label: typeLabel, value: 0 };
+      bucket.set(typeKey, {
+        ...current,
+        value: Number(current.value || 0) + Number(item.market_value_krw || 0),
+      });
     }
-    return Array.from(bucket.entries())
-      .map(([label, value]) => ({ label, value }))
+    return Array.from(bucket.values())
       .sort((left, right) => Number(right.value) - Number(left.value));
   }, [holdingItems, holdingTypeByKey]);
+  const activeHoldingTypeFilterLabel =
+    holdingTypeFilter === "all"
+      ? "전체"
+      : holdingTypeTotals.find((item) => item.key === holdingTypeFilter)?.label || holdingTypeFilter;
+  useEffect(() => {
+    if (holdingTypeFilter === "all") {
+      return;
+    }
+    if (!holdingTypeTotals.some((item) => item.key === holdingTypeFilter)) {
+      setHoldingTypeFilter("all");
+    }
+  }, [holdingTypeFilter, holdingTypeTotals]);
   const holdingCategoryTotals = useMemo(() => {
     const bucket = new Map();
     for (const item of holdingItems) {
@@ -2039,71 +2053,24 @@ function App() {
       ).sort((left, right) => left.localeCompare(right, "ko")),
     [holdingItems]
   );
-  const transactionCategoryChartItems = useMemo(() => {
-    const bucket = new Map();
-    for (const item of sortedTransactions) {
-      const category = categoryById.get(String(item.category_id || ""));
-      const label = category ? toCategoryPairLabel(category) : "미분류";
-      const amount = Number(item.amount || 0);
-      if (!Number.isFinite(amount)) {
-        continue;
-      }
-      const prev = Number(bucket.get(label) || 0);
-      bucket.set(label, prev + amount);
-    }
-    return Array.from(bucket.entries())
-      .map(([label, value]) => ({ label, value }))
-      .sort((left, right) => Number(right.value) - Number(left.value));
-  }, [categoryById, sortedTransactions]);
   const holdingSummarySource = useMemo(() => {
-    if (holdingSummaryViewMode === "transaction_flow") {
-      return {
-        title: "거래 유형 비중",
-        items: FLOW_TYPE_OPTIONS
-          .map((option) => ({
-            label: option.label,
-            value: Number(overview?.totals?.[option.value] || 0),
-          }))
-          .filter((item) => Number(item.value) > 0),
-      };
-    }
-    if (holdingSummaryViewMode === "transaction_category") {
-      return {
-        title: "거래 카테고리 비중",
-        items: transactionCategoryChartItems,
-      };
-    }
     if (holdingSummaryViewMode === "category") {
       return {
-        title: "카테고리 비중",
+        title: "자산 분류",
         items: holdingCategoryTotals,
       };
     }
     if (holdingSummaryViewMode === "owner") {
       return {
-        title: "보유자 비중",
+        title: "보유자",
         items: holdingOwnerTotals,
       };
     }
     return {
-      title: "유형 비중",
+      title: "자산 유형",
       items: holdingTypeTotals,
     };
-  }, [holdingCategoryTotals, holdingOwnerTotals, holdingSummaryViewMode, holdingTypeTotals, overview?.totals, transactionCategoryChartItems]);
-  const holdingSummaryChartData = useMemo(() => {
-    if (!holdingSummarySource.items.length) {
-      return null;
-    }
-    return {
-      labels: holdingSummarySource.items.map((item) => item.label),
-      datasets: [
-        {
-          data: holdingSummarySource.items.map((item) => item.value),
-          backgroundColor: categoryPalette(holdingSummarySource.items.length),
-        },
-      ],
-    };
-  }, [holdingSummarySource]);
+  }, [holdingCategoryTotals, holdingOwnerTotals, holdingSummaryViewMode, holdingTypeTotals]);
   const ownerMemberOptions = useMemo(() => {
     return householdMembers
       .map((member) => {
@@ -5160,17 +5127,10 @@ function App() {
   const dashboardPortfolioChartSource = useMemo(() => {
     return buildPortfolioChartSourceForMode(dashboardPortfolioViewMode, {
       overviewTotals: overview?.totals,
-      portfolioCategories: portfolio?.categories,
-      transactionCategoryChartItems,
+      holdingTypeTotals,
     });
-  }, [dashboardPortfolioViewMode, overview?.totals, portfolio?.categories, transactionCategoryChartItems]);
-  const holdingPortfolioChartSource = useMemo(() => {
-    return buildPortfolioChartSourceForMode(holdingPortfolioViewMode, {
-      overviewTotals: overview?.totals,
-      portfolioCategories: portfolio?.categories,
-      transactionCategoryChartItems,
-    });
-  }, [holdingPortfolioViewMode, overview?.totals, portfolio?.categories, transactionCategoryChartItems]);
+  }, [dashboardPortfolioViewMode, holdingTypeTotals, overview?.totals]);
+  const holdingPortfolioChartSource = holdingSummarySource;
   const buildPortfolioChartData = (chartSource) => {
     if (!chartSource?.items?.length) {
       return null;
@@ -5205,21 +5165,63 @@ function App() {
     [isCompactViewport]
   );
   const dashboardPortfolioViewLabel = PORTFOLIO_VIEW_LABELS[dashboardPortfolioViewMode] || dashboardPortfolioViewMode;
-  const holdingPortfolioViewLabel = PORTFOLIO_VIEW_LABELS[holdingPortfolioViewMode] || holdingPortfolioViewMode;
-  const dashboardPortfolioChartDescription = `${dashboardPortfolioChartSource?.title || "포트폴리오 비중"} 기준 ${dashboardPortfolioViewLabel}`;
-  const holdingPortfolioViewSummaryText = `${holdingPortfolioChartSource?.title || "보유 카테고리 비중"} · 보기 기준 ${holdingPortfolioViewLabel}`;
+  const dashboardPortfolioChartDescription = `${dashboardPortfolioChartSource?.title || "차트"} 기준 ${dashboardPortfolioViewLabel}`;
   const dashboardPortfolioCenterLabel = useMemo(
-    () => buildDonutCenterSummaryMeta(dashboardPortfolioChartSource?.items),
-    [dashboardPortfolioChartSource]
+    () => {
+      if (dashboardPortfolioViewMode === "holding_type") {
+        const total = Number(portfolio?.total_market_value_krw || 0);
+        const safeTotal = Number.isFinite(total) ? total : 0;
+        return {
+          primaryText: "총 자산",
+          secondaryText: fmtKrw(safeTotal),
+          ariaText: `총 자산 ${fmtKrw(safeTotal)}`,
+        };
+      }
+      return buildDonutCenterSummaryMeta(dashboardPortfolioChartSource?.items);
+    },
+    [dashboardPortfolioChartSource, dashboardPortfolioViewMode, portfolio?.total_market_value_krw]
   );
   const holdingPortfolioCenterLabel = useMemo(
-    () => buildDonutCenterSummaryMeta(holdingPortfolioChartSource?.items),
-    [holdingPortfolioChartSource]
+    () => {
+      const total = Number(portfolio?.total_market_value_krw || 0);
+      const safeTotal = Number.isFinite(total) ? total : 0;
+      return {
+        primaryText: "총 자산",
+        secondaryText: fmtKrw(safeTotal),
+        ariaText: `총 자산 ${fmtKrw(safeTotal)}`,
+      };
+    },
+    [portfolio?.total_market_value_krw]
   );
-  const holdingSummaryCenterLabel = useMemo(
-    () => buildDonutCenterSummaryMeta(holdingSummarySource.items),
-    [holdingSummarySource]
-  );
+  const holdingPortfolioReturnRatio = useMemo(() => {
+    const invested = Number(portfolio?.total_invested_krw || 0);
+    const gainLoss = Number(portfolio?.total_gain_loss_krw || 0);
+    if (!Number.isFinite(invested) || invested <= 0 || !Number.isFinite(gainLoss)) {
+      return null;
+    }
+    return (gainLoss / invested) * 100;
+  }, [portfolio?.total_gain_loss_krw, portfolio?.total_invested_krw]);
+  const holdingPortfolioGainTone = Number(portfolio?.total_gain_loss_krw || 0) >= 0 ? "positive" : "negative";
+  const holdingPortfolioBreakdownItems = useMemo(() => {
+    const items = holdingPortfolioChartSource?.items || [];
+    const total = items.reduce((sum, item) => sum + Number(item.value || 0), 0);
+    const colors = categoryPalette(items.length);
+    if (!items.length || total <= 0) {
+      return [];
+    }
+    return items.map((item, index) => {
+      const value = Number(item.value || 0);
+      const share = total > 0 ? (value / total) * 100 : 0;
+      return {
+        key: item.key || item.label || `asset-${index}`,
+        label: item.label,
+        value,
+        shareText: formatSharePercent(share),
+        color: colors[index],
+      };
+    });
+  }, [holdingPortfolioChartSource]);
+  const holdingPortfolioBreakdownCanFilter = holdingSummaryViewMode === "type";
   const txFlowSummaryTotal = useMemo(
     () => txFlowCategorySummary.reduce((sum, item) => sum + Number(item.total || 0), 0),
     [txFlowCategorySummary]
@@ -5252,6 +5254,7 @@ function App() {
       ? "완료"
       : "대기";
   const latestRefreshAt = priceStatus?.refresh_finished_at || priceStatus?.updated_at || null;
+  const dashboardGainLossRatioText = fmtSignedPercent(holdingPortfolioReturnRatio ?? 0);
   const financialSummaryRows = [
     { label: "수입", value: fmtKrw(overview?.totals?.income) },
     { label: "지출", value: fmtKrw(overview?.totals?.expense) },
@@ -5297,6 +5300,7 @@ function App() {
       ...item,
       tone,
       helper: helperByLabel[item.label] || "조회 기준 집계",
+      meta: item.label === "평가손익(KRW)" ? dashboardGainLossRatioText : "",
     };
   });
   const dashboardPriceTone = priceStatus?.refresh_in_progress
@@ -6159,7 +6163,7 @@ function App() {
             <div className="dashboard-hero-metric" data-tone={Number(portfolio?.total_gain_loss_krw || 0) >= 0 ? "positive" : "negative"}>
               <span>총자산(KRW)</span>
               <strong>{fmtKrw(portfolio?.total_market_value_krw)}</strong>
-              <small>평가손익 {fmtKrw(portfolio?.total_gain_loss_krw)}</small>
+              <small>평가손익 {fmtKrw(portfolio?.total_gain_loss_krw)} <b>{dashboardGainLossRatioText}</b></small>
             </div>
             <div className="dashboard-kpi-grid" aria-busy={dashboardLoading ? "true" : "false"}>
               {isDashboardInitialLoading
@@ -6172,7 +6176,10 @@ function App() {
                 : dashboardKpiCards.map((item) => (
                     <div key={item.label} className="dashboard-kpi-card" data-tone={item.tone}>
                       <span>{item.label}</span>
-                      <strong>{item.value}</strong>
+                      <strong className={item.meta ? "dashboard-kpi-value-line" : undefined}>
+                        {item.value}
+                        {item.meta && <em className="dashboard-kpi-value-meta">{item.meta}</em>}
+                      </strong>
                       <small>{item.helper}</small>
                     </div>
                   ))}
@@ -6298,20 +6305,23 @@ function App() {
               <div className="inline chart-card-header dashboard-card-heading">
                 <div>
                   <span className="dashboard-eyebrow">Asset mix</span>
-                  <h2>포트폴리오</h2>
+                  <h2>포트폴리오 및 거래내역 차트</h2>
                 </div>
-                <select
-                  aria-label="포트폴리오 보기 기준"
-                  value={dashboardPortfolioViewMode}
-                  disabled={dashboardLoading}
-                  onChange={(event) => setDashboardPortfolioViewMode(event.target.value)}
-                >
-                  {PORTFOLIO_VIEW_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
+                <label className="compact-inline-select dashboard-portfolio-chart-select">
+                  보기 기준
+                  <select
+                    aria-label="포트폴리오 보기 기준"
+                    value={dashboardPortfolioViewMode}
+                    disabled={dashboardLoading}
+                    onChange={(event) => setDashboardPortfolioViewMode(event.target.value)}
+                  >
+                    {PORTFOLIO_VIEW_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
               </div>
               <div
                 className={`chart-wrap dashboard-donut-wrap${isDashboardInitialLoading || dashboardPortfolioChartData ? "" : " chart-wrap-empty"}`}
@@ -6327,8 +6337,12 @@ function App() {
                     <Doughnut data={dashboardPortfolioChartData} options={mobileDoughnutOptions} />
                     {renderDonutSliceLabels(dashboardPortfolioChartSource.items, {
                       testId: "portfolio-donut-slice-label",
+                      labelPrefix: dashboardPortfolioChartSource.title,
                     })}
-                    {renderDonutCenterLabel(dashboardPortfolioCenterLabel, { testId: "portfolio-donut-center-label" })}
+                    {renderDonutCenterLabel(dashboardPortfolioCenterLabel, {
+                      testId: "portfolio-donut-center-label",
+                      labelPrefix: dashboardPortfolioChartSource.title,
+                    })}
                   </>
                 ) : (
                   <p className="dashboard-empty-state">데이터 없음</p>
@@ -7086,6 +7100,7 @@ function App() {
             </div>
             <div className="surface-control-strip" aria-label="자산 목록 상태">
               <span className="surface-chip surface-chip-strong">{activeHoldingTabLabel}</span>
+              {holdingTypeFilter !== "all" && <span className="surface-chip surface-chip-strong">유형 {activeHoldingTypeFilterLabel}</span>}
               <span className="surface-chip">{holdingSortSummary}</span>
               <span className={`surface-chip${holdingColorMode === "none" ? " surface-chip-muted" : " surface-chip-strong"}`}>
                 {holdingColorModeLabel}
@@ -7186,78 +7201,93 @@ function App() {
           </article>
           <details ref={holdingSummaryCardRef} className="card compact-support-card holding-summary-card surface-support-card" open>
             <summary>
-              <span>자산 포트폴리오 요약</span>
-              <span className="table-summary">
-                총자산 {fmtKrw(portfolio?.total_market_value_krw)} · 평가손익 {fmtKrw(portfolio?.total_gain_loss_krw)}
-              </span>
+              <span>자산 포트폴리오 차트</span>
             </summary>
             <div className="compact-support-grid">
               <section className="compact-support-section">
-                <div className="inline compact-support-header">
-                  <h3>포트폴리오</h3>
-                  <select
-                    aria-label="자산 포트폴리오 보기 기준"
-                    value={holdingPortfolioViewMode}
-                    disabled={dashboardLoading}
-                    onChange={(event) => setHoldingPortfolioViewMode(event.target.value)}
-                  >
-                    {PORTFOLIO_VIEW_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
+                <div className="inline compact-support-header asset-portfolio-chart-header">
+                  <h3>자산 포트폴리오</h3>
+                  <label className="compact-inline-select asset-portfolio-chart-select">
+                    보기 기준
+                    <select
+                      aria-label="자산 요약 보기 기준"
+                      value={holdingSummaryViewMode}
+                      onChange={(event) => setHoldingSummaryViewMode(event.target.value)}
+                    >
+                      <option value="type">자산 유형</option>
+                      <option value="category">자산 분류</option>
+                      <option value="owner">보유자</option>
+                    </select>
+                  </label>
                 </div>
-                <p className="table-summary compact-support-summary portfolio-view-summary">{holdingPortfolioViewSummaryText}</p>
+                <div className="asset-portfolio-metrics" aria-label="자산 포트폴리오 핵심 지표">
+                  <div>
+                    <span>총 평가금액</span>
+                    <strong>{fmtKrw(portfolio?.total_market_value_krw)}</strong>
+                  </div>
+                  <div data-tone={holdingPortfolioGainTone}>
+                    <span>평가손익</span>
+                    <strong>{fmtKrw(portfolio?.total_gain_loss_krw)}</strong>
+                  </div>
+                  <div data-tone={holdingPortfolioGainTone}>
+                    <span>수익률</span>
+                    <strong>{fmtSignedPercent(holdingPortfolioReturnRatio)}</strong>
+                  </div>
+                </div>
                 <div className={`chart-wrap compact-chart-wrap${holdingPortfolioChartData ? "" : " chart-wrap-empty"}`}>
                   {holdingPortfolioChartData ? (
                     <>
                       <Doughnut data={holdingPortfolioChartData} options={mobileDoughnutOptions} />
                       {renderDonutSliceLabels(holdingPortfolioChartSource.items, {
                         testId: "portfolio-donut-slice-label",
+                        labelPrefix: holdingPortfolioChartSource.title,
                       })}
-                      {renderDonutCenterLabel(holdingPortfolioCenterLabel, { testId: "portfolio-donut-center-label" })}
+                      {renderDonutCenterLabel(holdingPortfolioCenterLabel, {
+                        testId: "portfolio-donut-center-label",
+                        labelPrefix: "자산 포트폴리오",
+                      })}
                     </>
                   ) : (
                     <p>표시할 포트폴리오 데이터가 없습니다.</p>
                   )}
                 </div>
-              </section>
-              <section className="compact-support-section">
-                <div className="inline compact-support-header">
-                  <h3>{holdingSummarySource.title}</h3>
-                  <span className="table-summary">보유 {holdingItems.length}건</span>
-                </div>
-                <label className="compact-inline-select">
-                  보기 기준
-                  <select
-                    aria-label="자산 요약 보기 기준"
-                    value={holdingSummaryViewMode}
-                    onChange={(event) => setHoldingSummaryViewMode(event.target.value)}
-                  >
-                    <option value="transaction_flow">거래 유형</option>
-                    <option value="transaction_category">거래 카테고리</option>
-                    <option value="type">유형</option>
-                    <option value="category">카테고리</option>
-                    <option value="owner">보유자</option>
-                  </select>
-                </label>
-                <div className={`chart-wrap compact-chart-wrap${holdingSummaryChartData ? "" : " chart-wrap-empty"}`}>
-                  {holdingSummaryChartData ? (
-                    <>
-                      <Doughnut data={holdingSummaryChartData} options={mobileDoughnutOptions} />
-                      {renderDonutSliceLabels(holdingSummarySource.items, {
-                        testId: "holding-donut-slice-label",
-                        labelPrefix: `${holdingSummarySource.title} 세그먼트`,
-                      })}
-                      {renderDonutCenterLabel(holdingSummaryCenterLabel, {
-                        labelPrefix: `${holdingSummarySource.title} 비중`,
-                      })}
-                    </>
-                  ) : (
-                    <p>표시할 자산 분포 데이터가 없습니다.</p>
-                  )}
-                </div>
+                {holdingPortfolioBreakdownItems.length > 0 && (
+                  <ul className="portfolio-breakdown-list" aria-label={`${holdingPortfolioChartSource.title} 평가금액`}>
+                    {holdingPortfolioBreakdownItems.map((item) => {
+                      const rowContent = (
+                        <>
+                          <span className="portfolio-breakdown-name">
+                            <span className="portfolio-breakdown-dot" style={{ background: item.color }} aria-hidden="true" />
+                            {item.label}
+                          </span>
+                          <span className="portfolio-breakdown-value">{fmtKrw(item.value)}</span>
+                          <strong>{item.shareText}</strong>
+                        </>
+                      );
+                      return (
+                        <li key={item.key}>
+                          {holdingPortfolioBreakdownCanFilter ? (
+                            <button
+                              type="button"
+                              className={holdingTypeFilter === item.key ? "active" : ""}
+                              aria-label={`${item.label}만 보기`}
+                              onClick={() => setHoldingTypeFilter((current) => (current === item.key ? "all" : item.key))}
+                            >
+                              {rowContent}
+                            </button>
+                          ) : (
+                            <div className="portfolio-breakdown-row">{rowContent}</div>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+                {holdingTypeFilter !== "all" && (
+                  <button type="button" className="secondary portfolio-filter-reset" onClick={() => setHoldingTypeFilter("all")}>
+                    자산 유형 필터 해제
+                  </button>
+                )}
               </section>
               <section className="compact-support-section">
                 <div className="inline compact-support-header">

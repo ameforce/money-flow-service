@@ -342,18 +342,22 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   const fabScrolledBox = await transactionFab.boundingBox();
   expect(fabScrolledBox, "transaction FAB should have a bounding box after scroll").not.toBeNull();
   expect(fabScrolledBox?.y ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(844);
-  const visibleRowActionBoxes = await page.locator(".transaction-row .transaction-col-actions").evaluateAll((nodes) =>
+  const visibleRowActionBoxes = await page.locator(".transaction-row .transaction-col-actions .mobile-toggle-btn").evaluateAll((nodes) =>
     nodes
       .map((node) => {
         const box = node.getBoundingClientRect();
+        const centerX = box.x + box.width / 2;
+        const centerY = box.y + box.height / 2;
+        const topElement = document.elementFromPoint(centerX, centerY);
         return {
           x: box.x,
           y: box.y,
           width: box.width,
           height: box.height,
+          hitVisible: Boolean(topElement && (topElement === node || node.contains(topElement))),
         };
       })
-      .filter((box) => box.y < window.innerHeight && box.y + box.height > 0)
+      .filter((box) => box.hitVisible && box.y < window.innerHeight && box.y + box.height > 0)
   );
   const intersects = (left, right) =>
     Boolean(
