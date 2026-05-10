@@ -3,6 +3,7 @@ import { expect, test } from "@playwright/test";
 import {
   assertResponsiveShell,
   capture,
+  currentE2EHistoryDateIso,
   expectKeyboardReachableInOrder,
   expectNoHorizontalOverflow,
   expectWithinViewport,
@@ -151,6 +152,7 @@ test("settings flow: profile, household, colors, categories CRUD", async ({ page
   await txToggleButton.click();
   await expect(transactionCard.locator("form.transactions-form-grid")).toHaveCount(1);
   await labeledField(transactionCard, "유형", "select").selectOption("expense");
+  await labeledField(transactionCard, "일자", "input").fill(currentE2EHistoryDateIso());
   await labeledField(transactionCard, "금액", "input").fill("77777");
   await labeledField(transactionCard, "메모", "input").fill(usageMemo);
   await selectFirstNonEmptyOption(labeledField(transactionCard, "거래자", "select"));

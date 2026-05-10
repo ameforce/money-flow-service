@@ -1191,6 +1191,10 @@
   overflow-x: auto;
 }
 
+.transaction-list-card {
+  overflow: visible;
+}
+
 .surface-list-heading {
   display: flex;
   justify-content: space-between;
@@ -2129,8 +2133,25 @@ button.danger:active:not(:disabled) {
   flex-wrap: wrap;
 }
 
+.transaction-list-card > .table-header-group {
+  position: sticky;
+  top: max(0.75rem, env(safe-area-inset-top));
+  align-self: start;
+  z-index: 22;
+  margin: -0.08rem -0.1rem 0.5rem;
+  padding: 0.22rem 0.1rem 0.3rem;
+  border-bottom: 1px solid rgba(219, 227, 239, 0.82);
+  background: rgba(255, 255, 255, 0.965);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 12px 24px -28px rgba(15, 23, 42, 0.42);
+}
+
 .table-card {
   overflow: auto;
+}
+
+.transaction-list-card.table-card {
+  overflow: visible;
 }
 
 .table-toolbar {
@@ -2615,6 +2636,14 @@ table {
   border-spacing: 0;
   min-width: 980px;
   background: #ffffff;
+}
+
+.transactions-surface-scroll {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: visible;
+  -webkit-overflow-scrolling: touch;
 }
 
 .transactions-surface-table {
@@ -4185,7 +4214,7 @@ thead {
     order: 5;
   }
 
-  .transaction-list-card > .transactions-surface-table {
+  .transaction-list-card > .transactions-surface-scroll {
     order: 7;
   }
 
@@ -4759,9 +4788,10 @@ thead {
   }
 
   .dashboard-filter-card {
-    --dashboard-filter-control-height: 2.72rem;
-    --dashboard-filter-control-radius: 12px;
-    padding: 0.5rem;
+    --dashboard-filter-control-height: 3.24rem;
+    --dashboard-filter-control-radius: 14px;
+    --dashboard-filter-control-inset: 0.28rem;
+    padding: 0.56rem;
     background: rgba(255, 255, 255, 0.86);
     border-color: rgba(200, 217, 249, 0.74);
     box-shadow: none;
@@ -4774,7 +4804,7 @@ thead {
   .dashboard-filter-card .filter-container {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr);
-    gap: 0.42rem;
+    gap: 0.5rem;
     align-items: stretch;
     width: 100%;
   }
@@ -4784,29 +4814,51 @@ thead {
     min-width: max-content;
     height: var(--dashboard-filter-control-height);
     min-height: var(--dashboard-filter-control-height);
-    padding: 0.18rem;
+    padding: var(--dashboard-filter-control-inset);
     border: 1px solid rgba(200, 217, 249, 0.72);
     border-radius: var(--dashboard-filter-control-radius);
     background: rgba(248, 251, 255, 0.96);
     box-shadow: none;
     box-sizing: border-box;
+    overflow: hidden;
   }
 
   .dashboard-filter-card .filter-modes-segmented button {
+    position: relative;
     width: auto;
     height: 100%;
-    min-width: 2.72rem;
-    padding-inline: 0.5rem;
-    border-radius: 9px;
+    min-height: 40px;
+    min-width: 2.84rem;
+    padding-inline: 0.58rem;
+    border-radius: 10px;
     font-size: 0.78rem;
     line-height: 1;
     box-shadow: none;
+    transform: translateZ(0);
+    transition:
+      transform 140ms cubic-bezier(0.2, 0, 0, 1),
+      background-color 140ms ease,
+      box-shadow 140ms ease,
+      color 140ms ease;
   }
 
   .dashboard-filter-card .filter-modes-segmented button.active {
     background: #ffffff;
     color: #0b4ab4;
-    box-shadow: none;
+    box-shadow:
+      inset 0 0 0 1px rgba(137, 170, 229, 0.26),
+      0 1px 2px rgba(15, 23, 42, 0.04);
+  }
+
+  .dashboard-filter-card .filter-modes-segmented button:active:not(:disabled) {
+    background: #dbeafe;
+    color: #08398b;
+    transform: translateY(1px);
+    box-shadow: inset 0 2px 8px rgba(8, 103, 232, 0.22);
+  }
+
+  .dashboard-filter-card .filter-modes-segmented button.active:active:not(:disabled) {
+    background: #eaf2ff;
   }
 
   .dashboard-filter-card .filter-inputs-wrapper {
@@ -4833,14 +4885,28 @@ thead {
   .dashboard-filter-card .month-stepper {
     align-items: center;
     gap: 0.08rem;
-    padding: 0.18rem;
+    padding: var(--dashboard-filter-control-inset);
   }
 
   .dashboard-filter-card .month-stepper .icon-btn {
-    flex: 0 0 2.25rem;
-    width: 2.25rem;
-    height: 2.25rem;
-    min-height: 2.25rem;
+    position: relative;
+    flex: 0 0 2.5rem;
+    width: 2.5rem;
+    height: 2.5rem;
+    min-height: 2.5rem;
+    transform: translateZ(0);
+    transition:
+      transform 140ms cubic-bezier(0.2, 0, 0, 1),
+      background-color 140ms ease,
+      box-shadow 140ms ease,
+      color 140ms ease;
+  }
+
+  .dashboard-filter-card .month-stepper .icon-btn:active:not(:disabled) {
+    background: #dbeafe;
+    color: #08398b;
+    transform: translateY(1px) scale(0.94);
+    box-shadow: inset 0 2px 8px rgba(8, 103, 232, 0.2);
   }
 
   .dashboard-filter-card .month-stepper .date-inputs {
@@ -4854,12 +4920,12 @@ thead {
   }
 
   .dashboard-filter-card .month-value-group {
-    min-height: 2.25rem;
+    min-height: 2.5rem;
     line-height: 1;
   }
 
   .dashboard-filter-card .month-value-group > span {
-    min-height: 2.25rem;
+    min-height: 2.5rem;
     align-items: center;
     line-height: 1;
   }
@@ -4867,8 +4933,8 @@ thead {
   .dashboard-filter-card .month-stepper .date-inputs input {
     width: 2.9rem;
     min-width: 2.9rem;
-    height: 2.25rem;
-    min-height: 2.25rem;
+    height: 2.5rem;
+    min-height: 2.5rem;
     font-size: max(16px, 0.92rem);
     line-height: 1;
   }
@@ -4879,17 +4945,31 @@ thead {
   }
 
   .dashboard-filter-card .month-stepper .text-btn {
-    height: 2.25rem;
-    min-height: 2.25rem;
+    position: relative;
+    height: 2.5rem;
+    min-height: 2.5rem;
     padding-inline: 0.4rem;
     font-size: 0.74rem;
     line-height: 1.15;
+    transform: translateZ(0);
+    transition:
+      transform 140ms cubic-bezier(0.2, 0, 0, 1),
+      background-color 140ms ease,
+      box-shadow 140ms ease,
+      color 140ms ease;
+  }
+
+  .dashboard-filter-card .month-stepper .text-btn:active:not(:disabled) {
+    background: #dbeafe;
+    color: #08398b;
+    transform: translateY(1px) scale(0.96);
+    box-shadow: inset 0 2px 8px rgba(8, 103, 232, 0.18);
   }
 
   .dashboard-filter-card .range-picker {
     align-items: center;
     gap: 0.18rem;
-    padding: 0.18rem 0.28rem;
+    padding: var(--dashboard-filter-control-inset) 0.36rem;
   }
 
   .dashboard-filter-card .range-picker input[type="date"] {
@@ -5866,6 +5946,35 @@ thead {
   .topbar-tabs button.active:hover:not(:disabled),
   .filter-modes-segmented button.active:hover:not(:disabled) {
     background: linear-gradient(135deg, var(--mf-color-blue-600), var(--mf-color-blue-700));
+  }
+
+  .dashboard-filter-card .filter-modes-segmented button.active:hover:not(:disabled) {
+    background: #ffffff;
+    color: #0b4ab4;
+    box-shadow:
+      inset 0 0 0 1px rgba(137, 170, 229, 0.26),
+      0 1px 2px rgba(15, 23, 42, 0.04);
+  }
+
+  .dashboard-filter-card .filter-modes-segmented button:active:not(:disabled) {
+    background: #dbeafe;
+    color: #08398b;
+    transform: translateY(1px);
+    box-shadow: inset 0 2px 8px rgba(8, 103, 232, 0.22);
+  }
+
+  .dashboard-filter-card .month-stepper .icon-btn:active:not(:disabled) {
+    background: #dbeafe;
+    color: #08398b;
+    transform: translateY(1px) scale(0.94);
+    box-shadow: inset 0 2px 8px rgba(8, 103, 232, 0.2);
+  }
+
+  .dashboard-filter-card .month-stepper .text-btn:active:not(:disabled) {
+    background: #dbeafe;
+    color: #08398b;
+    transform: translateY(1px) scale(0.96);
+    box-shadow: inset 0 2px 8px rgba(8, 103, 232, 0.18);
   }
 
   .transactions-surface-table .mobile-toggle-btn:hover,

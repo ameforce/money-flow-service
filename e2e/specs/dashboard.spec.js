@@ -5,6 +5,7 @@ import {
   capture,
   createBasicHolding,
   createBasicTransaction,
+  currentE2EHistoryDateIso,
   expectKeyboardReachableInOrder,
   expectNoHorizontalOverflow,
   expectWithinViewport,
@@ -53,6 +54,17 @@ async function readDashboardFilterLayout(filterCard) {
     const stepper = card.querySelector(".month-stepper")?.getBoundingClientRect();
     const range = card.querySelector(".range-picker")?.getBoundingClientRect();
     const dates = Array.from(card.querySelectorAll('input[type="date"]')).map((input) => input.getBoundingClientRect());
+    const modeButtons = Array.from(card.querySelectorAll(".filter-modes-segmented button")).map((button) => {
+      const buttonBox = button.getBoundingClientRect();
+      return {
+        leftInset: mode ? buttonBox.left - mode.left : 0,
+        rightInset: mode ? mode.right - buttonBox.right : 0,
+        topInset: mode ? buttonBox.top - mode.top : 0,
+        bottomInset: mode ? mode.bottom - buttonBox.bottom : 0,
+        height: buttonBox.height,
+        width: buttonBox.width,
+      };
+    });
     const monthGroups = Array.from(card.querySelectorAll(".month-value-group")).map((group) => {
       const input = group.querySelector("input")?.getBoundingClientRect();
       const unit = group.querySelector("span")?.getBoundingClientRect();
@@ -61,6 +73,15 @@ async function readDashboardFilterLayout(filterCard) {
         unitCenterY: unit ? unit.y + unit.height / 2 : 0,
         inputHeight: input?.height ?? 0,
         unitHeight: unit?.height ?? 0,
+      };
+    });
+    const stepperChildren = Array.from(card.querySelectorAll(".month-stepper .icon-btn, .month-stepper .text-btn, .month-stepper .date-inputs input")).map((item) => {
+      const childBox = item.getBoundingClientRect();
+      return {
+        label: item.getAttribute("aria-label") || item.textContent?.trim() || item.tagName,
+        height: childBox.height,
+        topInset: stepper ? childBox.top - stepper.top : 0,
+        bottomInset: stepper ? stepper.bottom - childBox.bottom : 0,
       };
     });
     const box = card.getBoundingClientRect();
@@ -78,7 +99,17 @@ async function readDashboardFilterLayout(filterCard) {
       stepperCenterY: stepper ? stepper.y + stepper.height / 2 : 0,
       rangeCenterY: range ? range.y + range.height / 2 : 0,
       dateYDelta: dates.length === 2 ? Math.abs(dates[0].y - dates[1].y) : 0,
+      modeOuterInset: modeButtons.length
+        ? {
+            top: Math.min(...modeButtons.map((button) => button.topInset)),
+            bottom: Math.min(...modeButtons.map((button) => button.bottomInset)),
+            left: modeButtons[0].leftInset,
+            right: modeButtons[modeButtons.length - 1].rightInset,
+            minButtonHeight: Math.min(...modeButtons.map((button) => button.height)),
+          }
+        : null,
       monthGroups,
+      stepperChildren,
       cardBoxShadow: getComputedStyle(card).boxShadow,
       modeBoxShadow: modeStyle?.boxShadow || "",
       stepperBoxShadow: stepperStyle?.boxShadow || "",
@@ -95,7 +126,19 @@ function expectMonthlyFilterLayout(layout) {
   expect(layout.cardBoxShadow).toBe("none");
   expect(layout.modeBoxShadow).toBe("none");
   expect(layout.stepperBoxShadow).toBe("none");
+  expect(layout.modeOuterInset, "월별/기간 segmented buttons should stay clear of the outer border").toBeTruthy();
+  expect(layout.modeOuterInset.top).toBeGreaterThanOrEqual(3.5);
+  expect(layout.modeOuterInset.bottom).toBeGreaterThanOrEqual(3.5);
+  expect(layout.modeOuterInset.left).toBeGreaterThanOrEqual(3.5);
+  expect(layout.modeOuterInset.right).toBeGreaterThanOrEqual(3.5);
+  expect(layout.modeOuterInset.minButtonHeight).toBeGreaterThanOrEqual(40);
   expect(layout.monthGroups.length).toBeGreaterThanOrEqual(2);
+  expect(layout.stepperChildren.length).toBeGreaterThanOrEqual(5);
+  for (const child of layout.stepperChildren) {
+    expect(child.height, `${child.label} should keep a 40px mobile touch target`).toBeGreaterThanOrEqual(40);
+    expect(child.topInset, `${child.label} should stay clear of the month-stepper top border`).toBeGreaterThanOrEqual(3.5);
+    expect(child.bottomInset, `${child.label} should stay clear of the month-stepper bottom border`).toBeGreaterThanOrEqual(3.5);
+  }
   for (const group of layout.monthGroups) {
     expect(Math.abs(group.inputCenterY - group.unitCenterY)).toBeLessThanOrEqual(1.5);
     expect(Math.abs(group.inputHeight - group.unitHeight)).toBeLessThanOrEqual(4);
@@ -111,6 +154,12 @@ function expectRangeFilterLayout(layout) {
   expect(layout.cardBoxShadow).toBe("none");
   expect(layout.modeBoxShadow).toBe("none");
   expect(layout.rangeBoxShadow).toBe("none");
+  expect(layout.modeOuterInset, "월별/기간 segmented buttons should stay clear of the outer border").toBeTruthy();
+  expect(layout.modeOuterInset.top).toBeGreaterThanOrEqual(3.5);
+  expect(layout.modeOuterInset.bottom).toBeGreaterThanOrEqual(3.5);
+  expect(layout.modeOuterInset.left).toBeGreaterThanOrEqual(3.5);
+  expect(layout.modeOuterInset.right).toBeGreaterThanOrEqual(3.5);
+  expect(layout.modeOuterInset.minButtonHeight).toBeGreaterThanOrEqual(40);
 }
 
 async function expectNoRefreshNoteLayoutShift(page, button, filterCard, label) {
@@ -139,6 +188,50 @@ async function expectNoRefreshNoteLayoutShift(page, button, filterCard, label) {
   expect(Math.abs(afterPosition.documentY - beforePosition.documentY), `${label} should not push the dashboard document layout`).toBeLessThanOrEqual(2);
   expect(Math.abs(afterPosition.viewportY - beforePosition.viewportY), `${label} should not jump in the visible viewport`).toBeLessThanOrEqual(2);
   expect(Math.abs(afterPosition.scrollY - beforePosition.scrollY), `${label} should not force-scroll the page`).toBeLessThanOrEqual(2);
+}
+
+async function expectPressFeedback(page, button, label) {
+  await expect(button, `${label} button should be visible before press feedback check`).toBeVisible();
+  await expect(button, `${label} button should be enabled before press feedback check`).toBeEnabled();
+  const before = await button.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return {
+      transform: style.transform,
+      backgroundColor: style.backgroundColor,
+      boxShadow: style.boxShadow,
+      transitionProperty: style.transitionProperty,
+      transitionDuration: style.transitionDuration,
+    };
+  });
+  const box = await button.boundingBox();
+  expect(box, `${label} button should have a box before press feedback check`).not.toBeNull();
+  await page.mouse.move((box?.x ?? 0) + (box?.width ?? 0) / 2, (box?.y ?? 0) + (box?.height ?? 0) / 2);
+  await page.mouse.down();
+  await page.waitForTimeout(80);
+  const pressed = await button.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return {
+      transform: style.transform,
+      backgroundColor: style.backgroundColor,
+      boxShadow: style.boxShadow,
+      transitionProperty: style.transitionProperty,
+      transitionDuration: style.transitionDuration,
+    };
+  });
+  await page.mouse.up();
+  const changed =
+    pressed.transform !== before.transform ||
+    pressed.backgroundColor !== before.backgroundColor ||
+    pressed.boxShadow !== before.boxShadow;
+  const transitionsTransform = before.transitionProperty
+    .split(",")
+    .map((property) => property.trim())
+    .includes("transform");
+  const hasNonZeroTransition = before.transitionDuration
+    .split(",")
+    .some((duration) => Number.parseFloat(duration) > 0);
+  expect(changed, `${label} should expose immediate visual press feedback`).toBeTruthy();
+  expect(transitionsTransform && hasNonZeroTransition, `${label} should keep tactile transform animation configured`).toBeTruthy();
 }
 
 async function expectDonutLabelsCenteredOnRing(card, label) {
@@ -212,6 +305,7 @@ test("dashboard flow: onboarding, portfolio coherence, summary visibility", asyn
   const txMemo = unique("dashboard-tx");
   const incomeMemo = unique("dashboard-income");
   const previousMonthMemo = unique("dashboard-prev-month");
+  const currentListIso = currentE2EHistoryDateIso();
   const previousMonthDate = new Date();
   previousMonthDate.setMonth(previousMonthDate.getMonth() - 1);
   previousMonthDate.setDate(15);
@@ -230,8 +324,8 @@ test("dashboard flow: onboarding, portfolio coherence, summary visibility", asyn
   await expect(page.locator(".tx-entry-banner")).toBeVisible();
   await capture(page, "dashboard-onboarding-to-transactions");
 
-  await createBasicTransaction(page, { memo: txMemo, amount: "12000", flowType: "expense" });
-  await createBasicTransaction(page, { memo: incomeMemo, amount: "34000", flowType: "income" });
+  await createBasicTransaction(page, { memo: txMemo, amount: "12000", flowType: "expense", occurredOn: currentListIso });
+  await createBasicTransaction(page, { memo: incomeMemo, amount: "34000", flowType: "income", occurredOn: currentListIso });
   await createBasicTransaction(page, {
     memo: previousMonthMemo,
     amount: "5600",
@@ -329,13 +423,17 @@ test("dashboard flow: onboarding, portfolio coherence, summary visibility", asyn
   await expect(mobileFilterCard).toBeVisible();
   expectMonthlyFilterLayout(await readDashboardFilterLayout(mobileFilterCard));
   await expect(mobileFilterCard.getByRole("button", { name: "조회 적용" })).toHaveCount(0);
-  await mobileFilterCard.getByRole("button", { name: "기간" }).click();
+  await expectPressFeedback(page, mobileFilterCard.getByRole("button", { name: "월별" }), "월별");
+  await expectPressFeedback(page, mobileFilterCard.getByRole("button", { name: "기간" }), "기간");
   await expect(mobileFilterCard.getByRole("button", { name: "조회 적용" })).toHaveCount(0);
   await expect(mobileFilterCard.locator('input[type="date"]')).toHaveCount(2);
   expectRangeFilterLayout(await readDashboardFilterLayout(mobileFilterCard));
   await expectNoHorizontalOverflow(page, 12);
-  await mobileFilterCard.getByRole("button", { name: "월별" }).click();
+  await expectPressFeedback(page, mobileFilterCard.getByRole("button", { name: "월별" }), "월별 복귀");
   expectMonthlyFilterLayout(await readDashboardFilterLayout(mobileFilterCard));
+  await expectPressFeedback(page, mobileFilterCard.getByRole("button", { name: "이전 달" }), "이전 달");
+  await expectPressFeedback(page, mobileFilterCard.getByRole("button", { name: "다음 달" }), "다음 달");
+  await expectPressFeedback(page, mobileFilterCard.getByRole("button", { name: "이번 달" }), "이번 달");
   await expectNoRefreshNoteLayoutShift(page, mobileFilterCard.getByRole("button", { name: "월별" }), mobileFilterCard, "월별");
   await expectNoRefreshNoteLayoutShift(page, mobileFilterCard.getByRole("button", { name: "기간" }), mobileFilterCard, "기간");
   await expectNoRefreshNoteLayoutShift(page, mobileFilterCard.getByRole("button", { name: "월별" }), mobileFilterCard, "월별 복귀");
@@ -408,6 +506,7 @@ test("dashboard flow: onboarding, portfolio coherence, summary visibility", asyn
     await expectDonutLabelsCenteredOnRing(dashboardPortfolioCard, "mobile dashboard transaction flow");
     await expectDonutLabelsClearOfMobileNav(page, dashboardPortfolioCard, "mobile dashboard transaction flow");
     await expectWithinViewport(dashboardCenterLabel);
+    await expect(priceRefreshButton).toBeEnabled({ timeout: 10_000 });
     await expectKeyboardReachableInOrder(page, [
       page.getByRole("button", { name: "새로고침" }),
       page.getByRole("button", { name: "시세 갱신" }),

@@ -17,8 +17,9 @@ export function unique(prefix) {
   return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 }
 
-function utcIsoToday() {
+export function currentE2EHistoryDateIso(daysOffset = 0) {
   const date = new Date();
+  date.setUTCDate(date.getUTCDate() + daysOffset);
   const month = String(date.getUTCMonth() + 1).padStart(2, "0");
   const day = String(date.getUTCDate()).padStart(2, "0");
   return `${date.getUTCFullYear()}-${month}-${day}`;
@@ -531,9 +532,10 @@ async function fillInputUntilValue(locator, inputValue, expectedValue, fieldName
 
 export async function createBasicTransaction(
   page,
-  { memo, amount = "12000", flowType = "", ownerless = false, occurredOn = utcIsoToday() }
+  { memo, amount = "12000", flowType = "", ownerless = false, occurredOn = currentE2EHistoryDateIso() }
 ) {
   await openTab(page, "거래");
+  const effectiveOccurredOn = occurredOn || currentE2EHistoryDateIso();
   const transactionCard = page.locator("article.card", {
     has: page.getByRole("heading", { name: "거래 입력" }),
   });
@@ -562,7 +564,7 @@ export async function createBasicTransaction(
   }
 
   const ownerSelect = labeledField(transactionContainer, "거래자", "select");
-  await ensureTransactionFormValues(transactionContainer, { memo, amount, occurredOn });
+  await ensureTransactionFormValues(transactionContainer, { memo, amount, occurredOn: effectiveOccurredOn });
 
   if (ownerless) {
     await ownerSelect.selectOption("");
@@ -584,7 +586,11 @@ export async function createBasicTransaction(
     await selectFirstNonEmptyOption(minorSelect);
   }
 
-  const { amountInput } = await ensureTransactionFormValues(transactionContainer, { memo, amount, occurredOn });
+  const { amountInput } = await ensureTransactionFormValues(transactionContainer, {
+    memo,
+    amount,
+    occurredOn: effectiveOccurredOn,
+  });
   const amountInputHandle = await amountInput.elementHandle();
   await transactionContainer.getByRole("button", { name: "거래 등록" }).click();
   const validationMessage = amountInputHandle
@@ -594,7 +600,7 @@ export async function createBasicTransaction(
     : "";
   await amountInputHandle?.dispose();
   if (validationMessage) {
-    await ensureTransactionFormValues(transactionContainer, { memo, amount, occurredOn });
+    await ensureTransactionFormValues(transactionContainer, { memo, amount, occurredOn: effectiveOccurredOn });
     await transactionContainer.getByRole("button", { name: "거래 등록" }).click();
   }
   const row = page.locator("tr.transaction-row", { hasText: memo }).first();
@@ -621,7 +627,7 @@ export async function createBasicTransaction(
 
 export async function createTransactionViaApi(
   page,
-  { memo, amount = "12000", flowType = "expense", occurredOn, ownerName = "" }
+  { memo, amount = "12000", flowType = "expense", occurredOn = currentE2EHistoryDateIso(), ownerName = "" }
 ) {
   const result = await page.evaluate(
     async ({ activeHouseholdKey, amount, csrfCookieName, csrfHeaderName, flowType, householdHeaderName, memo, occurredOn, ownerName }) => {

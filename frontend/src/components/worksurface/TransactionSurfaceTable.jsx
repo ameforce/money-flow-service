@@ -270,67 +270,68 @@ export function TransactionSurfaceTable({
           </button>
         </div>
       )}
-      <table
-        className={`transactions-surface-table${mobileStickyActive ? " mobile-sticky-active" : " mobile-sticky-inactive"}`}
-        aria-label="거래 작업 표"
-      >
-        <thead>
-          <tr>
-            <th data-mobile-priority="hidden">
-              <input
-                type="checkbox"
-                aria-label="표시된 거래 전체 선택"
-                checked={areAllFilteredTransactionsSelected}
-                onChange={(event) => toggleAllFilteredTransactionSelection(Boolean(event.target.checked))}
-              />
-            </th>
-            {TRANSACTION_SURFACE_FIELDS.map((field) => {
-              if (field.key === "occurred_on") {
+      <div className="transactions-surface-scroll">
+        <table
+          className={`transactions-surface-table${mobileStickyActive ? " mobile-sticky-active" : " mobile-sticky-inactive"}`}
+          aria-label="거래 작업 표"
+        >
+          <thead>
+            <tr>
+              <th data-mobile-priority="hidden">
+                <input
+                  type="checkbox"
+                  aria-label="표시된 거래 전체 선택"
+                  checked={areAllFilteredTransactionsSelected}
+                  onChange={(event) => toggleAllFilteredTransactionSelection(Boolean(event.target.checked))}
+                />
+              </th>
+              {TRANSACTION_SURFACE_FIELDS.map((field) => {
+                if (field.key === "occurred_on") {
+                  return (
+                    <th
+                      key={field.key}
+                      className={field.className}
+                      aria-sort={txSortDirection === "asc" ? "ascending" : "descending"}
+                      data-field-key={field.key}
+                      data-mobile-priority={transactionMobilePriority(field.key)}
+                    >
+                      {historyMode ? (
+                        <span
+                          className="sort-header active sort-header-static"
+                          aria-label="일자 정렬 연속 내역순 고정"
+                        >
+                          {field.label}
+                          <span className="sort-indicator" aria-hidden="true">↑</span>
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          className={`sort-header${txSortDirection ? " active" : ""}`}
+                          aria-label={`일자 정렬 ${txSortDirection === "asc" ? "내림차순으로 변경" : "오름차순으로 변경"}`}
+                          onClick={toggleTxSortDirection}
+                        >
+                          {field.label}
+                          <span className="sort-indicator" aria-hidden="true">{txSortDirection === "asc" ? "↑" : "↓"}</span>
+                        </button>
+                      )}
+                    </th>
+                  );
+                }
                 return (
                   <th
                     key={field.key}
                     className={field.className}
-                    aria-sort={txSortDirection === "asc" ? "ascending" : "descending"}
                     data-field-key={field.key}
                     data-mobile-priority={transactionMobilePriority(field.key)}
                   >
-                    {historyMode ? (
-                      <span
-                        className="sort-header active sort-header-static"
-                        aria-label="일자 정렬 연속 내역순 고정"
-                      >
-                        {field.label}
-                        <span className="sort-indicator" aria-hidden="true">↑</span>
-                      </span>
-                    ) : (
-                      <button
-                        type="button"
-                        className={`sort-header${txSortDirection ? " active" : ""}`}
-                        aria-label={`일자 정렬 ${txSortDirection === "asc" ? "내림차순으로 변경" : "오름차순으로 변경"}`}
-                        onClick={toggleTxSortDirection}
-                      >
-                        {field.label}
-                        <span className="sort-indicator" aria-hidden="true">{txSortDirection === "asc" ? "↑" : "↓"}</span>
-                      </button>
-                    )}
+                    {field.label}
                   </th>
                 );
-              }
-              return (
-                <th
-                  key={field.key}
-                  className={field.className}
-                  data-field-key={field.key}
-                  data-mobile-priority={transactionMobilePriority(field.key)}
-                >
-                  {field.label}
-                </th>
-              );
-            })}
-            <th data-mobile-priority="action">동작</th>
-          </tr>
-        </thead>
-        <tbody>
+              })}
+              <th data-mobile-priority="action">동작</th>
+            </tr>
+          </thead>
+          <tbody>
           {historyMode && (
             <tr ref={historyTopSentinelRef} className="transaction-history-sentinel transaction-history-sentinel-top">
               <td colSpan={columnSpan}>{historyLoadingOlder ? "이전 거래 로딩" : ""}</td>
@@ -696,8 +697,9 @@ export function TransactionSurfaceTable({
               <td colSpan={columnSpan}>{historyLoadingNewer ? "다음 거래 로딩" : ""}</td>
             </tr>
           )}
-        </tbody>
-      </table>
+          </tbody>
+        </table>
+      </div>
     </>
   );
 }

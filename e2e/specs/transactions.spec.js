@@ -5,6 +5,7 @@ import {
   capture,
   createBasicTransaction,
   createTransactionViaApi,
+  currentE2EHistoryDateIso,
   expectBackgroundNotPlainWhite,
   expectCompactLedgerRow,
   expectNoHorizontalOverflow,
@@ -23,11 +24,7 @@ function isoDaysAgo(days) {
 }
 
 function isoDaysFromToday(days) {
-  const date = new Date();
-  date.setUTCDate(date.getUTCDate() + days);
-  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
-  const day = String(date.getUTCDate()).padStart(2, "0");
-  return `${date.getUTCFullYear()}-${month}-${day}`;
+  return currentE2EHistoryDateIso(days);
 }
 
 function yearMonthFromIso(value) {
@@ -181,11 +178,8 @@ async function expectDesktopSidebarSticky(page) {
   await page.waitForTimeout(100);
 }
 
-async function expectMobileTransactionMonthStepperSticky(page) {
+async function expectTransactionMonthStepperSticky(page, label = "transaction month stepper") {
   const viewport = page.viewportSize();
-  if ((viewport?.width ?? 0) > 760) {
-    return;
-  }
   const headerGroup = page.locator(".transaction-list-card > .table-header-group").first();
   const stepper = page.locator(".transaction-list-card .month-stepper").first();
   await expect(headerGroup).toBeVisible();
@@ -201,13 +195,35 @@ async function expectMobileTransactionMonthStepperSticky(page) {
       headerBottom: headerBox.bottom,
       stepperTop: stepperBox?.top ?? null,
       stepperBottom: stepperBox?.bottom ?? null,
+      scrollY: window.scrollY,
+      viewportHeight: window.innerHeight,
+      documentHeight: document.documentElement.scrollHeight,
     };
   });
-  expect(["sticky", "fixed"]).toContain(state.position);
-  expect(state.top).not.toBe("auto");
-  expect(state.stepperTop, `mobile month stepper should stay in viewport: ${JSON.stringify(state)}`).not.toBeNull();
-  expect(state.stepperTop ?? -1).toBeGreaterThanOrEqual(0);
-  expect(state.stepperBottom ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual((viewport?.height ?? 0) - 72);
+  expect(["sticky", "fixed"], `${label} sticky state: ${JSON.stringify(state)}`).toContain(state.position);
+  expect(state.top, `${label} sticky state: ${JSON.stringify(state)}`).not.toBe("auto");
+  expect(state.stepperTop, `${label} should stay in viewport: ${JSON.stringify(state)}`).not.toBeNull();
+  expect(state.stepperTop ?? -1, `${label} sticky state: ${JSON.stringify(state)}`).toBeGreaterThanOrEqual(0);
+  const bottomReserve = (viewport?.width ?? 0) <= 760 ? 72 : 16;
+  expect(state.stepperBottom ?? Number.POSITIVE_INFINITY, `${label} sticky state: ${JSON.stringify(state)}`).toBeLessThanOrEqual(
+    (viewport?.height ?? 0) - bottomReserve
+  );
+}
+
+async function expectDesktopTransactionMonthStepperSticky(page) {
+  const viewport = page.viewportSize();
+  if ((viewport?.width ?? 0) <= 760) {
+    return;
+  }
+  await expectTransactionMonthStepperSticky(page, "desktop transaction month stepper");
+}
+
+async function expectMobileTransactionMonthStepperSticky(page) {
+  const viewport = page.viewportSize();
+  if ((viewport?.width ?? 0) > 760) {
+    return;
+  }
+  await expectTransactionMonthStepperSticky(page, "mobile transaction month stepper");
 }
 
 async function expectDesktopTransactionRowsSingleLine(page) {
@@ -566,6 +582,7 @@ test("transactions history scrolls older and newer without future rows while kee
   await expectTransactionMonthControls(page, seeded[seeded.length - 1].occurredOn, "newer visible anchor");
   await expect(page.locator("tr.transaction-row", { hasText: futureMemo })).toHaveCount(0);
   await expect(page.locator(".transaction-history-date-row", { hasText: futureDate })).toHaveCount(0);
+  await expectDesktopTransactionMonthStepperSticky(page);
 
   await page.setViewportSize({ width: 390, height: 844 });
   await scrollHistoryRowIntoViewport(page, todayMemo, seeded[seeded.length - 1].occurredOn, "end", "down");
