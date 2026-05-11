@@ -1042,7 +1042,7 @@ docker exec "$postgres_container" sh -lc 'psql -U "$POSTGRES_USER" -d postgres -
 ALTER USER :"db_user" WITH PASSWORD :'"'"'db_password'"'"';
 SQL'
 echo '[deploy] postgres password synchronized with env'
-docker exec "$postgres_container" sh -lc 'case "$POSTGRES_DB" in ""|*[!A-Za-z0-9_]*) echo "invalid POSTGRES_DB: $POSTGRES_DB" >&2; exit 1;; esac; if ! psql -U "$POSTGRES_USER" -d postgres -Atc "SELECT 1 FROM pg_database WHERE datname = '"'"'"'"'"'"'"'"'$POSTGRES_DB'"'"'"'"'"'"'"'"'" | grep -qx 1; then createdb -U "$POSTGRES_USER" "$POSTGRES_DB"; fi'
+docker exec "$postgres_container" sh -lc 'case "$POSTGRES_DB" in ""|*[!A-Za-z0-9_]*) echo "invalid POSTGRES_DB: $POSTGRES_DB" >&2; exit 1;; esac; if ! psql -U "$POSTGRES_USER" -d postgres -Atc "SELECT datname FROM pg_database" | grep -Fxq "$POSTGRES_DB"; then createdb -U "$POSTGRES_USER" "$POSTGRES_DB"; fi'
 echo '[deploy] postgres database presence verified'
 echo '[deploy] ensuring schema exists before schema upgrade'
 docker compose -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" --env-file "$ENV_FILE_PATH" run --rm --no-deps app env PYTHONPATH=backend python -c "from app.db.init_db import create_schema; create_schema()"
