@@ -404,25 +404,32 @@ fi
               "E2E_API_BASE_URL=${apiBaseUrl}",
               "E2E_API_REQUEST_ORIGIN=${apiRequestOrigin}"
             ]) {
-              sh '''
+              def targetReadyStatus = sh(returnStatus: true, script: '''
 set -eu
 attempt=1
 while true; do
-if curl -fsS "$TARGET_URL/healthz"; then
+  if curl -fsS "$TARGET_URL/healthz"; then
     echo "[pre-deploy-e2e] $TARGET_URL health check OK"
-    break
+    exit 0
   fi
 
   if [ "$attempt" -ge "$RETRY_COUNT" ]; then
-    echo "[pre-deploy-e2e] health check failed after $RETRY_COUNT retries"
-    exit 1
+    echo "[pre-deploy-e2e] $TARGET_URL is unavailable after $RETRY_COUNT retries"
+    exit 3
   fi
 
   echo "[pre-deploy-e2e] health check retry $attempt/$RETRY_COUNT: $TARGET_URL"
   attempt=$((attempt + 1))
   sleep "$RETRY_INTERVAL"
 done
-            '''
+            ''')
+              if (targetReadyStatus == 3) {
+                echo "[pre-deploy-e2e] live target is unavailable; skipping live-site smoke so Deploy Execute can restore ${targetUrl}. Post-deploy smoke remains blocking."
+                return
+              }
+              if (targetReadyStatus != 0) {
+                error("[pre-deploy-e2e] unexpected health-check status: ${targetReadyStatus}")
+              }
               echo "[pre-deploy-e2e] smoke policy: run lightweight live-site check only; exhaustive suite remains in ci:quality:gate."
               sh ". ./scripts/ci/ensure-node.sh\n${liveSmokeCommand}"
             }
@@ -480,6 +487,8 @@ done
              "tar -xzf deploy-${env.BUILD_NUMBER}.tgz",
              "docker compose -p ${env.DEPLOY_COMPOSE_PROJECT_RESOLVED} -f ${env.DEPLOY_COMPOSE_FILE_RESOLVED} --env-file ${env.DEPLOY_ENV_FILE_NAME} build --no-cache",
              "docker compose -p ${env.DEPLOY_COMPOSE_PROJECT_RESOLVED} -f ${env.DEPLOY_COMPOSE_FILE_RESOLVED} --env-file ${env.DEPLOY_ENV_FILE_NAME} up -d postgres",
+             "docker exec <postgres-container> sh -lc 'psql ... ALTER USER ...'",
+             "docker compose -p ${env.DEPLOY_COMPOSE_PROJECT_RESOLVED} -f ${env.DEPLOY_COMPOSE_FILE_RESOLVED} --env-file ${env.DEPLOY_ENV_FILE_NAME} run --rm --no-deps app env PYTHONPATH=backend python -c 'from app.db.init_db import create_schema; create_schema()'",
              "docker compose -p ${env.DEPLOY_COMPOSE_PROJECT_RESOLVED} -f ${env.DEPLOY_COMPOSE_FILE_RESOLVED} --env-file ${env.DEPLOY_ENV_FILE_NAME} run --rm --no-deps app env PYTHONPATH=backend python -m app.db.schema_upgrade",
              "echo SCHEMA_UPGRADE_OK",
              "docker compose -p ${env.DEPLOY_COMPOSE_PROJECT_RESOLVED} -f ${env.DEPLOY_COMPOSE_FILE_RESOLVED} --env-file ${env.DEPLOY_ENV_FILE_NAME} up -d app",
@@ -928,6 +937,71 @@ if [ "$ENV_FILE_PATH" = '.env.dev' ]; then
     echo "[deploy] missing dev SMTP env:${missing_smtp}"
     exit 1
   fi
+else
+  if [ ! -f "$ENV_FILE_PATH" ]; then
+    echo "[deploy] ${ENV_FILE_PATH} is missing."
+    exit 1
+  fi
+  python3 - "$ENV_FILE_PATH" <<'PY'
+from pathlib import Path
+from sys import argv
+from urllib.parse import quote
+
+env_path = Path(argv[1])
+values: dict[str, str] = {}
+lines = env_path.read_text().splitlines()
+for line in lines:
+    if line and not line.lstrip().startswith("#") and "=" in line:
+        key, value = line.split("=", 1)
+        values[key] = value
+
+required = ("POSTGRES_USER", "POSTGRES_PASSWORD")
+missing = [key for key in required if not values.get(key)]
+if missing:
+    raise SystemExit("[deploy] missing prod env: " + " ".join(missing))
+
+normalized = {
+    "ENV": "prod",
+    "POSTGRES_DB": "moneyflow",
+    "DATABASE_URL": (
+        "postgresql+psycopg://"
+        f"{quote(values['POSTGRES_USER'], safe='')}:"
+        f"{quote(values['POSTGRES_PASSWORD'], safe='')}"
+        "@postgres:5432/moneyflow"
+    ),
+    "CORS_ORIGINS": "https://moneyflow.enmsoftware.com",
+    "FRONTEND_BASE_URL": "https://moneyflow.enmsoftware.com",
+    "AUTH_COOKIE_SECURE": "true",
+    "AUTH_DEBUG_RETURN_VERIFY_TOKEN": "false",
+    "AUTH_EMAIL_VERIFICATION_REQUIRED": "true",
+    "FORWARDED_ALLOW_IPS": "172.30.0.0/24,127.0.0.1,::1",
+    "EMAIL_DELIVERY_MODE": "smtp",
+    "SMTP_ACCOUNT_LABEL": "money-flow-prod",
+}
+strip_keys = set(normalized)
+output = []
+for line in lines:
+    if line and not line.lstrip().startswith("#") and "=" in line:
+        key, _ = line.split("=", 1)
+        if key in strip_keys:
+            continue
+    output.append(line)
+for key, value in normalized.items():
+    output.append(f"{key}={value}")
+env_path.write_text("\n".join(output) + "\n")
+PY
+
+  missing_prod_env=''
+  for key in POSTGRES_USER POSTGRES_PASSWORD DATABASE_URL SECRET_KEY SMTP_HOST SMTP_PORT SMTP_SSL SMTP_STARTTLS SMTP_FROM_EMAIL SMTP_ACCOUNT_LABEL; do
+    current_value="$(grep -E "^${key}=" "$ENV_FILE_PATH" | tail -n 1 | cut -d= -f2- || true)"
+    if [ -z "$current_value" ]; then
+      missing_prod_env="${missing_prod_env} ${key}"
+    fi
+  done
+  if [ -n "$missing_prod_env" ]; then
+    echo "[deploy] missing prod env:${missing_prod_env}"
+    exit 1
+  fi
 fi
 if [ -f "$ENV_FILE_PATH" ]; then
   grep -v '^APP_VERSION=' "$ENV_FILE_PATH" > "$ENV_FILE_PATH.tmp" || true
@@ -959,6 +1033,22 @@ while [ "$attempt" -le "$HEALTH_RETRY_MAX" ]; do
   attempt=$((attempt + 1))
   sleep "$HEALTH_RETRY_INTERVAL"
 done
+postgres_container="$(docker compose -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" --env-file "$ENV_FILE_PATH" ps -q postgres)"
+if [ -z "$postgres_container" ]; then
+  echo '[deploy] postgres container is missing before schema upgrade'
+  exit 1
+fi
+docker exec "$postgres_container" sh -lc 'psql -U "$POSTGRES_USER" -d postgres -v ON_ERROR_STOP=1 -v db_user="$POSTGRES_USER" -v db_password="$POSTGRES_PASSWORD" <<'"'"'SQL'"'"'
+ALTER USER :"db_user" WITH PASSWORD :'"'"'db_password'"'"';
+SQL'
+echo '[deploy] postgres password synchronized with env'
+docker exec "$postgres_container" sh -lc 'psql -U "$POSTGRES_USER" -d postgres -v ON_ERROR_STOP=1 -v db_name="$POSTGRES_DB" <<'"'"'SQL'"'"'
+SELECT format('"'"'CREATE DATABASE %I'"'"', :'"'"'db_name'"'"')
+WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = :'"'"'db_name'"'"')\gexec
+SQL'
+echo '[deploy] postgres database presence verified'
+echo '[deploy] ensuring schema exists before schema upgrade'
+docker compose -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" --env-file "$ENV_FILE_PATH" run --rm --no-deps app env PYTHONPATH=backend python -c "from app.db.init_db import create_schema; create_schema()"
 echo '[deploy] running schema upgrade before app exposure'
 docker compose -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" --env-file "$ENV_FILE_PATH" run --rm --no-deps app env PYTHONPATH=backend python -m app.db.schema_upgrade
 echo '[deploy] SCHEMA_UPGRADE_OK'
