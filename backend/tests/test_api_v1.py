@@ -12,6 +12,7 @@ import threading
 import time
 from typing import Any
 import uuid
+import zipfile
 
 from fastapi.testclient import TestClient as FastAPITestClient
 import jwt
@@ -7152,3 +7153,235 @@ def test_readyz_reports_env_and_database() -> None:
         assert payload["env"] == "test"
         assert payload["db"] == "ok"
         assert "time" in payload
+
+
+def test_migration_package_export_and_dry_run_round_trip() -> None:
+    with TestClient(app) as client:
+        token = _auth(client, f"migration-export-seeded-{uuid.uuid4().hex}@example.com", "Password1234", "MigrationSeeded")
+        me_resp = client.get("/api/v1/auth/me", headers=_headers(token))
+        assert me_resp.status_code == 200
+        user_id = str(me_resp.json()["id"])
+        household_resp = client.get("/api/v1/household/current", headers=_headers(token))
+        assert household_resp.status_code == 200
+        household_id = str(household_resp.json()["household"]["id"])
+        with SessionLocal() as db:
+            category = Category(
+                household_id=household_id,
+                flow_type=FlowType.expense,
+                major="식비",
+                minor="점심",
+                sort_order=100,
+            )
+            db.add(category)
+            db.flush()
+            db.add(
+                Transaction(
+                    household_id=household_id,
+                    category_id=category.id,
+                    flow_type=FlowType.expense,
+                    occurred_on=date(2026, 5, 11),
+                    amount=Decimal("12000"),
+                    currency="KRW",
+                    memo="migration-seed",
+                    owner_user_id=user_id,
+                    owner_name="MigrationSeeded",
+                    source_ref=f"migration-seed-tx-{uuid.uuid4().hex}",
+                    version=1,
+                    created_by_user_id=user_id,
+                )
+            )
+            db.add(
+                Holding(
+                    household_id=household_id,
+                    asset_type=AssetType.stock,
+                    symbol="AAPL",
+                    market_symbol="AAPL",
+                    name="Apple",
+                    type_key="stock",
+                    category="주식",
+                    owner_user_id=user_id,
+                    owner_name="MigrationSeeded",
+                    account_name="Broker",
+                    quantity=Decimal("1"),
+                    average_cost=Decimal("190"),
+                    currency="USD",
+                    display_order=100,
+                    source_ref=f"migration-seed-holding-{uuid.uuid4().hex}",
+                    version=1,
+                )
+            )
+            db.commit()
+
+        export_resp = client.get("/api/v1/imports/migration-package/export", headers=_headers(token))
+        assert export_resp.status_code == 200
+        package_bytes = export_resp.content
+        assert package_bytes
+        with zipfile.ZipFile(io.BytesIO(package_bytes), "r") as archive:
+            names = set(archive.namelist())
+            assert "manifest.json" in names
+            assert "payload.json" in names
+
+        dry_run = client.post(
+            "/api/v1/imports/migration-package/upload?mode=dry_run",
+            headers=_headers(token),
+            files={"file": ("transfer.zip", package_bytes, "application/zip")},
+        )
+        assert dry_run.status_code == 200
+        payload = dry_run.json()
+        assert payload["schema_version"] == 1
+        assert payload["mode"] == "dry_run"
+        assert payload["category_rows"] == 1
+        assert payload["transaction_rows"] == 1
+        assert payload["holding_rows"] == 1
+        assert payload["applied_transactions"] == 0
+        assert payload["applied_holdings"] == 0
+
+
+def test_migration_package_apply_replaces_existing_household_data() -> None:
+    with TestClient(app) as client:
+        source_token = _auth(client, f"migration-source-{uuid.uuid4().hex}@example.com", "Password1234", "SourceOwner")
+        source_me = client.get("/api/v1/auth/me", headers=_headers(source_token))
+        assert source_me.status_code == 200
+        source_user_id = str(source_me.json()["id"])
+        source_household = client.get("/api/v1/household/current", headers=_headers(source_token))
+        assert source_household.status_code == 200
+        source_household_id = str(source_household.json()["household"]["id"])
+
+        with SessionLocal() as db:
+            source_row = db.get(Household, source_household_id)
+            assert source_row is not None
+            source_row.name = "이식원본"
+            source_row.base_currency = "USD"
+            category = Category(
+                household_id=source_household_id,
+                flow_type=FlowType.income,
+                major="급여",
+                minor="월급",
+                sort_order=100,
+            )
+            db.add(category)
+            db.flush()
+            db.add(
+                Transaction(
+                    household_id=source_household_id,
+                    category_id=category.id,
+                    flow_type=FlowType.income,
+                    occurred_on=date(2026, 5, 12),
+                    amount=Decimal("3500000"),
+                    currency="KRW",
+                    memo="from-dev-export",
+                    owner_user_id=source_user_id,
+                    owner_name="SourceOwner",
+                    source_ref=f"migration-src-tx-{uuid.uuid4().hex}",
+                    version=1,
+                    created_by_user_id=source_user_id,
+                )
+            )
+            db.add(
+                Holding(
+                    household_id=source_household_id,
+                    asset_type=AssetType.stock,
+                    symbol="QQQ",
+                    market_symbol="QQQ",
+                    name="Invesco QQQ",
+                    type_key="stock",
+                    category="주식",
+                    owner_user_id=source_user_id,
+                    owner_name="SourceOwner",
+                    account_name="US",
+                    quantity=Decimal("3"),
+                    average_cost=Decimal("420"),
+                    currency="USD",
+                    display_order=100,
+                    source_ref=f"migration-src-holding-{uuid.uuid4().hex}",
+                    version=1,
+                )
+            )
+            db.commit()
+
+        export_resp = client.get("/api/v1/imports/migration-package/export", headers=_headers(source_token))
+        assert export_resp.status_code == 200
+        package_bytes = export_resp.content
+        assert package_bytes
+
+        target_token = _auth(client, f"migration-target-{uuid.uuid4().hex}@example.com", "Password1234", "TargetOwner")
+        target_me = client.get("/api/v1/auth/me", headers=_headers(target_token))
+        assert target_me.status_code == 200
+        target_user_id = str(target_me.json()["id"])
+        target_household = client.get("/api/v1/household/current", headers=_headers(target_token))
+        assert target_household.status_code == 200
+        target_household_id = str(target_household.json()["household"]["id"])
+
+        with SessionLocal() as db:
+            category = Category(
+                household_id=target_household_id,
+                flow_type=FlowType.expense,
+                major="기존",
+                minor="삭제예정",
+                sort_order=100,
+            )
+            db.add(category)
+            db.flush()
+            db.add(
+                Transaction(
+                    household_id=target_household_id,
+                    category_id=category.id,
+                    flow_type=FlowType.expense,
+                    occurred_on=date(2026, 5, 1),
+                    amount=Decimal("10000"),
+                    currency="KRW",
+                    memo="to-be-replaced",
+                    owner_user_id=target_user_id,
+                    owner_name="TargetOwner",
+                    source_ref=f"migration-target-tx-{uuid.uuid4().hex}",
+                    version=1,
+                    created_by_user_id=target_user_id,
+                )
+            )
+            db.commit()
+
+        rejected = client.post(
+            "/api/v1/imports/migration-package/upload?mode=apply",
+            headers=_headers(target_token),
+            files={"file": ("transfer.zip", package_bytes, "application/zip")},
+        )
+        assert rejected.status_code == 400
+        assert rejected.json()["error"]["code"] == "MIGRATION_APPLY_REPLACE_REQUIRED"
+
+        applied = client.post(
+            "/api/v1/imports/migration-package/upload?mode=apply&replace_existing=true",
+            headers=_headers(target_token),
+            files={"file": ("transfer.zip", package_bytes, "application/zip")},
+        )
+        assert applied.status_code == 200
+        report = applied.json()
+        assert report["mode"] == "apply"
+        assert report["applied_transactions"] == 1
+        assert report["applied_holdings"] == 1
+
+        target_tx = client.get("/api/v1/transactions", headers=_headers(target_token))
+        assert target_tx.status_code == 200
+        memos = {str(item["memo"]) for item in target_tx.json()}
+        assert "from-dev-export" in memos
+        assert "to-be-replaced" not in memos
+
+        target_holdings = client.get("/api/v1/holdings", headers=_headers(target_token))
+        assert target_holdings.status_code == 200
+        symbols = {str(item["market_symbol"]) for item in target_holdings.json()}
+        assert "QQQ" in symbols
+
+        target_settings = client.get("/api/v1/household/settings", headers=_headers(target_token))
+        assert target_settings.status_code == 200
+        assert target_settings.json()["base_currency"] == "USD"
+
+
+def test_migration_package_upload_rejects_invalid_archive() -> None:
+    with TestClient(app) as client:
+        token = _auth(client, f"migration-invalid-{uuid.uuid4().hex}@example.com", "Password1234", "MigrationInvalid")
+        invalid = client.post(
+            "/api/v1/imports/migration-package/upload?mode=dry_run",
+            headers=_headers(token),
+            files={"file": ("invalid.zip", b"not-a-zip", "application/zip")},
+        )
+        assert invalid.status_code == 400
+        assert invalid.json()["error"]["code"] == "MIGRATION_PACKAGE_INVALID_ARCHIVE"

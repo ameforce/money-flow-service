@@ -72,3 +72,47 @@ test("import flow: workbook dry-run and apply", async ({ page }, testInfo) => {
   await expect(page.locator("tr", { hasText: importHoldingName }).first()).toBeVisible();
   await capture(page, "import-apply-result");
 });
+
+test("import flow: migration package export and upload", async ({ page }, testInfo) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("migration-user")}@example.com`;
+  const displayName = unique("migration-name");
+  const migrationPackagePath = testInfo.outputPath(`${unique("migration-package")}.zip`);
+
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await assertResponsiveShell(page);
+  await page.getByRole("button", { name: "데이터 가져오기", exact: true }).click();
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "migration-package-mobile-entry");
+
+  const exportButton = page.getByRole("button", { name: "현재 가계 패키지 추출" });
+  await expectWithinViewport(exportButton);
+  const downloadPromise = page.waitForEvent("download");
+  await exportButton.click();
+  const download = await downloadPromise;
+  await download.saveAs(migrationPackagePath);
+
+  const packageInput = page.getByLabel("이식 패키지 업로드");
+  await expect(packageInput).toBeEnabled();
+  await packageInput.setInputFiles(migrationPackagePath);
+  await expect(page.getByText(path.basename(migrationPackagePath))).toBeVisible();
+
+  const dryRunButton = page.getByRole("button", { name: "패키지 미리 검증" });
+  const applyButton = page.getByRole("button", { name: "패키지 적용" });
+  await expectWithinViewport(dryRunButton);
+  await expectWithinViewport(applyButton);
+  await dryRunButton.click();
+  await expect(page.getByText("미리 검증 완료")).toBeVisible();
+  await expect(page.locator(".import-report")).toContainText(path.basename(migrationPackagePath));
+  await capture(page, "migration-package-mobile-dry-run");
+
+  await applyButton.click();
+  await expect(page.getByRole("alertdialog")).toBeVisible();
+  await page.getByRole("button", { name: "교체 적용" }).click();
+  await expect(page.getByText("적용 완료")).toBeVisible();
+  await expect(page.locator(".import-report")).toContainText("적용 거래");
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "migration-package-mobile-apply");
+});

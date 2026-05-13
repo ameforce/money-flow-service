@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+import io
 import logging
 import os
 import threading
@@ -10,6 +11,7 @@ from typing import Literal
 import zipfile
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -19,7 +21,8 @@ from app.core.config import settings
 from app.core.errors import app_error
 from app.db.models import ImportExecutionLock
 from app.db.session import SessionLocal, get_db
-from app.schemas import ImportReport, ImportRequest
+from app.schemas import ImportReport, ImportRequest, MigrationPackageReport
+from app.services.migration_package import MigrationPackageService
 from app.services.runtime import importer
 
 
@@ -29,6 +32,7 @@ _MIN_IMPORT_LOCK_HEARTBEAT_SECONDS = 5
 logger = logging.getLogger(__name__)
 _import_process_guard_registry_lock = threading.Lock()
 _import_process_guard_registry: set[str] = set()
+migration_package_service = MigrationPackageService()
 
 if os.name == "nt":
     import msvcrt
@@ -549,6 +553,157 @@ def import_workbook_upload(
             workbook_path=temp_path,
             mode=mode,
         ).model_copy(update={"workbook_path": file_name})
+    finally:
+        file.file.close()
+        if temp_path is not None and temp_path.exists():
+            temp_path.unlink()
+
+
+def _run_migration_package_with_guard(
+    db: Session,
+    *,
+    household,
+    actor_user_id: str,
+    package_name: str,
+    package_path: Path,
+    mode: Literal["dry_run", "apply"],
+    replace_existing: bool,
+) -> MigrationPackageReport:
+    process_guard = _acquire_import_process_guard(db, household_id=household.id, mode=mode)
+    lease_state: dict[str, datetime] = {"acquired_at": datetime.now(UTC)}
+    lease_state_lock = threading.Lock()
+    heartbeat_failed = threading.Event()
+    heartbeat_stop: threading.Event | None = None
+    heartbeat_thread: threading.Thread | None = None
+    try:
+        if mode == "apply":
+            lock_acquired_at = _acquire_import_lock(db, household.id)
+            with lease_state_lock:
+                lease_state["acquired_at"] = lock_acquired_at
+            if _should_use_background_heartbeat(db):
+                heartbeat_stop, heartbeat_thread = _start_import_lock_heartbeat(
+                    household_id=household.id,
+                    lease_state=lease_state,
+                    lease_state_lock=lease_state_lock,
+                    heartbeat_failed=heartbeat_failed,
+                )
+        try:
+            payload = migration_package_service.load_package(package_path)
+            report = migration_package_service.run_transfer(
+                db,
+                household=household,
+                actor_user_id=actor_user_id,
+                package_name=package_name,
+                payload=payload,
+                mode=mode,
+                replace_existing=replace_existing,
+            )
+            if mode == "apply":
+                if heartbeat_stop is not None and heartbeat_thread is not None:
+                    _stop_import_lock_heartbeat(stop_event=heartbeat_stop, thread=heartbeat_thread)
+                    heartbeat_stop = None
+                    heartbeat_thread = None
+                with lease_state_lock:
+                    acquired_at = lease_state["acquired_at"]
+                if heartbeat_failed.is_set() or not _is_import_lock_current(
+                    db,
+                    household.id,
+                    acquired_at=acquired_at,
+                ):
+                    db.rollback()
+                    raise app_error(
+                        status_code=409,
+                        code="IMPORT_LOCK_LOST",
+                        message="이식 잠금을 유지하지 못해 작업을 중단했습니다.",
+                        action="잠시 후 다시 시도해 주세요.",
+                    )
+                db.commit()
+            else:
+                db.rollback()
+            return report
+        except HTTPException:
+            db.rollback()
+            raise
+        except Exception as error:  # noqa: BLE001
+            db.rollback()
+            logger.exception("Migration package processing failed unexpectedly.")
+            raise app_error(
+                status_code=500,
+                code="MIGRATION_PACKAGE_INTERNAL_ERROR",
+                message="이식 패키지 처리 중 서버 오류가 발생했습니다.",
+                action="잠시 후 다시 시도해 주세요.",
+            ) from error
+        finally:
+            if heartbeat_stop is not None and heartbeat_thread is not None:
+                _stop_import_lock_heartbeat(stop_event=heartbeat_stop, thread=heartbeat_thread)
+            if mode == "apply":
+                _release_import_lock(db, household.id, acquired_at=lease_state["acquired_at"])
+    finally:
+        if process_guard is not None:
+            process_guard.release()
+
+
+@router.get("/migration-package/export")
+def export_migration_package(
+    ctx=Depends(require_editor_household),
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    household, _ = ctx
+    package_bytes, filename = migration_package_service.export_package(db, household)
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    return StreamingResponse(io.BytesIO(package_bytes), media_type="application/zip", headers=headers)
+
+
+@router.post("/migration-package/upload", response_model=MigrationPackageReport)
+def import_migration_package_upload(
+    mode: Literal["dry_run", "apply"] = Query("dry_run"),
+    replace_existing: bool = Query(False),
+    file: UploadFile = File(...),
+    ctx=Depends(require_editor_household),
+    db: Session = Depends(get_db),
+) -> MigrationPackageReport:
+    household, member = ctx
+    file_name = str(file.filename or "").strip()
+    suffix = Path(file_name).suffix.lower()
+    if suffix != ".zip":
+        raise app_error(
+            status_code=400,
+            code="MIGRATION_PACKAGE_EXTENSION_INVALID",
+            message="이식 패키지는 .zip 파일만 업로드할 수 있습니다.",
+            action="dev에서 추출한 패키지 파일을 다시 선택해 주세요.",
+        )
+    if mode == "apply" and not replace_existing:
+        raise app_error(
+            status_code=400,
+            code="MIGRATION_APPLY_REPLACE_REQUIRED",
+            message="적용 모드에서는 기존 데이터를 교체하도록 확인해야 합니다.",
+            action="적용 체크를 켠 뒤 다시 시도해 주세요.",
+        )
+
+    project_root = Path(settings.project_root)
+    temp_path: Path | None = None
+    try:
+        temp_dir = project_root / "tmp_import_uploads"
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            suffix=".zip",
+            prefix="migration-upload-",
+            dir=temp_dir,
+            delete=False,
+        ) as temp_file:
+            temp_path = Path(temp_file.name)
+            _copy_upload_with_limit(file, temp_path)
+
+        return _run_migration_package_with_guard(
+            db=db,
+            household=household,
+            actor_user_id=str(getattr(member, "user_id", "") or ""),
+            package_name=file_name or temp_path.name,
+            package_path=temp_path,
+            mode=mode,
+            replace_existing=replace_existing,
+        )
     finally:
         file.file.close()
         if temp_path is not None and temp_path.exists():
