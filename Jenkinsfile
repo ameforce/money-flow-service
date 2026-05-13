@@ -1174,7 +1174,7 @@ assert_frontend_asset_version() {
     else
       asset_body="$(curl -fsS "$asset_url")"
     fi
-    if printf '%s' "$asset_body" | grep -Fq "$expected_frontend_version"; then
+    if grep -Fq "$expected_frontend_version" <<<"$asset_body"; then
       echo "[deploy] frontend asset version matched: ${expected_frontend_version} (${asset_url})"
       return 0
     fi
@@ -1222,7 +1222,7 @@ assert_frontend_asset_version() {
   esac
   while [ "$asset_attempt" -le "$HEALTH_RETRY_MAX" ]; do
     asset_body="$(curl -fsS "$asset_url")"
-    if printf '%s' "$asset_body" | grep -Fq "$expected_frontend_version"; then
+    if grep -Fq "$expected_frontend_version" <<<"$asset_body"; then
       echo "[deploy] public frontend asset version matched: ${expected_frontend_version} (${asset_url})"
       return 0
     fi
