@@ -136,8 +136,8 @@ test("collaboration flow: invite, accept, switch household, responsive", async (
       }
       await expect(holdingCard.getByRole("button", { name: "자산 등록" })).toBeDisabled();
       await openTab(guestPage, "데이터 가져오기");
-      await expect(guestPage.getByRole("button", { name: "미리 검증" })).toBeDisabled();
-      await expect(guestPage.getByRole("button", { name: "적용" })).toBeDisabled();
+      await expect(guestPage.getByRole("button", { name: "미리 검증", exact: true })).toBeDisabled();
+      await expect(guestPage.getByRole("button", { name: "적용", exact: true })).toBeDisabled();
     } else {
       await expect(txSubmitButton).toBeEnabled();
     }
