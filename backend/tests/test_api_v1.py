@@ -7141,3 +7141,14 @@ def test_transaction_owner_user_id_validation_and_display_resolution() -> None:
         assert listed.status_code == 200
         updated_row = next(item for item in listed.json() if item["id"] == transaction_payload["id"])
         assert updated_row["owner_name"] == "GuestNick"
+
+
+def test_readyz_reports_env_and_database() -> None:
+    with TestClient(app) as client:
+        response = client.get("/readyz")
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["status"] == "ready"
+        assert payload["env"] == "test"
+        assert payload["db"] == "ok"
+        assert "time" in payload
