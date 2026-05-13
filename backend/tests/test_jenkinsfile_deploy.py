@@ -66,6 +66,7 @@ def test_prod_env_is_validated_before_remote_env_replacement() -> None:
     assert 'INCOMING_ENV_FILE_PATH="${ENV_FILE_PATH}.incoming.${APP_VERSION}.${BUILD_NUMBER:-manual}"' in source
     assert 'run_ssh "prepare-env-upload"' in source
     assert "rm -f '$INCOMING_ENV_FILE_PATH'" in source
+    assert 'chmod u+w "$validated_env_path"' in source
     assert "mv \"$validated_env_path\" \"$ENV_FILE_PATH\"" in source
 
 
