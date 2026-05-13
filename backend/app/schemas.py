@@ -648,6 +648,24 @@ class ImportRequest(BaseModel):
     mode: Literal["dry_run", "apply"] = "dry_run"
 
 
+class MigrationPackageReport(BaseModel):
+    package_name: str
+    mode: Literal["dry_run", "apply"]
+    replace_existing: bool = False
+    schema_version: int
+    source_env: str | None = None
+    source_household_name: str | None = None
+    category_rows: int
+    transaction_rows: int
+    holding_rows: int
+    applied_categories: int
+    applied_transactions: int
+    applied_holdings: int
+    owner_names_unmatched: int = 0
+    owner_names_ambiguous: int = 0
+    issues: list[ImportIssue] = Field(default_factory=list)
+
+
 class PriceStatus(BaseModel):
     household_id: str
     cache_seconds: int

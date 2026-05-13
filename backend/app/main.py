@@ -29,7 +29,8 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    if settings.env.lower() in {"dev", "test", "local"}:
+    # Bootstrap missing tables in every environment; column-level upgrades remain in schema_upgrade.
+    if settings.env.lower() in {"dev", "test", "local", "prod", "production"}:
         create_schema()
     yield
 
