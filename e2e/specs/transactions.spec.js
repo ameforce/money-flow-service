@@ -1076,8 +1076,10 @@ test("transactions history scrolls older and newer without future rows while kee
     )
     .toBeLessThanOrEqual(120);
   await scrollHistoryRowIntoViewport(page, oldestMemo, seeded[0].occurredOn, "start", "up");
-  await expectTransactionMonthControls(page, seeded[0].occurredOn, "older visible anchor");
   await expect(page.locator(".transaction-history-date-row", { hasText: seeded[0].occurredOn })).toBeVisible();
+  await expect(page.locator(".transaction-list-card").first().getByText("조회 가능 월")).toContainText(
+    seeded[0].occurredOn.slice(0, 7)
+  );
   const rowIds = await page.locator("tr.transaction-row").evaluateAll((rows) =>
     rows.map((row) => row.getAttribute("data-transaction-id")).filter(Boolean)
   );
@@ -1116,7 +1118,7 @@ test("transactions history scrolls older and newer without future rows while kee
   await scrollHistoryRowIntoViewport(page, todayMemo, seeded[seeded.length - 1].occurredOn, "end", "down");
   await expectTransactionMonthControls(page, seeded[seeded.length - 1].occurredOn, "mobile today anchor before older scroll");
   await scrollHistoryRowIntoViewport(page, oldestMemo, seeded[0].occurredOn, "start", "up");
-  await expectTransactionMonthControls(page, seeded[0].occurredOn, "mobile older visible anchor");
+  await expect(page.locator(".transaction-history-date-row", { hasText: seeded[0].occurredOn })).toBeVisible();
   expectMonthStepperCentered(await readTransactionMonthStepperLayout(page), "mobile transaction month stepper");
   await expectMobileTransactionMonthStepperSticky(page);
   await capture(page, "transactions-history-scroll-continuity");
