@@ -68,6 +68,9 @@ def test_prod_env_is_validated_before_remote_env_replacement() -> None:
     assert "rm -f '$INCOMING_ENV_FILE_PATH'" in source
     assert 'chmod u+w "$validated_env_path"' in source
     assert "mv \"$validated_env_path\" \"$ENV_FILE_PATH\"" in source
+    account_label_normalization = 'values["SMTP_ACCOUNT_LABEL"] = "money-flow-prod"'
+    assert account_label_normalization in python_block
+    assert python_block.index(account_label_normalization) < python_block.index("shape_errors = []")
 
 
 def test_deploy_execute_checks_frontend_asset_version_after_remote_deploy() -> None:
