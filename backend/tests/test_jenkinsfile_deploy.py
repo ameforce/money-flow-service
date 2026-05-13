@@ -61,6 +61,8 @@ def test_prod_env_is_validated_before_remote_env_replacement() -> None:
         "SMTP_ACCOUNT_LABEL",
     }.issubset(required)
     assert "INCOMING_ENV_FILE_PATH" in source
+    assert "Server-local prod SMTP settings fill Jenkins' legacy prod env file." in source
+    assert "SMTP_HOST SMTP_PORT SMTP_SSL SMTP_STARTTLS SMTP_USER SMTP_PASS" in source
     assert "mv \"$validated_env_path\" \"$ENV_FILE_PATH\"" in source
 
 
