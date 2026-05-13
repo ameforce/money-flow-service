@@ -81,6 +81,8 @@ def test_deploy_execute_checks_frontend_asset_version_after_remote_deploy() -> N
     assert "frontend asset version mismatch" in source
     assert "waiting for frontend asset version" in source
     assert 'while [ "$asset_attempt" -le "$HEALTH_RETRY_MAX" ]; do' in source
+    assert 'grep -Fq "$expected_frontend_version" <<<"$asset_body"' in source
+    assert 'printf \'%s\' "$asset_body" | grep -Fq "$expected_frontend_version"' not in source
 
 
 def test_deploy_execute_shell_avoids_groovy_invalid_backslash_escapes() -> None:
