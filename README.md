@@ -138,6 +138,7 @@ cmd /c docker compose up -d --build
 - 권장 Credential
   - `enm-server-ssh-key`: enm-server SSH private key
   - `moneyflow-prod-env-file`: enm-server 실행 시 사용할 `.env` 파일(비밀값 보관용)
+  - `moneyflow-prod-smtp-env-file`: `main`/prod 전용 SMTP Secret file. `SMTP_*` 값만 보관하며 Jenkins 배포가 `.env`에 오버레이한다.
 - Jenkinsfile 파라미터 기본값
   - `RUN_DEPLOY=true`, `DEPLOY_DRY_RUN=false`
   - `RUN_POST_DEPLOY_E2E=false`
@@ -150,6 +151,10 @@ cmd /c docker compose up -d --build
   - `DEPLOY_COMPOSE_FILE=docker-compose.deploy.yml`
   - `DEPLOY_PATH=/home/ameforce/money-flow-service`(원격 사용자 권한 확인)
   - `DEPLOY_HEALTHCHECK_TIMEOUT_SECONDS=120`, `DEPLOY_HEALTHCHECK_INTERVAL_SECONDS=5`
+- 운영 SMTP 배포 게이트
+  - `main` 배포는 `moneyflow-prod-smtp-env-file`이 없거나 `SMTP_HOST=enm-mail-smtp/mailpit/localhost`, port `1025`, `EMAIL_DELIVERY_MODE=log`, `SMTP_ACCOUNT_LABEL!=money-flow-prod`이면 compose 교체 전에 실패한다.
+  - `.env.previous`는 rollback backup일 뿐 prod `SMTP_*` source가 아니다.
+  - `/healthz`와 Playwright smoke는 이메일 외부 도달성을 증명하지 않는다. 운영 완료 판정에는 `scripts/prod_email_smoke.py --verification-mode browser`로 real mailbox 수신과 실제 prod hash link의 same-cookie 검증을 기록해야 한다.
 - `ENM_HOST=enmsoftware.com`, `ENM_PORT=22`, `ENM_USER=ameforce` 기준으로 `enm-server` 접근 테스트 완료.
 - `ENM_DEPLOY_PATH`는 `/home/ameforce/money-flow-service`로 설정하면 Jenkins 실행 시 기본 파라미터와 일치.
 - 헬스체크가 동작하도록 `ENM_HEALTHCHECK_URL`은 `http://127.0.0.1:18080/healthz`로 운영에서 설정.

@@ -73,6 +73,16 @@ pipeline {
       description: 'Jenkins Secret file(.env) credentials ID'
     )
     string(
+      name: 'PROD_SMTP_ENV_FILE_CREDENTIALS_ID',
+      defaultValue: 'moneyflow-prod-smtp-env-file',
+      description: 'main/prod 전용 SMTP Secret file credentials ID (SMTP_* only)'
+    )
+    string(
+      name: 'PROD_SMTP_CREDENTIAL_OWNER',
+      defaultValue: 'Jenkins credential moneyflow-prod-smtp-env-file owner',
+      description: '로그에 남길 prod SMTP credential owner/approver 역할명(비밀값 금지)'
+    )
+    string(
       name: 'DEPLOY_COMPOSE_FILE',
       defaultValue: 'docker-compose.deploy.yml',
       description: '원격 배포에 사용할 compose 파일'
@@ -590,17 +600,25 @@ done
           if (!params.DEPLOY_ENV_FILE_CREDENTIALS_ID?.trim()) {
             error('DEPLOY_ENV_FILE_CREDENTIALS_ID 파라미터가 비어 있습니다.')
           }
+          if (env.DEPLOY_TARGET_ENV == 'prod' && !params.PROD_SMTP_ENV_FILE_CREDENTIALS_ID?.trim()) {
+            error('PROD_SMTP_ENV_FILE_CREDENTIALS_ID 파라미터가 비어 있습니다.')
+          }
           def remote = "${params.DEPLOY_SSH_USER}@${params.DEPLOY_HOST}"
           def bundle = "deploy-${env.APP_VERSION}-${env.BUILD_NUMBER}.tgz"
-
-          withCredentials([
+          def prodSmtpCredentialOwner = (params.PROD_SMTP_CREDENTIAL_OWNER?.trim() ?: "Jenkins credential ${params.PROD_SMTP_ENV_FILE_CREDENTIALS_ID} owner")
+          def credentialBindings = [
             file(credentialsId: params.DEPLOY_ENV_FILE_CREDENTIALS_ID, variable: 'DEPLOY_ENV_FILE'),
             sshUserPrivateKey(
               credentialsId: params.DEPLOY_SSH_CREDENTIALS_ID,
               keyFileVariable: 'DEPLOY_SSH_KEY',
               usernameVariable: 'DEPLOY_SSH_USER_FROM_CRED'
             )
-          ]) {
+          ]
+          if (env.DEPLOY_TARGET_ENV == 'prod') {
+            credentialBindings.add(file(credentialsId: params.PROD_SMTP_ENV_FILE_CREDENTIALS_ID, variable: 'PROD_SMTP_ENV_FILE'))
+          }
+
+          withCredentials(credentialBindings) {
             withEnv([
               "DEPLOY_HOST=${params.DEPLOY_HOST}",
               "DEPLOY_REMOTE=${remote}",
@@ -619,6 +637,8 @@ done
               "HEALTH_RETRY_INTERVAL=${healthIntervalSeconds}",
               "DEPLOY_TMP_KEY_DIR=${env.WORKSPACE ?: '/tmp'}/.jenkins-deploy-key",
               "VHOST_APP_PORT=${vhostAppPort}",
+              "PROD_SMTP_ENV_FILE_CREDENTIALS_ID=${params.PROD_SMTP_ENV_FILE_CREDENTIALS_ID ?: ''}",
+              "PROD_SMTP_CREDENTIAL_OWNER=${prodSmtpCredentialOwner}",
               "SSH_RETRY_MAX=3",
               "SSH_RETRY_DELAY_SECONDS=2"
             ]) {
@@ -779,7 +799,9 @@ validate_healthcheck_url "$HEALTHCHECK_URL"
 validate_public_base_url "$PUBLIC_BASE_URL"
 validate_remote "$REMOTE"
 INCOMING_ENV_FILE_PATH="${ENV_FILE_PATH}.incoming.${APP_VERSION}.${BUILD_NUMBER:-manual}"
+INCOMING_PROD_SMTP_ENV_FILE_PATH="${ENV_FILE_PATH}.prod-smtp.${APP_VERSION}.${BUILD_NUMBER:-manual}"
 validate_file_name "INCOMING_ENV_FILE_PATH" "$INCOMING_ENV_FILE_PATH"
+validate_file_name "INCOMING_PROD_SMTP_ENV_FILE_PATH" "$INCOMING_PROD_SMTP_ENV_FILE_PATH"
 
 trap 'rm -rf "$DEPLOY_TMP_KEY_DIR"' EXIT
 
@@ -846,10 +868,21 @@ run_ssh "ensure-remote-dir" "set -e; mkdir -p '$REMOTE_DEPLOY_PATH'"
         fi
 run_scp "upload-bundle" "$BUNDLE_NAME" "$REMOTE:$REMOTE_DEPLOY_PATH/$BUNDLE_NAME"
 if [ -s "$DEPLOY_ENV_FILE" ] && [ "$(head -c 1 "$DEPLOY_ENV_FILE")" != "<" ]; then
-  run_ssh "prepare-env-upload" "set -e; cd '$REMOTE_DEPLOY_PATH'; rm -f '$INCOMING_ENV_FILE_PATH'"
+  run_ssh "prepare-env-upload" "set -e; cd '$REMOTE_DEPLOY_PATH'; rm -f '$INCOMING_ENV_FILE_PATH' '$INCOMING_PROD_SMTP_ENV_FILE_PATH'"
   run_scp "upload-env-file" "$DEPLOY_ENV_FILE" "$REMOTE:$REMOTE_DEPLOY_PATH/$INCOMING_ENV_FILE_PATH"
 else
+  if [ "$ENV_FILE_PATH" = ".env" ]; then
+    echo "[deploy] prod base env credential file is invalid or empty"
+    exit 21
+  fi
   echo "[deploy] skipped copying env file (invalid or empty credential file)"
+fi
+if [ "$ENV_FILE_PATH" = ".env" ]; then
+  if [ -z "${PROD_SMTP_ENV_FILE:-}" ] || [ ! -s "$PROD_SMTP_ENV_FILE" ] || [ "$(head -c 1 "$PROD_SMTP_ENV_FILE")" = "<" ]; then
+    echo "[deploy] dedicated prod SMTP credential file is missing or invalid: ${PROD_SMTP_ENV_FILE_CREDENTIALS_ID}"
+    exit 22
+  fi
+  run_scp "upload-prod-smtp-env-file" "$PROD_SMTP_ENV_FILE" "$REMOTE:$REMOTE_DEPLOY_PATH/$INCOMING_PROD_SMTP_ENV_FILE_PATH"
 fi
 rm -f "$BUNDLE_NAME"
 
@@ -893,44 +926,38 @@ validate_env_required_keys() {
   fi
 }
 
-append_missing_env_keys_from_fallback() {
-  local target_env_path="$1"
-  local fallback_env_path="$2"
-  shift 2
-  local key=''
-  local current_value=''
-  local fallback_line=''
-
-  if [ ! -f "$fallback_env_path" ]; then
-    return 0
+if [ "$ENV_FILE_PATH" = '.env' ]; then
+  if [ -z "${INCOMING_ENV_FILE_PATH:-}" ] || [ ! -f "$INCOMING_ENV_FILE_PATH" ]; then
+    echo '[deploy] missing uploaded prod base env file from Jenkins credential'
+    exit 1
   fi
-  for key in "$@"; do
-    current_value="$(grep -E "^${key}=" "$target_env_path" | tail -n 1 | cut -d= -f2- || true)"
-    if [ -n "$current_value" ]; then
-      continue
-    fi
-    fallback_line="$(grep -E "^${key}=" "$fallback_env_path" | tail -n 1 || true)"
-    if [ -n "$fallback_line" ]; then
-      printf '%s\n' "$fallback_line" >> "$target_env_path"
-    fi
-  done
-}
-
-if [ -n "${INCOMING_ENV_FILE_PATH:-}" ] && [ -f "$INCOMING_ENV_FILE_PATH" ]; then
+  if [ -z "${INCOMING_PROD_SMTP_ENV_FILE_PATH:-}" ] || [ ! -f "$INCOMING_PROD_SMTP_ENV_FILE_PATH" ]; then
+    echo '[deploy] missing uploaded dedicated prod SMTP env file from Jenkins credential'
+    exit 1
+  fi
   validated_env_path="$INCOMING_ENV_FILE_PATH"
   chmod u+w "$validated_env_path"
   validate_env_has_assignments "$validated_env_path"
-  if [ "$ENV_FILE_PATH" = '.env' ]; then
-    # Server-local prod SMTP settings fill Jenkins' legacy prod env file.
-    append_missing_env_keys_from_fallback "$validated_env_path" "$ENV_FILE_PATH.previous" SMTP_HOST SMTP_PORT SMTP_SSL SMTP_STARTTLS SMTP_USER SMTP_PASS SMTP_FROM_EMAIL SMTP_FROM_NAME SMTP_ACCOUNT_LABEL
-    validate_env_required_keys "$validated_env_path" POSTGRES_USER POSTGRES_PASSWORD SECRET_KEY SMTP_HOST SMTP_PORT SMTP_SSL SMTP_STARTTLS SMTP_FROM_EMAIL SMTP_ACCOUNT_LABEL
-  fi
+  validate_env_has_assignments "$INCOMING_PROD_SMTP_ENV_FILE_PATH"
+  python3 "$REMOTE_DEPLOY_PATH/scripts/deploy/validate_smtp_route.py" \
+    "$validated_env_path" \
+    --smtp-env-file "$INCOMING_PROD_SMTP_ENV_FILE_PATH" \
+    --env prod \
+    --source jenkins-prod-smtp-secret \
+    --source-owner "${PROD_SMTP_CREDENTIAL_OWNER:-Jenkins credential owner}" \
+    --write-normalized
+  mv "$validated_env_path" "$ENV_FILE_PATH"
+  rm -f "$INCOMING_PROD_SMTP_ENV_FILE_PATH"
+elif [ -n "${INCOMING_ENV_FILE_PATH:-}" ] && [ -f "$INCOMING_ENV_FILE_PATH" ]; then
+  validated_env_path="$INCOMING_ENV_FILE_PATH"
+  chmod u+w "$validated_env_path"
+  validate_env_has_assignments "$validated_env_path"
   mv "$validated_env_path" "$ENV_FILE_PATH"
 fi
-if [ ! -f "$ENV_FILE_PATH" ] && [ -f "$ENV_FILE_PATH.previous" ]; then
+if [ ! -f "$ENV_FILE_PATH" ] && [ "$ENV_FILE_PATH" != '.env' ] && [ -f "$ENV_FILE_PATH.previous" ]; then
   cp "$ENV_FILE_PATH.previous" "$ENV_FILE_PATH"
 fi
-if [ -f "$ENV_FILE_PATH" ] && ! validate_env_has_assignments "$ENV_FILE_PATH" && [ -f "$ENV_FILE_PATH.previous" ]; then
+if [ -f "$ENV_FILE_PATH" ] && ! validate_env_has_assignments "$ENV_FILE_PATH" && [ "$ENV_FILE_PATH" != '.env' ] && [ -f "$ENV_FILE_PATH.previous" ]; then
   echo '[deploy] invalid env file detected; restoring previous env file'
   cp "$ENV_FILE_PATH.previous" "$ENV_FILE_PATH"
 fi
@@ -1008,90 +1035,7 @@ else
     echo "[deploy] ${ENV_FILE_PATH} is missing."
     exit 1
   fi
-  python3 - "$ENV_FILE_PATH" <<'PY'
-from pathlib import Path
-from sys import argv
-from urllib.parse import quote
-
-env_path = Path(argv[1])
-values: dict[str, str] = {}
-lines = env_path.read_text().splitlines()
-for line in lines:
-    if line and not line.lstrip().startswith("#") and "=" in line:
-        key, value = line.split("=", 1)
-        values[key] = value
-
-required = (
-    "POSTGRES_USER",
-    "POSTGRES_PASSWORD",
-    "SECRET_KEY",
-    "SMTP_HOST",
-    "SMTP_PORT",
-    "SMTP_SSL",
-    "SMTP_STARTTLS",
-    "SMTP_FROM_EMAIL",
-    "SMTP_ACCOUNT_LABEL",
-)
-missing = [key for key in required if not values.get(key)]
-if missing:
-    raise SystemExit("[deploy] missing prod env: " + " ".join(missing))
-
-values["SMTP_ACCOUNT_LABEL"] = "money-flow-prod"
-shape_errors = []
-if not values["SMTP_PORT"].isdigit():
-    shape_errors.append("SMTP_PORT")
-for key in ("SMTP_SSL", "SMTP_STARTTLS"):
-    if values[key].lower() not in ("true", "false"):
-        shape_errors.append(key)
-if "@" not in values["SMTP_FROM_EMAIL"]:
-    shape_errors.append("SMTP_FROM_EMAIL")
-if values["SMTP_ACCOUNT_LABEL"] != "money-flow-prod":
-    shape_errors.append("SMTP_ACCOUNT_LABEL")
-if shape_errors:
-    raise SystemExit("[deploy] invalid prod env shape: " + " ".join(shape_errors))
-
-normalized = {
-    "ENV": "prod",
-    "POSTGRES_DB": "moneyflow",
-    "DATABASE_URL": (
-        "postgresql+psycopg://"
-        f"{quote(values['POSTGRES_USER'], safe='')}:"
-        f"{quote(values['POSTGRES_PASSWORD'], safe='')}"
-        "@postgres:5432/moneyflow"
-    ),
-    "CORS_ORIGINS": "https://moneyflow.enmsoftware.com",
-    "FRONTEND_BASE_URL": "https://moneyflow.enmsoftware.com",
-    "AUTH_COOKIE_SECURE": "true",
-    "AUTH_DEBUG_RETURN_VERIFY_TOKEN": "false",
-    "AUTH_EMAIL_VERIFICATION_REQUIRED": "true",
-    "FORWARDED_ALLOW_IPS": "172.30.0.0/24,127.0.0.1,::1",
-    "EMAIL_DELIVERY_MODE": "smtp",
-    "SMTP_ACCOUNT_LABEL": "money-flow-prod",
-}
-strip_keys = set(normalized)
-output = []
-for line in lines:
-    if line and not line.lstrip().startswith("#") and "=" in line:
-        key, _ = line.split("=", 1)
-        if key in strip_keys:
-            continue
-    output.append(line)
-for key, value in normalized.items():
-    output.append(f"{key}={value}")
-env_path.write_text(chr(10).join(output) + chr(10))
-PY
-
-  missing_prod_env=''
-  for key in POSTGRES_USER POSTGRES_PASSWORD DATABASE_URL SECRET_KEY SMTP_HOST SMTP_PORT SMTP_SSL SMTP_STARTTLS SMTP_FROM_EMAIL SMTP_ACCOUNT_LABEL; do
-    current_value="$(grep -E "^${key}=" "$ENV_FILE_PATH" | tail -n 1 | cut -d= -f2- || true)"
-    if [ -z "$current_value" ]; then
-      missing_prod_env="${missing_prod_env} ${key}"
-    fi
-  done
-  if [ -n "$missing_prod_env" ]; then
-    echo "[deploy] missing prod env:${missing_prod_env}"
-    exit 1
-  fi
+  validate_env_required_keys "$ENV_FILE_PATH" POSTGRES_USER POSTGRES_PASSWORD DATABASE_URL SECRET_KEY SMTP_HOST SMTP_PORT SMTP_SSL SMTP_STARTTLS SMTP_USER SMTP_PASS SMTP_FROM_EMAIL SMTP_ACCOUNT_LABEL
 fi
 if [ -f "$ENV_FILE_PATH" ]; then
   grep -v '^APP_VERSION=' "$ENV_FILE_PATH" > "$ENV_FILE_PATH.tmp" || true
@@ -1197,7 +1141,7 @@ REMOTE_DEPLOY
 
 run_scp "upload-remote-deploy-script" "$remote_deploy_script" "$REMOTE:$REMOTE_DEPLOY_PATH/$remote_script_name"
 rm -f "$remote_deploy_script"
-run_ssh "remote-deploy" "set -euo pipefail; cd '$REMOTE_DEPLOY_PATH'; chmod 700 '$remote_script_name'; set +e; REMOTE_DEPLOY_PATH='$REMOTE_DEPLOY_PATH' ENV_FILE_PATH='$ENV_FILE_PATH' INCOMING_ENV_FILE_PATH='$INCOMING_ENV_FILE_PATH' BUNDLE_NAME='$BUNDLE_NAME' NGINX_CLIENT_MAX_BODY_SIZE='$NGINX_CLIENT_MAX_BODY_SIZE' DOMAIN='$DOMAIN' VHOST_APP_PORT='$VHOST_APP_PORT' APP_VERSION='$APP_VERSION' COMPOSE_PROJECT='$COMPOSE_PROJECT' COMPOSE_FILE='$COMPOSE_FILE' HEALTH_RETRY_MAX='$HEALTH_RETRY_MAX' HEALTH_RETRY_INTERVAL='$HEALTH_RETRY_INTERVAL' HEALTHCHECK_URL='$HEALTHCHECK_URL' /usr/bin/env bash '$remote_script_name'; status=\\$?; if [ \"\\$status\" -eq 0 ]; then rm -f '$remote_script_name'; fi; exit \\$status"
+run_ssh "remote-deploy" "set -euo pipefail; cd '$REMOTE_DEPLOY_PATH'; chmod 700 '$remote_script_name'; if REMOTE_DEPLOY_PATH='$REMOTE_DEPLOY_PATH' ENV_FILE_PATH='$ENV_FILE_PATH' INCOMING_ENV_FILE_PATH='$INCOMING_ENV_FILE_PATH' INCOMING_PROD_SMTP_ENV_FILE_PATH='$INCOMING_PROD_SMTP_ENV_FILE_PATH' PROD_SMTP_CREDENTIAL_OWNER='$PROD_SMTP_CREDENTIAL_OWNER' BUNDLE_NAME='$BUNDLE_NAME' NGINX_CLIENT_MAX_BODY_SIZE='$NGINX_CLIENT_MAX_BODY_SIZE' DOMAIN='$DOMAIN' VHOST_APP_PORT='$VHOST_APP_PORT' APP_VERSION='$APP_VERSION' COMPOSE_PROJECT='$COMPOSE_PROJECT' COMPOSE_FILE='$COMPOSE_FILE' HEALTH_RETRY_MAX='$HEALTH_RETRY_MAX' HEALTH_RETRY_INTERVAL='$HEALTH_RETRY_INTERVAL' HEALTHCHECK_URL='$HEALTHCHECK_URL' /usr/bin/env bash '$remote_script_name'; then rm -f '$remote_script_name'; else exit 1; fi"
 
 assert_frontend_asset_version() {
   local base_url="$1"

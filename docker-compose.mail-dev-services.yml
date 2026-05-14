@@ -20,6 +20,8 @@ services:
       POSTFIX_myhostname: ${MAIL_SERVICE_HOSTNAME:-mail.enmsoftware.com}
       LOG_FORMAT: ${MAIL_SERVICE_LOG_FORMAT:-plain}
       POSTFIX_smtp_tls_security_level: ${MAIL_SERVICE_RELAY_TLS_LEVEL:-may}
+      # Local/dev capture default only. Production direct-provider deploys are
+      # validated to reject enm-mail-smtp/mailpit/localhost/port 1025 routes.
       RELAYHOST: ${MAIL_SERVICE_RELAYHOST:-mailpit:1025}
     depends_on:
       mailpit:
