@@ -484,15 +484,11 @@ def _verification_metadata() -> dict[str, int]:
 
 def _verification_ack_message(*, resend: bool = False) -> str:
     if resend:
-        base_message = "입력한 이메일로 인증 메일 재전송을 요청했습니다. 받은 편지함에서 최신 인증 메일을 확인해 주세요."
+        base_message = "인증 메일을 다시 보냈습니다. 최신 메일의 버튼 또는 6자리 번호를 사용해 주세요."
     else:
-        base_message = "인증 메일을 보냈습니다. 메일의 버튼을 누르면 회원가입이 자동으로 완료됩니다."
+        base_message = "인증 메일을 보냈습니다. 버튼 또는 6자리 번호로 완료해 주세요."
     if _is_internal_mail_capture():
-        return (
-            f"{base_message} "
-            "현재 dev 서버 메일은 외부 메일함이 아니라 내부 캡처함(Mailpit)으로 전달됩니다. "
-            "이 환경에서는 Gmail 등 외부 메일함 미도착이 정상 동작입니다."
-        )
+        return f"{base_message} dev 환경에서는 내부 캡처함으로 전달됩니다."
     if settings.email_delivery_mode != "log":
         return base_message
     if settings.is_strict_email_environment:
@@ -500,8 +496,7 @@ def _verification_ack_message(*, resend: bool = False) -> str:
     # Local/test should make delivery mode explicit to avoid false-positive signup UX.
     return (
         f"{base_message} "
-        "현재 서버는 EMAIL_DELIVERY_MODE=log 설정이어서 실제 이메일은 전송되지 않습니다. "
-        "SMTP 설정 후 다시 시도해 주세요."
+        "현재 서버는 EMAIL_DELIVERY_MODE=log 설정이라 실제 이메일은 전송되지 않습니다."
     )
 
 

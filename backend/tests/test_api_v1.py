@@ -640,8 +640,8 @@ def test_auth_verification_ack_message_mentions_mailpit_for_internal_dev_smtp() 
         settings.smtp_host = "enm-mail-smtp"
         message = auth_route._verification_ack_message()
         assert "인증 메일을 보냈습니다" in message
-        assert "Mailpit" in message
-        assert "외부 메일함 미도착이 정상 동작" in message
+        assert "내부 캡처함" in message
+        assert "버튼 또는 6자리 번호" in message
     finally:
         settings.env = previous_env
         settings.email_delivery_mode = previous_mode
