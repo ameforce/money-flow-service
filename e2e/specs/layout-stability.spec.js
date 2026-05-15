@@ -69,6 +69,21 @@ async function expectMobileTabBarStable(page) {
     expect(item.labelOverflowX).toBeLessThanOrEqual(2);
     expect(item.labelOverflowY).toBeLessThanOrEqual(2);
   }
+
+  const navMetrics = await nav.evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    return {
+      position: style.position,
+      top: box.top,
+      bottom: box.bottom,
+      viewportHeight: window.innerHeight,
+    };
+  });
+
+  expect(navMetrics.position).not.toBe("fixed");
+  expect(navMetrics.top).toBeGreaterThanOrEqual(-2);
+  expect(navMetrics.bottom).toBeLessThan(navMetrics.viewportHeight * 0.34);
 }
 
 async function expectMobileBottomClearance(page) {
@@ -77,13 +92,33 @@ async function expectMobileBottomClearance(page) {
     return;
   }
 
-  const gap = await page.evaluate(() => {
+  const metrics = await page.evaluate(() => {
     window.scrollTo(0, document.documentElement.scrollHeight);
     const nav = document.querySelector("nav.topbar-tabs")?.getBoundingClientRect();
+    const navStyle = document.querySelector("nav.topbar-tabs")
+      ? getComputedStyle(document.querySelector("nav.topbar-tabs"))
+      : null;
     const lastContent = document.querySelector(".app-content > :last-child")?.getBoundingClientRect();
-    return nav && lastContent ? nav.top - lastContent.bottom : 0;
+    return {
+      fixedBottomNav: Boolean(
+        nav &&
+          navStyle?.position === "fixed" &&
+          nav.bottom >= window.innerHeight - 32 &&
+          nav.top > window.innerHeight * 0.5
+      ),
+      gap: nav && lastContent ? nav.top - lastContent.bottom : 0,
+      navTop: nav?.top ?? 0,
+      navBottom: nav?.bottom ?? 0,
+      viewportHeight: window.innerHeight,
+    };
   });
-  expect(gap).toBeGreaterThanOrEqual(88);
+
+  if (metrics.fixedBottomNav) {
+    expect(metrics.gap).toBeGreaterThanOrEqual(88);
+    return;
+  }
+
+  expect(metrics.fixedBottomNav).toBe(false);
 }
 
 async function expectCopyrightClearOfCards(page) {
@@ -152,6 +187,7 @@ async function expectPageChromeConsistent(page, tabLabel) {
       topbarTitle: document.querySelector(".topbar h1")?.textContent?.trim() || "",
       visibleText: document.body.textContent || "",
       topbar: boxOf(".topbar"),
+      nav: boxOf("nav.topbar-tabs"),
       firstContent: firstContentBox
         ? {
             top: firstContentBox.top,
@@ -168,9 +204,11 @@ async function expectPageChromeConsistent(page, tabLabel) {
   expect(metrics.topbarTitle).toBe("Money Flow");
   expect(metrics.visibleText).not.toContain("money-flow");
   expect(metrics.topbar).not.toBeNull();
+  expect(metrics.nav).not.toBeNull();
   expect(metrics.firstContent).not.toBeNull();
-  expect(metrics.firstContent.top - metrics.topbar.bottom).toBeGreaterThanOrEqual(8);
-  expect(metrics.firstContent.top - metrics.topbar.bottom).toBeLessThanOrEqual(24);
+  const chromeReferenceBottom = metrics.viewportWidth <= 820 ? metrics.nav.bottom : metrics.topbar.bottom;
+  expect(metrics.firstContent.top - chromeReferenceBottom).toBeGreaterThanOrEqual(8);
+  expect(metrics.firstContent.top - chromeReferenceBottom).toBeLessThanOrEqual(24);
 
   if (tabLabel === "대시보드" && metrics.viewportWidth >= 1000) {
     expect(metrics.sideCards.length).toBeGreaterThanOrEqual(4);
@@ -299,6 +337,37 @@ async function expectWorksurfaceRowsUseCorrectMode(page, tabLabel) {
       expect(metrics.toggleDisplay).not.toBe("none");
     }
   }
+}
+
+async function expectHoldingSectionRowsAligned(page) {
+  const viewportWidth = page.viewportSize()?.width ?? 9999;
+  if (viewportWidth <= 820) {
+    return;
+  }
+
+  const sectionCell = page.locator(".holdings-surface-table .section-header-cell").first();
+  await expect(sectionCell).toBeVisible();
+
+  const metrics = await sectionCell.evaluate((cell) => {
+    const cellBox = cell.getBoundingClientRect();
+    const title = cell.querySelector(".holding-section-title");
+    const titleBox = title?.getBoundingClientRect();
+    const header = document.querySelector(".holdings-surface-table thead")?.getBoundingClientRect();
+    const titleMid = titleBox ? titleBox.top + titleBox.height / 2 : 0;
+    const cellMid = cellBox.top + cellBox.height / 2;
+    return {
+      cellHeight: cellBox.height,
+      gapFromHeader: header ? cellBox.top - header.bottom : 99,
+      titleCenterOffset: Math.abs(titleMid - cellMid),
+      titleOverflow: title ? title.scrollWidth - title.clientWidth : 0,
+    };
+  });
+
+  expect(metrics.cellHeight).toBeGreaterThanOrEqual(34);
+  expect(metrics.cellHeight).toBeLessThanOrEqual(48);
+  expect(metrics.gapFromHeader).toBeGreaterThanOrEqual(-1);
+  expect(metrics.titleCenterOffset).toBeLessThanOrEqual(2.5);
+  expect(metrics.titleOverflow).toBeLessThanOrEqual(2);
 }
 
 async function openSignupSurface(page, profile) {
@@ -468,6 +537,38 @@ test("empty holdings table keeps desktop columns readable", async ({ page }) => 
   await capture(page, "layout-empty-holdings-desktop-fixed");
 });
 
+test("mobile transaction sheet actions keep navigation reachable", async ({ page }) => {
+  const email = `${unique("mobile-action-layer")}@example.com`;
+  const displayName = unique("mobile-action-user");
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await registerAndVerify(page, { email, displayName });
+  await openTab(page, "거래");
+
+  await page.getByTestId("transactions-fab").click();
+  await expect(page.getByTestId("transaction-entry-sheet")).toBeVisible();
+
+  const metrics = await page.locator(".transaction-quick-sticky-actions").evaluate((element) => {
+    const button = element.querySelector("button");
+    return {
+      containerPointerEvents: getComputedStyle(element).pointerEvents,
+      buttonPointerEvents: button ? getComputedStyle(button).pointerEvents : "missing",
+      bottom: getComputedStyle(element).bottom,
+      marginBottom: getComputedStyle(element).marginBottom,
+    };
+  });
+
+  expect(metrics.containerPointerEvents).toBe("none");
+  expect(metrics.buttonPointerEvents).toBe("auto");
+  expect(metrics.bottom).toBe("0px");
+  expect(metrics.marginBottom).toBe("0px");
+
+  await page.getByTestId("transaction-entry-sheet-close").click();
+  await expect(page.getByTestId("transaction-entry-sheet")).toBeHidden();
+  await openTab(page, "자산");
+  await expect(page.locator(".holding-list-card")).toBeVisible();
+});
+
 test("layout stability matrix: pages remain clean across desktop, tablet, and mobile fonts", async ({ page }) => {
   test.setTimeout(180_000);
 
@@ -494,6 +595,9 @@ test("layout stability matrix: pages remain clean across desktop, tablet, and mo
       await expectCopyrightClearOfCards(page);
       await expectMobileTabBarStable(page);
       await expectWorksurfaceRowsUseCorrectMode(page, tabLabel);
+      if (tabLabel === "자산") {
+        await expectHoldingSectionRowsAligned(page);
+      }
 
       const sample = await sampleControlForTab(page, tabLabel, { holdingName });
       await sample.scrollIntoViewIfNeeded();

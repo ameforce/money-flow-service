@@ -69,7 +69,7 @@ export function HoldingSurfaceTable({
             )}
             {holdingListTab === "all"
               ? groupedHoldingSections.flatMap(([categoryName, sectionItems]) => [
-                  <tr key={`section-${categoryName}`}>
+                  <tr key={`section-${categoryName}`} className="holding-section-row">
                     <td className="section-header-cell" colSpan={columnSpan}>
                       <div className="inline holding-section-header">
                         <span className="holding-section-title">
