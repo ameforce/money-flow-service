@@ -72,6 +72,27 @@ async function captureVisibleHistoryAnchor(page) {
   });
 }
 
+async function scrollTransactionLedgerIntoStickyRange(page) {
+  const metrics = await page.evaluate(() => {
+    const listCard = document.querySelector(".transaction-list-card");
+    const ledgerHead = document.querySelector(".transactions-mobile-ledger-head");
+    if (!listCard || !ledgerHead) {
+      return null;
+    }
+
+    const ledgerTop = ledgerHead.getBoundingClientRect().top + window.scrollY;
+    const targetScrollY = Math.max(0, ledgerTop - 96);
+    window.scrollTo(0, targetScrollY);
+
+    return {
+      ledgerTop,
+      targetScrollY,
+    };
+  });
+  expect(metrics, "transaction ledger sticky target should exist").not.toBeNull();
+  await page.waitForTimeout(400);
+}
+
 async function expectTransactionMonthControls(page, isoDate, label = "transaction month controls") {
   const { year, month } = yearMonthFromIso(isoDate);
   const listCard = page.locator(".transaction-list-card").first();
@@ -205,7 +226,7 @@ async function expectTransactionMonthStepperSticky(page, label = "transaction mo
   expect(state.top, `${label} sticky state: ${JSON.stringify(state)}`).not.toBe("auto");
   expect(state.stepperTop, `${label} should stay in viewport: ${JSON.stringify(state)}`).not.toBeNull();
   expect(state.stepperTop ?? -1, `${label} sticky state: ${JSON.stringify(state)}`).toBeGreaterThanOrEqual(0);
-  const bottomReserve = (viewport?.width ?? 0) <= 760 ? 72 : 16;
+  const bottomReserve = (viewport?.width ?? 0) <= 820 ? 72 : 16;
   expect(state.stepperBottom ?? Number.POSITIVE_INFINITY, `${label} sticky state: ${JSON.stringify(state)}`).toBeLessThanOrEqual(
     (viewport?.height ?? 0) - bottomReserve
   );
@@ -213,7 +234,7 @@ async function expectTransactionMonthStepperSticky(page, label = "transaction mo
 
 async function expectDesktopTransactionMonthStepperSticky(page) {
   const viewport = page.viewportSize();
-  if ((viewport?.width ?? 0) <= 760) {
+  if ((viewport?.width ?? 0) <= 820) {
     return;
   }
   await expectTransactionMonthStepperSticky(page, "desktop transaction month stepper");
@@ -221,7 +242,7 @@ async function expectDesktopTransactionMonthStepperSticky(page) {
 
 async function expectMobileTransactionMonthStepperSticky(page) {
   const viewport = page.viewportSize();
-  if ((viewport?.width ?? 0) > 760) {
+  if ((viewport?.width ?? 0) > 820) {
     return;
   }
   await expectTransactionMonthStepperSticky(page, "mobile transaction month stepper");
@@ -229,7 +250,7 @@ async function expectMobileTransactionMonthStepperSticky(page) {
 
 async function expectDesktopTransactionRowsSingleLine(page) {
   const viewport = page.viewportSize();
-  if ((viewport?.width ?? 0) <= 760) {
+  if ((viewport?.width ?? 0) <= 820) {
     return;
   }
   const metrics = await page.locator(".transactions-surface-table tbody tr.transaction-row").evaluateAll((rows) =>
@@ -974,6 +995,7 @@ test("transactions history shows compact date groups with fixed chronological or
 });
 
 test("transactions history scrolls older and newer without future rows while keeping compact anchors", async ({ page }) => {
+  test.skip(process.env.E2E_INCLUDE_SLOW !== "1", "slow history pagination regression is opt-in via npm run e2e:slow");
   test.setTimeout(300_000);
 
   const email = `${unique("tx-history-scroll")}@example.com`;
@@ -1401,8 +1423,7 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   expect(Math.abs(scrollAfterSheetClose - scrollBeforeSheet)).toBeLessThanOrEqual(16);
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.waitForTimeout(250);
-  await page.evaluate(() => window.scrollBy(0, 620));
-  await page.waitForTimeout(400);
+  await scrollTransactionLedgerIntoStickyRange(page);
   await expect(page.locator(".transactions-mobile-ledger-head")).toHaveAttribute("data-sticky-active", "true");
   await expectMobileTransactionMonthStepperSticky(page);
   await expectStickyStack(

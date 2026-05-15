@@ -17,27 +17,11 @@ test("prices flow: refresh action and status endpoint", async ({ page }) => {
   await expect(refreshButton).toBeVisible();
   await refreshButton.click();
 
-  const message = page.locator(".message");
-  await expect
-    .poll(
-      async () => {
-        const text = (await message.textContent()) || "";
-        if (text.includes("시세 갱신을 백그라운드로 시작했습니다.")) {
-          return "queued";
-        }
-        if (text.includes("이미 시세 갱신이 진행 중입니다.")) {
-          return "already-running";
-        }
-        if (text.includes("시세 갱신 완료")) {
-          return "done";
-        }
-        return "";
-      },
-      { timeout: 15_000 }
-    )
-    .not.toBe("");
+  await expect(page.locator(".socket-chip")).toBeVisible();
+  await expect(page.locator(".message", { hasText: /시세 갱신/ })).toHaveCount(0);
 
-  const statusResp = await page.request.get("/api/v1/prices/status");
+  const apiBaseUrl = String(process.env.E2E_API_BASE_URL || "").replace(/\/$/, "");
+  const statusResp = await page.request.get(`${apiBaseUrl || ""}/api/v1/prices/status`);
   expect(statusResp.ok()).toBeTruthy();
   const statusPayload = await statusResp.json();
   expect(typeof statusPayload).toBe("object");

@@ -2,6 +2,57 @@ import { expect, test } from "@playwright/test";
 
 import { TEST_PASSWORD, assertResponsiveShell, capture, login, logout, registerAndVerify, unique } from "../support/helpers";
 
+async function expectAuthFooterClear(page) {
+  const metrics = await page.evaluate(() => {
+    const footer = document.querySelector(".auth-shell > .app-copyright");
+    const card = document.querySelector("form.auth-card");
+    const switcher = document.querySelector(".auth-switch");
+    const boxOf = (element) => {
+      if (!element) {
+        return null;
+      }
+      const box = element.getBoundingClientRect();
+      return {
+        top: box.top,
+        right: box.right,
+        bottom: box.bottom,
+        left: box.left,
+        width: box.width,
+        height: box.height,
+      };
+    };
+    const footerBox = boxOf(footer);
+    const cardBox = boxOf(card);
+    const switcherBox = boxOf(switcher);
+    const intersects = (a, b) =>
+      Boolean(
+        a &&
+          b &&
+          a.left < b.right &&
+          a.right > b.left &&
+          a.top < b.bottom &&
+          a.bottom > b.top
+      );
+
+    return {
+      present: Boolean(footerBox),
+      position: footer ? getComputedStyle(footer).position : "",
+      cardGap: footerBox && cardBox ? footerBox.top - cardBox.bottom : -1,
+      switcherGap: footerBox && switcherBox ? footerBox.top - switcherBox.bottom : -1,
+      overlapsCard: intersects(footerBox, cardBox),
+      overlapsSwitcher: intersects(footerBox, switcherBox),
+    };
+  });
+
+  expect(metrics.present).toBe(true);
+  expect(metrics.position).not.toBe("fixed");
+  expect(metrics.position).not.toBe("absolute");
+  expect(metrics.overlapsCard).toBe(false);
+  expect(metrics.overlapsSwitcher).toBe(false);
+  expect(metrics.cardGap).toBeGreaterThanOrEqual(6);
+  expect(metrics.switcherGap).toBeGreaterThanOrEqual(6);
+}
+
 test("auth flow: register validation, verify, logout, relogin", async ({ page }) => {
   test.setTimeout(180_000);
 
@@ -27,9 +78,13 @@ test("auth flow: register validation, verify, logout, relogin", async ({ page })
   await page.getByLabel("비밀번호 확인").fill(TEST_PASSWORD);
   await page.getByRole("button", { name: "회원가입하고 시작" }).click();
   await expect(page.getByText("인증 메일을 확인해 주세요.")).toBeVisible();
+  await expect(page.locator("form.auth-card-verify > .message")).toHaveCount(0);
+  await expect(page.getByText("인증 메일을 보냈습니다.")).toHaveCount(0);
   await expect(page.getByLabel("인증 토큰")).toHaveCount(0);
-  await expect(page.getByText(/인증 메일 유효기간:/)).toBeVisible();
-  await expect(page.getByText(/재전송은 .*최대 .*회/)).toBeVisible();
+  await expect(page.getByText("남은 유효시간")).toBeVisible();
+  await expect(page.getByText("재전송 대기")).toBeVisible();
+  await expect(page.getByText("남은 재전송")).toBeVisible();
+  await expectAuthFooterClear(page);
   await capture(page, "auth-flow-verify-screen");
 
   await page.getByRole("button", { name: "이메일 인증 완료" }).click();
