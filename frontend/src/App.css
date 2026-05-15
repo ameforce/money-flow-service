@@ -2473,8 +2473,16 @@ button.danger:active:not(:disabled) {
   color: #173a67;
 }
 
-.settings-advanced-card > summary::after {
-  content: "펼치기";
+.settings-disclosure-main {
+  min-width: 0;
+  display: grid;
+  gap: 0.18rem;
+}
+
+.settings-disclosure-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex: 0 0 auto;
   border: 1px solid #c8d9f9;
   border-radius: 999px;
@@ -2485,8 +2493,16 @@ button.danger:active:not(:disabled) {
   font-weight: 800;
 }
 
-.settings-advanced-card[open] > summary::after {
-  content: "접기";
+.settings-disclosure-chip-expanded {
+  display: none;
+}
+
+.settings-advanced-card[open] > summary .settings-disclosure-chip-collapsed {
+  display: none;
+}
+
+.settings-advanced-card[open] > summary .settings-disclosure-chip-expanded {
+  display: inline-flex;
 }
 
 .compact-support-card > summary::-webkit-details-marker,

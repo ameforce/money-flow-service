@@ -8974,9 +8974,13 @@ function App() {
           </article>
 
           <details className="card compact-support-card settings-advanced-card secondary-surface-card">
-            <summary>
-              <span>거래 행 색상</span>
-              <span className="table-summary">기본 화면에서는 숨기고 필요할 때만 조정합니다.</span>
+            <summary role="button">
+              <span className="settings-disclosure-main">
+                <span>거래 행 색상</span>
+                <span className="table-summary">기본 화면에서는 숨기고 필요할 때만 조정합니다.</span>
+              </span>
+              <span className="settings-disclosure-chip settings-disclosure-chip-collapsed">펼치기</span>
+              <span className="settings-disclosure-chip settings-disclosure-chip-expanded">접기</span>
             </summary>
             <form className="settings-color-form" onSubmit={saveHouseholdSettings}>
               {FLOW_TYPE_OPTIONS.map((option) => {
@@ -9016,9 +9020,13 @@ function App() {
           </details>
 
           <details className="card compact-support-card settings-span-full settings-advanced-card secondary-surface-card settings-asset-rules-card">
-            <summary>
-              <span>자산 유형/색상 설정</span>
-              <span className="table-summary">유형 편집, 색상, 표시 규칙은 접어 둡니다.</span>
+            <summary role="button">
+              <span className="settings-disclosure-main">
+                <span>자산 유형/색상 설정</span>
+                <span className="table-summary">유형 편집, 색상, 표시 규칙은 접어 둡니다.</span>
+              </span>
+              <span className="settings-disclosure-chip settings-disclosure-chip-collapsed">펼치기</span>
+              <span className="settings-disclosure-chip settings-disclosure-chip-expanded">접기</span>
             </summary>
             <form className="form-grid settings-form-grid" onSubmit={saveHoldingTypeDefinition}>
               <label>

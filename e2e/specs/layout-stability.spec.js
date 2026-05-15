@@ -183,6 +183,19 @@ async function expectPageChromeConsistent(page, tabLabel) {
     expect(Math.abs(metrics.importPanels[0].top - metrics.importPanels[1].top)).toBeLessThanOrEqual(2);
     expect(metrics.importPanels[1].left).toBeGreaterThan(metrics.importPanels[0].left + metrics.importPanels[0].width * 0.8);
   }
+
+  if (tabLabel === "설정") {
+    await expect(
+      page.getByRole("button", {
+        name: "거래 행 색상 기본 화면에서는 숨기고 필요할 때만 조정합니다. 펼치기",
+      })
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", {
+        name: "자산 유형/색상 설정 유형 편집, 색상, 표시 규칙은 접어 둡니다. 펼치기",
+      })
+    ).toBeVisible();
+  }
 }
 
 async function sampleControlForTab(page, tabLabel, { holdingName }) {
