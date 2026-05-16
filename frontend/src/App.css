@@ -1763,12 +1763,29 @@
   background: #f7fbff;
 }
 
+.transaction-inline-editor-cell {
+  max-width: none;
+  overflow: visible;
+  padding: 0.55rem 0.62rem 0.62rem !important;
+  white-space: normal;
+}
+
+.transaction-inline-editor-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 7.5rem), 1fr));
+  align-items: end;
+  gap: 0.48rem;
+  width: 100%;
+  min-width: 0;
+}
+
 .tx-inline-category-section {
   padding: 0;
-  display: flex;
-  align-items: flex-start;
-  flex-wrap: wrap;
-  gap: 0.35rem;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(8rem, 1fr));
+  align-items: end;
+  gap: 0.42rem;
+  grid-column: span 2;
   width: 100%;
   margin-top: 0.05rem;
   max-width: 100%;
@@ -1792,12 +1809,25 @@
   max-width: 100%;
 }
 
+.tx-inline-memo-field,
+.tx-inline-owner-field {
+  grid-column: span 2;
+}
+
 .tx-inline-major-field,
 .tx-inline-minor-field {
   min-width: 0;
-  flex: 1 1 0;
-  width: auto;
-  max-width: calc(50% - 0.18rem);
+  width: 100%;
+  max-width: 100%;
+}
+
+.tx-inline-updated-field {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2rem;
+  color: #6a7f99;
+  font-size: 0.82rem;
+  font-weight: 700;
 }
 
 .tx-inline-memo-field,
@@ -1848,6 +1878,19 @@
 
 .transactions-inline-editor .tx-inline-category-section label {
   margin-bottom: 0;
+}
+
+@media (max-width: 680px) {
+  .tx-inline-category-section,
+  .tx-inline-memo-field,
+  .tx-inline-owner-field,
+  .tx-inline-editor-actions {
+    grid-column: 1 / -1;
+  }
+
+  .tx-inline-category-section {
+    grid-template-columns: 1fr;
+  }
 }
 
 .transactions-inline-editor .date-field .today-btn {
