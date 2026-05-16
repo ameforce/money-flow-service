@@ -4681,6 +4681,56 @@ def test_transaction_category_blank_string_normalized_to_none() -> None:
         assert tx["category_id"] is None
 
 
+def test_transaction_source_ref_is_idempotent_for_retried_seed() -> None:
+    with TestClient(app) as client:
+        token = _auth(client, f"tx-source-ref-{uuid.uuid4().hex}@example.com", "Password1234", "TxSource")
+        payload = {
+            "occurred_on": "2026-05-01",
+            "flow_type": "income",
+            "amount": 4200000,
+            "currency": "KRW",
+            "memo": "5월 급여",
+            "source_ref": "qa-sample:2026-05:salary",
+        }
+
+        created = client.post("/api/v1/transactions", headers=_headers(token), json=payload)
+        retried = client.post(
+            "/api/v1/transactions",
+            headers=_headers(token),
+            json={**payload, "memo": "재시도에서 바뀐 메모는 무시되어야 함"},
+        )
+
+        assert created.status_code == 201
+        assert retried.status_code == 200
+        assert retried.json()["id"] == created.json()["id"]
+        assert retried.json()["memo"] == "5월 급여"
+        listed = client.get("/api/v1/transactions", headers=_headers(token))
+        assert listed.status_code == 200
+        assert [item["source_ref"] for item in listed.json()] == ["qa-sample:2026-05:salary"]
+
+
+def test_transaction_create_suppresses_immediate_exact_replay_without_source_ref() -> None:
+    with TestClient(app) as client:
+        token = _auth(client, f"tx-replay-{uuid.uuid4().hex}@example.com", "Password1234", "TxReplay")
+        payload = {
+            "occurred_on": "2026-05-03",
+            "flow_type": "expense",
+            "amount": 68000,
+            "currency": "KRW",
+            "memo": "주말 장보기",
+        }
+
+        created = client.post("/api/v1/transactions", headers=_headers(token), json=payload)
+        retried = client.post("/api/v1/transactions", headers=_headers(token), json=payload)
+
+        assert created.status_code == 201
+        assert retried.status_code == 200
+        assert retried.json()["id"] == created.json()["id"]
+        listed = client.get("/api/v1/transactions", headers=_headers(token))
+        assert listed.status_code == 200
+        assert len(listed.json()) == 1
+
+
 def test_transaction_create_rejects_category_flow_type_mismatch() -> None:
     with TestClient(app) as client:
         token = _auth(client, f"tx-flow-mismatch-{uuid.uuid4().hex}@example.com", "Password1234", "TxFlow")
