@@ -4528,6 +4528,35 @@ thead {
     display: none;
   }
 
+  .transaction-quick-section-title {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    justify-content: stretch;
+    gap: 0.16rem;
+  }
+
+  .transaction-quick-section-title small {
+    overflow: visible;
+    text-align: left;
+    text-overflow: clip;
+    white-space: normal;
+  }
+
+  .transaction-quick-category-chips {
+    flex-wrap: wrap;
+    gap: 0.36rem;
+    margin: 0;
+    padding: 0;
+    overflow-x: visible;
+    scroll-snap-type: none;
+  }
+
+  .transaction-quick-category-chip {
+    flex: 1 1 8.2rem;
+    min-width: 0;
+    max-width: 100%;
+  }
+
   .topbar-tabs .tab-badge {
     position: absolute;
     top: 0.12rem;
