@@ -3108,6 +3108,16 @@ button.danger:active:not(:disabled) {
   white-space: nowrap;
 }
 
+.holding-section-actions .holding-section-order-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2rem;
+  min-height: 2rem;
+  padding: 0;
+  line-height: 1;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
@@ -6733,6 +6743,16 @@ thead {
     min-width: 0;
     font-size: 0.66rem;
     line-height: 1.05;
+  }
+
+  .holdings-surface-table .section-header-cell .inline > span.holding-section-actions > button.holding-section-order-btn {
+    width: 2.5rem;
+    min-width: 2.5rem;
+    height: 2.5rem;
+    min-height: 2.5rem;
+    padding: 0;
+    font-size: 0.86rem;
+    line-height: 1;
   }
 
   .holdings-surface-table .holding-col-owner {
