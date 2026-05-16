@@ -7,7 +7,9 @@ import {
   createBasicTransaction,
   currentE2EHistoryDateIso,
   expectKeyboardReachableInOrder,
+  expectNoOrphanTextLine,
   expectNoHorizontalOverflow,
+  expectPortfolioLabelsClearOfBottomNav,
   expectWithinViewport,
   openTab,
   registerAndVerify,
@@ -44,6 +46,27 @@ async function expectDonutTextNotClipped(labelLocator) {
         );
       }
     }
+  }
+}
+
+async function expectDonutLabelsInsideChart(card, label) {
+  const metrics = await card.getByTestId("portfolio-donut-slice-label").evaluateAll((nodes) =>
+    nodes.map((node) => {
+      const chart = node.closest(".chart-wrap")?.getBoundingClientRect();
+      const box = node.getBoundingClientRect();
+      return {
+        text: node.textContent?.replace(/\s+/g, " ").trim(),
+        missingChart: !chart,
+        topGap: chart ? box.top - chart.top : 0,
+        bottomGap: chart ? chart.bottom - box.bottom : 0,
+      };
+    }),
+  );
+  expect(metrics.length, `${label} should expose visible slice labels`).toBeGreaterThan(0);
+  for (const item of metrics) {
+    expect(item.missingChart, `${label} ${item.text} should be measured against a chart`).toBeFalsy();
+    expect(item.topGap, `${label} ${item.text} should stay clear of chart top chrome`).toBeGreaterThanOrEqual(12);
+    expect(item.bottomGap, `${label} ${item.text} should stay clear of chart bottom edge`).toBeGreaterThanOrEqual(12);
   }
 }
 
@@ -269,27 +292,6 @@ async function expectDonutLabelsCenteredOnRing(card, label) {
   }
 }
 
-async function expectDonutLabelsClearOfMobileNav(page, card, label) {
-  const navBox = await page.locator(".topbar-tabs").boundingBox();
-  if (!navBox) {
-    return;
-  }
-  const labels = await card.getByTestId("portfolio-donut-slice-label").evaluateAll((nodes) =>
-    nodes.map((node) => {
-      const box = node.getBoundingClientRect();
-      return {
-        text: node.textContent?.replace(/\s+/g, " ").trim(),
-        bottom: box.bottom,
-      };
-    }),
-  );
-  for (const item of labels) {
-    expect(item.bottom, `${label} ${item.text} should not be hidden by the bottom navigation`).toBeLessThanOrEqual(
-      navBox.y - 4,
-    );
-  }
-}
-
 async function applyFontFamily(page, fontFamily) {
   await page.evaluate((nextFontFamily) => {
     document.documentElement.style.setProperty("--mf-font-family", nextFontFamily);
@@ -340,7 +342,9 @@ test("dashboard flow: onboarding, portfolio coherence, summary visibility", asyn
   await expect(page.getByRole("button", { name: "시세 갱신" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "요약" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "월별 흐름" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "포트폴리오 및 거래내역 차트" })).toBeVisible();
+  const dashboardPortfolioHeading = page.getByRole("heading", { name: "포트폴리오 및 거래내역 차트" });
+  await expect(dashboardPortfolioHeading).toBeVisible();
+  await expectNoOrphanTextLine(dashboardPortfolioHeading, "desktop dashboard portfolio heading");
   await expect(page.getByRole("heading", { name: "가져오기 & 상태" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "협업 멤버" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "최근 거래" })).toBeVisible();
@@ -362,6 +366,7 @@ test("dashboard flow: onboarding, portfolio coherence, summary visibility", asyn
     await expect(dashboardCenterLabel).not.toContainText("%");
     await expectDonutTextNotClipped(dashboardCenterLabel);
     await expectDonutTextNotClipped(dashboardSliceLabels);
+    await expectDonutLabelsInsideChart(dashboardPortfolioCard, "desktop dashboard asset type");
     const assetTypeLabelBox = await dashboardSliceLabels.first().boundingBox();
     const dashboardChartBox = await dashboardPortfolioCard.locator(".dashboard-donut-wrap").boundingBox();
     expect(assetTypeLabelBox, "asset type label should have a bounding box").not.toBeNull();
@@ -376,6 +381,7 @@ test("dashboard flow: onboarding, portfolio coherence, summary visibility", asyn
     await expect(dashboardCenterLabel).toHaveAttribute("aria-label", /거래 유형/);
     await expectDonutTextNotClipped(dashboardCenterLabel);
     await expectDonutTextNotClipped(dashboardSliceLabels);
+    await expectDonutLabelsInsideChart(dashboardPortfolioCard, "desktop dashboard transaction flow");
 
     await openTab(page, "자산");
     const holdingSummaryCard = page.locator("details.holding-summary-card").first();
@@ -410,6 +416,44 @@ test("dashboard flow: onboarding, portfolio coherence, summary visibility", asyn
     await capture(page, "dashboard-portfolio-view-sync");
   }
   await capture(page, "dashboard-summary-result");
+
+  const shouldRunNarrowDesktopProfile =
+    testInfo.project.name === "desktop-chromium" || process.env.E2E_PROJECT_MATRIX !== "1";
+  if (shouldRunNarrowDesktopProfile && (await dashboardPortfolioSelect.count()) > 0) {
+    await page.setViewportSize({ width: 1366, height: 768 });
+    await applyFontFamily(page, '"Malgun Gothic", "Noto Sans KR", "Segoe UI", sans-serif');
+    await openTab(page, "대시보드");
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await expectNoHorizontalOverflow(page, 12);
+    await dashboardPortfolioCard.evaluate((card) => card.scrollIntoView({ block: "start", inline: "nearest" }));
+    await page.waitForTimeout(80);
+    await expectNoOrphanTextLine(dashboardPortfolioHeading, "narrow desktop dashboard portfolio heading");
+    await expectWithinViewport(dashboardPortfolioSelect);
+    const narrowDesktopHeaderLayout = await dashboardPortfolioCard.evaluate((card) => {
+      const cardBox = card.getBoundingClientRect();
+      const heading = card.querySelector(".dashboard-card-heading h2")?.getBoundingClientRect();
+      const select = card.querySelector(".dashboard-portfolio-chart-select")?.getBoundingClientRect();
+      return {
+        missingElements: !heading || !select,
+        headingBottom: heading?.bottom ?? 0,
+        selectTop: select?.top ?? 0,
+        selectLeftGap: select ? select.left - cardBox.left : Number.NEGATIVE_INFINITY,
+        selectRightGap: select ? cardBox.right - select.right : Number.NEGATIVE_INFINITY,
+      };
+    });
+    expect(narrowDesktopHeaderLayout.missingElements, "narrow desktop heading/select should be measurable").toBeFalsy();
+    expect(narrowDesktopHeaderLayout.selectTop).toBeGreaterThanOrEqual(
+      narrowDesktopHeaderLayout.headingBottom - 2,
+    );
+    expect(narrowDesktopHeaderLayout.selectLeftGap).toBeGreaterThanOrEqual(0);
+    expect(narrowDesktopHeaderLayout.selectRightGap).toBeGreaterThanOrEqual(0);
+    await dashboardPortfolioSelect.selectOption("transaction_flow");
+    await expect(dashboardSliceLabels).toHaveCount(2);
+    await expectDonutTextNotClipped(dashboardCenterLabel);
+    await expectDonutTextNotClipped(dashboardSliceLabels);
+    await expectDonutLabelsInsideChart(dashboardPortfolioCard, "narrow desktop dashboard transaction flow");
+    await capture(page, "dashboard-narrow-desktop-portfolio");
+  }
 
   await page.setViewportSize({ width: 390, height: 844 });
   await openTab(page, "대시보드");
@@ -493,6 +537,7 @@ test("dashboard flow: onboarding, portfolio coherence, summary visibility", asyn
     await expect(dashboardCenterLabel).toContainText("총 자산");
     await expectDonutTextNotClipped(dashboardCenterLabel);
     await expectDonutLabelsCenteredOnRing(dashboardPortfolioCard, "mobile dashboard asset type");
+    await expectDonutLabelsInsideChart(dashboardPortfolioCard, "mobile dashboard asset type");
     await dashboardPortfolioSelect.selectOption("transaction_flow");
     await expect(dashboardSliceLabels).toHaveCount(2);
     await expect(dashboardSliceLabels.first()).toContainText("%");
@@ -501,7 +546,8 @@ test("dashboard flow: onboarding, portfolio coherence, summary visibility", asyn
     await expectDonutTextNotClipped(dashboardCenterLabel);
     await expectDonutTextNotClipped(dashboardSliceLabels);
     await expectDonutLabelsCenteredOnRing(dashboardPortfolioCard, "mobile dashboard transaction flow");
-    await expectDonutLabelsClearOfMobileNav(page, dashboardPortfolioCard, "mobile dashboard transaction flow");
+    await expectDonutLabelsInsideChart(dashboardPortfolioCard, "mobile dashboard transaction flow");
+    await expectPortfolioLabelsClearOfBottomNav(page, dashboardPortfolioCard, "mobile dashboard transaction flow");
     await expectWithinViewport(dashboardCenterLabel);
     await expect(priceRefreshButton).toBeEnabled({ timeout: 10_000 });
     await expectKeyboardReachableInOrder(page, [
@@ -528,6 +574,16 @@ test("dashboard flow: onboarding, portfolio coherence, summary visibility", asyn
         fontFamily: '"Apple SD Gothic Neo", -apple-system, BlinkMacSystemFont, sans-serif',
       },
       {
+        name: "narrow-345-malgun",
+        viewport: { width: 345, height: 740 },
+        fontFamily: '"Malgun Gothic", "Noto Sans KR", system-ui, sans-serif',
+      },
+      {
+        name: "minimum-320-noto",
+        viewport: { width: 320, height: 740 },
+        fontFamily: '"Noto Sans KR", "Malgun Gothic", system-ui, sans-serif',
+      },
+      {
         name: "iphone-pro-393-fallback",
         viewport: { width: 393, height: 852 },
         fontFamily: '-apple-system, BlinkMacSystemFont, "Malgun Gothic", sans-serif',
@@ -549,12 +605,14 @@ test("dashboard flow: onboarding, portfolio coherence, summary visibility", asyn
       await dashboardPortfolioCard.evaluate((card) => card.scrollIntoView({ block: "start", inline: "nearest" }));
       await page.waitForTimeout(80);
       await dashboardPortfolioSelect.selectOption("transaction_flow");
+      await expectNoOrphanTextLine(dashboardPortfolioHeading, profile.name);
       await expect(dashboardCenterLabel).not.toContainText("분포");
       await expect(dashboardCenterLabel).toContainText(/\d{1,2}월 거래/);
       await expectDonutTextNotClipped(dashboardCenterLabel);
       await expectDonutTextNotClipped(dashboardSliceLabels);
       await expectDonutLabelsCenteredOnRing(dashboardPortfolioCard, profile.name);
-      await expectDonutLabelsClearOfMobileNav(page, dashboardPortfolioCard, profile.name);
+      await expectDonutLabelsInsideChart(dashboardPortfolioCard, profile.name);
+      await expectPortfolioLabelsClearOfBottomNav(page, dashboardPortfolioCard, profile.name);
       await expectNoHorizontalOverflow(page, 12);
       await capture(page, `dashboard-mobile-layout-${profile.name}`);
     }

@@ -1110,6 +1110,27 @@
   gap: 0.75rem;
 }
 
+.dashboard-card-heading > div {
+  min-width: 0;
+}
+
+.dashboard-card-heading h2,
+.asset-portfolio-chart-header h3,
+.holding-summary-card > summary > span {
+  line-height: 1.18;
+  overflow-wrap: normal;
+  text-wrap: balance;
+  word-break: keep-all;
+}
+
+.dashboard-portfolio-card .dashboard-card-heading {
+  flex-wrap: wrap;
+}
+
+.dashboard-portfolio-card .dashboard-card-heading > div {
+  flex: 1 1 13rem;
+}
+
 .dashboard-chip {
   display: inline-flex;
   align-items: center;
@@ -1143,6 +1164,7 @@
 }
 
 .dashboard-portfolio-chart-select {
+  flex: 0 0 auto;
   margin-left: auto;
   max-width: 220px;
 }
@@ -4087,6 +4109,29 @@ thead {
   color: #6a7f99;
 }
 
+@media (max-width: 1366px) and (min-width: 821px) {
+  .dashboard-portfolio-card .dashboard-card-heading {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: flex-start;
+    gap: 0.52rem;
+  }
+
+  .dashboard-portfolio-card .dashboard-card-heading > div {
+    width: 100%;
+  }
+
+  .dashboard-portfolio-chart-select {
+    width: min(100%, 15rem);
+    margin-left: 0;
+    text-align: left;
+  }
+
+  .dashboard-portfolio-chart-select select {
+    width: 100%;
+  }
+}
+
 @media (max-width: 1100px) {
   .app-shell {
     --app-shell-nav-width: 188px;
@@ -4387,7 +4432,7 @@ thead {
     max-height: none;
     min-height: auto;
     padding: 0.34rem;
-    margin: 0.12rem 0 0.55rem;
+    margin: 0.12rem 0 0.5rem;
     overflow: hidden;
     border-radius: 1.35rem;
     background: #ffffff;
@@ -4433,7 +4478,7 @@ thead {
   .topbar-tabs button {
     width: 100%;
     min-width: 0;
-    min-height: 3.18rem;
+    min-height: 2.78rem;
     position: relative;
     flex-direction: column;
     justify-content: center;
@@ -4566,7 +4611,7 @@ thead {
 
   .dashboard-status-card,
   .dashboard-members-card {
-    display: grid;
+    display: none;
   }
 
   .dashboard-kpi-card,
@@ -6328,10 +6373,15 @@ thead {
     white-space: nowrap;
   }
 
+  .holdings-surface-table tbody tr.holding-section-row {
+    height: auto;
+    min-height: 0;
+  }
 
   .holdings-surface-table .section-header-cell {
-    padding: 0.2rem 0.44rem;
+    padding: 0.08rem 0.38rem;
     font-size: 0.78rem;
+    line-height: 1.1;
   }
 
   .holdings-surface-table .section-header-cell .inline {
@@ -6355,11 +6405,11 @@ thead {
   }
 
   .holdings-surface-table .section-header-cell .inline > span.inline button {
-    padding: 0.02rem 0.2rem;
-    min-height: 1.25rem;
-    height: 1.25rem;
+    padding: 0 0.18rem;
+    min-height: 0.98rem;
+    height: 0.98rem;
     min-width: 0;
-    font-size: 0.72rem;
+    font-size: 0.66rem;
     line-height: 1.05;
   }
 

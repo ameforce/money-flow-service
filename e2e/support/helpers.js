@@ -379,6 +379,80 @@ export async function expectCompactHeader(locator, maxHeight = 30) {
   expect(box?.height ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(maxHeight);
 }
 
+export async function expectNoOrphanTextLine(locator, label) {
+  const metrics = await locator.evaluate((element) => {
+    const lines = new Map();
+    let measuredCharacters = 0;
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+    let textNode = walker.nextNode();
+    while (textNode) {
+      const text = textNode.textContent || "";
+      for (let index = 0; index < text.length; index += 1) {
+        const char = text[index];
+        if (!char.trim()) {
+          continue;
+        }
+        const range = document.createRange();
+        range.setStart(textNode, index);
+        range.setEnd(textNode, index + 1);
+        const rect = range.getBoundingClientRect();
+        range.detach();
+        if (rect.width === 0 && rect.height === 0) {
+          continue;
+        }
+        measuredCharacters += 1;
+        const lineKey = String(Math.round(rect.top));
+        lines.set(lineKey, (lines.get(lineKey) || "") + char);
+      }
+      textNode = walker.nextNode();
+    }
+    return {
+      lines: Array.from(lines.values()).filter((line) => line.trim()),
+      measuredCharacters,
+    };
+  });
+  expect(metrics.measuredCharacters, `${label} should expose measurable rendered text`).toBeGreaterThan(0);
+  const lastLine = metrics.lines.at(-1) || "";
+  expect(lastLine.length, `${label} should not leave a one-character orphan line`).not.toBe(1);
+}
+
+export async function expectPortfolioLabelsClearOfBottomNav(page, card, label) {
+  const metrics = await card.getByTestId("portfolio-donut-slice-label").evaluateAll((nodes) => {
+    const nav = document.querySelector("nav.topbar-tabs");
+    const navBox = nav?.getBoundingClientRect();
+    const navStyle = nav ? getComputedStyle(nav) : null;
+    const fixedBottomNav = Boolean(
+      navBox &&
+        navStyle?.position === "fixed" &&
+        window.innerWidth <= 820 &&
+        navBox.bottom >= window.innerHeight - 32 &&
+        navBox.top > window.innerHeight * 0.5,
+    );
+    return nodes.map((node) => {
+      const box = node.getBoundingClientRect();
+      return {
+        text: node.textContent?.replace(/\s+/g, " ").trim(),
+        bottom: box.bottom,
+        fixedBottomNav,
+        navTop: fixedBottomNav ? navBox.top : window.innerHeight,
+        viewportBottom: window.innerHeight,
+      };
+    });
+  });
+  expect(metrics.length, `${label} should expose visible slice labels`).toBeGreaterThan(0);
+  for (const item of metrics) {
+    expect(item.bottom, `${label} ${item.text} should stay within the viewport`).toBeLessThanOrEqual(
+      item.viewportBottom,
+    );
+    if (item.fixedBottomNav) {
+      expect(item.bottom, `${label} ${item.text} should clear the fixed bottom navigation`).toBeLessThanOrEqual(
+        item.navTop - 4,
+      );
+    }
+  }
+  await expect(page.locator("nav.topbar-tabs")).toBeVisible();
+}
+
 export function hexToRgb(hex) {
   const raw = String(hex || "").trim().replace(/^#/, "");
   if (raw.length !== 6) {
