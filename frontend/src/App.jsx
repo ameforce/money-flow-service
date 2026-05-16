@@ -9558,20 +9558,22 @@ function App() {
               <label>
                 작업 가계
                 <select
+                  id="settings-household-select"
                   className="household-select"
                   value={household?.id || ""}
                   onChange={handleHouseholdSwitchChange}
                   disabled={householdSwitchDisabled}
+                  aria-describedby="settings-household-select-summary"
                 >
                   {householdList.length === 0 && <option value="">선택 가능한 가계 없음</option>}
                   {householdList.map((entry) => (
                     <option key={entry.household.id} value={entry.household.id}>
-                      {entry.household.name} · 내 권한 {COLLAB_ROLE_LABELS[entry.role] || entry.role}
+                      {entry.household.name}
                     </option>
                   ))}
                 </select>
               </label>
-              <p className="table-summary">
+              <p className="table-summary" id="settings-household-select-summary">
                 현재 작업 가계: {household?.name || "-"} / 내 권한: {COLLAB_ROLE_LABELS[householdRole] || householdRole || "-"}
               </p>
             </div>
@@ -9885,20 +9887,22 @@ function App() {
               <label>
                 작업 가계
                 <select
+                  id="collaboration-household-select"
                   className="household-select"
                   value={household?.id || ""}
                   onChange={handleHouseholdSwitchChange}
                   disabled={householdSwitchDisabled}
+                  aria-describedby="collaboration-household-select-summary"
                 >
                   {householdList.length === 0 && <option value="">선택 가능한 가계 없음</option>}
                   {householdList.map((entry) => (
                     <option key={entry.household.id} value={entry.household.id}>
-                      {entry.household.name} · 내 권한 {COLLAB_ROLE_LABELS[entry.role] || entry.role}
+                      {entry.household.name}
                     </option>
                   ))}
                 </select>
               </label>
-              <p className="table-summary">
+              <p className="table-summary" id="collaboration-household-select-summary">
                 현재 가계: {household?.name || "-"} / 내 권한: {COLLAB_ROLE_LABELS[householdRole] || householdRole || "-"}
               </p>
             </div>
