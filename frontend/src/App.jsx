@@ -11,6 +11,7 @@ import {
   Tooltip,
 } from "chart.js";
 import { Doughnut, Line } from "react-chartjs-2";
+import { IsoDateInput } from "./components/IsoDateInput";
 import { HoldingSurfaceTable } from "./components/worksurface/HoldingSurfaceTable";
 import { TransactionSurfaceTable } from "./components/worksurface/TransactionSurfaceTable";
 import { extractVisibleInitial, resolveSemanticColor, withAlpha } from "./components/worksurface/colorSemantics";
@@ -7244,12 +7245,11 @@ function App() {
             <label className="date-field">
               일자
               <div className="date-input-wrap">
-                <input
+                <IsoDateInput
                   ref={txDateInputRef}
-                  type="date"
                   enterKeyHint="next"
                   value={txForm.occurred_on}
-                  onChange={(e) => setTxForm((prev) => ({ ...prev, occurred_on: e.target.value }))}
+                  onValueChange={(value) => setTxForm((prev) => ({ ...prev, occurred_on: value }))}
                   disabled={transactionFormDisabled}
                   required
                 />
@@ -7336,12 +7336,11 @@ function App() {
       <label className="date-field">
         일자
         <div className="date-input-wrap">
-          <input
+          <IsoDateInput
             ref={txDateInputRef}
-            type="date"
             enterKeyHint="next"
             value={txForm.occurred_on}
-            onChange={(e) => setTxForm((prev) => ({ ...prev, occurred_on: e.target.value }))}
+            onValueChange={(value) => setTxForm((prev) => ({ ...prev, occurred_on: value }))}
             disabled={transactionFormDisabled}
             required
           />
@@ -8517,18 +8516,16 @@ function App() {
               </label>
               <label className="tx-header-filter">
                 <span>시작</span>
-                <input
-                  type="date"
+                <IsoDateInput
                   value={txListFilter.start}
-                  onChange={(e) => setTxListFilter({ ...txListFilter, start: e.target.value })}
+                  onValueChange={(value) => setTxListFilter({ ...txListFilter, start: value })}
                 />
               </label>
               <label className="tx-header-filter">
                 <span>종료</span>
-                <input
-                  type="date"
+                <IsoDateInput
                   value={txListFilter.end}
-                  onChange={(e) => setTxListFilter({ ...txListFilter, end: e.target.value })}
+                  onValueChange={(value) => setTxListFilter({ ...txListFilter, end: value })}
                 />
               </label>
               <button

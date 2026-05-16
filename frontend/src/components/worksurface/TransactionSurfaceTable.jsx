@@ -1,5 +1,6 @@
 import { Fragment, useState } from "react";
 
+import { IsoDateInput } from "../IsoDateInput";
 import { extractVisibleInitial, resolveSemanticColor, withAlpha } from "./colorSemantics";
 import { TRANSACTION_SURFACE_FIELDS, getWorkSurfaceMobilePriority } from "./fieldPriority";
 
@@ -212,20 +213,18 @@ export function TransactionSurfaceTable({
             <div className="tx-ledger-filter-date-grid">
               <label className="tx-ledger-filter-field">
                 <span>시작일</span>
-                <input
-                  type="date"
+                <IsoDateInput
                   aria-label="시작일"
                   value={safeTxListFilter.start}
-                  onChange={(event) => updateTxListFilter({ start: event.target.value })}
+                  onValueChange={(value) => updateTxListFilter({ start: value })}
                 />
               </label>
               <label className="tx-ledger-filter-field">
                 <span>종료일</span>
-                <input
-                  type="date"
+                <IsoDateInput
                   aria-label="종료일"
                   value={safeTxListFilter.end}
-                  onChange={(event) => updateTxListFilter({ end: event.target.value })}
+                  onValueChange={(value) => updateTxListFilter({ end: value })}
                 />
               </label>
             </div>
@@ -550,12 +549,10 @@ export function TransactionSurfaceTable({
                   <td data-label="선택">-</td>
                   <td data-label="일자">
                     <label className="tx-inline-date-field">
-                      <input
+                      <IsoDateInput
                         aria-label="일자"
-                        type="date"
-                        placeholder="일자"
                         value={editForm.occurred_on}
-                        onChange={(e) => setTxInlineEdit({ ...editForm, occurred_on: e.target.value })}
+                        onValueChange={(value) => setTxInlineEdit({ ...editForm, occurred_on: value })}
                         disabled={!canEditRecords}
                         required
                       />
