@@ -560,6 +560,7 @@ test("empty holdings table keeps desktop columns readable", async ({ page }) => 
 
   const table = page.locator(".holdings-surface-table");
   const emptyState = page.getByTestId("holdings-empty-state");
+  const gainHeader = page.locator(".holdings-surface-table thead .holding-col-gain");
   const updatedHeader = page.locator(".holdings-surface-table thead .holding-col-updated");
   const actionHeader = page.locator(".holdings-surface-table thead .holding-col-actions");
 
@@ -570,8 +571,12 @@ test("empty holdings table keeps desktop columns readable", async ({ page }) => 
   const metrics = await page.evaluate(() => {
     const tableBox = document.querySelector(".holdings-surface-table")?.getBoundingClientRect();
     const emptyBox = document.querySelector("[data-testid='holdings-empty-state']")?.getBoundingClientRect();
+    const gainHeader = document.querySelector(".holdings-surface-table thead .holding-col-gain");
+    const gainBox = gainHeader?.getBoundingClientRect();
+    const gainSortButton = gainHeader?.querySelector(".sort-header");
     const updatedBox = document.querySelector(".holdings-surface-table thead .holding-col-updated")?.getBoundingClientRect();
     const actionBox = document.querySelector(".holdings-surface-table thead .holding-col-actions")?.getBoundingClientRect();
+    const gainText = gainHeader?.textContent || "";
     const updatedText = document.querySelector(".holdings-surface-table thead .holding-col-updated")?.textContent || "";
     const emptyText = document.querySelector("[data-testid='holdings-empty-state']")?.textContent || "";
 
@@ -579,9 +584,15 @@ test("empty holdings table keeps desktop columns readable", async ({ page }) => 
       tableWidth: tableBox?.width || 0,
       emptyWidth: emptyBox?.width || 0,
       emptyHeight: emptyBox?.height || 0,
+      gainWidth: gainBox?.width || 0,
+      gainClientWidth: gainHeader?.clientWidth || 0,
+      gainScrollWidth: gainHeader?.scrollWidth || 0,
+      gainButtonClientWidth: gainSortButton?.clientWidth || 0,
+      gainButtonScrollWidth: gainSortButton?.scrollWidth || 0,
       updatedWidth: updatedBox?.width || 0,
       updatedHeight: updatedBox?.height || 0,
       actionWidth: actionBox?.width || 0,
+      gainText,
       emptyText,
       updatedText,
     };
@@ -590,9 +601,15 @@ test("empty holdings table keeps desktop columns readable", async ({ page }) => 
   expect(metrics.emptyText).toContain("자산 내역이 없습니다.");
   expect(metrics.emptyWidth).toBeGreaterThan(metrics.tableWidth * 0.7);
   expect(metrics.emptyHeight).toBeLessThanOrEqual(130);
+  expect(metrics.gainText).toContain("손익(KRW)");
+  expect(metrics.gainText).toContain("↕");
+  expect(metrics.gainWidth).toBeGreaterThanOrEqual(96);
+  expect(metrics.gainScrollWidth).toBeLessThanOrEqual(metrics.gainClientWidth + 1);
+  expect(metrics.gainButtonScrollWidth).toBeLessThanOrEqual(metrics.gainButtonClientWidth + 1);
   expect(metrics.updatedText).toContain("최종 수정일");
   expect(metrics.updatedWidth).toBeGreaterThanOrEqual(108);
   expect(metrics.updatedHeight).toBeLessThanOrEqual(80);
+  await expectWithinViewport(gainHeader);
   await expectWithinViewport(updatedHeader);
   await expectWithinViewport(actionHeader);
   await capture(page, "layout-empty-holdings-desktop-fixed");
