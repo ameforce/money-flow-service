@@ -152,6 +152,16 @@ async function expectTransactionMonthControls(page, isoDate, label = "transactio
   await expect(listCard.getByLabel("월"), `${label} month`).toHaveValue(String(month), { timeout: 6_000 });
 }
 
+async function expectIsoDateInput(locator, label, expectedValue = null) {
+  await expect(locator, `${label} visible`).toBeVisible();
+  await expect(locator, `${label} uses text type`).toHaveAttribute("type", "text");
+  await expect(locator, `${label} has numeric keyboard hint`).toHaveAttribute("inputmode", "numeric");
+  await expect(locator, `${label} has ISO placeholder`).toHaveAttribute("placeholder", "YYYY-MM-DD");
+  if (expectedValue !== null) {
+    await expect(locator, `${label} value`).toHaveValue(expectedValue);
+  }
+}
+
 async function readTransactionMonthStepperLayout(page) {
   return page.locator(".transaction-list-card .month-stepper").first().evaluate((stepper) => {
     const boxOf = (selector) => {
@@ -962,6 +972,76 @@ test("transactions flow: create, inline edit, delete, responsive", async ({ page
   await assertResponsiveShell(page, 12);
   await expectNoHorizontalOverflow(page, 12);
   await capture(page, "transactions-mobile");
+});
+
+test("transaction date controls use unambiguous ISO text fields", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("tx-date-iso")}@example.com`;
+  const displayName = unique("tx-date-iso-name");
+  const memo = unique("tx-date-iso-memo");
+  const occurredOn = currentE2EHistoryDateIso(-2);
+
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 1366, height: 768 });
+  await openTab(page, "거래");
+  await page.waitForLoadState("networkidle");
+
+  const transactionEntryCard = page.getByRole("heading", { name: "거래 입력" }).locator("xpath=ancestor::article[1]");
+  await transactionEntryCard.getByRole("button", { name: "거래 추가" }).click();
+  await expect(transactionEntryCard.locator("form.transactions-form-grid").first()).toBeVisible();
+  const desktopEntryDate = labeledField(transactionEntryCard, "일자", "input");
+  await expectIsoDateInput(desktopEntryDate, "desktop transaction entry date");
+  await desktopEntryDate.fill("20260502");
+  await expect(desktopEntryDate).toHaveValue("2026-05-02");
+
+  const desktopStartFilter = page.locator(".tx-header-filter", { hasText: "시작" }).locator("input").first();
+  const desktopEndFilter = page.locator(".tx-header-filter", { hasText: "종료" }).locator("input").first();
+  await expectIsoDateInput(desktopStartFilter, "desktop transaction start filter");
+  await expectIsoDateInput(desktopEndFilter, "desktop transaction end filter");
+  await desktopStartFilter.fill("20260501");
+  await desktopEndFilter.fill("20260531");
+  await expect(desktopStartFilter).toHaveValue("2026-05-01");
+  await expect(desktopEndFilter).toHaveValue("2026-05-31");
+  await capture(page, "transactions-date-iso-desktop");
+
+  await createTransactionViaApi(page, {
+    memo,
+    amount: "33000",
+    occurredOn,
+    ownerName: displayName,
+  });
+  await page.reload();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openTab(page, "거래");
+  await page.waitForLoadState("networkidle");
+
+  const dateFilterTrigger = page
+    .locator(".transactions-mobile-ledger-head")
+    .first()
+    .getByRole("button", { name: "일자 필터 열기" });
+  await dateFilterTrigger.click();
+  const mobileFilterPanel = page.getByTestId("tx-ledger-filter-panel");
+  await expect(mobileFilterPanel).toContainText("일자 필터");
+  await expectIsoDateInput(mobileFilterPanel.getByLabel("시작일"), "mobile transaction start filter");
+  await expectIsoDateInput(mobileFilterPanel.getByLabel("종료일"), "mobile transaction end filter");
+  await mobileFilterPanel.getByRole("button", { name: "필터 초기화" }).click();
+
+  const mobileRow = page.locator("tr.transaction-row", { hasText: memo }).first();
+  await expect(mobileRow).toBeVisible();
+  await mobileRow.locator(".mobile-toggle-btn").first().click();
+  const expandedActionRow = mobileRow.locator(
+    "xpath=following-sibling::tr[1][contains(@class,'transaction-mobile-expanded-actions-row')]",
+  );
+  await expect(expandedActionRow).toBeVisible();
+  await expandedActionRow.getByRole("button", { name: "수정" }).click();
+  const editorRow = page.locator("tr.transaction-inline-editor-row").first();
+  await expect(editorRow).toBeVisible();
+  const inlineEditDate = editorRow.getByLabel("일자");
+  await expectIsoDateInput(inlineEditDate, "mobile inline edit date", occurredOn);
+  await inlineEditDate.fill("20260503");
+  await expect(inlineEditDate).toHaveValue("2026-05-03");
+  await capture(page, "transactions-date-iso-mobile-edit");
 });
 
 test("transactions form keeps grouped number format", async ({ page }) => {

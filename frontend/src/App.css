@@ -1788,6 +1788,7 @@
   background: transparent;
 }
 
+.transactions-inline-editor .iso-date-input,
 .transactions-inline-editor input[type="date"],
 .transactions-inline-editor input[type="number"],
 .transactions-inline-editor input:not([type]),
@@ -1829,6 +1830,11 @@
 
 .today-btn {
   white-space: nowrap;
+}
+
+.iso-date-input {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
 }
 
 .month-nav-btn {
