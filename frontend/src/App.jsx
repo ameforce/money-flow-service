@@ -9852,6 +9852,15 @@ function App() {
             {!canEditRecords && (
               <p className="table-summary">데이터 가져오기는 편집자 이상 권한에서만 가능합니다.</p>
             )}
+            <div className="mobile-import-package-export">
+              <button
+                type="button"
+                disabled={migrationExporting || Boolean(migrationLoadingMode) || !canEditRecords}
+                onClick={exportMigrationPackage}
+              >
+                {migrationExporting ? "패키지 추출 중..." : "현재 가계 패키지 추출"}
+              </button>
+            </div>
             <div className="import-mode-grid">
               <section className="import-mode-panel import-excel-panel">
                 <div className="secondary-table-heading import-report-heading">
@@ -9984,7 +9993,7 @@ function App() {
               <p className="table-summary">
                 계정 자체는 이식하지 않습니다. 대상 환경에서 로그인한 현재 가계에 거래/보유/카테고리와 가계 설정을 반영합니다.
               </p>
-              <div className="inline import-action-row">
+              <div className="inline import-action-row import-package-export-row">
                 <button
                   type="button"
                   disabled={migrationExporting || Boolean(migrationLoadingMode) || !canEditRecords}
