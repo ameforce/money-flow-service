@@ -68,6 +68,31 @@ test("settings flow: profile, household, colors, categories CRUD", async ({ page
   await expect(page.getByText("가계 설정을 저장했습니다.")).toBeVisible();
   await expect(page.locator(".topbar .meta")).toContainText(`가계: ${householdName}`);
 
+  await page.setViewportSize({ width: 320, height: 720 });
+  await assertResponsiveShell(page);
+  const settingsSwitchCard = page.locator("article.settings-switch-card");
+  await settingsSwitchCard.scrollIntoViewIfNeeded();
+  const settingsHouseholdSelect = settingsSwitchCard.locator("select.household-select").first();
+  await expectWithinViewport(settingsHouseholdSelect);
+  const switchMetrics = await settingsHouseholdSelect.evaluate((select) => {
+    const summaryId = select.getAttribute("aria-describedby") || "";
+    const summary = summaryId ? document.getElementById(summaryId) : null;
+    return {
+      clientWidth: select.clientWidth,
+      scrollWidth: select.scrollWidth,
+      optionText: select.options[select.selectedIndex]?.textContent?.trim() || "",
+      summaryText: summary?.textContent?.trim() || "",
+    };
+  });
+  expect(switchMetrics.optionText).toBe(householdName);
+  expect(switchMetrics.optionText).not.toContain("내 권한");
+  expect(switchMetrics.summaryText).toContain(householdName);
+  expect(switchMetrics.summaryText).toContain("내 권한");
+  expect(switchMetrics.scrollWidth).toBeLessThanOrEqual(switchMetrics.clientWidth + 1);
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "settings-household-switch-mobile-320");
+  await page.setViewportSize({ width: 390, height: 844 });
+
   const colorDetailsCard = page.locator("details.card", { hasText: "거래 행 색상" }).first();
   const colorCard =
     (await colorDetailsCard.count()) > 0

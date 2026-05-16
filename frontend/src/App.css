@@ -4041,14 +4041,19 @@ thead {
 .settings-household-switch {
   display: grid;
   gap: 0.65rem;
+  min-width: 0;
 }
 
 .settings-household-switch label {
+  display: grid;
+  gap: 0.32rem;
   margin-bottom: 0;
+  min-width: 0;
 }
 
 .settings-household-switch .table-summary {
   margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .settings-color-form {
