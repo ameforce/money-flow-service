@@ -2182,6 +2182,7 @@ button.danger:active:not(:disabled) {
 .transaction-entry-sheet-backdrop {
   position: fixed;
   inset: 0;
+  box-sizing: border-box;
   background: rgba(15, 23, 42, 0.3);
   display: flex;
   align-items: flex-end;
@@ -2193,7 +2194,9 @@ button.danger:active:not(:disabled) {
 .transaction-entry-sheet {
   position: relative;
   z-index: 1;
+  box-sizing: border-box;
   width: min(100%, 32rem);
+  max-width: calc(100vw - 1.5rem);
   max-height: min(32rem, calc(100dvh - 5.5rem));
   overflow: auto;
   display: grid;

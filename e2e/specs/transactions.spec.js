@@ -384,7 +384,10 @@ async function scrollHistoryRowIntoViewport(page, text, expectedIsoDate, block =
 }
 
 async function openMobileTransactionQuickEntry(page) {
-  await page.setViewportSize({ width: 390, height: 844 });
+  const viewport = page.viewportSize();
+  if (!viewport || viewport.width > 820) {
+    await page.setViewportSize({ width: 390, height: 844 });
+  }
   await openTab(page, "거래");
   await page.waitForLoadState("networkidle");
   const transactionFab = page.getByTestId("transactions-fab");
