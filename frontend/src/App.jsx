@@ -1319,6 +1319,12 @@ function formatApiError(error, context) {
   const apiAction = String(error?.action || "").trim();
   const structuredApiMessage = code && apiMessage && !networkIssue ? uiGuideMessage(apiMessage, apiAction) : "";
 
+  if (code === "AUTH_CSRF_ORIGIN_FORBIDDEN") {
+    return uiGuideMessage("허용되지 않은 출처(origin) 요청입니다.", "앱을 실행한 프론트엔드 주소가 백엔드 허용 출처에 포함되어 있는지 확인해 주세요.");
+  }
+  if (code === "AUTH_CSRF_ORIGIN_REQUIRED") {
+    return uiGuideMessage("요청 출처를 확인할 수 없습니다.", "브라우저에서 앱을 다시 열고 로그인해 주세요.");
+  }
   if (context === "auth_login" && (code === "AUTH_INVALID_CREDENTIALS" || code === "AUTH_USER_NOT_FOUND" || status === 401)) {
     return uiGuideMessage("로그인에 실패했습니다.", "이메일과 비밀번호를 확인한 뒤 다시 시도해 주세요.");
   }

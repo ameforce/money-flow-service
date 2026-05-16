@@ -85,6 +85,32 @@ test("auth forms show Korean required-field validation", async ({ page }) => {
   await expect(page.getByText("본명을 입력해 주세요.")).toBeVisible();
 });
 
+test("auth login shows origin guidance for CSRF origin rejection", async ({ page }) => {
+  await page.route("**/api/v1/auth/login", async (route) => {
+    await route.fulfill({
+      status: 403,
+      contentType: "application/json",
+      body: JSON.stringify({
+        error: {
+          code: "AUTH_CSRF_ORIGIN_FORBIDDEN",
+          message: "허용되지 않은 출처(origin) 요청입니다.",
+          action: "동일한 출처에서 다시 시도해 주세요.",
+        },
+      }),
+    });
+  });
+
+  await page.goto("/");
+  await page.getByLabel("이메일", { exact: true }).fill("custom-port-login@example.com");
+  await page.getByLabel("비밀번호", { exact: true }).fill(TEST_PASSWORD);
+  await page.getByRole("button", { name: "로그인하기" }).click();
+
+  await expect(page.getByText("허용되지 않은 출처(origin) 요청입니다.")).toBeVisible();
+  await expect(page.getByText("백엔드 허용 출처")).toBeVisible();
+  await expect(page.getByText("요청 처리 중 오류가 발생했습니다.")).toHaveCount(0);
+  await capture(page, "auth-origin-guidance");
+});
+
 test("auth flow: register validation, verify, logout, relogin", async ({ page }) => {
   test.setTimeout(180_000);
 
