@@ -3504,47 +3504,61 @@ function App() {
   }, [household?.id]);
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const rawHash = String(window.location.hash || "").replace(/^#/, "");
-    const hashParams = new URLSearchParams(rawHash.startsWith("?") ? rawHash.slice(1) : rawHash);
-    const verifyToken = hashParams.get("verify_token");
-    const inviteToken = hashParams.get("invite_token");
-    const hadLegacyQueryTokens = params.has("verify_token") || params.has("invite_token");
-    if (verifyToken) {
-      setAuthMode("verify");
-      setVerifyForm((prev) => ({
-        ...prev,
-        email: prev.email || getSavedEmail() || "",
-        token: verifyToken,
-        verification_code: "",
-        password: "",
-        password_confirm: "",
-        requires_password_setup: false,
-        password_setup_reason: "",
-      }));
-      verifyEmailTokenFromLink(verifyToken).catch(() => undefined);
-      params.delete("verify_token");
-      hashParams.delete("verify_token");
-    }
-    if (inviteToken) {
-      setInviteAcceptToken(inviteToken);
-      hashParams.delete("invite_token");
-    }
-    if (hadLegacyQueryTokens) {
-      params.delete("verify_token");
-      params.delete("invite_token");
-      if (!verifyToken && !inviteToken) {
-        setMessage("보안을 위해 URL query 토큰은 지원하지 않습니다. 최신 인증 링크로 다시 시도해 주세요.");
+    const consumeDeepLinkTokens = () => {
+      const params = new URLSearchParams(window.location.search);
+      const rawHash = String(window.location.hash || "").replace(/^#/, "");
+      const hashParams = new URLSearchParams(rawHash.startsWith("?") ? rawHash.slice(1) : rawHash);
+      const verifyToken = hashParams.get("verify_token");
+      const inviteToken = hashParams.get("invite_token");
+      const hadLegacyQueryTokens = params.has("verify_token") || params.has("invite_token");
+
+      if (verifyToken || inviteToken) {
+        setMessage("");
       }
-    }
-    if (!verifyToken && !inviteToken && !hadLegacyQueryTokens) {
-      return;
-    }
-    const nextQuery = params.toString();
-    const nextHash = hashParams.toString();
-    const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ""}${nextHash ? `#${nextHash}` : ""}`;
-    window.history.replaceState({}, "", nextUrl);
-    // Deep-link token must be consumed exactly once on initial page load.
+      if (verifyToken) {
+        setAuthMode("verify");
+        setVerifyForm((prev) => ({
+          ...prev,
+          email: prev.email || getSavedEmail() || "",
+          token: verifyToken,
+          verification_code: "",
+          password: "",
+          password_confirm: "",
+          requires_password_setup: false,
+          password_setup_reason: "",
+        }));
+        verifyEmailTokenFromLink(verifyToken).catch(() => undefined);
+        params.delete("verify_token");
+        hashParams.delete("verify_token");
+      }
+      if (inviteToken) {
+        setInviteAcceptToken(inviteToken);
+        hashParams.delete("invite_token");
+      }
+      if (hadLegacyQueryTokens) {
+        params.delete("verify_token");
+        params.delete("invite_token");
+        if (!verifyToken && !inviteToken) {
+          setMessage("보안을 위해 URL query 토큰은 지원하지 않습니다. 최신 인증 링크로 다시 시도해 주세요.");
+        }
+      }
+      if (!verifyToken && !inviteToken && !hadLegacyQueryTokens) {
+        return;
+      }
+      const nextQuery = params.toString();
+      const nextHash = hashParams.toString();
+      const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ""}${nextHash ? `#${nextHash}` : ""}`;
+      window.history.replaceState({}, "", nextUrl);
+    };
+
+    consumeDeepLinkTokens();
+    window.addEventListener("hashchange", consumeDeepLinkTokens);
+    window.addEventListener("popstate", consumeDeepLinkTokens);
+    return () => {
+      window.removeEventListener("hashchange", consumeDeepLinkTokens);
+      window.removeEventListener("popstate", consumeDeepLinkTokens);
+    };
+    // Deep-link tokens must be consumed once per URL transition, including hash-only navigation in the mounted SPA.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
