@@ -85,6 +85,59 @@ async function expectQuickCategoryLayoutStable(page) {
   expect(metrics.outsideViewport).toEqual([]);
 }
 
+async function expectMobileTransactionFilterTriggersSeparated(page, label) {
+  const metrics = await page.locator(".transactions-mobile-ledger-head").first().evaluate((head) => {
+    const labels = ["일자 필터 열기", "메모 필터 열기", "금액 필터 열기", "유형 필터 열기"];
+    const buttons = labels.map((ariaLabel) => {
+      const node = head.querySelector(`button[aria-label="${ariaLabel}"]`);
+      const box = node?.getBoundingClientRect();
+      return box
+        ? {
+            ariaLabel,
+            text: node.textContent?.trim() || "",
+            x: box.x,
+            y: box.y,
+            width: box.width,
+            height: box.height,
+            right: box.right,
+            bottom: box.bottom,
+          }
+        : { ariaLabel, missing: true };
+    });
+    const overlaps = [];
+    for (let leftIndex = 0; leftIndex < buttons.length; leftIndex += 1) {
+      for (let rightIndex = leftIndex + 1; rightIndex < buttons.length; rightIndex += 1) {
+        const left = buttons[leftIndex];
+        const right = buttons[rightIndex];
+        if (left.missing || right.missing) {
+          continue;
+        }
+        const width = Math.max(0, Math.min(left.right, right.right) - Math.max(left.x, right.x));
+        const height = Math.max(0, Math.min(left.bottom, right.bottom) - Math.max(left.y, right.y));
+        if (width > 0.5 && height > 0.5) {
+          overlaps.push({
+            pair: [left.ariaLabel, right.ariaLabel],
+            width,
+            height,
+            area: width * height,
+          });
+        }
+      }
+    }
+    return {
+      buttons,
+      overlaps,
+      viewportWidth: window.innerWidth,
+    };
+  });
+
+  expect(metrics.overlaps, `${label} filter triggers should not overlap`).toEqual([]);
+  expect(
+    metrics.buttons.every((button) => !button.missing && button.width >= 40 && button.height >= 40),
+    `${label} filter trigger hit areas should stay readable: ${JSON.stringify(metrics)}`,
+  ).toBe(true);
+}
+
 async function jumpTransactionListToMonth(page, isoDate) {
   const { year, month } = yearMonthFromIso(isoDate);
   const listCard = page.locator(".transaction-list-card").first();
@@ -1481,6 +1534,15 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   await expect(memoFilterTrigger).toBeVisible();
   await expect(amountFilterTrigger).toBeVisible();
   await expect(typeFilterTrigger).toBeVisible();
+  await expectMobileTransactionFilterTriggersSeparated(page, "390px transaction ledger head");
+  for (const profile of [
+    { label: "320px transaction ledger head", width: 320, height: 568 },
+    { label: "412px transaction ledger head", width: 412, height: 915 },
+  ]) {
+    await page.setViewportSize({ width: profile.width, height: profile.height });
+    await expectMobileTransactionFilterTriggersSeparated(page, profile.label);
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
   const mobileTopbarBox = await page.locator("header.topbar").boundingBox();
   const transactionHeadingBox = await page.locator(".transaction-list-card > .surface-list-heading").first().boundingBox();
   await expect(page.locator(".transaction-list-card > .surface-control-strip").first()).toBeHidden();
