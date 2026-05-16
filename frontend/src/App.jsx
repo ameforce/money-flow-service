@@ -119,6 +119,8 @@ const IMPORT_MODE_LABELS = {
 };
 const AUTO_PRICE_REFRESH_INTERVAL_MS = 20_000;
 const AUTO_PRICE_REFRESH_COOLDOWN_MS = 30_000;
+const PRICE_REFRESH_POLL_INTERVAL_MS = 1_000;
+const PRICE_REFRESH_STATUS_FAILURE_LIMIT = 3;
 const WS_REFRESH_DEBOUNCE_MS = 300;
 const REALTIME_FALLBACK_SYNC_INTERVAL_MS = 45_000;
 const COLLAB_ACTIVE_SYNC_INTERVAL_MS = 8_000;
@@ -1694,6 +1696,7 @@ function App() {
   const priceRefreshOriginRef = useRef("manual");
   const lastAutoRefreshAtRef = useRef(0);
   const priceRefreshRequestInFlightRef = useRef(false);
+  const priceRefreshPollFailureCountRef = useRef(0);
   const realtimeFallbackSyncInFlightRef = useRef(false);
   const tabRef = useRef(tab);
   const transactionHistoryLoadingRef = useRef({ initial: false, older: false, newer: false });
@@ -3956,6 +3959,44 @@ function App() {
     });
   }
 
+  function applyPriceStatus(nextStatus) {
+    if (!nextStatus) {
+      setPriceStatus(nextStatus);
+      setPriceRefreshPolling(false);
+      priceRefreshOriginRef.current = "manual";
+      priceRefreshPollFailureCountRef.current = 0;
+      return nextStatus;
+    }
+    const normalizedStatus = {
+      ...nextStatus,
+      refresh_in_progress: Boolean(nextStatus?.refresh_in_progress),
+    };
+    setPriceStatus(normalizedStatus);
+    setPriceRefreshPolling(normalizedStatus.refresh_in_progress);
+    if (normalizedStatus.refresh_in_progress) {
+      priceRefreshPollFailureCountRef.current = 0;
+    } else {
+      priceRefreshOriginRef.current = "manual";
+      priceRefreshPollFailureCountRef.current = 0;
+    }
+    return normalizedStatus;
+  }
+
+  function releasePriceRefreshLock() {
+    setPriceRefreshPolling(false);
+    priceRefreshOriginRef.current = "manual";
+    priceRefreshPollFailureCountRef.current = 0;
+    setPriceStatus((current) => (
+      current?.refresh_in_progress ? { ...current, refresh_in_progress: false } : current
+    ));
+  }
+
+  function loadPriceStatusQuietly(nextToken = token) {
+    return api(`${API_PREFIX}/prices/status`, {}, nextToken)
+      .then((data) => ({ ok: true, data }))
+      .catch((error) => ({ ok: false, error }));
+  }
+
   async function refreshData(REFRESH_PRICES = false, nextToken = token, filterOverride = null, options = {}) {
     const silent = Boolean(options?.silent);
     void REFRESH_PRICES;
@@ -3970,14 +4011,17 @@ function App() {
         api(`${API_PREFIX}/transactions?${txQuery}&limit=1000`, {}, nextToken),
         api(`${API_PREFIX}/holdings`, {}, nextToken),
         api(`${API_PREFIX}/dashboard/portfolio`, {}, nextToken),
-        api(`${API_PREFIX}/prices/status`, {}, nextToken),
+        loadPriceStatusQuietly(nextToken),
       ]);
       setOverview(overviewResp);
       setTransactions(txResp);
       setHoldings(holdingResp);
       setPortfolio(portfolioResp);
-      setPriceStatus(statusResp);
-      setPriceRefreshPolling(Boolean(statusResp?.refresh_in_progress));
+      if (statusResp.ok) {
+        applyPriceStatus(statusResp.data);
+      } else {
+        releasePriceRefreshLock();
+      }
       setDashboardLoaded(true);
     } finally {
       if (!silent) {
@@ -4019,7 +4063,7 @@ function App() {
         requests.push(
           api(`${API_PREFIX}/holdings`, {}, nextToken).then((data) => ({ key: "holdings", data })),
           api(`${API_PREFIX}/dashboard/portfolio`, {}, nextToken).then((data) => ({ key: "portfolio", data })),
-          api(`${API_PREFIX}/prices/status`, {}, nextToken).then((data) => ({ key: "priceStatus", data })),
+          loadPriceStatusQuietly(nextToken).then((result) => ({ key: "priceStatus", result })),
         );
       }
       if (includeContext) {
@@ -4052,8 +4096,11 @@ function App() {
         } else if (item.key === "portfolio") {
           setPortfolio(item.data);
         } else if (item.key === "priceStatus") {
-          setPriceStatus(item.data);
-          setPriceRefreshPolling(Boolean(item.data?.refresh_in_progress));
+          if (item.result.ok) {
+            applyPriceStatus(item.result.data);
+          } else {
+            releasePriceRefreshLock();
+          }
         }
       }
       if (includeTransactions && tabRef.current !== "transactions" && transactionHistoryInitializedRef.current) {
@@ -5549,7 +5596,16 @@ function App() {
     }
     try {
       const refreshResp = await api(`${API_PREFIX}/prices/refresh`, { method: "POST" }, token);
-      setPriceRefreshPolling(Boolean(refreshResp?.in_progress));
+      const inProgress = Boolean(refreshResp?.in_progress);
+      setPriceRefreshPolling(inProgress);
+      setPriceStatus((current) => (
+        current ? { ...current, refresh_in_progress: inProgress } : current
+      ));
+      if (inProgress) {
+        priceRefreshPollFailureCountRef.current = 0;
+      } else {
+        releasePriceRefreshLock();
+      }
       return refreshResp;
     } catch (error) {
       const code = String(error?.code || "").toUpperCase();
@@ -6265,6 +6321,7 @@ function App() {
     priceRefreshOriginRef.current = "manual";
     lastAutoRefreshAtRef.current = 0;
     priceRefreshRequestInFlightRef.current = false;
+    priceRefreshPollFailureCountRef.current = 0;
     realtimeFallbackSyncInFlightRef.current = false;
     setAuthForm({
       ...createAuthForm(),
@@ -6284,16 +6341,28 @@ function App() {
       try {
         const statusResp = await api(`${API_PREFIX}/prices/status`, {}, token);
         if (stopped) return;
-        setPriceStatus(statusResp);
+        const nextStatus = applyPriceStatus(statusResp);
         if (!statusResp?.refresh_in_progress) {
-          setPriceRefreshPolling(false);
-          await refreshDataByKinds(new Set(["holding"]), token, { silent: true });
-          priceRefreshOriginRef.current = "manual";
+          void refreshDataByKinds(new Set(["holding"]), token, { silent: true }).catch(() => undefined);
+        } else if (nextStatus?.refresh_in_progress) {
+          priceRefreshPollFailureCountRef.current = 0;
         }
       } catch {
-        // Keep polling quietly; next cycle may recover from transient failures.
+        priceRefreshPollFailureCountRef.current += 1;
+        if (priceRefreshPollFailureCountRef.current >= PRICE_REFRESH_STATUS_FAILURE_LIMIT) {
+          const wasManualRefresh = priceRefreshOriginRef.current === "manual";
+          releasePriceRefreshLock();
+          if (wasManualRefresh) {
+            setMessage(
+              uiGuideMessage(
+                "시세 갱신 상태 확인이 지연되고 있습니다.",
+                "시세 상태를 다시 확인한 뒤 필요하면 갱신을 다시 시도해 주세요.",
+              ),
+            );
+          }
+        }
       }
-    }, 1000);
+    }, PRICE_REFRESH_POLL_INTERVAL_MS);
     return () => {
       stopped = true;
       clearInterval(timer);
@@ -6784,7 +6853,8 @@ function App() {
   const { minMonth, maxMonth } = getMonthBounds();
   const isPrevMonthDisabled = compareYearMonth(yearMonth, minMonth) <= 0;
   const isNextMonthDisabled = compareYearMonth(yearMonth, maxMonth) >= 0;
-  const refreshStateLabel = priceStatus?.refresh_in_progress
+  const isPriceRefreshActive = priceRefreshPolling || Boolean(priceStatus?.refresh_in_progress);
+  const refreshStateLabel = isPriceRefreshActive
     ? "진행 중"
     : priceStatus?.refresh_finished_at
       ? "완료"
@@ -6839,7 +6909,7 @@ function App() {
       meta: item.label === "평가손익(KRW)" ? dashboardGainLossRatioText : "",
     };
   });
-  const dashboardPriceTone = priceStatus?.refresh_in_progress
+  const dashboardPriceTone = isPriceRefreshActive
     ? "warning"
     : Number(priceStatus?.stale_count || 0) > 0
       ? "negative"
@@ -7903,9 +7973,9 @@ function App() {
           <button
             className="secondary"
             onClick={refreshPriceNow}
-            disabled={loading || dashboardLoading || priceStatus?.refresh_in_progress || priceRefreshPolling}
+            disabled={loading || dashboardLoading || isPriceRefreshActive}
           >
-            {priceStatus?.refresh_in_progress || priceRefreshPolling ? "시세 갱신 중..." : "시세 갱신"}
+            {isPriceRefreshActive ? "시세 갱신 중..." : "시세 갱신"}
           </button>
           <button className="danger" onClick={() => logout().catch(() => undefined)}>로그아웃</button>
         </div>
