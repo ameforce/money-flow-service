@@ -219,6 +219,33 @@ def normalize_probe_host(host: str) -> str:
     return host
 
 
+def _origin_host_candidates(host: str) -> list[str]:
+    normalized = normalize_probe_host(str(host or "").strip() or "127.0.0.1")
+    if normalized in {"127.0.0.1", "localhost"}:
+        return ["127.0.0.1", "localhost"]
+    return [normalized]
+
+
+def _append_csv_unique(current: str | None, values: Sequence[str]) -> str:
+    items = [item.strip() for item in str(current or "").split(",") if item.strip()]
+    seen = set(items)
+    for value in values:
+        text = str(value or "").strip()
+        if text and text not in seen:
+            items.append(text)
+            seen.add(text)
+    return ",".join(items)
+
+
+def apply_frontend_origin_env(backend_env: dict[str, str], args: argparse.Namespace) -> None:
+    env_name = str(backend_env.get("ENV", "")).strip().lower()
+    if env_name in {"prod", "production"}:
+        return
+    frontend_origins = [f"http://{host}:{args.frontend_port}" for host in _origin_host_candidates(args.frontend_host)]
+    backend_env["CORS_ORIGINS"] = _append_csv_unique(backend_env.get("CORS_ORIGINS"), frontend_origins)
+    backend_env["FRONTEND_BASE_URL"] = frontend_origins[0]
+
+
 def is_tcp_port_open(host: str, port: int) -> bool:
     probe_host = normalize_probe_host(host)
     try:
@@ -380,6 +407,8 @@ def main() -> int:
         if not args.skip_frontend and not args.skip_frontend_install:
             ensure_frontend_deps()
         backend_env = make_backend_env(args.database_url)
+        if not args.skip_frontend:
+            apply_frontend_origin_env(backend_env, args)
         backend_proc = spawn_backend(args, backend_env)
         backend_log_thread = start_log_pump(backend_proc, "backend")
         if not wait_for_backend_ready(backend_proc, args.backend_host, args.backend_port):
