@@ -2167,14 +2167,22 @@ button.danger:active:not(:disabled) {
 }
 
 .holding-entry-sheet {
+  --holding-entry-sheet-padding-block: 0.95rem;
+  --holding-entry-sheet-padding-inline: 0.95rem;
   position: fixed;
   left: max(0.72rem, env(safe-area-inset-left));
   right: max(0.72rem, env(safe-area-inset-right));
   bottom: calc(5.95rem + env(safe-area-inset-bottom));
   z-index: 68;
+  box-sizing: border-box;
+  max-width: calc(100vw - 1.44rem);
   max-height: min(35rem, calc(100dvh - 7rem));
-  overflow: auto;
-  padding: 0.95rem 0.95rem calc(0.95rem + env(safe-area-inset-bottom));
+  overflow-y: auto;
+  overflow-x: clip;
+  padding:
+    var(--holding-entry-sheet-padding-block)
+    var(--holding-entry-sheet-padding-inline)
+    calc(var(--holding-entry-sheet-padding-block) + env(safe-area-inset-bottom));
   border-radius: 20px 20px 16px 16px;
   box-shadow: 0 24px 50px -28px rgba(15, 23, 42, 0.42);
 }
@@ -5767,9 +5775,12 @@ thead {
   }
 
   .holding-entry-card.holding-entry-sheet {
+    --holding-entry-sheet-padding-block: 0.64rem;
+    --holding-entry-sheet-padding-inline: 0.7rem;
     display: grid;
     gap: 0.64rem;
     bottom: calc(0.75rem + env(safe-area-inset-bottom));
+    width: auto;
     max-height: min(35rem, calc(100dvh - 2rem));
   }
 
@@ -5780,13 +5791,35 @@ thead {
 
   .holding-entry-sheet .work-surface-header {
     position: sticky;
-    top: -0.95rem;
+    top: calc(var(--holding-entry-sheet-padding-block) * -1);
     z-index: 2;
-    margin: -0.95rem -0.95rem 0;
-    padding: 0.9rem 0.95rem 0.62rem;
+    margin:
+      calc(var(--holding-entry-sheet-padding-block) * -1)
+      calc(var(--holding-entry-sheet-padding-inline) * -1)
+      0;
+    padding: 0.9rem var(--holding-entry-sheet-padding-inline) 0.62rem;
     border-bottom: 1px solid rgba(219, 227, 239, 0.84);
     background: rgba(255, 255, 255, 0.96);
     backdrop-filter: blur(10px);
+  }
+
+  .holding-entry-sheet .holdings-form-container,
+  .holding-entry-sheet .holdings-form-grid,
+  .holding-entry-sheet .holdings-form-grid label {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .holding-entry-sheet .holdings-form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .holding-entry-sheet .holdings-form-grid :is(input, select, textarea),
+  .holding-entry-sheet .holdings-form-actions,
+  .holding-entry-sheet .holdings-form-actions button {
+    box-sizing: border-box;
+    min-width: 0;
+    max-width: 100%;
   }
 
   .transaction-list-card,

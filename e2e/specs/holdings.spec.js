@@ -318,3 +318,62 @@ test("holdings stock fields keep grouped decimals", async ({ page }) => {
   await expect(quantityInput).toHaveValue("12,345.6789");
   await expect(unitCostInput).toHaveValue("9,876,543.21");
 });
+
+test("mobile holding entry sheet stays within the viewport", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("holding-sheet-overflow-with-long-email")}@example.com`;
+  const displayName = unique("holding-sheet-overflow-name");
+  await registerAndVerify(page, { email, displayName });
+
+  for (const viewport of [
+    { width: 390, height: 844 },
+    { width: 360, height: 780 },
+    { width: 320, height: 568 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await openTab(page, "자산");
+    await page.waitForLoadState("networkidle");
+    await page.getByTestId("holdings-fab").click();
+
+    const holdingSheet = page.getByTestId("holding-entry-sheet");
+    await expect(holdingSheet).toBeVisible();
+    await expect(labeledField(holdingSheet, "자산명", "textarea")).toBeVisible();
+
+    const metrics = await holdingSheet.evaluate((sheet) => {
+      const measured = [sheet, sheet.querySelector(".holdings-form-container"), sheet.querySelector(".holdings-form-grid")]
+        .filter(Boolean)
+        .map((element) => {
+          const rect = element.getBoundingClientRect();
+          return {
+            className: element.className,
+            clientWidth: element.clientWidth,
+            scrollWidth: element.scrollWidth,
+            left: rect.left,
+            right: rect.right,
+            width: rect.width,
+          };
+        });
+      return {
+        viewportWidth: window.innerWidth,
+        documentScrollWidth: document.documentElement.scrollWidth,
+        bodyScrollWidth: document.body.scrollWidth,
+        measured,
+      };
+    });
+
+    expect(metrics.documentScrollWidth, `document overflow at ${viewport.width}px`).toBeLessThanOrEqual(viewport.width + 1);
+    expect(metrics.bodyScrollWidth, `body overflow at ${viewport.width}px`).toBeLessThanOrEqual(viewport.width + 1);
+    for (const entry of metrics.measured) {
+      expect(entry.left, `${entry.className} left at ${viewport.width}px`).toBeGreaterThanOrEqual(-1);
+      expect(entry.right, `${entry.className} right at ${viewport.width}px`).toBeLessThanOrEqual(viewport.width + 1);
+      expect(entry.scrollWidth, `${entry.className} horizontal overflow at ${viewport.width}px`).toBeLessThanOrEqual(
+        entry.clientWidth + 1,
+      );
+    }
+
+    await capture(page, `holding-entry-sheet-${viewport.width}`);
+    await page.getByTestId("holding-entry-sheet-close").click();
+    await expect(holdingSheet).toBeHidden();
+  }
+});
