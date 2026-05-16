@@ -3952,6 +3952,7 @@ thead {
 .mobile-date-text,
 .transaction-mobile-category-cue,
 .transaction-owner-chip,
+.transaction-owner-empty,
 .transaction-flow-short,
 .holding-mobile-meta,
 .holding-mobile-detail-label,
@@ -5331,6 +5332,7 @@ thead {
 .mobile-date-text,
 .transaction-mobile-category-cue,
 .transaction-owner-chip,
+.transaction-owner-empty,
 .transaction-flow-short,
 .holding-mobile-meta,
 .holding-owner-chip {
@@ -6368,6 +6370,10 @@ thead {
   }
 
   .transactions-surface-table .transaction-owner-chip {
+    display: inline-flex;
+  }
+
+  .transactions-surface-table .transaction-owner-empty {
     display: inline-flex;
   }
 

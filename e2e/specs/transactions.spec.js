@@ -1368,6 +1368,8 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
 
   const ownerlessRow = await createBasicTransaction(page, { memo: ownerlessMemo, amount: "11111", ownerless: true });
   await expect(ownerlessRow).toBeVisible();
+  await expect(ownerlessRow.locator(".transaction-col-type .transaction-owner-empty")).toBeHidden();
+  await expect(ownerlessRow.locator(".transaction-col-owner .transaction-owner-cue")).toHaveText("-");
   const extraMemos = [];
   const extraFlowTypes = ["expense", "income", "investment"];
   for (let index = 0; index < 9; index += 1) {
