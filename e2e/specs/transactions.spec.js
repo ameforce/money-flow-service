@@ -1044,6 +1044,69 @@ test("transaction date controls use unambiguous ISO text fields", async ({ page 
   await capture(page, "transactions-date-iso-mobile-edit");
 });
 
+test("mobile transaction filter panel stays visible after list scroll", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("tx-mobile-filter")}@example.com`;
+  const displayName = unique("tx-mobile-filter-name");
+  const memoPrefix = unique("tx-mobile-filter-memo");
+
+  await registerAndVerify(page, { email, displayName });
+  for (let index = 0; index < 18; index += 1) {
+    await createTransactionViaApi(page, {
+      memo: `${memoPrefix}-${String(index).padStart(2, "0")}`,
+      amount: String(10000 + index * 1000),
+      ownerName: displayName,
+    });
+  }
+
+  await page.reload();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openTab(page, "거래");
+  await page.waitForLoadState("networkidle");
+
+  const scrolledRow = page.locator("tr.transaction-row", { hasText: `${memoPrefix}-14` }).first();
+  await expect(scrolledRow).toBeVisible();
+  await scrolledRow.scrollIntoViewIfNeeded();
+  await page.waitForTimeout(250);
+
+  const mobileLedgerHead = page.locator(".transactions-mobile-ledger-head").first();
+  const memoFilterTrigger = mobileLedgerHead.getByRole("button", { name: "메모 필터 열기" });
+  await expect(mobileLedgerHead).toBeVisible();
+  await expect(memoFilterTrigger).toBeVisible();
+  await memoFilterTrigger.click();
+
+  const mobileFilterPanel = page.getByTestId("tx-ledger-filter-panel");
+  const memoSearchInput = mobileFilterPanel.getByPlaceholder("메모 검색");
+  await expect(mobileFilterPanel).toContainText("메모 필터");
+  await expect(memoSearchInput).toBeVisible();
+
+  const metrics = await memoSearchInput.evaluate((input) => {
+    const panel = input.closest(".tx-ledger-filter-panel");
+    const ledgerHead = document.querySelector(".transactions-mobile-ledger-head");
+    const inputBox = input.getBoundingClientRect();
+    const panelBox = panel?.getBoundingClientRect();
+    const ledgerBox = ledgerHead?.getBoundingClientRect();
+    return {
+      inputTop: inputBox.top,
+      inputBottom: inputBox.bottom,
+      panelTop: panelBox?.top ?? Number.NEGATIVE_INFINITY,
+      panelRight: panelBox?.right ?? Number.POSITIVE_INFINITY,
+      ledgerBottom: ledgerBox?.bottom ?? 0,
+      viewportHeight: window.innerHeight,
+      viewportWidth: window.innerWidth,
+    };
+  });
+  expect(metrics.panelTop).toBeGreaterThanOrEqual(metrics.ledgerBottom - 2);
+  expect(metrics.inputTop).toBeGreaterThanOrEqual(0);
+  expect(metrics.inputBottom).toBeLessThanOrEqual(metrics.viewportHeight);
+  expect(metrics.panelRight).toBeLessThanOrEqual(metrics.viewportWidth + 1);
+  await memoSearchInput.fill(`${memoPrefix}-14`);
+  await expect(scrolledRow).toBeVisible();
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "transactions-mobile-filter-panel-sticky");
+});
+
 test("transactions form keeps grouped number format", async ({ page }) => {
   test.setTimeout(120_000);
 
