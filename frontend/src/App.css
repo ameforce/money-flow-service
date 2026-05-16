@@ -3910,11 +3910,11 @@ thead {
 }
 
 .holding-col-gain {
-  width: var(--holding-col-gain, 65px);
+  width: var(--holding-col-gain, 96px);
 }
 
 .holding-col-updated {
-  width: var(--holding-col-updated, 100px);
+  width: var(--holding-col-updated, 108px);
 }
 
 .holding-col-actions {

@@ -35,8 +35,8 @@ export function HoldingSurfaceTable({
             "--holding-col-quantity": `${holdingColumnWidths.quantity || 58}px`,
             "--holding-col-average": `${holdingColumnWidths.average_cost || 78}px`,
             "--holding-col-market": `${holdingColumnWidths.market_value_krw || 92}px`,
-            "--holding-col-gain": `${holdingColumnWidths.gain_loss_krw || 65}px`,
-            "--holding-col-updated": `${holdingColumnWidths.updated_at || 100}px`,
+            "--holding-col-gain": `${holdingColumnWidths.gain_loss_krw || 96}px`,
+            "--holding-col-updated": `${holdingColumnWidths.updated_at || 108}px`,
             "--holding-col-actions": `${holdingColumnWidths.actions || 124}px`,
           }}
         >
