@@ -1315,6 +1315,9 @@ function formatApiError(error, context) {
   const code = String(error?.code || "").toUpperCase();
   const detail = String(error?.detail || error?.message || error || "").toLowerCase();
   const networkIssue = status >= 500 || detail === "500" || detail.includes("failed to fetch") || detail.includes("network");
+  const apiMessage = String(error?.message || "").trim();
+  const apiAction = String(error?.action || "").trim();
+  const structuredApiMessage = code && apiMessage && !networkIssue ? uiGuideMessage(apiMessage, apiAction) : "";
 
   if (context === "auth_login" && (code === "AUTH_INVALID_CREDENTIALS" || code === "AUTH_USER_NOT_FOUND" || status === 401)) {
     return uiGuideMessage("로그인에 실패했습니다.", "이메일과 비밀번호를 확인한 뒤 다시 시도해 주세요.");
@@ -1453,6 +1456,9 @@ function formatApiError(error, context) {
   }
   if (networkIssue) {
     return uiGuideMessage("서버 연결이 불안정합니다.", "잠시 후 다시 시도해 주세요.");
+  }
+  if (structuredApiMessage) {
+    return structuredApiMessage;
   }
   return uiGuideMessage("요청 처리 중 오류가 발생했습니다.", "입력값을 확인한 뒤 다시 시도해 주세요.");
 }
