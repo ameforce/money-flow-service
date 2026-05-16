@@ -30,15 +30,30 @@ async function expectMobileHoldingDetailLabels(row) {
       return {
         labelText: cell.querySelector(".holding-mobile-detail-label")?.textContent?.trim() || "",
         valueText: cell.querySelector(".holding-mobile-detail-value")?.textContent?.trim() || "",
+        clientWidth: cell.clientWidth,
+        scrollWidth: cell.scrollWidth,
         labelWidth: label?.width ?? 0,
         valueWidth: value?.width ?? 0,
-        overlaps: Boolean(label && value && label.right > value.left),
+        overlaps: Boolean(
+          label &&
+            value &&
+            label.right > value.left &&
+            label.bottom > value.top &&
+            value.bottom > label.top
+        ),
       };
     })
   );
   expect(expandedDetailRows.length).toBeGreaterThanOrEqual(5);
   expect(
-    expandedDetailRows.every((item) => item.labelText && item.valueText && item.labelWidth > 0 && item.valueWidth > 0 && !item.overlaps),
+    expandedDetailRows.every((item) =>
+      item.labelText &&
+      item.valueText &&
+      item.labelWidth > 0 &&
+      item.valueWidth > 0 &&
+      !item.overlaps &&
+      item.scrollWidth <= item.clientWidth + 1
+    ),
     `holding mobile detail labels should be visible and separated: ${JSON.stringify(expandedDetailRows)}`
   ).toBe(true);
 }
@@ -310,7 +325,13 @@ test("mobile holding expanded details show labeled values", async ({ page }) => 
 
   await registerAndVerify(page, { email, displayName });
   await page.setViewportSize({ width: 390, height: 844 });
-  const row = await createBasicHolding(page, { name: holdingName, category: holdingCategory });
+  const row = await createBasicHolding(page, {
+    name: holdingName,
+    category: holdingCategory,
+    type: "stock",
+    quantity: "10",
+    averageCost: "72000",
+  });
   await expect(row).toBeVisible();
   await row.locator(".mobile-toggle-btn").first().click();
   await expect(row).toHaveClass(/mobile-row-expanded/);
