@@ -233,7 +233,7 @@ test("collaboration flow: invite, accept, switch household, responsive", async (
     }
 
     await guestPage.setViewportSize({ width: 390, height: 844 });
-    await guestPage.waitForLoadState("networkidle");
+    await expect(guestPage.locator("nav.tabs")).toBeVisible();
     await assertResponsiveShell(guestPage, 12);
     await expectNoHorizontalOverflow(guestPage, 12);
     await expect(guestPage.locator("article.table-card").first()).toBeVisible();
