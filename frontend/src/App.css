@@ -3318,6 +3318,10 @@ thead {
   grid-template-rows: auto auto minmax(7.75rem, 1fr) auto;
 }
 
+.mobile-import-package-export {
+  display: none;
+}
+
 .import-report-heading h3 {
   margin: 0;
   font-size: 1rem;
@@ -4895,12 +4899,17 @@ thead {
     width: 100%;
   }
 
-  .import-package-panel {
-    order: 1;
+  .mobile-import-package-export {
+    display: grid;
+    width: 100%;
   }
 
-  .import-excel-panel {
-    order: 2;
+  .mobile-import-package-export button {
+    width: 100%;
+  }
+
+  .import-package-export-row {
+    display: none;
   }
 
   .import-action-row button {
