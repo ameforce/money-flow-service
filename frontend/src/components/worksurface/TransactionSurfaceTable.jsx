@@ -556,6 +556,7 @@ export function TransactionSurfaceTable({
                   <td colSpan={columnSpan} className="transaction-inline-editor-cell">
                     <div className="transaction-inline-editor-grid">
                       <label className="tx-inline-date-field">
+                        <span className="tx-inline-field-label">일자</span>
                         <IsoDateInput
                           aria-label="일자"
                           value={editForm.occurred_on}
@@ -565,6 +566,7 @@ export function TransactionSurfaceTable({
                         />
                       </label>
                       <label className="tx-inline-type-field">
+                        <span className="tx-inline-field-label">유형</span>
                         <select
                           aria-label="유형"
                           value={editForm.flow_type}
@@ -587,6 +589,7 @@ export function TransactionSurfaceTable({
                       </label>
                       <div className="tx-inline-category-section" aria-label="카테고리 선택">
                         <label className="tx-inline-major-field">
+                          <span className="tx-inline-field-label">카테고리 그룹</span>
                           <select
                             aria-label="카테고리 그룹"
                             value={txInlineCategoryMajor}
@@ -608,6 +611,7 @@ export function TransactionSurfaceTable({
                           </select>
                         </label>
                         <label className="tx-inline-minor-field">
+                          <span className="tx-inline-field-label">카테고리</span>
                           <select
                             aria-label="카테고리"
                             value={editForm.category_id}
@@ -624,6 +628,7 @@ export function TransactionSurfaceTable({
                         </label>
                       </div>
                       <label className="tx-inline-memo-field">
+                        <span className="tx-inline-field-label">메모</span>
                         <input
                           aria-label="메모"
                           placeholder="메모"
@@ -633,6 +638,7 @@ export function TransactionSurfaceTable({
                         />
                       </label>
                       <label className="tx-inline-amount-field">
+                        <span className="tx-inline-field-label">금액</span>
                         <input
                           aria-label="금액"
                           placeholder="금액"
@@ -645,6 +651,7 @@ export function TransactionSurfaceTable({
                         />
                       </label>
                       <label className="tx-inline-owner-field">
+                        <span className="tx-inline-field-label">거래자명</span>
                         <select
                           aria-label="거래자"
                           value={ownerSelectValue(editForm.owner_user_id, editForm.owner_name)}
