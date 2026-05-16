@@ -78,7 +78,7 @@ export function HoldingSurfaceTable({
                         <span className="inline holding-section-actions">
                           <button
                             type="button"
-                            className="secondary"
+                            className="secondary holding-section-order-btn"
                             aria-label={`${categoryName} 그룹 위로 이동`}
                             onClick={() => moveHoldingCategoryOrder(categoryName, -1).catch(() => undefined)}
                           >
@@ -86,7 +86,7 @@ export function HoldingSurfaceTable({
                           </button>
                           <button
                             type="button"
-                            className="secondary"
+                            className="secondary holding-section-order-btn"
                             aria-label={`${categoryName} 그룹 아래로 이동`}
                             onClick={() => moveHoldingCategoryOrder(categoryName, 1).catch(() => undefined)}
                           >

@@ -187,6 +187,25 @@ test("holdings flow: create, inline edit, delete, responsive", async ({ page }) 
     marketValue: "123456",
   });
 
+  await page.setViewportSize({ width: 768, height: 1024 });
+  await openTab(page, "자산");
+  await page.waitForLoadState("networkidle");
+  const groupOrderButtonMetrics = await page.locator(".holding-section-actions .holding-section-order-btn").evaluateAll((buttons) =>
+    buttons.map((button) => {
+      const box = button.getBoundingClientRect();
+      return {
+        label: button.getAttribute("aria-label"),
+        width: box.width,
+        height: box.height,
+      };
+    }),
+  );
+  expect(groupOrderButtonMetrics.length, "holding group order buttons should be present").toBeGreaterThanOrEqual(4);
+  expect(
+    groupOrderButtonMetrics.every((button) => button.width >= 40 && button.height >= 40),
+    `holding group order buttons should keep tablet hit targets: ${JSON.stringify(groupOrderButtonMetrics)}`,
+  ).toBe(true);
+
   await page.setViewportSize({ width: 390, height: 844 });
   await openTab(page, "자산");
   await page.waitForLoadState("networkidle");
@@ -324,7 +343,7 @@ test("holdings flow: create, inline edit, delete, responsive", async ({ page }) 
   await expectSingleLineText(mobileEditedRow.locator(".holding-col-name").first());
   await expectBackgroundNotPlainWhite(mobileEditedRow);
   await expectTransparentBackground(mobileEditedRow.locator(".holding-col-name").first());
-  await expectCompactHeader(page.locator(".section-header-cell").first(), 30);
+  await expectCompactHeader(page.locator(".section-header-cell").first(), 54);
   await capture(page, "holdings-mobile-summary");
   await holdingListCard.evaluate((element) => element.scrollIntoView({ block: "start", inline: "nearest" }));
   await page.waitForTimeout(250);
