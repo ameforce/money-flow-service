@@ -6038,7 +6038,10 @@ thead {
     border-radius: 0 0 12px 12px;
     background: #ffffff;
     box-shadow: 0 16px 26px -28px rgba(15, 23, 42, 0.42);
-    z-index: 56;
+    position: sticky;
+    top: calc(var(--surface-ledger-sticky-top, 2.8rem) + 2.18rem);
+    align-self: start;
+    z-index: 55;
   }
 
   .tx-ledger-filter-title {
