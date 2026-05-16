@@ -144,6 +144,7 @@ test("holdings flow: create, inline edit, delete, responsive", async ({ page }) 
   expect(summaryBox, "holding summary card should have a bounding box").not.toBeNull();
   expect(listBox, "holding list card should have a bounding box").not.toBeNull();
   const mobileTopbarBox = await page.locator("header.topbar").boundingBox();
+  const mobileTabsBox = await page.locator(".topbar-tabs").first().boundingBox();
   const holdingHeadingBox = await page.locator(".holding-list-card > .surface-list-heading").first().boundingBox();
   await expect(page.locator(".holding-list-card > .surface-control-strip").first()).toBeHidden();
   const holdingJumpBox = await holdingsJumpCue.boundingBox();
@@ -155,22 +156,23 @@ test("holdings flow: create, inline edit, delete, responsive", async ({ page }) 
     (await inFlowMessage.count()) > 0 && (await inFlowMessage.isVisible().catch(() => false));
   const inFlowMessageBox = inFlowMessageVisible ? await inFlowMessage.boundingBox() : null;
   expect(mobileTopbarBox, "mobile topbar should have a bounding box").not.toBeNull();
+  expect(mobileTabsBox, "mobile tab rail should have a bounding box").not.toBeNull();
   expect(holdingHeadingBox, "holding heading should have a bounding box").not.toBeNull();
   expect(holdingJumpBox, "holding summary jump should have a bounding box").not.toBeNull();
   expect(holdingSubTabsBox, "holding sub tabs should have a bounding box").not.toBeNull();
   expect(holdingLedgerBoxInitial, "holding ledger head should have a bounding box").not.toBeNull();
   expect(holdingTableBoxInitial, "holding table should have a bounding box").not.toBeNull();
   expect(mobileTopbarBox?.height ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(88);
+  const mobileChromeBottom = Math.max(
+    (mobileTopbarBox?.y ?? 0) + (mobileTopbarBox?.height ?? 0),
+    (mobileTabsBox?.y ?? 0) + (mobileTabsBox?.height ?? 0),
+  );
   if (inFlowMessageBox) {
     await expect(inFlowMessage).toHaveCSS("position", "fixed");
-    expect(holdingHeadingBox?.y ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
-      Math.max(0, (mobileTopbarBox?.y ?? 0) + (mobileTopbarBox?.height ?? 0)) + 96,
-    );
+    expect(holdingHeadingBox?.y ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(mobileChromeBottom + 28);
     expect(inFlowMessageBox.y).toBeGreaterThan((mobileTopbarBox?.y ?? 0) + (mobileTopbarBox?.height ?? 0));
   } else {
-    expect(holdingHeadingBox?.y ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
-      Math.max(0, (mobileTopbarBox?.y ?? 0) + (mobileTopbarBox?.height ?? 0)) + 96,
-    );
+    expect(holdingHeadingBox?.y ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(mobileChromeBottom + 28);
   }
   expect(holdingHeadingBox?.y ?? Number.POSITIVE_INFINITY).toBeLessThan(holdingJumpBox?.y ?? 0);
   expect(holdingJumpBox?.y ?? Number.POSITIVE_INFINITY).toBeLessThan(holdingSubTabsBox?.y ?? 0);
