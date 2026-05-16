@@ -127,7 +127,7 @@ const TRANSACTION_HISTORY_AUTO_FILL_THRESHOLD = 12;
 const TRANSACTION_HISTORY_SENTINEL_ROOT_MARGIN = "360px 0px";
 const IMPORT_MISMATCH_PREVIEW_LIMIT = 20;
 const IMPORT_ISSUE_PREVIEW_LIMIT = 20;
-const MOBILE_BREAKPOINT_PX = 760;
+const MOBILE_BREAKPOINT_PX = 820;
 const SOCKET_STATUS_LABELS = {
   connected: "연결됨",
   disconnected: "연결 끊김",
@@ -924,21 +924,25 @@ function createVerifyForm() {
 function createVerificationMeta() {
   return {
     expiresInSeconds: null,
+    expiresAtMs: 0,
     resendLimit: null,
     resendWindowSeconds: null,
     resendCooldownSeconds: null,
     lastResendAt: 0,
+    resendUsedCount: 0,
   };
 }
 
-function verificationMetaFromPayload(payload, previous = createVerificationMeta()) {
+function verificationMetaFromPayload(payload, previous = createVerificationMeta(), receivedAt = Date.now()) {
   const seconds = Number(payload?.verification_expires_in_seconds);
   const resendLimit = Number(payload?.verification_resend_limit);
   const resendWindowSeconds = Number(payload?.verification_resend_window_seconds);
   const resendCooldownSeconds = Number(payload?.verification_resend_cooldown_seconds);
+  const expiresInSeconds = Number.isFinite(seconds) && seconds > 0 ? Math.round(seconds) : previous.expiresInSeconds;
   return {
     ...previous,
-    expiresInSeconds: Number.isFinite(seconds) && seconds > 0 ? Math.round(seconds) : previous.expiresInSeconds,
+    expiresInSeconds,
+    expiresAtMs: expiresInSeconds ? receivedAt + expiresInSeconds * 1000 : previous.expiresAtMs,
     resendLimit: Number.isFinite(resendLimit) && resendLimit > 0 ? Math.round(resendLimit) : previous.resendLimit,
     resendWindowSeconds:
       Number.isFinite(resendWindowSeconds) && resendWindowSeconds > 0
@@ -1805,7 +1809,7 @@ function App() {
     if (!normalizedMessage) {
       return undefined;
     }
-    const requiresUserAttention = /실패|오류|확인|입력|선택|권한|필요|수 없습니다|토큰|링크|메일|비밀번호|먼저/u.test(
+    const requiresUserAttention = /실패|오류|입력|선택|권한|필요|수 없습니다|토큰|비밀번호|먼저|초과|올바르지|유효하지|만료|일치|찾지 못|삭제할|비어/u.test(
       normalizedMessage
     );
     if (requiresUserAttention) {
@@ -2557,7 +2561,7 @@ function App() {
       return;
     }
     if (!transactionHistoryInitialized && !transactionHistoryLoadingRef.current.initial) {
-      refreshTransactionHistoryAtAnchor(transactionHistoryToday || todayIso(), { alignToEnd: true }).catch(() => undefined);
+      refreshTransactionHistoryAtAnchor(transactionHistoryToday || todayIso(), { alignToEnd: false }).catch(() => undefined);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [household?.id, tab, token, transactionHistoryInitialized]);
@@ -3337,6 +3341,11 @@ function App() {
   useEffect(() => {
     setSavedTabId(tab);
     setMessage((prev) => (prev ? "" : prev));
+    if (typeof window !== "undefined") {
+      window.requestAnimationFrame(() => {
+        window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+      });
+    }
   }, [tab]);
 
   useEffect(() => {
@@ -3537,12 +3546,12 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (authMode !== "verify" || !verificationMeta.resendCooldownSeconds) {
+    if (authMode !== "verify" || (!verificationMeta.expiresAtMs && !verificationMeta.resendCooldownSeconds)) {
       return undefined;
     }
     const timer = window.setInterval(() => setNowTick(Date.now()), 1000);
     return () => window.clearInterval(timer);
-  }, [authMode, verificationMeta.resendCooldownSeconds]);
+  }, [authMode, verificationMeta.expiresAtMs, verificationMeta.resendCooldownSeconds]);
 
   async function loadAuthContext(nextToken = token) {
     const [me, householdResp, householdListResp] = await Promise.all([
@@ -4187,7 +4196,7 @@ function App() {
     if (inviteAcceptToken) {
       setTab("collaboration");
     }
-    if (showSuccessMessage) {
+    if (showSuccessMessage && inviteAcceptToken) {
       setMessage(
         successMessage ||
           uiGuideMessage(
@@ -4339,7 +4348,13 @@ function App() {
         });
         if (registerResp?.status === "verification_required") {
           const debugToken = String(registerResp?.debug_verification_token || "").trim();
-          setVerificationMeta(verificationMetaFromPayload(registerResp));
+          const sentAt = Date.now();
+          setVerificationMeta({
+            ...verificationMetaFromPayload(registerResp, createVerificationMeta(), sentAt),
+            lastResendAt: sentAt,
+            resendUsedCount: 0,
+          });
+          setNowTick(sentAt);
           setAuthMode("verify");
           setVerifyForm({
             email: String(registerResp?.email || authForm.email || ""),
@@ -4350,10 +4365,7 @@ function App() {
             requires_password_setup: false,
             password_setup_reason: "",
           });
-          setMessage(
-            registerResp?.message ||
-              (DEBUG_TOKEN_OPT_IN ? "테스트 모드 인증 토큰이 주입되었습니다." : "이메일 인증이 필요합니다.")
-          );
+          setMessage("");
           return;
         }
       }
@@ -4409,11 +4421,19 @@ function App() {
         requires_password_setup: false,
         password_setup_reason: "",
       }));
-      setVerificationMeta((prev) => ({
-        ...verificationMetaFromPayload(payload, prev),
-        lastResendAt: Date.now(),
-      }));
-      setMessage(payload?.message || "인증 메일 재전송 요청이 접수되었습니다.");
+      const sentAt = Date.now();
+      setVerificationMeta((prev) => {
+        const next = verificationMetaFromPayload(payload, prev, sentAt);
+        const resendLimit = Number(next.resendLimit || 0);
+        const usedCount = Math.max(0, Number(prev.resendUsedCount || 0) + 1);
+        return {
+          ...next,
+          lastResendAt: sentAt,
+          resendUsedCount: resendLimit > 0 ? Math.min(resendLimit, usedCount) : usedCount,
+        };
+      });
+      setNowTick(sentAt);
+      setMessage("");
     } catch (error) {
       setMessage(formatAuthError(error, "resend"));
     } finally {
@@ -5277,13 +5297,6 @@ function App() {
     try {
       const refreshResp = await api(`${API_PREFIX}/prices/refresh`, { method: "POST" }, token);
       setPriceRefreshPolling(Boolean(refreshResp?.in_progress));
-      if (!silent) {
-        if (refreshResp?.queued) {
-          setMessage("이미 시세 갱신이 진행 중입니다. 완료 시점에 자동 반영됩니다.");
-        } else {
-          setMessage("시세 갱신을 백그라운드로 시작했습니다. 완료 시점에 자동 반영됩니다.");
-        }
-      }
       return refreshResp;
     } catch (error) {
       const code = String(error?.code || "").toUpperCase();
@@ -5647,7 +5660,12 @@ function App() {
               aria-label={`${item.name} 자산 선택`}
             />
           </td>
-          <td data-label="이름" className="holding-col-name holding-name-cell" data-field-key="name" data-mobile-priority={holdingMobilePriority("name")}>{item.name}</td>
+          <td data-label="이름" className="holding-col-name holding-name-cell" data-field-key="name" data-mobile-priority={holdingMobilePriority("name")}>
+            <span className="holding-name-text">
+              <span className="holding-name-dot" aria-hidden="true" />
+              <span className="holding-name-label">{item.name}</span>
+            </span>
+          </td>
           <td data-label="유형" className="holding-col-type" data-field-key="type_category_summary" data-mobile-priority={holdingMobilePriority("type_category_summary")}>
             <span className="holding-type-label">{typeLabel}</span>
             <span className="holding-type-category-hint">{item.category || "-"}</span>
@@ -6012,9 +6030,6 @@ function App() {
         if (!statusResp?.refresh_in_progress) {
           setPriceRefreshPolling(false);
           await refreshDataByKinds(new Set(["holding"]), token, { silent: true });
-          if (priceRefreshOriginRef.current === "manual") {
-            setMessage("시세 갱신 완료");
-          }
           priceRefreshOriginRef.current = "manual";
         }
       } catch {
@@ -7262,7 +7277,7 @@ function App() {
     return (
       <main className="auth-shell" translate="no">
         <div className="auth-card">
-          <h1>money-flow</h1>
+          <h1>Money Flow</h1>
           <p>세션을 확인하는 중입니다. 잠시만 기다려 주세요.</p>
         </div>
         <div className="app-copyright" aria-hidden="true">
@@ -7280,30 +7295,41 @@ function App() {
         ? Math.max(0, verificationMeta.lastResendAt + resendCooldownMs - nowTick)
         : 0;
     const resendRemainingSeconds = Math.ceil(resendRemainingMs / 1000);
-    const resendDisabled = loading || resendRemainingSeconds > 0;
+    const expiresAtMs = Math.max(0, Number(verificationMeta.expiresAtMs || 0));
+    const expiresRemainingSeconds =
+      authMode === "verify" && expiresAtMs
+        ? Math.max(0, Math.ceil((expiresAtMs - nowTick) / 1000))
+        : Math.max(0, Number(verificationMeta.expiresInSeconds || 0));
+    const resendLimit = Math.max(0, Number(verificationMeta.resendLimit || 0));
+    const resendUsedCount = Math.max(0, Number(verificationMeta.resendUsedCount || 0));
+    const resendRemainingCount = resendLimit > 0 ? Math.max(0, resendLimit - resendUsedCount) : null;
+    const resendDisabled = loading || resendRemainingSeconds > 0 || resendRemainingCount === 0;
+    const resendWaitText = resendRemainingSeconds > 0 ? `${formatDurationKo(resendRemainingSeconds)} 후 가능` : "지금 가능";
     const requiresVerificationPasswordSetup = authMode === "verify" && Boolean(verifyForm.requires_password_setup);
     const authDescription =
       authMode === "verify"
         ? hasPendingInviteToken
-          ? "회원가입을 완료하면 협업 탭에서 가계부 초대를 수락할 수 있습니다."
-          : "회원가입을 완료하려면 이메일 인증을 진행해 주세요."
+          ? "인증 후 협업 탭에서 초대를 수락할 수 있습니다."
+          : "메일 인증으로 가입을 마무리합니다."
         : hasPendingInviteToken
-          ? "가계부 초대 링크를 확인했습니다. 로그인 후 협업 탭에서 초대를 수락해 주세요."
-          : "가구 전체를 쉽게 시작하는 가계부·투자 관리 서비스";
+          ? "로그인 후 초대를 수락할 수 있습니다."
+          : authMode === "register"
+            ? "가입 정보를 입력하고 이메일을 확인합니다."
+            : "이메일과 비밀번호로 로그인합니다.";
     const authModeTitle =
       authMode === "login"
-        ? "다시 오신 걸 환영합니다"
+        ? "로그인"
         : authMode === "register"
-          ? "우리집 가계 워크스페이스 만들기"
+          ? "회원가입"
           : requiresVerificationPasswordSetup
-            ? "새 비밀번호로 인증 마무리"
-            : "메일 인증으로 계정 보호";
+            ? "비밀번호 설정"
+            : "메일 인증";
     const authModeKicker =
       authMode === "login"
-        ? "보안 로그인"
+        ? "로그인"
         : authMode === "register"
-          ? "가계 시작"
-          : "이메일 인증";
+          ? "회원가입"
+          : "인증";
     return (
       <main className="auth-shell" translate="no">
         <div className="auth-layout">
@@ -7311,25 +7337,19 @@ function App() {
             <div className="auth-brand-lockup">
               <span className="auth-brand-mark">M</span>
               <span>
-                <strong>money-flow</strong>
+                <strong>Money Flow</strong>
                 <small>가계 금융 워크스페이스</small>
               </span>
             </div>
             <div className="auth-hero-copy">
-              <span className="auth-hero-kicker">Household finance</span>
-              <h2>가계 흐름과 자산 상태를 한 화면에서 안전하게 시작하세요.</h2>
-              <p>로그인, 이메일 인증, 초대 수락까지 같은 보안 흐름 안에서 이어집니다.</p>
-            </div>
-            <div className="auth-proof-grid">
-              <span>이메일 인증</span>
-              <span>초대 토큰 보호</span>
-              <span>가계 협업 준비</span>
+              <h2>가계 흐름을 빠르게 시작합니다.</h2>
+              <p>계정 보호와 협업 준비를 간결한 흐름으로 이어갑니다.</p>
             </div>
           </section>
           <form className={`auth-card auth-card-${authMode}`} onSubmit={runAuth}>
             <div className="auth-card-header">
               <span className="auth-mode-pill">{authModeKicker}</span>
-              <h1>money-flow</h1>
+              <h1>Money Flow</h1>
               <h2>{authModeTitle}</h2>
               <p>{authDescription}</p>
             </div>
@@ -7352,18 +7372,35 @@ function App() {
                   </>
                 ) : (
                   <span>
-                    메일의 버튼을 누르면 회원가입이 자동으로 완료됩니다. 직접 입력하려면 아래 6자리 인증번호를 사용해 주세요.
+                    메일의 버튼을 열거나 아래 6자리 인증번호를 입력해 주세요.
                   </span>
                 )}
-                {verificationMeta.expiresInSeconds ? (
-                  <span>인증 메일 유효기간: {formatDurationKo(verificationMeta.expiresInSeconds)}</span>
+                {expiresRemainingSeconds || verificationMeta.resendLimit ? (
+                  <div className="auth-verification-meta" aria-label="인증 상태">
+                    {expiresRemainingSeconds ? (
+                      <span>
+                        <b>남은 유효시간</b>
+                        <strong>{formatDurationKo(expiresRemainingSeconds)}</strong>
+                      </span>
+                    ) : null}
+                    {verificationMeta.resendLimit ? (
+                      <>
+                        <span>
+                          <b>재전송 대기</b>
+                          <strong>{resendWaitText}</strong>
+                        </span>
+                        <span>
+                          <b>남은 재전송</b>
+                          <strong>{resendRemainingCount}회</strong>
+                        </span>
+                      </>
+                    ) : null}
+                  </div>
                 ) : null}
                 {verificationMeta.resendLimit ? (
-                  <span>
-                    재전송은 {formatDurationKo(verificationMeta.resendWindowSeconds || 300)} 동안 최대 {verificationMeta.resendLimit}회까지 가능합니다.
-                    {verificationMeta.resendCooldownSeconds
-                      ? ` 다시 보내기는 ${formatDurationKo(verificationMeta.resendCooldownSeconds)} 간격으로 제한됩니다.`
-                      : ""}
+                  <span className="auth-verification-note">
+                    제한: {formatDurationKo(verificationMeta.resendWindowSeconds || 300)} 동안 최대 {verificationMeta.resendLimit}회
+                    {verificationMeta.resendCooldownSeconds ? `, ${formatDurationKo(verificationMeta.resendCooldownSeconds)} 간격` : ""}
                   </span>
                 ) : null}
               </div>
@@ -7490,7 +7527,11 @@ function App() {
           </button>
           {authMode === "verify" && !requiresVerificationPasswordSetup && (
             <button type="button" className="secondary" onClick={() => resendVerification().catch(() => undefined)} disabled={resendDisabled}>
-              {resendRemainingSeconds > 0 ? `재전송 대기 ${formatDurationKo(resendRemainingSeconds)}` : "인증 메일 재전송"}
+              {resendRemainingCount === 0
+                ? "재전송 횟수 소진"
+                : resendRemainingSeconds > 0
+                  ? `재전송 ${formatDurationKo(resendRemainingSeconds)} 후 가능`
+                  : "인증 메일 재전송"}
             </button>
           )}
           <div className="auth-switch">
@@ -7548,7 +7589,7 @@ function App() {
       >
         <span className="tab-icon" aria-hidden="true">{meta.icon || "•"}</span>
         <span className="tab-text-break" aria-hidden="true">{"\n"}</span>
-        <span className="tab-copy" data-helper={meta.helper || undefined}>
+        <span className="tab-copy" data-helper={meta.helper || undefined} aria-hidden="true">
           <span className="tab-label" data-mobile-label={meta.mobileLabel || TAB_LABELS[item] || item}>
             {TAB_LABELS[item] || item}
           </span>
@@ -7562,8 +7603,8 @@ function App() {
     <main className="app-shell" translate="no">
       <header className="topbar">
         <div className="topbar-identity">
-          <span className="topbar-eyebrow">Money Flow Control Center</span>
-          <h1>money-flow</h1>
+          <span className="topbar-eyebrow">가계 금융 워크스페이스</span>
+          <h1>Money Flow</h1>
           <div className="meta topbar-meta">
             <span>사용자: {user?.display_name}</span>
             <span>가계: {household?.name}</span>
@@ -7596,8 +7637,8 @@ function App() {
         <div className="nav-brand" aria-hidden="true">
           <span className="nav-brand-mark">M</span>
           <span>
-            <strong>money-flow</strong>
-            <small>finance workspace</small>
+            <strong>Money Flow</strong>
+            <small>가계 금융 워크스페이스</small>
           </span>
         </div>
         <div className="tabs-left">
@@ -7648,7 +7689,7 @@ function App() {
 
           <article className="card summary-card dashboard-hero-card">
             <div className="dashboard-hero-copy">
-              <span className="dashboard-eyebrow">Money command center</span>
+              <span className="dashboard-eyebrow">요약</span>
               <h2>요약</h2>
               <p>
                 {filterMode === "month"
@@ -7692,7 +7733,7 @@ function App() {
 
           <article className="card filter-card dashboard-filter-card">
             <div className="dashboard-filter-heading">
-              <span className="dashboard-eyebrow">기간 필터</span>
+                  <span className="dashboard-eyebrow">기간 필터</span>
               <strong>{filterMode === "month" ? "월별 리포트" : "기간 리포트"}</strong>
             </div>
             <div className="filter-container">
@@ -7782,7 +7823,7 @@ function App() {
             <article className="card chart-card dashboard-flow-card">
               <div className="dashboard-card-heading">
                 <div>
-                  <span className="dashboard-eyebrow">Cashflow radar</span>
+                  <span className="dashboard-eyebrow">현금 흐름</span>
                   <h2>월별 흐름</h2>
                 </div>
                 <span className="dashboard-chip">현금흐름 추이</span>
@@ -7804,7 +7845,7 @@ function App() {
             <article className="card chart-card dashboard-portfolio-card">
               <div className="inline chart-card-header dashboard-card-heading">
                 <div>
-                  <span className="dashboard-eyebrow">Asset mix</span>
+                  <span className="dashboard-eyebrow">자산 구성</span>
                   <h2>포트폴리오 및 거래내역 차트</h2>
                 </div>
                 <label className="compact-inline-select dashboard-portfolio-chart-select">
@@ -7855,7 +7896,7 @@ function App() {
             <article className="card dashboard-side-card dashboard-status-card">
               <div className="dashboard-card-heading">
                 <div>
-                  <span className="dashboard-eyebrow">Operations</span>
+                  <span className="dashboard-eyebrow">상태</span>
                   <h2>가져오기 & 상태</h2>
                 </div>
               </div>
@@ -7880,7 +7921,7 @@ function App() {
             <article className="card dashboard-side-card dashboard-members-card">
               <div className="dashboard-card-heading">
                 <div>
-                  <span className="dashboard-eyebrow">Household</span>
+                  <span className="dashboard-eyebrow">협업</span>
                   <h2>협업 멤버</h2>
                 </div>
                 <span className="dashboard-chip">{fmt(householdMembers.length)}명</span>
@@ -7905,7 +7946,7 @@ function App() {
             <article className="card dashboard-side-card dashboard-recent-card">
               <div className="dashboard-card-heading">
                 <div>
-                  <span className="dashboard-eyebrow">Recent updates</span>
+                  <span className="dashboard-eyebrow">최근</span>
                   <h2>최근 거래</h2>
                 </div>
               </div>
@@ -7933,7 +7974,7 @@ function App() {
             <article className="card dashboard-side-card dashboard-holdings-card">
               <div className="dashboard-card-heading">
                 <div>
-                  <span className="dashboard-eyebrow">Holdings</span>
+                  <span className="dashboard-eyebrow">자산</span>
                   <h2>보유 자산</h2>
                 </div>
               </div>
@@ -8692,6 +8733,8 @@ function App() {
                     ["average_cost", "평균단가"],
                     ["market_value_krw", "평가(KRW)"],
                     ["gain_loss_krw", "손익(KRW)"],
+                    ["updated_at", "최종 수정일"],
+                    ["actions", "동작"],
                   ].map(([columnKey, label]) => (
                     <label key={columnKey}>
                       {label}
@@ -8931,9 +8974,13 @@ function App() {
           </article>
 
           <details className="card compact-support-card settings-advanced-card secondary-surface-card">
-            <summary>
-              <span>거래 행 색상</span>
-              <span className="table-summary">기본 화면에서는 숨기고 필요할 때만 조정합니다.</span>
+            <summary role="button">
+              <span className="settings-disclosure-main">
+                <span>거래 행 색상</span>
+                <span className="table-summary">기본 화면에서는 숨기고 필요할 때만 조정합니다.</span>
+              </span>
+              <span className="settings-disclosure-chip settings-disclosure-chip-collapsed">펼치기</span>
+              <span className="settings-disclosure-chip settings-disclosure-chip-expanded">접기</span>
             </summary>
             <form className="settings-color-form" onSubmit={saveHouseholdSettings}>
               {FLOW_TYPE_OPTIONS.map((option) => {
@@ -8973,9 +9020,13 @@ function App() {
           </details>
 
           <details className="card compact-support-card settings-span-full settings-advanced-card secondary-surface-card settings-asset-rules-card">
-            <summary>
-              <span>자산 유형/색상 설정</span>
-              <span className="table-summary">유형 편집, 색상, 표시 규칙은 접어 둡니다.</span>
+            <summary role="button">
+              <span className="settings-disclosure-main">
+                <span>자산 유형/색상 설정</span>
+                <span className="table-summary">유형 편집, 색상, 표시 규칙은 접어 둡니다.</span>
+              </span>
+              <span className="settings-disclosure-chip settings-disclosure-chip-collapsed">펼치기</span>
+              <span className="settings-disclosure-chip settings-disclosure-chip-expanded">접기</span>
             </summary>
             <form className="form-grid settings-form-grid" onSubmit={saveHoldingTypeDefinition}>
               <label>
@@ -9801,56 +9852,65 @@ function App() {
             {!canEditRecords && (
               <p className="table-summary">데이터 가져오기는 편집자 이상 권한에서만 가능합니다.</p>
             )}
-            <div
-              className={`file-drop-area ${isDragOver ? "drag-over" : ""}`}
-              onDragOver={(e) => {
-                e.preventDefault();
-                if (!importLoadingMode && canEditRecords) setIsDragOver(true);
-              }}
-              onDragLeave={(e) => {
-                e.preventDefault();
-                setIsDragOver(false);
-              }}
-              onDrop={(e) => {
-                e.preventDefault();
-                setIsDragOver(false);
-                if (!importLoadingMode && canEditRecords && e.dataTransfer.files?.[0]) {
-                  setImportFile(e.dataTransfer.files[0]);
-                }
-              }}
-              onClick={() => {
-                if (!importLoadingMode && canEditRecords) importFileInputRef.current?.click();
-              }}
-            >
-              <input
-                ref={importFileInputRef}
-                type="file"
-                accept=".xlsx"
-                onChange={(e) => setImportFile(e.target.files?.[0] || null)}
-                style={{ display: "none" }}
-                aria-label="엑셀 파일 업로드"
-                disabled={Boolean(importLoadingMode) || !canEditRecords}
-              />
-              {importFile ? (
-                <div className="upload-file-name">선택된 파일: {importFile.name}</div>
-              ) : (
-                <div className="upload-placeholder">엑셀 파일을 이곳에 드래그 앤 드롭 하거나 클릭하여 업로드하세요.</div>
-              )}
-            </div>
-            <div className="inline import-action-row">
-              <button type="button" disabled={Boolean(importLoadingMode) || !canEditRecords} onClick={() => doImport("dry_run")}>
-                {importLoadingMode === "dry_run" ? "미리 검증 중..." : IMPORT_MODE_LABELS.dry_run}
-              </button>
-              <button type="button" disabled={Boolean(importLoadingMode) || !canEditRecords} onClick={() => doImport("apply")}>
-                {importLoadingMode === "apply" ? "적용 중..." : IMPORT_MODE_LABELS.apply}
-              </button>
-            </div>
-            {importLoadingMode && (
-              <div className="import-progress">서버에서 파일을 처리 중입니다. 완료까지 잠시만 기다려 주세요.</div>
-            )}
-            {importReport && (
-              <section className="import-report">
+            <div className="import-mode-grid">
+              <section className="import-mode-panel import-excel-panel">
                 <div className="secondary-table-heading import-report-heading">
+                  <div className="work-surface-title">
+                    <span className="surface-eyebrow">엑셀 데이터</span>
+                    <h3 id="excel-import-heading">엑셀 파일 업로드</h3>
+                  </div>
+                  <p className="table-summary">{importFile ? "파일 선택됨" : "파일 대기"}</p>
+                </div>
+                <div
+                  className={`file-drop-area ${isDragOver ? "drag-over" : ""}`}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    if (!importLoadingMode && canEditRecords) setIsDragOver(true);
+                  }}
+                  onDragLeave={(e) => {
+                    e.preventDefault();
+                    setIsDragOver(false);
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setIsDragOver(false);
+                    if (!importLoadingMode && canEditRecords && e.dataTransfer.files?.[0]) {
+                      setImportFile(e.dataTransfer.files[0]);
+                    }
+                  }}
+                  onClick={() => {
+                    if (!importLoadingMode && canEditRecords) importFileInputRef.current?.click();
+                  }}
+                >
+                  <input
+                    ref={importFileInputRef}
+                    type="file"
+                    accept=".xlsx"
+                    onChange={(e) => setImportFile(e.target.files?.[0] || null)}
+                    style={{ display: "none" }}
+                    aria-label="엑셀 파일 업로드"
+                    disabled={Boolean(importLoadingMode) || !canEditRecords}
+                  />
+                  {importFile ? (
+                    <div className="upload-file-name">선택된 파일: {importFile.name}</div>
+                  ) : (
+                    <div className="upload-placeholder">엑셀 파일을 이곳에 드래그 앤 드롭 하거나 클릭하여 업로드하세요.</div>
+                  )}
+                </div>
+                <div className="inline import-action-row">
+                  <button type="button" disabled={Boolean(importLoadingMode) || !canEditRecords} onClick={() => doImport("dry_run")}>
+                    {importLoadingMode === "dry_run" ? "미리 검증 중..." : IMPORT_MODE_LABELS.dry_run}
+                  </button>
+                  <button type="button" disabled={Boolean(importLoadingMode) || !canEditRecords} onClick={() => doImport("apply")}>
+                    {importLoadingMode === "apply" ? "적용 중..." : IMPORT_MODE_LABELS.apply}
+                  </button>
+                </div>
+                {importLoadingMode && (
+                  <div className="import-progress">서버에서 파일을 처리 중입니다. 완료까지 잠시만 기다려 주세요.</div>
+                )}
+                {importReport && (
+                  <section className="import-report">
+                    <div className="secondary-table-heading import-report-heading">
                   <div className="work-surface-title">
                     <span className="surface-eyebrow">검증 리포트</span>
                     <h3>가져오기 결과</h3>
@@ -9912,11 +9972,12 @@ function App() {
                 </details>
               </section>
             )}
-            <section className="import-report">
+              </section>
+            <section className="import-mode-panel import-package-panel">
               <div className="secondary-table-heading import-report-heading">
                 <div className="work-surface-title">
                   <span className="surface-eyebrow">환경 이식 패키지</span>
-                  <h3>데이터 추출/업로드</h3>
+                  <h3 id="package-import-heading">데이터 추출/업로드</h3>
                 </div>
                 <p className="table-summary">{migrationStateLabel}</p>
               </div>
@@ -10011,6 +10072,7 @@ function App() {
                 </>
               )}
             </section>
+            </div>
           </article>
         </section>
       )}

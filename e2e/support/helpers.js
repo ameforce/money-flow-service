@@ -208,6 +208,36 @@ export async function expectWithinViewport(locator, { allowance = 4, requireVert
   }
 }
 
+export async function expectClearOfFixedBottomNav(locator, { allowance = 4 } = {}) {
+  await expect(locator).toBeVisible();
+  const metrics = await locator.evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    const nav = document.querySelector("nav.topbar-tabs");
+    const navBox = nav?.getBoundingClientRect();
+    const navStyle = nav ? window.getComputedStyle(nav) : null;
+    const fixedBottomNav =
+      navBox &&
+      navStyle?.position === "fixed" &&
+      window.innerWidth <= 820 &&
+      navBox.top > 0 &&
+      navBox.bottom >= window.innerHeight - 32;
+
+    return {
+      bottom: box.bottom,
+      top: box.top,
+      viewportBottom: window.innerHeight,
+      fixedNavTop: fixedBottomNav ? navBox.top : window.innerHeight,
+    };
+  });
+  expect(metrics.top, "locator should not be above the viewport").toBeGreaterThanOrEqual(-allowance);
+  expect(metrics.bottom, "locator should be clear of the fixed mobile nav").toBeLessThanOrEqual(
+    metrics.fixedNavTop + allowance
+  );
+  expect(metrics.bottom, "locator should remain within the viewport").toBeLessThanOrEqual(
+    metrics.viewportBottom + allowance
+  );
+}
+
 export async function expectKeyboardReachableInOrder(page, locators, { maxTabsPerLocator = 60 } = {}) {
   const keyboardStartId = "__e2e_keyboard_start__";
   const compactViewport = (page.viewportSize()?.width ?? Number.POSITIVE_INFINITY) <= 480;

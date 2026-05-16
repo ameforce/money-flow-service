@@ -454,10 +454,7 @@ test("dashboard flow: onboarding, portfolio coherence, summary visibility", asyn
   const priceRefreshButton = page.getByRole("button", { name: /시세 갱신/ });
   if (await priceRefreshButton.isEnabled().catch(() => false)) {
     await priceRefreshButton.click();
-    await expect(mobileGlobalMessage).toBeVisible({ timeout: 10_000 });
-    await expect(mobileGlobalMessage).toHaveCSS("position", "fixed");
-    const mobileMessageBox = await mobileGlobalMessage.boundingBox();
-    expect(mobileMessageBox?.y ?? 0).toBeGreaterThan(844 * 0.55);
+    await expect(page.locator("main.app-shell > .message, .app-content > .message", { hasText: /시세 갱신/ })).toHaveCount(0);
     const afterMessageFilterY = (await mobileFilterCard.boundingBox())?.y ?? 0;
     expect(Math.abs(afterMessageFilterY - messageShiftFilterY)).toBeLessThanOrEqual(2);
   }
@@ -516,7 +513,9 @@ test("dashboard flow: onboarding, portfolio coherence, summary visibility", asyn
     await capture(page, "dashboard-mobile-portfolio-sync");
   }
 
-  if (testInfo.project.name === "mobile-chromium") {
+  const shouldRunMobileLayoutProfiles =
+    testInfo.project.name === "mobile-chromium" || process.env.E2E_PROJECT_MATRIX !== "1";
+  if (shouldRunMobileLayoutProfiles) {
     const mobileLayoutProfiles = [
       {
         name: "chrome-devtools-390-system",

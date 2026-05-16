@@ -339,8 +339,10 @@ export function TransactionSurfaceTable({
           )}
           {sortedTransactions.length === 0 && (
             <tr className="surface-empty-row">
-              <td colSpan={columnSpan} className="empty-state surface-empty-state" data-testid="transactions-empty-state">
-                거래 내역이 없습니다.
+              <td colSpan={columnSpan} className="surface-empty-cell">
+                <div className="empty-state surface-empty-state" data-testid="transactions-empty-state">
+                  거래 내역이 없습니다.
+                </div>
               </td>
             </tr>
           )}

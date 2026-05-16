@@ -325,16 +325,19 @@ def terminate(proc: subprocess.Popen | None, name: str) -> None:
         proc.wait(timeout=5)
 
 
-def wait_loop(backend_proc: subprocess.Popen, frontend_proc: subprocess.Popen) -> int:
+def wait_loop(backend_proc: subprocess.Popen, frontend_proc: subprocess.Popen | None) -> int:
     while not SHUTDOWN_REQUESTED:
         backend_code = backend_proc.poll()
-        frontend_code = frontend_proc.poll()
+        frontend_code = frontend_proc.poll() if frontend_proc is not None else None
 
         if backend_code is not None:
-            print(f"[orchestrator] backend exited(code={backend_code}) -> cleanup frontend", flush=True)
-            terminate(frontend_proc, "frontend")
+            if frontend_proc is not None:
+                print(f"[orchestrator] backend exited(code={backend_code}) -> cleanup frontend", flush=True)
+                terminate(frontend_proc, "frontend")
+            else:
+                print(f"[orchestrator] backend exited(code={backend_code})", flush=True)
             return int(backend_code)
-        if frontend_code is not None:
+        if frontend_proc is not None and frontend_code is not None:
             print(f"[orchestrator] frontend exited(code={frontend_code}) -> cleanup backend", flush=True)
             terminate(backend_proc, "backend")
             return int(frontend_code)
@@ -357,6 +360,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--no-reload", dest="no_reload", action="store_true")
     parser.set_defaults(no_reload=True)
     parser.add_argument("--skip-frontend-install", action="store_true")
+    parser.add_argument("--skip-frontend", action="store_true")
     return parser.parse_args()
 
 
@@ -368,20 +372,21 @@ def main() -> int:
     frontend_log_thread: threading.Thread | None = None
     install_signal_handlers()
     try:
-        if not ensure_required_ports_available(
-            [
-                (args.backend_host, args.backend_port, "backend"),
-                (args.frontend_host, args.frontend_port, "frontend"),
-            ]
-        ):
+        required_ports = [(args.backend_host, args.backend_port, "backend")]
+        if not args.skip_frontend:
+            required_ports.append((args.frontend_host, args.frontend_port, "frontend"))
+        if not ensure_required_ports_available(required_ports):
             return 1
-        if not args.skip_frontend_install:
+        if not args.skip_frontend and not args.skip_frontend_install:
             ensure_frontend_deps()
         backend_env = make_backend_env(args.database_url)
         backend_proc = spawn_backend(args, backend_env)
         backend_log_thread = start_log_pump(backend_proc, "backend")
         if not wait_for_backend_ready(backend_proc, args.backend_host, args.backend_port):
             return 0 if SHUTDOWN_REQUESTED else 1
+        if args.skip_frontend:
+            print("[orchestrator] frontend skipped; backend static serving remains active", flush=True)
+            return wait_loop(backend_proc, None)
         frontend_proc = spawn_frontend(args)
         frontend_log_thread = start_log_pump(frontend_proc, "frontend")
         return wait_loop(backend_proc, frontend_proc)
@@ -399,12 +404,10 @@ def main() -> int:
         if backend_log_thread is not None:
             backend_log_thread.join(timeout=2)
         if frontend_proc is not None or backend_proc is not None:
-            wait_for_ports_closed(
-                [
-                    (args.frontend_host, args.frontend_port),
-                    (args.backend_host, args.backend_port),
-                ]
-            )
+            closed_targets = [(args.backend_host, args.backend_port)]
+            if frontend_proc is not None:
+                closed_targets.append((args.frontend_host, args.frontend_port))
+            wait_for_ports_closed(closed_targets)
 
 
 if __name__ == "__main__":
