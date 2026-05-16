@@ -298,6 +298,58 @@ async function applyFontFamily(page, fontFamily) {
   }, fontFamily);
 }
 
+test("price refresh polling releases the global busy state after status failures", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("price-refresh-status")}@example.com`;
+  await registerAndVerify(page, { email, displayName: unique("price-refresh-user") });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openTab(page, "대시보드");
+
+  let refreshRequested = false;
+  let statusAttempts = 0;
+  await page.route("**/api/v1/prices/refresh", async (route) => {
+    refreshRequested = true;
+    await route.fulfill({
+      status: 202,
+      contentType: "application/json",
+      body: JSON.stringify({
+        household_id: 1,
+        accepted: true,
+        queued: false,
+        in_progress: true,
+        started_at: new Date().toISOString(),
+        target_count: 1,
+        completed_count: 0,
+      }),
+    });
+  });
+  await page.route("**/api/v1/prices/status", async (route) => {
+    statusAttempts += 1;
+    await route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({ detail: { code: "PRICE_STATUS_TEMPORARILY_UNAVAILABLE" } }),
+    });
+  });
+
+  const priceRefreshButton = page.getByRole("button", { name: /시세 갱신/ });
+  await expect(priceRefreshButton).toBeEnabled();
+  await priceRefreshButton.click();
+  await expect(priceRefreshButton).toContainText("시세 갱신 중...");
+  await expect(priceRefreshButton).toBeEnabled({ timeout: 8_000 });
+  await expect(priceRefreshButton).toContainText("시세 갱신");
+  await expect(page.locator(".message", { hasText: "시세 갱신 상태 확인이 지연되고 있습니다." })).toBeVisible();
+  await expect(page.locator(".message", { hasText: "요청 처리 중 오류" })).toHaveCount(0);
+
+  await openTab(page, "협업");
+  await expect(page.getByRole("button", { name: "시세 갱신" })).toBeEnabled();
+  await expect(page.locator(".message", { hasText: "요청 처리 중 오류" })).toHaveCount(0);
+  await capture(page, "price-refresh-polling-release");
+  expect(refreshRequested).toBe(true);
+  expect(statusAttempts).toBeGreaterThanOrEqual(3);
+});
+
 test("dashboard flow: onboarding, portfolio coherence, summary visibility", async ({ page }, testInfo) => {
   test.setTimeout(180_000);
 
