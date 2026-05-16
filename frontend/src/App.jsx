@@ -53,12 +53,12 @@ const TAB_LABELS = {
   import: "데이터 가져오기",
 };
 const TAB_NAV_META = {
-  dashboard: { icon: "⌂", helper: "요약" },
-  transactions: { icon: "↔", helper: "흐름" },
-  holdings: { icon: "◆", helper: "자산" },
-  collaboration: { icon: "◉", helper: "공유" },
-  import: { icon: "⇣", helper: "가져오기", mobileLabel: "가져오기" },
-  settings: { icon: "⚙", helper: "설정" },
+  dashboard: { icon: "⌂", helper: "요약", mobileLabel: "요약" },
+  transactions: { icon: "↔", helper: "흐름", mobileLabel: "거래" },
+  holdings: { icon: "◆", helper: "자산", mobileLabel: "자산" },
+  collaboration: { icon: "◉", helper: "공유", mobileLabel: "협업" },
+  import: { icon: "⇣", helper: "가져오기", mobileLabel: "가져\n오기" },
+  settings: { icon: "⚙", helper: "설정", mobileLabel: "설정" },
 };
 const TAB_GROUPS = {
   left: ["dashboard", "transactions", "holdings"],
