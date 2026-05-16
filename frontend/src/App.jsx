@@ -6403,18 +6403,18 @@ function App() {
   const holdingPortfolioChartData = useMemo(() => {
     return buildPortfolioChartData(holdingPortfolioChartSource);
   }, [holdingPortfolioChartSource]);
-  const mobileDoughnutOptions = useMemo(
+  const donutChartOptions = useMemo(
     () => ({
       responsive: true,
       maintainAspectRatio: false,
       cutout: `${DONUT_CUTOUT_PERCENT}%`,
       plugins: {
         legend: {
-          display: !isCompactViewport,
+          display: false,
         },
       },
     }),
-    [isCompactViewport]
+    []
   );
   const dashboardPortfolioViewLabel = PORTFOLIO_VIEW_LABELS[dashboardPortfolioViewMode] || dashboardPortfolioViewMode;
   const dashboardPortfolioChartDescription = `${dashboardPortfolioChartSource?.title || "차트"} 기준 ${dashboardPortfolioViewLabel}`;
@@ -7875,7 +7875,7 @@ function App() {
                   </div>
                 ) : dashboardPortfolioChartData ? (
                   <>
-                    <Doughnut data={dashboardPortfolioChartData} options={mobileDoughnutOptions} />
+                    <Doughnut data={dashboardPortfolioChartData} options={donutChartOptions} />
                     {renderDonutSliceLabels(dashboardPortfolioChartSource.items, {
                       testId: "portfolio-donut-slice-label",
                       labelPrefix: dashboardPortfolioChartSource.title,
@@ -8810,7 +8810,7 @@ function App() {
                 <div className={`chart-wrap compact-chart-wrap${holdingPortfolioChartData ? "" : " chart-wrap-empty"}`}>
                   {holdingPortfolioChartData ? (
                     <>
-                      <Doughnut data={holdingPortfolioChartData} options={mobileDoughnutOptions} />
+                      <Doughnut data={holdingPortfolioChartData} options={donutChartOptions} />
                       {renderDonutSliceLabels(holdingPortfolioChartSource.items, {
                         testId: "portfolio-donut-slice-label",
                         labelPrefix: holdingPortfolioChartSource.title,

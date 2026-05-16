@@ -7,7 +7,9 @@ import {
   expectBackgroundNotPlainWhite,
   expectCompactHeader,
   expectCompactLedgerRow,
+  expectNoOrphanTextLine,
   expectNoHorizontalOverflow,
+  expectPortfolioLabelsClearOfBottomNav,
   expectSingleLineText,
   expectStableButtonPosition,
   expectTransparentBackground,
@@ -172,8 +174,14 @@ test("holdings flow: create, inline edit, delete, responsive", async ({ page }) 
   await expect(holdingSummaryCard.getByLabel("자산 포트폴리오 보기 기준")).toHaveCount(0);
   await expect(holdingSummaryCard.getByLabel("자산 요약 보기 기준")).toBeVisible();
   await expect(holdingSummaryCard.locator(".compact-support-section .chart-wrap")).toHaveCount(1);
+  await expectNoOrphanTextLine(holdingSummaryCard.locator("summary > span"), "mobile holding summary title");
+  await expectNoOrphanTextLine(
+    holdingSummaryCard.getByRole("heading", { name: "자산 포트폴리오" }),
+    "mobile holding portfolio heading",
+  );
   await expect(holdingSummaryCard.getByTestId("portfolio-donut-center-label")).toContainText("총 자산");
   await expect(holdingSummaryCard.getByTestId("holding-donut-slice-label")).toHaveCount(0);
+  await expectPortfolioLabelsClearOfBottomNav(page, holdingSummaryCard, "mobile holding portfolio chart");
   const mobileBreakdownRow = holdingSummaryCard
     .locator(".portfolio-breakdown-list button, .portfolio-breakdown-list .portfolio-breakdown-row")
     .first();
@@ -192,6 +200,20 @@ test("holdings flow: create, inline edit, delete, responsive", async ({ page }) 
   expect(breakdownLayout.height).toBeLessThanOrEqual(48);
   expect(Math.abs(breakdownLayout.valueY - breakdownLayout.percentY)).toBeLessThanOrEqual(4);
   expect(breakdownLayout.percentRightGap).toBeLessThanOrEqual(14);
+  for (const width of [345, 320]) {
+    await page.setViewportSize({ width, height: 740 });
+    await openTab(page, "자산");
+    await holdingsJumpCue.click();
+    await page.waitForTimeout(160);
+    await expectNoOrphanTextLine(holdingSummaryCard.locator("summary > span"), `holding summary title at ${width}px`);
+    await expectNoOrphanTextLine(
+      holdingSummaryCard.getByRole("heading", { name: "자산 포트폴리오" }),
+      `holding portfolio heading at ${width}px`,
+    );
+    await expectPortfolioLabelsClearOfBottomNav(page, holdingSummaryCard, `holding portfolio chart at ${width}px`);
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openTab(page, "자산");
   const mobileEditedRow = page.locator("tr.holding-row", { hasText: editedHoldingName }).first();
   await expect(mobileEditedRow).toBeVisible();
   await expect(mobileEditedRow).not.toHaveClass(/mobile-row-expanded/);
