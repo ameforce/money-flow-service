@@ -880,7 +880,17 @@ export async function createTransactionViaApi(
   return result.payload;
 }
 
-export async function createBasicHolding(page, { name, category = "현금성" }) {
+export async function createBasicHolding(page, {
+  name,
+  category = "현금성",
+  type = "cash",
+  account = "검증계좌",
+  symbol = "MFS",
+  marketSymbol = "KRX",
+  quantity = "1",
+  averageCost = "300000",
+  marketValue = "300000",
+}) {
   await openTab(page, "자산");
   const holdingCard = page.locator("article.card", {
     has: page.getByRole("heading", { name: "자산 입력" }),
@@ -909,9 +919,9 @@ export async function createBasicHolding(page, { name, category = "현금성" })
     holdingContainer = holdingSheet;
   }
   const typeSelect = labeledField(holdingContainer, "유형", "select");
-  const hasCashOption = (await typeSelect.locator("option[value='cash']").count()) > 0;
-  if (hasCashOption) {
-    await typeSelect.selectOption("cash");
+  const hasRequestedType = (await typeSelect.locator(`option[value='${type}']`).count()) > 0;
+  if (hasRequestedType) {
+    await typeSelect.selectOption(type);
   } else {
     await selectFirstNonEmptyOption(typeSelect);
   }
@@ -925,7 +935,30 @@ export async function createBasicHolding(page, { name, category = "현금성" })
   if ((await categoryInput.count()) > 0) {
     await categoryInput.fill(category);
   }
-  await labeledField(holdingContainer, "평가금액", "input").fill("300000");
+  const marketValueInput = labeledField(holdingContainer, "평가금액", "input");
+  if ((await marketValueInput.count()) > 0) {
+    await marketValueInput.fill(marketValue);
+  }
+  const accountInput = labeledField(holdingContainer, "계좌", "input");
+  if ((await accountInput.count()) > 0) {
+    await accountInput.fill(account);
+  }
+  const symbolInput = labeledField(holdingContainer, "심볼", "input");
+  if ((await symbolInput.count()) > 0) {
+    await symbolInput.fill(symbol);
+  }
+  const marketSymbolInput = labeledField(holdingContainer, "시장심볼", "input");
+  if ((await marketSymbolInput.count()) > 0) {
+    await marketSymbolInput.fill(marketSymbol);
+  }
+  const quantityInput = labeledField(holdingContainer, "수량", "input");
+  if ((await quantityInput.count()) > 0) {
+    await quantityInput.fill(quantity);
+  }
+  const averageCostInput = labeledField(holdingContainer, "평균단가", "input");
+  if ((await averageCostInput.count()) > 0) {
+    await averageCostInput.fill(averageCost);
+  }
 
   const ownerSelect = labeledField(holdingContainer, "보유자", "select");
   await selectFirstNonEmptyOption(ownerSelect);
