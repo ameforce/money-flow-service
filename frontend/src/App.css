@@ -4514,10 +4514,15 @@ thead {
   }
 
   .tab-copy {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
     justify-items: center;
   }
 
   .tab-label {
+    display: block;
+    min-width: 0;
     max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -4533,6 +4538,7 @@ thead {
     content: attr(data-mobile-label);
     font-size: 0.62rem;
     line-height: 1.05;
+    white-space: pre-line;
   }
 
   .tab-copy[data-helper]::after {
@@ -5704,6 +5710,17 @@ thead {
   .dashboard-filter-card .range-separator {
     flex: 0 0 auto;
     font-size: 0.8rem;
+  }
+}
+
+@media (max-width: 360px) {
+  .topbar-tabs {
+    gap: 0.08rem;
+    padding-inline: 0.24rem;
+  }
+
+  .topbar-tabs button {
+    padding-inline: 0.04rem;
   }
 }
 

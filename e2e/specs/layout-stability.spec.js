@@ -21,6 +21,12 @@ const LAYOUT_PROFILES = [
   { name: "mobile-wide", width: 412, height: 915, font: "Noto Sans KR" },
 ];
 
+const MOBILE_NAV_LABEL_PROFILES = [
+  { name: "mobile-compact", width: 320, height: 568, font: "Malgun Gothic" },
+  { name: "mobile-narrow", width: 360, height: 740, font: "Malgun Gothic" },
+  { name: "mobile-standard", width: 390, height: 844, font: "Apple SD Gothic Neo" },
+];
+
 const NAV_TABS = ["대시보드", "거래", "자산", "설정", "협업", "데이터 가져오기"];
 
 const AUTH_LAYOUT_PROFILES = [
@@ -54,6 +60,8 @@ async function expectMobileTabBarStable(page) {
       const box = button.getBoundingClientRect();
       const label = button.querySelector(".tab-label");
       return {
+        ariaLabel: button.getAttribute("aria-label") || "",
+        mobileLabel: label?.getAttribute("data-mobile-label") || "",
         height: box.height,
         width: box.width,
         labelOverflowX: label ? label.scrollWidth - label.clientWidth : 0,
@@ -64,10 +72,11 @@ async function expectMobileTabBarStable(page) {
 
   expect(metrics).toHaveLength(6);
   for (const item of metrics) {
-    expect(item.width).toBeGreaterThanOrEqual(42);
-    expect(item.height).toBeGreaterThanOrEqual(44);
-    expect(item.labelOverflowX).toBeLessThanOrEqual(2);
-    expect(item.labelOverflowY).toBeLessThanOrEqual(2);
+    const labelContext = `${item.ariaLabel}/${item.mobileLabel}`;
+    expect(item.width, `${labelContext} tab width`).toBeGreaterThanOrEqual(42);
+    expect(item.height, `${labelContext} tab height`).toBeGreaterThanOrEqual(44);
+    expect(item.labelOverflowX, `${labelContext} label horizontal overflow`).toBeLessThanOrEqual(2);
+    expect(item.labelOverflowY, `${labelContext} label vertical overflow`).toBeLessThanOrEqual(2);
   }
 
   const navMetrics = await nav.evaluate((element) => {
@@ -485,6 +494,58 @@ test("auth signup layout stays compact across desktop and mobile fonts", async (
     await test.step(profile.name, async () => {
       await openSignupSurface(page, profile);
       await expectSignupLayoutStable(page, profile);
+    });
+  }
+});
+
+test("mobile import navigation label stays readable at compact widths", async ({ page }) => {
+  const email = `${unique("mobile-import-nav")}@example.com`;
+  const displayName = unique("mobile-import-nav-user");
+  const normalizeVisualLabel = (value) =>
+    String(value ?? "")
+      .replace(/^["']|["']$/g, "")
+      .replace(/\\a\s?/gi, "")
+      .replace(/\s/g, "");
+
+  await registerAndVerify(page, { email, displayName });
+
+  for (const profile of MOBILE_NAV_LABEL_PROFILES) {
+    await test.step(profile.name, async () => {
+      await page.setViewportSize({ width: profile.width, height: profile.height });
+      await applyFontProfile(page, profile.font);
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await expectMobileTabBarStable(page);
+
+      const importTab = page.locator('nav.topbar-tabs button[aria-label="데이터 가져오기"]');
+      await expect(importTab).toBeVisible();
+      const metrics = await importTab.evaluate((button) => {
+        const label = button.querySelector(".tab-label");
+        const labelBox = label?.getBoundingClientRect();
+        const buttonBox = button.getBoundingClientRect();
+        const pseudoContent = label ? getComputedStyle(label, "::after").content : "";
+        const visualLabel = pseudoContent
+          .replace(/^["']|["']$/g, "")
+          .replace(/\\a\s?/gi, "")
+          .replace(/\s/g, "");
+        return {
+          ariaLabel: button.getAttribute("aria-label"),
+          mobileLabel: label?.getAttribute("data-mobile-label"),
+          visualLabel,
+          labelOverflowX: label ? label.scrollWidth - label.clientWidth : 0,
+          labelLeft: labelBox?.left ?? 0,
+          labelRight: labelBox?.right ?? 0,
+          buttonLeft: buttonBox.left,
+          buttonRight: buttonBox.right,
+        };
+      });
+
+      expect(metrics.ariaLabel).toBe("데이터 가져오기");
+      expect(normalizeVisualLabel(metrics.mobileLabel)).toBe("가져오기");
+      expect(normalizeVisualLabel(metrics.visualLabel)).toBe("가져오기");
+      expect(metrics.labelOverflowX).toBeLessThanOrEqual(1);
+      expect(metrics.labelLeft).toBeGreaterThanOrEqual(metrics.buttonLeft - 0.5);
+      expect(metrics.labelRight).toBeLessThanOrEqual(metrics.buttonRight + 0.5);
+      await expectNoHorizontalOverflow(page, 12);
     });
   }
 });
