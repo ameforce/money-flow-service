@@ -8096,7 +8096,7 @@ function App() {
                     <div key={item.label} className="dashboard-kpi-card" data-tone={item.tone}>
                       <span>{item.label}</span>
                       <strong className={item.meta ? "dashboard-kpi-value-line" : undefined}>
-                        {item.value}
+                        <span className="dashboard-kpi-value-main">{item.value}</span>
                         {item.meta && <em className="dashboard-kpi-value-meta">{item.meta}</em>}
                       </strong>
                       <small>{item.helper}</small>
