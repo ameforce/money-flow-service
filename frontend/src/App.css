@@ -3158,6 +3158,14 @@ table {
   display: block;
 }
 
+.transactions-surface-table .transaction-mobile-detail-label {
+  display: none;
+}
+
+.transactions-surface-table .transaction-mobile-detail-value {
+  min-width: 0;
+}
+
 .transactions-surface-table .transaction-col-actions {
   max-width: none;
   overflow: visible;
@@ -6241,6 +6249,7 @@ thead {
       "date memo actions"
       "date amount actions"
       "date meta actions";
+    height: auto;
     min-height: 3.48rem;
     padding-top: 0.2rem;
     padding-bottom: 0.18rem;
@@ -6256,7 +6265,10 @@ thead {
       "owner owner owner"
       "updated updated updated";
     border-bottom: 0;
-    padding-bottom: 0.22rem;
+    min-height: 0;
+    overflow: visible;
+    padding-bottom: 0.42rem;
+    row-gap: 0.14rem;
   }
 
   .transactions-surface-table tbody tr.transaction-row::before,
@@ -6367,22 +6379,6 @@ thead {
     display: inline-flex;
   }
 
-  .transactions-surface-table tbody tr.transaction-row.mobile-row-expanded .transaction-col-updated {
-    display: block !important;
-    grid-area: updated;
-    padding-top: 0.18rem;
-    font-size: 0.76rem;
-    color: #6a7f99;
-  }
-
-  .transactions-surface-table tbody tr.transaction-row.mobile-row-expanded .transaction-col-category,
-  .transactions-surface-table tbody tr.transaction-row.mobile-row-expanded .transaction-col-owner {
-    display: block !important;
-    padding-top: 0.18rem;
-    font-size: 0.76rem;
-    color: #5f7596;
-  }
-
   .transactions-surface-table tbody tr.transaction-row.mobile-row-expanded .transaction-col-category {
     grid-area: category;
   }
@@ -6391,9 +6387,62 @@ thead {
     grid-area: owner;
   }
 
-  .transactions-surface-table tbody tr.transaction-row.mobile-row-expanded .transaction-col-category {
-    padding-top: 0.28rem;
+  .transactions-surface-table tbody tr.transaction-row.mobile-row-expanded .transaction-col-updated {
+    grid-area: updated;
+  }
+
+  .transactions-surface-table tbody tr.transaction-row.mobile-row-expanded .transaction-mobile-detail-cell {
+    display: grid !important;
+    grid-template-columns: minmax(4.9rem, 36%) minmax(0, 1fr);
+    align-items: start;
+    box-sizing: border-box;
+    min-width: 0;
+    overflow: visible;
+    column-gap: 0.52rem;
+    padding-top: 0.2rem;
+    color: #5f7596;
+    font-size: 0.76rem;
+    line-height: 1.32;
+    white-space: normal;
+  }
+
+  .transactions-surface-table tbody tr.transaction-row.mobile-row-expanded .transaction-col-updated.transaction-mobile-detail-cell {
+    color: #6a7f99;
+  }
+
+  .transactions-surface-table tbody tr.transaction-row.mobile-row-expanded .transaction-col-category.transaction-mobile-detail-cell {
+    padding-top: 0.3rem;
     border-top: 1px solid var(--transaction-row-border, rgba(220, 230, 244, 0.9));
+  }
+
+  .transactions-surface-table tbody tr.transaction-row.mobile-row-expanded .transaction-mobile-detail-label {
+    display: block;
+    min-width: 0;
+    color: #6a7f99;
+    font-size: 0.68rem;
+    font-weight: 800;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+  }
+
+  .transactions-surface-table tbody tr.transaction-row.mobile-row-expanded .transaction-mobile-detail-value {
+    display: block;
+    min-width: 0;
+    color: #23344d;
+    font-size: 0.76rem;
+    font-weight: 700;
+    line-height: 1.32;
+    overflow: visible;
+    overflow-wrap: anywhere;
+    white-space: normal;
+    word-break: break-word;
+  }
+
+  .transactions-surface-table tbody tr.transaction-row.mobile-row-expanded .transaction-mobile-detail-value .category-cell {
+    min-width: 0;
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
   }
 
   .transactions-surface-table .transaction-col-actions {

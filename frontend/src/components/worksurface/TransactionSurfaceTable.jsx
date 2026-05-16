@@ -465,7 +465,10 @@ export function TransactionSurfaceTable({
                       <span className="transaction-owner-empty" title="거래자 미입력" aria-label="거래자 미입력">-</span>
                     )}
                   </td>
-                  <td data-label="카테고리" className="transaction-col-category" data-field-key="category" data-mobile-priority={transactionMobilePriority("category")}>{renderCategoryCell(category)}</td>
+                  <td data-label="카테고리" className="transaction-col-category transaction-mobile-detail-cell" data-field-key="category" data-mobile-priority={transactionMobilePriority("category")}>
+                    <span className="transaction-mobile-detail-label">카테고리</span>
+                    <div className="transaction-mobile-detail-value">{renderCategoryCell(category)}</div>
+                  </td>
                   <td data-label="메모" className="transaction-col-memo" data-field-key="memo" data-mobile-priority={transactionMobilePriority("memo")}>
                     <span className="transaction-mobile-category-cue">{compactCategoryLabel}</span>
                     <span className="transaction-memo-text">{item.memo || "-"}</span>
@@ -473,10 +476,14 @@ export function TransactionSurfaceTable({
                   <td data-label="금액" className="transaction-col-amount" data-field-key="amount" data-mobile-priority={transactionMobilePriority("amount")}>
                     <span className="transaction-amount-text">{fmtKrw(item.amount)}</span>
                   </td>
-                  <td data-label="거래자명" className="transaction-col-owner" data-field-key="owner_name" data-mobile-priority={transactionMobilePriority("owner_name")}>
-                    <span className="transaction-owner-cue">{item.owner_name || "-"}</span>
+                  <td data-label="거래자명" className="transaction-col-owner transaction-mobile-detail-cell" data-field-key="owner_name" data-mobile-priority={transactionMobilePriority("owner_name")}>
+                    <span className="transaction-mobile-detail-label">거래자명</span>
+                    <div className="transaction-mobile-detail-value transaction-owner-cue">{item.owner_name || "-"}</div>
                   </td>
-                  <td data-label="최종 수정일" className="transaction-col-updated" data-field-key="updated_at" data-mobile-priority={transactionMobilePriority("updated_at")}>{fmtDate(item.updated_at)}</td>
+                  <td data-label="최종 수정일" className="transaction-col-updated transaction-mobile-detail-cell" data-field-key="updated_at" data-mobile-priority={transactionMobilePriority("updated_at")}>
+                    <span className="transaction-mobile-detail-label">최종 수정일</span>
+                    <div className="transaction-mobile-detail-value">{fmtDate(item.updated_at)}</div>
+                  </td>
                   <td data-label="동작" className="transaction-col-actions" data-mobile-priority="action">
                     <div className="inline">
                       <button
