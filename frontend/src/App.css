@@ -1383,6 +1383,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 0.55rem;
+  box-sizing: border-box;
   width: 100%;
   min-width: 0;
   padding: 0.48rem 0.56rem;
