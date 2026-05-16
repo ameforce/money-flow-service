@@ -809,6 +809,7 @@ export async function createTransactionViaApi(
     occurredOn = currentE2EHistoryDateIso(),
     ownerName = "",
     categoryId = "",
+    sourceRef = "",
   }
 ) {
   const result = await page.evaluate(
@@ -823,6 +824,7 @@ export async function createTransactionViaApi(
       memo,
       occurredOn,
       ownerName,
+      sourceRef,
     }) => {
       const cookieValue = (name) => {
         const prefix = `${name}=`;
@@ -852,6 +854,7 @@ export async function createTransactionViaApi(
           currency: "KRW",
           memo,
           owner_name: ownerName,
+          source_ref: sourceRef || null,
         }),
       });
       const text = await response.text();
@@ -874,6 +877,7 @@ export async function createTransactionViaApi(
       memo,
       occurredOn,
       ownerName,
+      sourceRef,
     }
   );
   expect(result.ok, `transaction api create failed: ${result.status} ${result.text}`).toBe(true);

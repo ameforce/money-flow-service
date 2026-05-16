@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import base64
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 import hashlib
 import hmac
 import json
 from typing import Literal
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response, status
 from sqlalchemy import and_, asc, desc, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -25,6 +25,7 @@ from app.services.runtime import hub
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
 _HISTORY_CURSOR_VERSION = 1
+_TRANSACTION_REPLAY_WINDOW_SECONDS = 120
 
 
 class _HistoryCursor:
@@ -40,6 +41,11 @@ def _is_category_fk_violation(error: IntegrityError) -> bool:
     return "foreign key constraint failed" in text or ("foreign key" in text and "category" in text)
 
 
+def _is_transaction_source_ref_violation(error: IntegrityError) -> bool:
+    text = str(getattr(error, "orig", error)).lower()
+    return "uq_transaction_source_ref" in text or ("transactions.household_id" in text and "transactions.source_ref" in text)
+
+
 def _ensure_category_flow_matches(category: Category, flow_type) -> None:
     if category.flow_type == flow_type:
         return
@@ -48,6 +54,45 @@ def _ensure_category_flow_matches(category: Category, flow_type) -> None:
         code="TRANSACTION_CATEGORY_FLOW_TYPE_MISMATCH",
         message="거래 유형과 카테고리 유형이 일치하지 않습니다.",
         action="동일한 유형의 카테고리를 선택해 주세요.",
+    )
+
+
+def _nullable_column_equals(column, value):
+    return column.is_(None) if value is None else column == value
+
+
+def _recent_matching_transaction_id(
+    db: Session,
+    *,
+    household_id: str,
+    category_id: str | None,
+    occurred_on: date,
+    flow_type,
+    amount,
+    currency: str,
+    memo: str,
+    owner_user_id: str | None,
+    owner_name: str | None,
+    created_by_user_id: str,
+) -> str | None:
+    replay_cutoff = datetime.now(UTC) - timedelta(seconds=_TRANSACTION_REPLAY_WINDOW_SECONDS)
+    return db.scalar(
+        select(Transaction.id)
+        .where(
+            Transaction.household_id == household_id,
+            Transaction.source_ref.is_(None),
+            Transaction.created_by_user_id == created_by_user_id,
+            Transaction.occurred_on == occurred_on,
+            Transaction.flow_type == flow_type,
+            Transaction.amount == amount,
+            Transaction.currency == currency,
+            Transaction.memo == memo,
+            Transaction.created_at >= replay_cutoff,
+            _nullable_column_equals(Transaction.category_id, category_id),
+            _nullable_column_equals(Transaction.owner_user_id, owner_user_id),
+            _nullable_column_equals(Transaction.owner_name, owner_name),
+        )
+        .order_by(desc(Transaction.created_at), desc(Transaction.id))
     )
 
 
@@ -303,11 +348,24 @@ def list_transaction_history(
 def create_transaction(
     payload: TransactionCreate,
     background_tasks: BackgroundTasks,
+    response: Response,
     ctx=Depends(require_editor_household),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> TransactionRead:
     household, _ = ctx
+    source_ref = str(payload.source_ref or "").strip() or None
+    if source_ref:
+        existing_id = db.scalar(
+            select(Transaction.id).where(
+                Transaction.household_id == household.id,
+                Transaction.source_ref == source_ref,
+            )
+        )
+        if existing_id:
+            response.status_code = status.HTTP_200_OK
+            return _load_transaction_read(db, str(existing_id))
+
     if payload.category_id:
         category = db.get(Category, payload.category_id)
         if category is None or category.household_id != household.id:
@@ -323,16 +381,37 @@ def create_transaction(
         invalid_message="거래자는 현재 가계 구성원만 선택할 수 있습니다.",
         invalid_action="가계 구성원 목록에서 거래자를 다시 선택해 주세요.",
     )
+    memo = payload.memo.strip()
+    currency = payload.currency.upper()
+    if not source_ref:
+        existing_id = _recent_matching_transaction_id(
+            db,
+            household_id=str(household.id),
+            category_id=payload.category_id,
+            occurred_on=payload.occurred_on,
+            flow_type=payload.flow_type,
+            amount=payload.amount,
+            currency=currency,
+            memo=memo,
+            owner_user_id=owner_user_id,
+            owner_name=owner_name,
+            created_by_user_id=str(user.id),
+        )
+        if existing_id:
+            response.status_code = status.HTTP_200_OK
+            return _load_transaction_read(db, str(existing_id))
+
     transaction = Transaction(
         household_id=household.id,
         category_id=payload.category_id,
         occurred_on=payload.occurred_on,
         flow_type=payload.flow_type,
         amount=payload.amount,
-        currency=payload.currency.upper(),
-        memo=payload.memo.strip(),
+        currency=currency,
+        memo=memo,
         owner_user_id=owner_user_id,
         owner_name=owner_name,
+        source_ref=source_ref,
         created_by_user_id=user.id,
     )
     db.add(transaction)
@@ -340,6 +419,16 @@ def create_transaction(
         db.commit()
     except IntegrityError as error:
         db.rollback()
+        if source_ref and _is_transaction_source_ref_violation(error):
+            existing_id = db.scalar(
+                select(Transaction.id).where(
+                    Transaction.household_id == household.id,
+                    Transaction.source_ref == source_ref,
+                )
+            )
+            if existing_id:
+                response.status_code = status.HTTP_200_OK
+                return _load_transaction_read(db, str(existing_id))
         if _is_category_fk_violation(error):
             raise app_error(
                 status_code=400,
