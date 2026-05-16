@@ -1665,6 +1665,48 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   await expect(expandedActionRow).toBeVisible();
   await expect(expandedActionRow.getByRole("button", { name: "수정" })).toBeVisible();
   await expect(expandedActionRow.getByRole("button", { name: "삭제" })).toBeVisible();
+  await expect(mobileRow.locator(".transaction-mobile-detail-label")).toHaveText([
+    "카테고리",
+    "거래자명",
+    "최종 수정일",
+  ]);
+  const expandedDetailMetrics = await mobileRow.evaluate((row) => {
+    const rowBox = row.getBoundingClientRect();
+    const actionBox = row.nextElementSibling?.classList.contains("transaction-mobile-expanded-actions-row")
+      ? row.nextElementSibling.getBoundingClientRect()
+      : null;
+    const detailCells = Array.from(
+      row.querySelectorAll(".transaction-col-category, .transaction-col-owner, .transaction-col-updated"),
+    ).map((cell) => {
+      const box = cell.getBoundingClientRect();
+      return {
+        className: cell.className,
+        clientHeight: cell.clientHeight,
+        scrollHeight: cell.scrollHeight,
+        renderedHeight: box.height,
+        hasVerticalOverflow: cell.scrollHeight > cell.clientHeight + 1,
+      };
+    });
+    return {
+      clientHeight: row.clientHeight,
+      scrollHeight: row.scrollHeight,
+      renderedHeight: rowBox.height,
+      hasVerticalOverflow: row.scrollHeight > row.clientHeight + 1,
+      actionStartsAfterRow: Boolean(actionBox && actionBox.top >= rowBox.bottom - 1),
+      detailCells,
+    };
+  });
+  expect(
+    expandedDetailMetrics.hasVerticalOverflow,
+    `expanded transaction row should fit its detail content: ${JSON.stringify(expandedDetailMetrics)}`,
+  ).toBe(false);
+  expect(
+    expandedDetailMetrics.actionStartsAfterRow,
+    `expanded action row should not overlap details: ${JSON.stringify(expandedDetailMetrics)}`,
+  ).toBe(true);
+  for (const cell of expandedDetailMetrics.detailCells) {
+    expect(cell.hasVerticalOverflow, `${cell.className} should not clip detail text`).toBe(false);
+  }
   await expect(mobileRow.locator(".transaction-col-actions .row-delete-btn")).toBeHidden();
   await mobileRow.locator("td").last().getByRole("button", { name: "거래 세부 접기" }).click();
   await expect(mobileRow).not.toHaveClass(/mobile-row-expanded/);
