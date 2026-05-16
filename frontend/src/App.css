@@ -2086,7 +2086,9 @@ button.danger:active:not(:disabled) {
 }
 
 .message span {
+  min-width: 0;
   white-space: pre-line;
+  overflow-wrap: anywhere;
 }
 
 .message-close {
@@ -5040,11 +5042,11 @@ thead {
     left: max(0.75rem, env(safe-area-inset-left));
     right: max(0.75rem, env(safe-area-inset-right));
     bottom: calc(0.75rem + env(safe-area-inset-bottom)) !important;
-    z-index: 47;
-    align-items: center;
+    z-index: 82;
+    align-items: flex-start;
     min-height: 2.72rem;
-    max-height: none;
-    overflow: hidden;
+    max-height: min(35vh, 11rem);
+    overflow-y: auto;
     margin: 0;
     box-shadow: 0 12px 28px rgba(11, 30, 66, 0.12);
     backdrop-filter: blur(16px);
@@ -5054,10 +5056,9 @@ thead {
 
   .app-shell > .message span,
   .app-content > .message span {
-    display: -webkit-box;
-    overflow: hidden;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 1;
+    display: block;
+    overflow: visible;
+    line-height: 1.35;
   }
 
   .message-close {
