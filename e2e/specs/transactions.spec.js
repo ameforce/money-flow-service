@@ -33,6 +33,58 @@ function yearMonthFromIso(value) {
   return { year, month };
 }
 
+async function expectQuickCategoryLayoutStable(page) {
+  const metrics = await page.locator(".transaction-quick-category-panel").evaluate((panel) => {
+    const hint = panel.querySelector(".transaction-quick-section-title small");
+    const chipContainer = panel.querySelector(".transaction-quick-category-chips");
+    const chips = Array.from(panel.querySelectorAll("[data-testid='transaction-quick-category-chip']"));
+    const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+    const hintStyle = hint ? getComputedStyle(hint) : null;
+    const chipContainerStyle = chipContainer ? getComputedStyle(chipContainer) : null;
+
+    return {
+      hint: hint
+        ? {
+            clientWidth: hint.clientWidth,
+            scrollWidth: hint.scrollWidth,
+            overflowX: hintStyle?.overflowX || "",
+            textOverflow: hintStyle?.textOverflow || "",
+            whiteSpace: hintStyle?.whiteSpace || "",
+          }
+        : null,
+      chips: chipContainer
+        ? {
+            clientWidth: chipContainer.clientWidth,
+            scrollWidth: chipContainer.scrollWidth,
+            overflowX: chipContainerStyle?.overflowX || "",
+            display: chipContainerStyle?.display || "",
+            flexWrap: chipContainerStyle?.flexWrap || "",
+          }
+        : null,
+      outsideViewport: chips
+        .map((chip) => {
+          const rect = chip.getBoundingClientRect();
+          return {
+            text: chip.textContent?.trim() || "",
+            left: rect.left,
+            right: rect.right,
+            viewportWidth,
+          };
+        })
+        .filter((item) => item.left < -1 || item.right > item.viewportWidth + 1),
+    };
+  });
+
+  expect(metrics.hint).toBeTruthy();
+  expect(metrics.hint.whiteSpace).not.toBe("nowrap");
+  expect(metrics.hint.scrollWidth).toBeLessThanOrEqual(metrics.hint.clientWidth + 1);
+  expect(metrics.chips).toBeTruthy();
+  expect(metrics.chips.display).toBe("flex");
+  expect(metrics.chips.flexWrap).toBe("wrap");
+  expect(metrics.chips.scrollWidth).toBeLessThanOrEqual(metrics.chips.clientWidth + 1);
+  expect(metrics.outsideViewport).toEqual([]);
+}
+
 async function jumpTransactionListToMonth(page, isoDate) {
   const { year, month } = yearMonthFromIso(isoDate);
   const listCard = page.locator(".transaction-list-card").first();
@@ -786,18 +838,7 @@ test("mobile quick entry keeps owner override and filters ordered category chips
   await expect(page.locator("tr.transaction-row", { hasText: staleMemo }).first()).toBeVisible();
   const chips = page.getByTestId("transaction-quick-category-chip");
   await expect(chips.first()).toBeVisible();
-  const chipLayout = await page.locator(".transaction-quick-category-chips").evaluate((container) => {
-    const firstChip = container.querySelector("[data-testid='transaction-quick-category-chip']");
-    const containerStyle = getComputedStyle(container);
-    return {
-      display: containerStyle.display,
-      overflowX: containerStyle.overflowX,
-      chipHeight: firstChip?.getBoundingClientRect().height || 0,
-    };
-  });
-  expect(chipLayout.display).toBe("flex");
-  expect(["auto", "scroll"]).toContain(chipLayout.overflowX);
-  expect(chipLayout.chipHeight).toBeLessThanOrEqual(42);
+  await expectQuickCategoryLayoutStable(page);
   await expect(chips.first()).toContainText(recentExpenseCategory.minor);
   const chipTexts = (await chips.allTextContents()).join(" ");
   expect(chipTexts).toContain(recentExpenseCategory.minor);
@@ -825,7 +866,9 @@ test("mobile quick entry stays usable across viewport and Korean font fallbacks"
   const seedCategory = { major: unique("행렬입력"), minor: unique("최근카테고리") };
   const scenarios = [
     { width: 390, height: 844, font: "Apple SD Gothic Neo", slug: "apple-sd-gothic" },
+    { width: 360, height: 780, font: "Apple SD Gothic Neo", slug: "apple-sd-gothic-narrow" },
     { width: 375, height: 812, font: "Malgun Gothic", slug: "malgun-gothic" },
+    { width: 320, height: 568, font: "Malgun Gothic", slug: "malgun-gothic-compact" },
     { width: 412, height: 915, font: "Noto Sans KR", slug: "noto-sans-kr" },
   ];
 
@@ -849,6 +892,7 @@ test("mobile quick entry stays usable across viewport and Korean font fallbacks"
     await expect(page.getByTestId("transaction-quick-amount")).toBeVisible();
     await expect(page.getByTestId("transaction-quick-save")).toBeVisible();
     await expect(page.getByTestId("transaction-quick-category-chip").first()).toBeVisible();
+    await expectQuickCategoryLayoutStable(page);
     await expectNoHorizontalOverflow(page, 12);
     const sheetBox = await transactionSheet.boundingBox();
     expect(sheetBox?.width ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(scenario.width);
