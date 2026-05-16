@@ -4271,6 +4271,7 @@ thead {
 
   .app-content > *,
   .app-content :is(button, input, select, textarea, [role="button"], [tabindex]) {
+    scroll-margin-top: calc(var(--mobile-tabs-sticky-offset, 2.62rem) + 0.65rem);
     scroll-margin-bottom: calc(var(--mobile-bottom-nav-clearance) + 0.75rem);
   }
 
@@ -4894,6 +4895,14 @@ thead {
     width: 100%;
   }
 
+  .import-package-panel {
+    order: 1;
+  }
+
+  .import-excel-panel {
+    order: 2;
+  }
+
   .import-action-row button {
     flex: 1 1 auto;
     width: 100%;
@@ -4910,6 +4919,44 @@ thead {
   .collaboration-accept-grid .form-actions button,
   .category-create-form .settings-actions button {
     width: 100%;
+  }
+
+  .category-manager-card {
+    scroll-margin-top: calc(var(--mobile-tabs-sticky-offset, 2.62rem) + 0.75rem);
+  }
+
+  .category-manager-card form.category-create-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: end;
+  }
+
+  .category-manager-card form.category-create-form .category-manager-guide,
+  .category-manager-card form.category-create-form .settings-actions {
+    grid-column: 1 / -1;
+  }
+
+  .category-manager-card form.category-create-form label {
+    min-width: 0;
+  }
+
+  .category-manager-card .settings-category-flows {
+    gap: 0.48rem;
+  }
+
+  .category-manager-card .settings-category-flow {
+    gap: 0.42rem;
+    padding: 0.56rem 0.62rem;
+    border-radius: 12px;
+    box-shadow: none;
+  }
+
+  .category-manager-card .settings-category-flow-header {
+    gap: 0.35rem;
+  }
+
+  .category-manager-card .settings-category-flow h3,
+  .category-manager-card .settings-category-flow .table-summary {
+    margin: 0;
   }
 
   .import-console-card,
@@ -5801,13 +5848,16 @@ thead {
   }
 
   .transactions-mobile-ledger-head {
-    grid-template-columns: 2.42rem minmax(0, 1fr) 2.05rem;
-    grid-template-areas: "date main actions";
+    grid-template-columns: 2.35rem minmax(0, 1fr) minmax(2.3rem, max-content) minmax(2.05rem, max-content) 1.85rem;
+    grid-template-areas: "date main amount cues actions";
   }
 
-  .transactions-mobile-ledger-head .ledger-head-amount,
+  .transactions-mobile-ledger-head .ledger-head-amount {
+    justify-content: flex-end;
+  }
+
   .transactions-mobile-ledger-head .ledger-head-cues {
-    display: none;
+    justify-content: flex-end;
   }
 
   .holdings-mobile-ledger-head {
@@ -6082,8 +6132,10 @@ thead {
       "date memo actions"
       "date amount actions"
       "date meta actions";
-    min-height: 4.35rem;
-    row-gap: 0.14rem;
+    min-height: 3.48rem;
+    padding-top: 0.2rem;
+    padding-bottom: 0.18rem;
+    row-gap: 0.05rem;
   }
 
   .transactions-surface-table tbody tr.transaction-row.mobile-row-expanded {
