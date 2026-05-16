@@ -243,3 +243,37 @@ test("collaboration flow: invite, accept, switch household, responsive", async (
     await guestContext.close();
   }
 });
+
+test("collaboration invite accept shows invited-email guidance for same account", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const ownerDisplayName = unique("owner-self-accept");
+  const ownerEmail = `${unique("owner-self-accept")}@example.com`;
+  const invitedEmail = `${unique("guest-self-accept")}@example.com`;
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await registerAndVerify(page, {
+    email: ownerEmail,
+    password: TEST_PASSWORD,
+    displayName: ownerDisplayName,
+  });
+  await openTab(page, "협업");
+
+  const collaborationCard = page.locator("article.card", {
+    has: page.getByRole("heading", { name: "가계 협업 관리" }),
+  });
+  await labeledField(collaborationCard, "초대할 이메일", "input").fill(invitedEmail);
+  await labeledField(collaborationCard, "권한", "select").selectOption("viewer");
+  await collaborationCard.getByRole("button", { name: "초대 발송" }).click();
+  await expect(page.getByText("초대를 발송했습니다.")).toBeVisible();
+
+  const acceptTokenInput = labeledField(collaborationCard, "초대 수락 토큰", "input");
+  await expect(acceptTokenInput).not.toHaveValue("");
+  await collaborationCard.getByRole("button", { name: "초대 수락" }).click();
+
+  const message = page.locator(".message").first();
+  await expect(message).toContainText("로그인한 이메일과 초대 이메일이 다릅니다.");
+  await expect(message).toContainText("초대 받은 이메일로 로그인해 주세요.");
+  await expect(message).not.toContainText("요청 처리 중 오류가 발생했습니다.");
+  await capture(page, "collaboration-invite-same-account-guidance");
+});

@@ -3436,6 +3436,34 @@ def test_household_invitation_accept_and_switch_household() -> None:
         assert len(members.json()) >= 2
 
 
+def test_household_invitation_accept_requires_invited_email() -> None:
+    with TestClient(app) as client:
+        owner_email = f"owner-self-accept-{uuid.uuid4().hex}@example.com"
+        guest_email = f"guest-self-accept-{uuid.uuid4().hex}@example.com"
+        token_owner = _auth(client, owner_email, "Password1234", "OwnerSelfAccept")
+
+        invite_resp = client.post(
+            "/api/v1/household/invitations",
+            headers=_headers(token_owner),
+            json={"email": guest_email, "role": "viewer"},
+        )
+        assert invite_resp.status_code == 201
+        invite_token = str(invite_resp.json().get("debug_invite_token") or "")
+        assert invite_token
+
+        blocked = client.post(
+            "/api/v1/household/invitations/accept",
+            headers=_headers(token_owner),
+            json={"token": invite_token},
+        )
+
+        assert blocked.status_code == 403
+        error_payload = blocked.json()["error"]
+        assert error_payload["code"] == "HOUSEHOLD_INVITE_EMAIL_MISMATCH"
+        assert error_payload["message"] == "로그인한 이메일과 초대 이메일이 다릅니다."
+        assert error_payload["action"] == "초대 받은 이메일로 로그인해 주세요."
+
+
 def test_household_received_invitations_can_show_inviter_and_accept_by_id() -> None:
     with TestClient(app) as client:
         owner_email = f"owner-received-{uuid.uuid4().hex}@example.com"
