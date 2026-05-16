@@ -4252,13 +4252,34 @@ function App() {
     }
   }
 
-  function validateAuthEmail(value) {
+  function validateAuthEmail(value, label = "이메일") {
     const email = String(value || "").trim();
     if (!email) {
-      return "이메일을 입력해 주세요.";
+      return `${label}을 입력해 주세요.`;
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      return "올바른 이메일 주소를 입력해 주세요.";
+      return `올바른 ${label} 주소를 입력해 주세요.`;
+    }
+    return "";
+  }
+
+  function validateRequiredText(value, message) {
+    return String(value || "").trim() ? "" : message;
+  }
+
+  function validateDecimalInput(value, label, { min = 0, allowZero = false } = {}) {
+    const text = stripGrouping(value);
+    if (!text) {
+      return `${label}을 입력해 주세요.`;
+    }
+    const amount = Number(text);
+    if (!Number.isFinite(amount)) {
+      return `${label}을 숫자로 입력해 주세요.`;
+    }
+    if (allowZero ? amount < min : amount <= min) {
+      return allowZero
+        ? `${label}은 ${min} 이상으로 입력해 주세요.`
+        : `${label}은 ${min}보다 크게 입력해 주세요.`;
     }
     return "";
   }
@@ -4297,6 +4318,151 @@ function App() {
       return "본명을 입력해 주세요.";
     }
     return "";
+  }
+
+  function validateInviteForm(form) {
+    return validateAuthEmail(form.email, "초대 이메일");
+  }
+
+  function validateTransactionForm(form) {
+    const dateMessage = validateRequiredText(form.occurred_on, "일자를 입력해 주세요.");
+    if (dateMessage) {
+      return dateMessage;
+    }
+    return validateDecimalInput(form.amount, "금액");
+  }
+
+  function validateCategoryDraftForm() {
+    if (categoryDraftMajorSelect === "__custom__" && !String(categoryDraft.major || "").trim()) {
+      return "새 대분류를 입력해 주세요.";
+    }
+    if (categoryDraftMinorSelect === "__custom__" && !String(categoryDraft.minor || "").trim()) {
+      return "첫 중분류를 입력해 주세요.";
+    }
+    return "";
+  }
+
+  function validateHoldingForm(form, { tracked, showAverageCost }) {
+    const nameMessage = validateRequiredText(form.name, "자산명을 입력해 주세요.");
+    if (nameMessage) {
+      return nameMessage;
+    }
+    if (tracked) {
+      const symbolMessage = validateRequiredText(form.symbol, "심볼을 입력해 주세요.");
+      if (symbolMessage) {
+        return symbolMessage;
+      }
+      const quantityMessage = validateDecimalInput(form.quantity, "수량");
+      if (quantityMessage) {
+        return quantityMessage;
+      }
+    }
+    if (showAverageCost) {
+      const averageCostLabel = tracked ? "평균단가" : "평가금액";
+      const averageCostMessage = validateDecimalInput(form.average_cost, averageCostLabel, { allowZero: true });
+      if (averageCostMessage) {
+        return averageCostMessage;
+      }
+    }
+    const currencyMessage = validateRequiredText(form.currency, "통화를 입력해 주세요.");
+    if (currencyMessage) {
+      return currencyMessage;
+    }
+    return "";
+  }
+
+  function validateHoldingTypeDraftForm() {
+    const nextKey = normalizeHoldingTypeKey(holdingTypeDraft.key || holdingTypeDraft.label);
+    const nextLabel = String(holdingTypeDraft.label || "").trim();
+    if (!nextKey && !nextLabel) {
+      return "유형 키와 이름을 입력해 주세요.";
+    }
+    if (!nextKey) {
+      return "유형 키를 입력해 주세요.";
+    }
+    if (!nextLabel) {
+      return "유형 이름을 입력해 주세요.";
+    }
+    return "";
+  }
+
+  function getValidationFieldLabel(target) {
+    const labelElement = target?.labels?.[0] || target?.closest?.("label");
+    const directLabelText =
+      labelElement && typeof Node !== "undefined"
+        ? Array.from(labelElement.childNodes || [])
+            .filter((node) => node.nodeType === Node.TEXT_NODE)
+            .map((node) => node.textContent || "")
+            .join(" ")
+        : "";
+    const fallbackText =
+      target?.getAttribute?.("aria-label") ||
+      target?.getAttribute?.("placeholder") ||
+      directLabelText ||
+      labelElement?.textContent ||
+      target?.name ||
+      "필수 입력값";
+    return String(fallbackText || "필수 입력값")
+      .replace(/\*/g, "")
+      .replace(/\s+/g, " ")
+      .trim() || "필수 입력값";
+  }
+
+  function getObjectParticle(text) {
+    const lastChar = Array.from(String(text || "").trim()).pop();
+    if (!lastChar) {
+      return "을";
+    }
+    const code = lastChar.charCodeAt(0);
+    if (code < 0xac00 || code > 0xd7a3) {
+      return "을";
+    }
+    return (code - 0xac00) % 28 === 0 ? "를" : "을";
+  }
+
+  function getNativeValidationMessage(target) {
+    if (!target?.validity) {
+      return "";
+    }
+    const label = getValidationFieldLabel(target);
+    const validity = target.validity;
+    if (validity.valueMissing) {
+      return `${label}${getObjectParticle(label)} 입력해 주세요.`;
+    }
+    if (validity.typeMismatch && target.type === "email") {
+      return `올바른 ${label.includes("이메일") ? label : "이메일"} 주소를 입력해 주세요.`;
+    }
+    if (validity.patternMismatch) {
+      return `${label} 형식을 확인해 주세요.`;
+    }
+    if (validity.rangeUnderflow) {
+      return `${label}은 최소값 이상으로 입력해 주세요.`;
+    }
+    if (validity.rangeOverflow) {
+      return `${label}은 최대값 이하로 입력해 주세요.`;
+    }
+    if (validity.stepMismatch || validity.badInput) {
+      return `${label} 값을 확인해 주세요.`;
+    }
+    return "";
+  }
+
+  function handleInvalidFormField(event) {
+    const target = event.target;
+    if (typeof target?.setCustomValidity !== "function") {
+      return;
+    }
+    const validationMessage = getNativeValidationMessage(target);
+    if (validationMessage) {
+      target.setCustomValidity(validationMessage);
+    }
+  }
+
+  function clearNativeValidationMessage(event) {
+    const target = event.target;
+    if (typeof target?.setCustomValidity === "function") {
+      target.setCustomValidity("");
+    }
   }
 
   async function runAuth(event) {
@@ -4544,6 +4710,11 @@ function App() {
 
   async function createHouseholdInvite(event) {
     event.preventDefault();
+    const validationMessage = validateInviteForm(inviteForm);
+    if (validationMessage) {
+      setMessage(validationMessage);
+      return;
+    }
     setLoading(true);
     setMessage("");
     try {
@@ -4552,7 +4723,7 @@ function App() {
         {
           method: "POST",
           body: JSON.stringify({
-            email: inviteForm.email,
+            email: String(inviteForm.email || "").trim(),
             role: inviteForm.role,
           }),
         },
@@ -4701,6 +4872,11 @@ function App() {
       setMessage(uiGuideMessage("현재 권한으로는 거래를 저장할 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
       return;
     }
+    const validationMessage = validateTransactionForm(txForm);
+    if (validationMessage) {
+      setMessage(validationMessage);
+      return;
+    }
     setLoading(true);
     setMessage("");
     try {
@@ -4811,6 +4987,14 @@ function App() {
       setMessage(uiGuideMessage("현재 권한으로는 자산을 저장할 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
       return;
     }
+    const validationMessage = validateHoldingForm(holdingForm, {
+      tracked: holdingFormTracked,
+      showAverageCost: holdingFormShowAverageCost,
+    });
+    if (validationMessage) {
+      setMessage(validationMessage);
+      return;
+    }
     setLoading(true);
     setMessage("");
     try {
@@ -4843,6 +5027,11 @@ function App() {
       return;
     }
     if (!txInlineEdit?.id) return;
+    const validationMessage = validateTransactionForm(txInlineEdit);
+    if (validationMessage) {
+      setMessage(validationMessage);
+      return;
+    }
     setLoading(true);
     setMessage("");
     try {
@@ -4899,6 +5088,16 @@ function App() {
       return;
     }
     if (!holdingInlineEdit?.id) {
+      return;
+    }
+    const inlineType =
+      holdingTypeByKey.get(normalizeHoldingTypeKey(holdingInlineEdit.type_key || holdingInlineEdit.asset_type || "")) || holdingFormType;
+    const validationMessage = validateHoldingForm(holdingInlineEdit, {
+      tracked: Boolean(inlineType?.tracked ?? isMarketTrackedAssetType(holdingInlineEdit.asset_type)),
+      showAverageCost: Boolean(inlineType?.show_average_cost ?? true),
+    });
+    if (validationMessage) {
+      setMessage(validationMessage);
       return;
     }
     setLoading(true);
@@ -5008,6 +5207,11 @@ function App() {
 
   async function createCategoryPair(event) {
     event.preventDefault();
+    const validationMessage = validateCategoryDraftForm();
+    if (validationMessage) {
+      setMessage(validationMessage);
+      return;
+    }
     setLoading(true);
     setMessage("");
     try {
@@ -5522,6 +5726,11 @@ function App() {
 
   async function saveHoldingTypeDefinition(event) {
     event.preventDefault();
+    const validationMessage = validateHoldingTypeDraftForm();
+    if (validationMessage) {
+      setMessage(validationMessage);
+      return;
+    }
     const nextKey = normalizeHoldingTypeKey(holdingTypeDraft.key || holdingTypeDraft.label);
     const nextLabel = String(holdingTypeDraft.label || "").trim();
     if (!nextKey || !nextLabel) {
@@ -5807,7 +6016,7 @@ function App() {
         {isEditing && editForm && (
           <tr key={`${rowKey}-editor`} className="holding-inline-editor-row">
             <td colSpan={11}>
-              <form className="form-grid holdings-inline-editor" onSubmit={submitHoldingInlineEdit}>
+              <form className="form-grid holdings-inline-editor" onSubmit={submitHoldingInlineEdit} noValidate>
                 <label>
                   유형
                   <select
@@ -6820,6 +7029,7 @@ function App() {
         className="transaction-quick-form transaction-entry-sheet-form"
         data-testid="transaction-quick-form"
         onSubmit={submitTransaction}
+        noValidate
         onFocusCapture={(event) => handleTransactionQuickFieldFocus(event.target)}
         onKeyDownCapture={handleTransactionQuickFormKeyDown}
         onPointerDownCapture={rememberActiveTransactionQuickField}
@@ -7037,6 +7247,7 @@ function App() {
       <form
         className={`form-grid transactions-form-grid${sheetMode ? " transaction-entry-sheet-form" : ""}`}
         onSubmit={submitTransaction}
+        noValidate
       >
       <label className="date-field">
         일자
@@ -7176,7 +7387,7 @@ function App() {
       className={`transaction-category-manager-content${sheetMode ? " transaction-category-manager-content-sheet" : ""}`}
       data-testid={sheetMode ? "transaction-category-sheet-step" : undefined}
     >
-      <form className="form-grid settings-form-grid category-create-form" onSubmit={createCategoryPair}>
+      <form className="form-grid settings-form-grid category-create-form" onSubmit={createCategoryPair} noValidate>
         <div className="settings-preview category-manager-guide">
           <strong>새 카테고리 만들기</strong>
           <span>{categoryDraftGuideText}</span>
@@ -7324,7 +7535,13 @@ function App() {
 
   if (!authReady) {
     return (
-      <main className="auth-shell" translate="no">
+      <main
+        className="auth-shell"
+        translate="no"
+        onInvalidCapture={handleInvalidFormField}
+        onInputCapture={clearNativeValidationMessage}
+        onChangeCapture={clearNativeValidationMessage}
+      >
         <div className="auth-card">
           <h1>Money Flow</h1>
           <p>세션을 확인하는 중입니다. 잠시만 기다려 주세요.</p>
@@ -7380,7 +7597,13 @@ function App() {
           ? "회원가입"
           : "인증";
     return (
-      <main className="auth-shell" translate="no">
+      <main
+        className="auth-shell"
+        translate="no"
+        onInvalidCapture={handleInvalidFormField}
+        onInputCapture={clearNativeValidationMessage}
+        onChangeCapture={clearNativeValidationMessage}
+      >
         <div className="auth-layout">
           <section className="auth-hero-panel" aria-hidden="true">
             <div className="auth-brand-lockup">
@@ -7649,7 +7872,13 @@ function App() {
   };
 
   return (
-    <main className="app-shell" translate="no">
+    <main
+      className="app-shell"
+      translate="no"
+      onInvalidCapture={handleInvalidFormField}
+      onInputCapture={clearNativeValidationMessage}
+      onChangeCapture={clearNativeValidationMessage}
+    >
       <header className="topbar">
         <div className="topbar-identity">
           <span className="topbar-eyebrow">가계 금융 워크스페이스</span>
@@ -8530,7 +8759,7 @@ function App() {
             )}
             {showHoldingForm && (
               <div className="holdings-form-container">
-              <form className="holdings-form-grid" onSubmit={submitHolding}>
+              <form className="holdings-form-grid" onSubmit={submitHolding} noValidate>
                 <label>
                   유형
                   <select
@@ -9077,7 +9306,7 @@ function App() {
               <span className="settings-disclosure-chip settings-disclosure-chip-collapsed">펼치기</span>
               <span className="settings-disclosure-chip settings-disclosure-chip-expanded">접기</span>
             </summary>
-            <form className="form-grid settings-form-grid" onSubmit={saveHoldingTypeDefinition}>
+            <form className="form-grid settings-form-grid" onSubmit={saveHoldingTypeDefinition} noValidate>
               <label>
                 유형 키
                 <input
@@ -9260,7 +9489,7 @@ function App() {
                 </span>
               </div>
             </div>
-            <form className="form-grid settings-form-grid category-create-form" onSubmit={createCategoryPair}>
+            <form className="form-grid settings-form-grid category-create-form" onSubmit={createCategoryPair} noValidate>
               <div className="settings-preview category-manager-guide">
                 <strong>새 카테고리 만들기</strong>
                 <span>{categoryDraftGuideText}</span>
@@ -9620,7 +9849,7 @@ function App() {
               </div>
             )}
 
-            <form className="form-grid collaboration-form-grid" onSubmit={createHouseholdInvite}>
+            <form className="form-grid collaboration-form-grid" onSubmit={createHouseholdInvite} noValidate>
               <label>
                 초대할 이메일
                 <input
