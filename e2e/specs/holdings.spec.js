@@ -58,6 +58,40 @@ async function expectMobileHoldingDetailLabels(row) {
   ).toBe(true);
 }
 
+async function expectMobileHoldingNameReadable(row, expectedName) {
+  const metrics = await row.evaluate((element, name) => {
+    const nameCell = element.querySelector(".holding-col-name");
+    const nameLabel = element.querySelector(".holding-name-label");
+    const typeCell = element.querySelector(".holding-col-type");
+    const marketCell = element.querySelector(".holding-col-market");
+    const nameCellBox = nameCell?.getBoundingClientRect();
+    const nameLabelBox = nameLabel?.getBoundingClientRect();
+    const typeBox = typeCell?.getBoundingClientRect();
+    const marketBox = marketCell?.getBoundingClientRect();
+    return {
+      expectedName: name,
+      labelText: nameLabel?.textContent?.trim() || "",
+      labelClientWidth: nameLabel?.clientWidth ?? 0,
+      labelScrollWidth: nameLabel?.scrollWidth ?? 0,
+      nameCellWidth: nameCellBox?.width ?? 0,
+      nameBottom: (nameLabelBox?.y ?? 0) + (nameLabelBox?.height ?? 0),
+      typeY: typeBox?.y ?? 0,
+      marketY: marketBox?.y ?? 0,
+      rowClientWidth: element.clientWidth,
+      rowScrollWidth: element.scrollWidth,
+    };
+  }, expectedName);
+  expect(metrics.labelText).toBe(expectedName);
+  expect(
+    metrics.labelScrollWidth <= metrics.labelClientWidth + 1,
+    `holding name should not be ellipsized at 320px: ${JSON.stringify(metrics)}`
+  ).toBe(true);
+  expect(metrics.nameCellWidth).toBeGreaterThanOrEqual(170);
+  expect(metrics.typeY).toBeGreaterThanOrEqual(metrics.nameBottom - 1);
+  expect(metrics.marketY).toBeGreaterThanOrEqual(metrics.nameBottom - 1);
+  expect(metrics.rowScrollWidth - metrics.rowClientWidth).toBeLessThanOrEqual(1);
+}
+
 test("holdings flow: create, inline edit, delete, responsive", async ({ page }) => {
   test.setTimeout(240_000);
 
@@ -351,6 +385,30 @@ test("mobile holding expanded details show labeled values", async ({ page }) => 
     await expectNoHorizontalOverflow(page, 12);
     await capture(page, `holdings-mobile-detail-labels-${scenario.slug}`);
   }
+});
+
+test("mobile holding names remain readable at 320px", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("holding-name-mobile")}@example.com`;
+  const displayName = unique("holding-name-mobile-owner");
+  const holdingName = "KB 생활비 통장";
+
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 1366, height: 960 });
+  await createBasicHolding(page, { name: holdingName, category: "현금성" });
+
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.addStyleTag({
+    content: 'html, body, button, input, select, textarea { font-family: "Malgun Gothic", "Noto Sans KR", sans-serif !important; }',
+  });
+  await openTab(page, "자산");
+  const mobileRow = page.locator("tr.holding-row", { hasText: holdingName }).first();
+  await expect(mobileRow).toBeVisible();
+  await expect(mobileRow).not.toHaveClass(/mobile-row-expanded/);
+  await expectMobileHoldingNameReadable(mobileRow, holdingName);
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "holdings-mobile-name-readable-320");
 });
 
 test("holdings stock fields keep grouped decimals", async ({ page }) => {
