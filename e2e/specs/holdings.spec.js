@@ -177,6 +177,15 @@ test("holdings flow: create, inline edit, delete, responsive", async ({ page }) 
     });
     await openTab(page, "자산");
   }
+  const cryptoHoldingName = unique("holding-crypto");
+  await createBasicHolding(page, {
+    name: cryptoHoldingName,
+    category: "가상자산",
+    type: "crypto",
+    symbol: "BTC",
+    marketSymbol: "UPBIT",
+    marketValue: "123456",
+  });
 
   await page.setViewportSize({ width: 390, height: 844 });
   await openTab(page, "자산");
@@ -247,7 +256,9 @@ test("holdings flow: create, inline edit, delete, responsive", async ({ page }) 
   expect(summaryBoxAfterJump?.y ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(220);
   await expect(page.locator(".holdings-mobile-ledger-head")).toBeVisible();
   await expect(holdingSummaryCard.getByLabel("자산 포트폴리오 보기 기준")).toHaveCount(0);
-  await expect(holdingSummaryCard.getByLabel("자산 요약 보기 기준")).toBeVisible();
+  const mobileHoldingSummarySelect = holdingSummaryCard.getByLabel("자산 요약 보기 기준");
+  await expect(mobileHoldingSummarySelect).toBeVisible();
+  await mobileHoldingSummarySelect.selectOption("type");
   await expect(holdingSummaryCard.locator(".compact-support-section .chart-wrap")).toHaveCount(1);
   await expectNoOrphanTextLine(holdingSummaryCard.locator("summary > span"), "mobile holding summary title");
   await expectNoOrphanTextLine(
@@ -275,6 +286,21 @@ test("holdings flow: create, inline edit, delete, responsive", async ({ page }) 
   expect(breakdownLayout.height).toBeLessThanOrEqual(48);
   expect(Math.abs(breakdownLayout.valueY - breakdownLayout.percentY)).toBeLessThanOrEqual(4);
   expect(breakdownLayout.percentRightGap).toBeLessThanOrEqual(14);
+
+  const cryptoBreakdownFilter = holdingSummaryCard.getByRole("button", { name: "가상자산만 보기" });
+  await expect(cryptoBreakdownFilter).toBeVisible();
+  await cryptoBreakdownFilter.click();
+  const holdingTypeFilterStatus = page.getByTestId("holding-type-filter-status");
+  await expect(holdingTypeFilterStatus).toBeVisible();
+  await expect(holdingTypeFilterStatus).toContainText("유형 필터: 가상자산");
+  await expect(page.locator(".holding-list-card > .sub-tabs").getByRole("tab", { name: "전체" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".holding-list-card > .surface-list-heading .surface-count-summary")).toContainText(/중 1건 표시/);
+  await expect(page.locator("tr.holding-row", { hasText: cryptoHoldingName })).toBeVisible();
+  await expect(page.locator("tr.holding-row", { hasText: editedHoldingName })).toHaveCount(0);
+  await holdingTypeFilterStatus.getByRole("button", { name: "유형 필터 해제" }).click();
+  await expect(holdingTypeFilterStatus).toHaveCount(0);
+  await expect(page.locator("tr.holding-row", { hasText: editedHoldingName })).toBeVisible();
+
   for (const width of [345, 320]) {
     await page.setViewportSize({ width, height: 740 });
     await openTab(page, "자산");

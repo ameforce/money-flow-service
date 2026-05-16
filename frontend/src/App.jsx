@@ -2252,6 +2252,10 @@ function App() {
     holdingTypeFilter === "all"
       ? "전체"
       : holdingTypeTotals.find((item) => item.key === holdingTypeFilter)?.label || holdingTypeFilter;
+  const holdingListTabAriaLabel =
+    holdingTypeFilter === "all"
+      ? "자산 목록 분류"
+      : `자산 목록 분류, 유형 필터 ${activeHoldingTypeFilterLabel} 적용 중`;
   useEffect(() => {
     if (holdingTypeFilter === "all") {
       return;
@@ -9072,7 +9076,17 @@ function App() {
             >
               자산 포트폴리오 요약 보기
             </button>
-            <div className="tabs sub-tabs" role="tablist" aria-label="자산 목록 분류">
+            {holdingTypeFilter !== "all" && (
+              <div className="holding-type-filter-status" data-testid="holding-type-filter-status" role="status" aria-live="polite">
+                <span>
+                  유형 필터: <strong>{activeHoldingTypeFilterLabel}</strong>
+                </span>
+                <button type="button" className="secondary" onClick={() => setHoldingTypeFilter("all")}>
+                  유형 필터 해제
+                </button>
+              </div>
+            )}
+            <div className="tabs sub-tabs" role="tablist" aria-label={holdingListTabAriaLabel}>
               {dynamicHoldingTabs.map((tabItem) => (
                 <button
                   key={tabItem.value}

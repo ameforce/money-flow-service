@@ -1378,6 +1378,33 @@
   color: #173a67;
 }
 
+.holding-type-filter-status {
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.55rem;
+  width: 100%;
+  min-width: 0;
+  padding: 0.48rem 0.56rem;
+  border: 1px solid #c7d8ef;
+  border-radius: 8px;
+  background: #eef6ff;
+  color: #174a8b;
+  font-size: 0.8rem;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.holding-type-filter-status span {
+  min-width: 0;
+}
+
+.holding-type-filter-status button {
+  flex: 0 0 auto;
+  min-height: 2.5rem;
+  padding-inline: 0.7rem;
+}
+
 .surface-chip-muted {
   color: #6a7f99;
   background: #ffffff;
@@ -4894,8 +4921,13 @@ thead {
     justify-self: start;
   }
 
-  .holding-list-card > .sub-tabs {
+  .holding-list-card > .holding-type-filter-status {
     order: 4;
+    display: flex;
+  }
+
+  .holding-list-card > .sub-tabs {
+    order: 5;
     flex-wrap: wrap;
     overflow: visible;
     padding-bottom: 0;
@@ -4906,7 +4938,7 @@ thead {
   }
 
   .holding-list-card > .message {
-    order: 5;
+    order: 6;
   }
 
   .holding-list-card > .holdings-surface-scroll {
