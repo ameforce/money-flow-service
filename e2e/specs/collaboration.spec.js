@@ -145,10 +145,14 @@ test("collaboration flow: invite, accept, switch household, responsive", async (
     const ownerMembersCard = ownerPage.locator("article.card", {
       has: ownerPage.getByRole("heading", { name: "멤버 목록" }),
     });
+    const ownerSelfMemberRow = ownerMembersCard.locator("tbody tr", { hasText: ownerDisplayName }).first();
+    await expect(ownerSelfMemberRow.locator("select").first()).toBeDisabled();
+    await expect(ownerSelfMemberRow.getByRole("button", { name: "본인" })).toBeDisabled();
     const ownerGuestMemberRow = ownerMembersCard.locator("tbody tr", { hasText: guestDisplayName }).first();
     const ownerRoleSelect = ownerGuestMemberRow.locator("select").first();
     const canChangeRole = await ownerRoleSelect.isVisible().catch(() => false);
     if (canChangeRole) {
+      await expect(ownerRoleSelect).toBeEnabled();
       await ownerRoleSelect.selectOption("editor");
     }
 

@@ -10131,14 +10131,18 @@ function App() {
                 )}
                 {householdMembers.map((member) => {
                   const isSelf = Boolean(user?.id && member.user_id === user.id);
+                  const roleSelectDisabled = !canManageHousehold || loading || isSelf;
+                  const memberRoleLabel = `${member.display_name || member.email || "구성원"} 권한`;
                   return (
                     <tr key={member.member_id}>
                       <td data-label="이름">{member.display_name || "-"}</td>
                       <td data-label="이메일">{member.email || "-"}</td>
                       <td data-label="권한">
                         <select
+                          aria-label={memberRoleLabel}
                           value={member.role}
-                          disabled={!canManageHousehold || loading}
+                          disabled={roleSelectDisabled}
+                          title={isSelf ? "본인 권한은 다른 공동 소유자가 변경해야 합니다." : undefined}
                           onChange={(event) =>
                             changeMemberRole(member.member_id, event.target.value).catch(() => undefined)
                           }
