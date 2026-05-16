@@ -6005,13 +6005,28 @@ function App() {
               </span>
             ) : null}
           </td>
-          <td data-label="보유자" className="holding-col-owner" data-field-key="owner_name" data-mobile-priority={holdingMobilePriority("owner_name")}>{item.owner_name || "-"}</td>
+          <td data-label="보유자" className="holding-col-owner holding-mobile-detail-cell" data-field-key="owner_name" data-mobile-priority={holdingMobilePriority("owner_name")}>
+            <span className="holding-mobile-detail-label">보유자</span>
+            <span className="holding-mobile-detail-value">{item.owner_name || "-"}</span>
+          </td>
           <td data-label="카테고리" className="holding-col-category" data-field-key="category" data-mobile-priority={holdingMobilePriority("category")}>{item.category}</td>
-          <td data-label="수량" className="holding-col-quantity" data-field-key="quantity" data-mobile-priority={holdingMobilePriority("quantity")}>{fmt(item.quantity)}</td>
-          <td data-label="평균단가" className="holding-col-average" data-field-key="average_cost" data-mobile-priority={holdingMobilePriority("average_cost")}>{itemType?.show_average_cost ?? true ? fmt(item.average_cost) : "-"}</td>
+          <td data-label="수량" className="holding-col-quantity holding-mobile-detail-cell" data-field-key="quantity" data-mobile-priority={holdingMobilePriority("quantity")}>
+            <span className="holding-mobile-detail-label">수량</span>
+            <span className="holding-mobile-detail-value">{fmt(item.quantity)}</span>
+          </td>
+          <td data-label="평균단가" className="holding-col-average holding-mobile-detail-cell" data-field-key="average_cost" data-mobile-priority={holdingMobilePriority("average_cost")}>
+            <span className="holding-mobile-detail-label">평균단가</span>
+            <span className="holding-mobile-detail-value">{itemType?.show_average_cost ?? true ? fmt(item.average_cost) : "-"}</span>
+          </td>
           <td data-label="평가(KRW)" className="holding-col-market" data-field-key="market_value_krw" data-mobile-priority={holdingMobilePriority("market_value_krw")}>{fmtKrw(item.market_value_krw)}</td>
-          <td data-label="손익(KRW)" className="holding-col-gain" data-field-key="gain_loss_krw" data-mobile-priority={holdingMobilePriority("gain_loss_krw")}>{showGainLoss ? fmtKrw(item.gain_loss_krw) : "-"}</td>
-          <td data-label="최종 수정일" className="holding-col-updated" data-field-key="updated_at" data-mobile-priority={holdingMobilePriority("updated_at")}>{fmtDate(holdingUpdatedAtById.get(item.holding_id))}</td>
+          <td data-label="손익(KRW)" className="holding-col-gain holding-mobile-detail-cell" data-field-key="gain_loss_krw" data-mobile-priority={holdingMobilePriority("gain_loss_krw")}>
+            <span className="holding-mobile-detail-label">손익</span>
+            <span className="holding-mobile-detail-value">{showGainLoss ? fmtKrw(item.gain_loss_krw) : "-"}</span>
+          </td>
+          <td data-label="최종 수정일" className="holding-col-updated holding-mobile-detail-cell" data-field-key="updated_at" data-mobile-priority={holdingMobilePriority("updated_at")}>
+            <span className="holding-mobile-detail-label">최종 수정일</span>
+            <span className="holding-mobile-detail-value">{fmtDate(holdingUpdatedAtById.get(item.holding_id))}</span>
+          </td>
           <td data-label="동작" className="holding-col-actions" data-mobile-priority="action">
             <div className="inline">
               <button type="button" className="secondary row-order-btn" disabled={!canEditRecords || loading} onClick={() => moveHoldingDisplayOrder(item, -1).catch(() => undefined)}>

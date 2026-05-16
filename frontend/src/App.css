@@ -3946,8 +3946,13 @@ thead {
 .transaction-owner-chip,
 .transaction-flow-short,
 .holding-mobile-meta,
+.holding-mobile-detail-label,
 .holding-owner-chip {
   display: none;
+}
+
+.holding-mobile-detail-value {
+  display: inline;
 }
 
 .transaction-mobile-expanded-actions-row,
@@ -6582,20 +6587,45 @@ thead {
   .holdings-surface-table tbody tr.holding-row.mobile-row-expanded .holding-col-average,
   .holdings-surface-table tbody tr.holding-row.mobile-row-expanded .holding-col-gain,
   .holdings-surface-table tbody tr.holding-row.mobile-row-expanded .holding-col-updated {
-    display: block !important;
-    grid-column: 2 / -1;
+    display: grid !important;
+    grid-template-columns: minmax(4.8rem, max-content) minmax(0, 1fr);
+    align-items: baseline;
+    gap: 0.55rem;
+    grid-column: 1 / -1;
     padding-top: 0.18rem;
     font-size: 0.78rem;
     color: #5f7596;
   }
 
   .holdings-surface-table tbody tr.holding-row.mobile-row-expanded .holding-col-owner {
-    display: block !important;
-    grid-column: 2 / -1;
+    display: grid !important;
+    grid-template-columns: minmax(4.8rem, max-content) minmax(0, 1fr);
+    align-items: baseline;
+    gap: 0.55rem;
+    grid-column: 1 / -1;
     padding-top: 0.28rem;
     border-top: 1px solid var(--holding-row-border, rgba(220, 230, 244, 0.9));
     font-size: 0.76rem;
     color: #5f7596;
+  }
+
+  .holdings-surface-table tbody tr.holding-row.mobile-row-expanded .holding-mobile-detail-label {
+    display: block;
+    min-width: 0;
+    color: #355177;
+    font-size: 0.68rem;
+    font-weight: 700;
+    line-height: 1.2;
+    overflow-wrap: keep-all;
+    white-space: nowrap;
+  }
+
+  .holdings-surface-table tbody tr.holding-row.mobile-row-expanded .holding-mobile-detail-value {
+    display: block;
+    min-width: 0;
+    justify-self: end;
+    text-align: right;
+    overflow-wrap: anywhere;
   }
 
   .holdings-surface-table .holding-col-actions {

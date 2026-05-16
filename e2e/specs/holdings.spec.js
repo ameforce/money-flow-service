@@ -19,6 +19,30 @@ import {
   unique,
 } from "../support/helpers";
 
+async function expectMobileHoldingDetailLabels(row) {
+  for (const label of ["보유자", "수량", "평균단가", "손익", "최종 수정일"]) {
+    await expect(row.locator(".holding-mobile-detail-label", { hasText: label }).first()).toBeVisible();
+  }
+  const expandedDetailRows = await row.locator(".holding-mobile-detail-cell").evaluateAll((cells) =>
+    cells.map((cell) => {
+      const label = cell.querySelector(".holding-mobile-detail-label")?.getBoundingClientRect();
+      const value = cell.querySelector(".holding-mobile-detail-value")?.getBoundingClientRect();
+      return {
+        labelText: cell.querySelector(".holding-mobile-detail-label")?.textContent?.trim() || "",
+        valueText: cell.querySelector(".holding-mobile-detail-value")?.textContent?.trim() || "",
+        labelWidth: label?.width ?? 0,
+        valueWidth: value?.width ?? 0,
+        overlaps: Boolean(label && value && label.right > value.left),
+      };
+    })
+  );
+  expect(expandedDetailRows.length).toBeGreaterThanOrEqual(5);
+  expect(
+    expandedDetailRows.every((item) => item.labelText && item.valueText && item.labelWidth > 0 && item.valueWidth > 0 && !item.overlaps),
+    `holding mobile detail labels should be visible and separated: ${JSON.stringify(expandedDetailRows)}`
+  ).toBe(true);
+}
+
 test("holdings flow: create, inline edit, delete, responsive", async ({ page }) => {
   test.setTimeout(240_000);
 
@@ -253,6 +277,7 @@ test("holdings flow: create, inline edit, delete, responsive", async ({ page }) 
   await expect(mobileEditedRow).toHaveClass(/mobile-row-expanded/);
   const expandedActionRow = mobileEditedRow.locator("xpath=following-sibling::tr[1][contains(@class,'holding-mobile-expanded-actions-row')]");
   await expect(expandedActionRow).toBeVisible();
+  await expectMobileHoldingDetailLabels(mobileEditedRow);
   await expect(expandedActionRow.getByRole("button", { name: "수정" })).toBeVisible();
   await expect(expandedActionRow.getByRole("button", { name: "삭제" })).toBeVisible();
   await expect(mobileEditedRow.locator(".holding-col-actions .row-delete-btn")).toBeHidden();
@@ -271,6 +296,38 @@ test("holdings flow: create, inline edit, delete, responsive", async ({ page }) 
   await confirmDialog.getByRole("button", { name: "삭제" }).click();
   await expect(page.getByText("자산을 삭제했습니다.")).toBeVisible();
   await expect(page.locator("tr.holding-row", { hasText: editedHoldingName })).toHaveCount(0);
+});
+
+test("mobile holding expanded details show labeled values", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("holding-detail-label")}@example.com`;
+  const displayName = unique("holding-detail-label-name");
+  const holdingName = unique("holding-detail-label");
+  const holdingCategory = unique("상세라벨");
+
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 390, height: 844 });
+  const row = await createBasicHolding(page, { name: holdingName, category: holdingCategory });
+  await expect(row).toBeVisible();
+  await row.locator(".mobile-toggle-btn").first().click();
+  await expect(row).toHaveClass(/mobile-row-expanded/);
+  const scenarios = [
+    { width: 390, height: 844, font: "Apple SD Gothic Neo", slug: "390-apple" },
+    { width: 320, height: 740, font: "Malgun Gothic", slug: "320-malgun" },
+    { width: 412, height: 915, font: "Noto Sans KR", slug: "412-noto" },
+  ];
+  for (const scenario of scenarios) {
+    await page.setViewportSize({ width: scenario.width, height: scenario.height });
+    await page.addStyleTag({
+      content: `html, body, button, input, select, textarea { font-family: "${scenario.font}", "Noto Sans KR", sans-serif !important; }`,
+    });
+    await row.scrollIntoViewIfNeeded();
+    await expect(row).toHaveClass(/mobile-row-expanded/);
+    await expectMobileHoldingDetailLabels(row);
+    await expectNoHorizontalOverflow(page, 12);
+    await capture(page, `holdings-mobile-detail-labels-${scenario.slug}`);
+  }
 });
 
 test("holdings stock fields keep grouped decimals", async ({ page }) => {
