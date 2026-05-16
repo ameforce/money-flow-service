@@ -293,6 +293,7 @@ test("holdings flow: create, inline edit, delete, responsive", async ({ page }) 
   const holdingTypeFilterStatus = page.getByTestId("holding-type-filter-status");
   await expect(holdingTypeFilterStatus).toBeVisible();
   await expect(holdingTypeFilterStatus).toContainText("유형 필터: 가상자산");
+  await expectNoHorizontalOverflow(page, 12);
   await expect(page.locator(".holding-list-card > .sub-tabs").getByRole("tab", { name: "전체" })).toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".holding-list-card > .surface-list-heading .surface-count-summary")).toContainText(/중 1건 표시/);
   await expect(page.locator("tr.holding-row", { hasText: cryptoHoldingName })).toBeVisible();
