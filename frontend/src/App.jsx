@@ -4252,9 +4252,63 @@ function App() {
     }
   }
 
+  function validateAuthEmail(value) {
+    const email = String(value || "").trim();
+    if (!email) {
+      return "이메일을 입력해 주세요.";
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return "올바른 이메일 주소를 입력해 주세요.";
+    }
+    return "";
+  }
+
+  function validateLoginForm(form) {
+    const emailMessage = validateAuthEmail(form.email);
+    if (emailMessage) {
+      return emailMessage;
+    }
+    if (!String(form.password || "")) {
+      return "비밀번호를 입력해 주세요.";
+    }
+    return "";
+  }
+
+  function validateRegisterForm(form) {
+    const emailMessage = validateAuthEmail(form.email);
+    if (emailMessage) {
+      return emailMessage;
+    }
+    const password = String(form.password || "");
+    const passwordConfirm = String(form.password_confirm || "");
+    if (!password) {
+      return "비밀번호를 입력해 주세요.";
+    }
+    if (password.length < 8) {
+      return "비밀번호는 8자 이상이어야 합니다.";
+    }
+    if (!passwordConfirm) {
+      return "비밀번호 확인을 입력해 주세요.";
+    }
+    if (password !== passwordConfirm) {
+      return "비밀번호 확인이 일치하지 않습니다.";
+    }
+    if (!String(form.display_name || "").trim()) {
+      return "본명을 입력해 주세요.";
+    }
+    return "";
+  }
+
   async function runAuth(event) {
     event.preventDefault();
     const currentMode = authMode;
+    if (currentMode === "login") {
+      const validationMessage = validateLoginForm(authForm);
+      if (validationMessage) {
+        setMessage(validationMessage);
+        return;
+      }
+    }
     if (currentMode === "register" || currentMode === "verify") {
       const activeForm = currentMode === "verify" ? verifyForm : authForm;
       if (currentMode === "verify") {
@@ -4290,14 +4344,9 @@ function App() {
           }
         }
       } else {
-        const password = String(activeForm.password || "");
-        const passwordConfirm = String(activeForm.password_confirm || "");
-        if (password.length < 8) {
-          setMessage("비밀번호는 8자 이상이어야 합니다.");
-          return;
-        }
-        if (password !== passwordConfirm) {
-          setMessage("비밀번호 확인이 일치하지 않습니다.");
+        const validationMessage = validateRegisterForm(activeForm);
+        if (validationMessage) {
+          setMessage(validationMessage);
           return;
         }
       }
@@ -4331,7 +4380,7 @@ function App() {
         await api(`${API_PREFIX}/auth/login`, {
           method: "POST",
           body: JSON.stringify({
-            email: authForm.email,
+            email: String(authForm.email || "").trim(),
             password: authForm.password,
             remember_me: keepSignedIn,
           }),
@@ -4340,9 +4389,9 @@ function App() {
         const registerResp = await api(`${API_PREFIX}/auth/register`, {
           method: "POST",
           body: JSON.stringify({
-            email: authForm.email,
+            email: String(authForm.email || "").trim(),
             password: authForm.password,
-            display_name: authForm.display_name,
+            display_name: String(authForm.display_name || "").trim(),
             remember_me: keepSignedIn,
           }),
         });
@@ -7346,7 +7395,7 @@ function App() {
               <p>계정 보호와 협업 준비를 간결한 흐름으로 이어갑니다.</p>
             </div>
           </section>
-          <form className={`auth-card auth-card-${authMode}`} onSubmit={runAuth}>
+          <form className={`auth-card auth-card-${authMode}`} onSubmit={runAuth} noValidate>
             <div className="auth-card-header">
               <span className="auth-mode-pill">{authModeKicker}</span>
               <h1>Money Flow</h1>

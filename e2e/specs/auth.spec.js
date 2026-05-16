@@ -53,6 +53,38 @@ async function expectAuthFooterClear(page) {
   expect(metrics.switcherGap).toBeGreaterThanOrEqual(6);
 }
 
+test("auth forms show Korean required-field validation", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByRole("button", { name: "로그인하기" }).click();
+  await expect(page.getByText("이메일을 입력해 주세요.")).toBeVisible();
+
+  await page.getByLabel("이메일", { exact: true }).fill("not-an-email");
+  await page.getByRole("button", { name: "로그인하기" }).click();
+  await expect(page.getByText("올바른 이메일 주소를 입력해 주세요.")).toBeVisible();
+
+  await page.getByLabel("이메일", { exact: true }).fill("login-required@example.com");
+  await page.getByRole("button", { name: "로그인하기" }).click();
+  await expect(page.getByText("비밀번호를 입력해 주세요.")).toBeVisible();
+
+  await page.getByRole("button", { name: "회원가입" }).click();
+  await page.getByLabel("이메일", { exact: true }).fill("");
+  await page.getByRole("button", { name: "회원가입하고 시작" }).click();
+  await expect(page.getByText("이메일을 입력해 주세요.")).toBeVisible();
+
+  await page.getByLabel("이메일", { exact: true }).fill("register-required@example.com");
+  await page.getByRole("button", { name: "회원가입하고 시작" }).click();
+  await expect(page.getByText("비밀번호를 입력해 주세요.")).toBeVisible();
+
+  await page.getByLabel("비밀번호", { exact: true }).fill(TEST_PASSWORD);
+  await page.getByRole("button", { name: "회원가입하고 시작" }).click();
+  await expect(page.getByText("비밀번호 확인을 입력해 주세요.")).toBeVisible();
+
+  await page.getByLabel("비밀번호 확인").fill(TEST_PASSWORD);
+  await page.getByRole("button", { name: "회원가입하고 시작" }).click();
+  await expect(page.getByText("본명을 입력해 주세요.")).toBeVisible();
+});
+
 test("auth flow: register validation, verify, logout, relogin", async ({ page }) => {
   test.setTimeout(180_000);
 
