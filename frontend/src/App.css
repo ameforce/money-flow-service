@@ -5974,7 +5974,7 @@ thead {
   }
 
   .transactions-mobile-ledger-head {
-    grid-template-columns: 2.35rem minmax(0, 1fr) minmax(2.6rem, max-content) minmax(2.6rem, max-content) 1.85rem;
+    grid-template-columns: minmax(2.6rem, max-content) minmax(0, 1fr) minmax(2.6rem, max-content) minmax(2.6rem, max-content) 1.85rem;
     grid-template-areas: "date main amount cues actions";
   }
 
