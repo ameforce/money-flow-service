@@ -70,6 +70,55 @@ async function expectDonutLabelsInsideChart(card, label) {
   }
 }
 
+async function expectDashboardHeroNoInternalOverflow(page, label) {
+  const metrics = await page.locator(".dashboard-hero-card").evaluate((hero) => {
+    const heroBox = hero.getBoundingClientRect();
+    const selectors = [
+      ".dashboard-hero-copy",
+      ".dashboard-hero-metric",
+      ".dashboard-hero-metric strong",
+      ".dashboard-hero-metric small",
+      ".dashboard-kpi-grid",
+      ".dashboard-kpi-card",
+      ".dashboard-kpi-card strong",
+      ".dashboard-kpi-value-line",
+      ".dashboard-kpi-value-main",
+      ".dashboard-kpi-value-meta",
+    ];
+    const elements = Array.from(hero.querySelectorAll(selectors.join(",")))
+      .map((element) => {
+        const box = element.getBoundingClientRect();
+        const style = getComputedStyle(element);
+        const overflowX = Math.max(
+          0,
+          element.scrollWidth - element.clientWidth,
+          box.right - heroBox.right,
+          heroBox.left - box.left,
+        );
+        return {
+          selector: selectors.find((selector) => element.matches(selector)) || element.tagName.toLowerCase(),
+          text: element.textContent?.replace(/\s+/g, " ").trim().slice(0, 80) || "",
+          display: style.display,
+          width: box.width,
+          height: box.height,
+          overflowX,
+        };
+      })
+      .filter((item) => item.display !== "none" && item.width > 0 && item.height > 0);
+    return {
+      heroClientWidth: hero.clientWidth,
+      heroScrollWidth: hero.scrollWidth,
+      worstElement: elements.sort((left, right) => right.overflowX - left.overflowX)[0] || null,
+    };
+  });
+
+  expect(metrics.heroScrollWidth, `${label} hero internal width`).toBeLessThanOrEqual(metrics.heroClientWidth + 1);
+  expect(
+    metrics.worstElement?.overflowX ?? 0,
+    `${label} internal overflow at ${metrics.worstElement?.selector || "none"}: ${metrics.worstElement?.text || ""}`,
+  ).toBeLessThanOrEqual(1);
+}
+
 async function readDashboardFilterLayout(filterCard) {
   return filterCard.evaluate((card) => {
     const mode = card.querySelector(".filter-modes-segmented")?.getBoundingClientRect();
@@ -408,6 +457,7 @@ test("dashboard flow: onboarding, portfolio coherence, summary visibility", asyn
   const dashboardSliceLabels = dashboardPortfolioCard.getByTestId("portfolio-donut-slice-label");
   const gainKpiCard = page.locator(".dashboard-kpi-card", { hasText: "평가손익(KRW)" }).first();
   await expect(gainKpiCard.locator(".dashboard-kpi-value-meta")).toContainText(/[+-]\d+(\.\d+)?%/);
+  await expectDashboardHeroNoInternalOverflow(page, "desktop 1366 dashboard hero");
   if ((await dashboardPortfolioSelect.count()) > 0) {
     await expect(dashboardPortfolioSelect).toHaveValue("holding_type");
     await expect(dashboardPortfolioSelect.locator("option")).toHaveText(["자산 유형", "거래 유형"]);
@@ -515,6 +565,7 @@ test("dashboard flow: onboarding, portfolio coherence, summary visibility", asyn
   await expectWithinViewport(page.getByRole("button", { name: "새로고침" }));
   await expectWithinViewport(page.getByRole("button", { name: "시세 갱신" }));
   await expect(page.locator(".dashboard-hero-card")).toBeVisible();
+  await expectDashboardHeroNoInternalOverflow(page, "mobile 390 dashboard hero");
   const mobileFilterCard = page.locator(".dashboard-filter-card");
   await expect(mobileFilterCard).toBeVisible();
   expectMonthlyFilterLayout(await readDashboardFilterLayout(mobileFilterCard));
@@ -653,6 +704,7 @@ test("dashboard flow: onboarding, portfolio coherence, summary visibility", asyn
       await openTab(page, "대시보드");
       await page.evaluate(() => window.scrollTo(0, 0));
       await expectNoHorizontalOverflow(page, 12);
+      await expectDashboardHeroNoInternalOverflow(page, profile.name);
       await expectMonthlyFilterLayout(await readDashboardFilterLayout(mobileFilterCard));
       await dashboardPortfolioCard.evaluate((card) => card.scrollIntoView({ block: "start", inline: "nearest" }));
       await page.waitForTimeout(80);
