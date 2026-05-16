@@ -990,6 +990,43 @@ test("transactions flow: create, inline edit, delete, responsive", async ({ page
   const editorRow = page.locator("tr.transaction-inline-editor-row").first();
   await expect(editorRow).toBeVisible();
 
+  const inlineEditorControlMetrics = await editorRow.evaluate((row) => {
+    const readControl = (ariaLabel) => {
+      const control = Array.from(row.querySelectorAll("input, select")).find(
+        (element) => element.getAttribute("aria-label") === ariaLabel,
+      );
+      const rect = control?.getBoundingClientRect();
+      return rect
+        ? {
+            width: rect.width,
+            clientWidth: control.clientWidth,
+            scrollWidth: control.scrollWidth,
+          }
+        : null;
+    };
+
+    return {
+      categoryGroup: readControl("카테고리 그룹"),
+      category: readControl("카테고리"),
+      owner: readControl("거래자"),
+    };
+  });
+  expect(inlineEditorControlMetrics.categoryGroup, "inline category group select should be measurable").not.toBeNull();
+  expect(inlineEditorControlMetrics.category, "inline category select should be measurable").not.toBeNull();
+  expect(inlineEditorControlMetrics.owner, "inline owner select should be measurable").not.toBeNull();
+  expect(
+    inlineEditorControlMetrics.categoryGroup?.width ?? 0,
+    `inline category group select should not collapse: ${JSON.stringify(inlineEditorControlMetrics)}`,
+  ).toBeGreaterThanOrEqual(120);
+  expect(
+    inlineEditorControlMetrics.category?.width ?? 0,
+    `inline category select should not collapse: ${JSON.stringify(inlineEditorControlMetrics)}`,
+  ).toBeGreaterThanOrEqual(120);
+  expect(
+    inlineEditorControlMetrics.owner?.width ?? 0,
+    `inline owner select should stay readable: ${JSON.stringify(inlineEditorControlMetrics)}`,
+  ).toBeGreaterThanOrEqual(140);
+
   await editorRow.getByLabel("메모").fill(editedMemo);
   await editorRow.getByLabel("금액").fill("54321");
   await editorRow.getByLabel("메모").press("Enter");

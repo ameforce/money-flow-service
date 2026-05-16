@@ -553,144 +553,135 @@ export function TransactionSurfaceTable({
                 )}
               {isEditing && editForm && (
                 <tr className="transaction-inline-editor-row transactions-inline-editor" onKeyDown={handleTxInlineEditKeyDown}>
-                  <td data-label="선택">-</td>
-                  <td data-label="일자">
-                    <label className="tx-inline-date-field">
-                      <IsoDateInput
-                        aria-label="일자"
-                        value={editForm.occurred_on}
-                        onValueChange={(value) => setTxInlineEdit({ ...editForm, occurred_on: value })}
-                        disabled={!canEditRecords}
-                        required
-                      />
-                    </label>
-                  </td>
-                  <td data-label="유형">
-                    <label className="tx-inline-type-field">
-                      <select
-                        aria-label="유형"
-                        value={editForm.flow_type}
-                        disabled={!canEditRecords}
-                        onChange={(e) => {
-                          setTxInlineEdit({
-                            ...editForm,
-                            flow_type: e.target.value,
-                            category_id: "",
-                            category_major: "",
-                          });
-                        }}
-                      >
-                        {FLOW_TYPE_OPTIONS.map((opt) => (
-                          <option key={opt.value} value={opt.value}>
-                            {opt.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  </td>
-                  <td data-label="카테고리">
-                    <div className="tx-inline-category-section" aria-label="카테고리 선택">
-                      <label className="tx-inline-major-field">
+                  <td colSpan={columnSpan} className="transaction-inline-editor-cell">
+                    <div className="transaction-inline-editor-grid">
+                      <label className="tx-inline-date-field">
+                        <IsoDateInput
+                          aria-label="일자"
+                          value={editForm.occurred_on}
+                          onValueChange={(value) => setTxInlineEdit({ ...editForm, occurred_on: value })}
+                          disabled={!canEditRecords}
+                          required
+                        />
+                      </label>
+                      <label className="tx-inline-type-field">
                         <select
-                          aria-label="카테고리 그룹"
-                          value={txInlineCategoryMajor}
+                          aria-label="유형"
+                          value={editForm.flow_type}
+                          disabled={!canEditRecords}
+                          onChange={(e) => {
+                            setTxInlineEdit({
+                              ...editForm,
+                              flow_type: e.target.value,
+                              category_id: "",
+                              category_major: "",
+                            });
+                          }}
+                        >
+                          {FLOW_TYPE_OPTIONS.map((opt) => (
+                            <option key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <div className="tx-inline-category-section" aria-label="카테고리 선택">
+                        <label className="tx-inline-major-field">
+                          <select
+                            aria-label="카테고리 그룹"
+                            value={txInlineCategoryMajor}
+                            disabled={!canEditRecords}
+                            onChange={(event) =>
+                              setTxInlineEdit({
+                                ...editForm,
+                                category_major: event.target.value,
+                                category_id: "",
+                              })
+                            }
+                          >
+                            <option value="">(선택 안함)</option>
+                            {txInlineCategoryMajorOptions.map((major) => (
+                              <option key={major} value={major}>
+                                {toCategoryMajorLabel(major)}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="tx-inline-minor-field">
+                          <select
+                            aria-label="카테고리"
+                            value={editForm.category_id}
+                            disabled={!canEditRecords || !txInlineCategoryMajor}
+                            onChange={(e) => setTxInlineEdit({ ...editForm, category_id: e.target.value })}
+                          >
+                            <option value="">(선택 안함)</option>
+                            {txInlineCategoryMinorOptions.map((cat) => (
+                              <option key={cat.id} value={cat.id}>
+                                {toCategoryMinorLabel(cat.minor)}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      </div>
+                      <label className="tx-inline-memo-field">
+                        <input
+                          aria-label="메모"
+                          placeholder="메모"
+                          value={editForm.memo}
+                          onChange={(e) => setTxInlineEdit({ ...editForm, memo: e.target.value })}
+                          disabled={!canEditRecords}
+                        />
+                      </label>
+                      <label className="tx-inline-amount-field">
+                        <input
+                          aria-label="금액"
+                          placeholder="금액"
+                          type="text"
+                          inputMode="decimal"
+                          value={editForm.amount}
+                          onChange={(event) => handleGroupedDecimalInput(event, setTxInlineEdit, "amount")}
+                          disabled={!canEditRecords}
+                          required
+                        />
+                      </label>
+                      <label className="tx-inline-owner-field">
+                        <select
+                          aria-label="거래자"
+                          value={ownerSelectValue(editForm.owner_user_id, editForm.owner_name)}
                           disabled={!canEditRecords}
                           onChange={(event) =>
                             setTxInlineEdit({
                               ...editForm,
-                              category_major: event.target.value,
-                              category_id: "",
+                              ...ownerSelectionFromValue(event.target.value, editOwnerOptions),
                             })
                           }
                         >
                           <option value="">(선택 안함)</option>
-                          {txInlineCategoryMajorOptions.map((major) => (
-                            <option key={major} value={major}>
-                              {toCategoryMajorLabel(major)}
+                          {editOwnerOptions.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
                             </option>
                           ))}
                         </select>
                       </label>
-                      <label className="tx-inline-minor-field">
-                        <select
-                          aria-label="카테고리"
-                          value={editForm.category_id}
-                          disabled={!canEditRecords || !txInlineCategoryMajor}
-                          onChange={(e) => setTxInlineEdit({ ...editForm, category_id: e.target.value })}
+                      <span className="tx-inline-updated-field" aria-label="최종 수정일">
+                        -
+                      </span>
+                      <div className="inline tx-inline-editor-actions">
+                        <button type="button" className="secondary" disabled={!canEditRecords} onClick={() => closeTxInlineEdit()}>
+                          취소
+                        </button>
+                        <button
+                          type="button"
+                          className="primary"
+                          disabled={!canEditRecords}
+                          onClick={() => {
+                            void submitTxInlineEdit();
+                          }}
                         >
-                          <option value="">(선택 안함)</option>
-                          {txInlineCategoryMinorOptions.map((cat) => (
-                            <option key={cat.id} value={cat.id}>
-                              {toCategoryMinorLabel(cat.minor)}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    </div>
-                  </td>
-                  <td data-label="메모">
-                    <label className="tx-inline-memo-field">
-                      <input
-                        aria-label="메모"
-                        placeholder="메모"
-                        value={editForm.memo}
-                        onChange={(e) => setTxInlineEdit({ ...editForm, memo: e.target.value })}
-                        disabled={!canEditRecords}
-                      />
-                    </label>
-                  </td>
-                  <td data-label="금액">
-                    <label className="tx-inline-amount-field">
-                      <input
-                        aria-label="금액"
-                        placeholder="금액"
-                        type="text"
-                        inputMode="decimal"
-                        value={editForm.amount}
-                        onChange={(event) => handleGroupedDecimalInput(event, setTxInlineEdit, "amount")}
-                        disabled={!canEditRecords}
-                        required
-                      />
-                    </label>
-                  </td>
-                  <td data-label="거래자명">
-                    <label className="tx-inline-owner-field">
-                      <select
-                        aria-label="거래자"
-                        value={ownerSelectValue(editForm.owner_user_id, editForm.owner_name)}
-                        disabled={!canEditRecords}
-                        onChange={(event) =>
-                          setTxInlineEdit({
-                            ...editForm,
-                            ...ownerSelectionFromValue(event.target.value, editOwnerOptions),
-                          })
-                        }
-                      >
-                        <option value="">(선택 안함)</option>
-                        {editOwnerOptions.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  </td>
-                  <td data-label="최종 수정일">-</td>
-                  <td data-label="동작">
-                    <div className="inline tx-inline-editor-actions">
-                      <button type="button" className="secondary" disabled={!canEditRecords} onClick={() => closeTxInlineEdit()}>
-                        취소
-                      </button>
-                      <button
-                        type="button"
-                        className="primary"
-                        disabled={!canEditRecords}
-                        onClick={() => {
-                          void submitTxInlineEdit();
-                        }}
-                      >
-                        저장
-                      </button>
+                          저장
+                        </button>
+                      </div>
                     </div>
                   </td>
                 </tr>
