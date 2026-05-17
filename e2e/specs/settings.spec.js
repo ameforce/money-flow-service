@@ -66,6 +66,24 @@ async function expectCategoryUsageSummariesKeepHitTargets(page, group, label) {
   await expectNoHorizontalOverflow(page, 12);
 }
 
+async function expectMajorRenameInputAccessible(page, group, label) {
+  await group.scrollIntoViewIfNeeded();
+  const majorRenameInput = group.locator("input[placeholder='새 대분류명']").first();
+  await expect(majorRenameInput).toHaveAccessibleName(/대분류 변경 새 이름/);
+  const inputMetrics = await majorRenameInput.evaluate((input) => {
+    const box = input.getBoundingClientRect();
+    return {
+      ariaLabel: input.getAttribute("aria-label") || "",
+      placeholder: input.getAttribute("placeholder") || "",
+      width: box.width,
+      height: box.height,
+    };
+  });
+  expect(inputMetrics.ariaLabel, `${label} major rename input should not rely on placeholder`).toContain("대분류 변경 새 이름");
+  expect(inputMetrics.placeholder, `${label} placeholder should remain visual hint only`).toBe("새 대분류명");
+  await expectNoHorizontalOverflow(page, 12);
+}
+
 test("settings color inputs keep mobile and tablet hit targets", async ({ page }) => {
   const email = `${unique("settings-color-hit")}@example.com`;
   const displayName = unique("settings-color-hit-name");
@@ -316,6 +334,16 @@ test("settings flow: profile, household, colors, categories CRUD", async ({ page
   await expect(categoryCard).toContainText(deleteMinor);
 
   const createdGroup = categoryCard.locator(".settings-category-group", { hasText: majorSeed }).first();
+  for (const viewport of [
+    { width: 320, height: 568, label: "320x568" },
+    { width: 375, height: 667, label: "375x667" },
+    { width: 667, height: 375, label: "667x375" },
+    { width: 1024, height: 600, label: "1024x600" },
+  ]) {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await assertResponsiveShell(page);
+    await expectMajorRenameInputAccessible(page, createdGroup, viewport.label);
+  }
   const usageRow = createdGroup.locator(".settings-category-row", { hasText: minorSeed }).first();
   const usageToggleButton = usageRow.locator("button[aria-expanded]").first();
   await expect(usageToggleButton).toHaveAttribute("aria-expanded", "false");

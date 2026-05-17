@@ -9913,6 +9913,7 @@ function App() {
                                 }))
                               }
                               placeholder="새 대분류명"
+                              aria-label={`${FLOW_TYPE_LABELS[flowGroup.value] || flowGroup.value} ${toCategoryMajorLabel(major)} 대분류 변경 새 이름`}
                               disabled={!canEditHouseholdData}
                             />
                             <button type="button" className="secondary" disabled={!canEditHouseholdData} onClick={() => renameCategoryMajorGroup(flowGroup.value, major)}>
