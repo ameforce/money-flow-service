@@ -2097,6 +2097,20 @@ label {
   font-size: 0.86rem;
 }
 
+.form-field {
+  display: grid;
+  gap: 0.28rem;
+  min-width: 0;
+}
+
+.field-helper {
+  margin: 0;
+  color: #51657f;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
 input,
 select,
 button,

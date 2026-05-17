@@ -10068,14 +10068,20 @@ function App() {
             )}
 
             <form className="form-grid collaboration-accept-grid" onSubmit={acceptHouseholdInvite}>
-              <label>
-                초대 수락 토큰
-                <input
-                  value={inviteAcceptToken}
-                  onChange={(event) => setInviteAcceptToken(event.target.value)}
-                  placeholder="메일 링크의 token 값을 붙여 넣으세요."
-                />
-              </label>
+              <div className="form-field invite-token-field">
+                <label>
+                  초대 수락 토큰
+                  <input
+                    value={inviteAcceptToken}
+                    onChange={(event) => setInviteAcceptToken(event.target.value)}
+                    placeholder="초대 token"
+                    aria-describedby="invite-accept-token-helper"
+                  />
+                </label>
+                <p id="invite-accept-token-helper" className="field-helper invite-token-helper">
+                  메일 초대 링크에서 token 값을 복사해 붙여 넣으세요.
+                </p>
+              </div>
               <div className="inline form-actions">
                 <button
                   type="submit"
