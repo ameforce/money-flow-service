@@ -3327,6 +3327,10 @@ table {
   white-space: nowrap;
 }
 
+.holdings-surface-table .holding-col-actions button:not(.row-order-btn):not(.mobile-toggle-btn) {
+  min-width: 2.5rem;
+}
+
 .holdings-surface-table .holding-col-actions .row-order-btn {
   width: 2rem;
   min-width: 2rem;
