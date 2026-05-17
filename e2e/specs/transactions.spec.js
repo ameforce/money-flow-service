@@ -1758,6 +1758,12 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.waitForTimeout(250);
   const mobileToggleButton = mobileRow.locator(".mobile-toggle-btn").first();
+  const transactionToggleBox = await mobileToggleButton.boundingBox();
+  expect(transactionToggleBox, "mobile transaction detail toggle should have a bounding box").not.toBeNull();
+  expect(
+    (transactionToggleBox?.width ?? 0) >= 40 && (transactionToggleBox?.height ?? 0) >= 40,
+    `mobile transaction detail toggle should keep a 40px hit target: ${JSON.stringify(transactionToggleBox)}`,
+  ).toBe(true);
   await expectStableButtonPosition(mobileToggleButton, async () => {
     await mobileToggleButton.evaluate((element) => element.click());
   });

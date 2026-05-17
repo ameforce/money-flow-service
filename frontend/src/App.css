@@ -6399,7 +6399,7 @@ thead {
 
   .transactions-surface-table tbody tr.transaction-row {
     display: grid;
-    grid-template-columns: 2.24rem minmax(0, 1fr) 1.9rem;
+    grid-template-columns: 2.24rem minmax(0, 1fr) 2.5rem;
     grid-template-areas:
       "date memo actions"
       "date amount actions"
@@ -6610,7 +6610,7 @@ thead {
     align-self: center;
     position: relative;
     z-index: 2;
-    width: 1.9rem;
+    width: 2.5rem;
   }
 
   .transactions-surface-table tbody tr.transaction-row .transaction-col-actions .inline,
@@ -6657,7 +6657,7 @@ thead {
 
   .holdings-surface-table tbody tr.holding-row {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto 1.9rem;
+    grid-template-columns: minmax(0, 1fr) auto 2.5rem;
     grid-template-areas:
       "name name actions"
       "type market actions";
@@ -6875,10 +6875,10 @@ thead {
 
   .transactions-surface-table .mobile-toggle-btn,
   .holdings-surface-table .mobile-toggle-btn {
-    width: 1.9rem;
-    min-width: 1.9rem;
-    min-height: 1.9rem;
-    height: 1.9rem;
+    width: 2.5rem;
+    min-width: 2.5rem;
+    min-height: 2.5rem;
+    height: 2.5rem;
     padding: 0;
     border-radius: 14px;
     border-color: var(--transaction-row-border, var(--holding-row-border, rgba(151, 172, 201, 0.55)));
