@@ -1132,6 +1132,14 @@ function holdingDefaultCategory(typeLike) {
   return label || holdingPresetCategory(assetType);
 }
 
+function compactHouseholdSelectOptionName(name, maxLength = 24) {
+  const text = String(name || "").trim();
+  if (text.length <= maxLength) {
+    return text;
+  }
+  return `${text.slice(0, Math.max(1, maxLength - 3)).trimEnd()}...`;
+}
+
 function resolveHoldingCategoryOnTypeChange(currentCategory, previousType, nextType) {
   const normalizedCurrent = String(currentCategory || "").trim();
   if (!normalizedCurrent) {
@@ -10067,8 +10075,8 @@ function App() {
                 >
                   {householdList.length === 0 && <option value="">선택 가능한 가계 없음</option>}
                   {householdList.map((entry) => (
-                    <option key={entry.household.id} value={entry.household.id}>
-                      {entry.household.name}
+                    <option key={entry.household.id} value={entry.household.id} aria-label={entry.household.name} title={entry.household.name}>
+                      {compactHouseholdSelectOptionName(entry.household.name)}
                     </option>
                   ))}
                 </select>
