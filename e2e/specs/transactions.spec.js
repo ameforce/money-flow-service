@@ -854,6 +854,101 @@ test("mobile transaction month stepper keeps usable touch targets", async ({ pag
   await capture(page, "transactions-mobile-month-touch-targets");
 });
 
+test("transaction ledger stays readable in landscape compact width", async ({ page }) => {
+  const email = `${unique("tx-landscape-ledger")}@example.com`;
+  const displayName = unique("tx-landscape-ledger-name");
+  const memo = unique("tx-landscape-ledger-memo");
+
+  await registerAndVerify(page, { email, displayName });
+  await createBasicTransaction(page, { memo, amount: "98765", occurredOn: currentE2EHistoryDateIso() });
+  await page.setViewportSize({ width: 844, height: 390 });
+  await openTab(page, "거래");
+
+  const createdRow = page.locator("tr.transaction-row", { hasText: memo }).first();
+  await expect(createdRow).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator(".tx-header-filters").first()).toBeHidden();
+  await expect(page.locator(".transactions-mobile-ledger-head").first()).toBeVisible();
+
+  const metrics = await page.evaluate(() => {
+    const boxOf = (element) => {
+      if (!element) return null;
+      const box = element.getBoundingClientRect();
+      return {
+        x: box.x,
+        y: box.y,
+        width: box.width,
+        height: box.height,
+        right: box.right,
+        bottom: box.bottom,
+      };
+    };
+    const listCard = document.querySelector(".transaction-list-card");
+    const scroll = document.querySelector(".transactions-surface-scroll");
+    const table = document.querySelector(".transactions-surface-table");
+    const row = document.querySelector("tr.transaction-row");
+    const amount = row?.querySelector(".transaction-amount-text");
+    return {
+      viewportWidth: window.innerWidth,
+      pageOverflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      listCard: listCard
+        ? {
+            box: boxOf(listCard),
+            clientWidth: listCard.clientWidth,
+            scrollWidth: listCard.scrollWidth,
+          }
+        : null,
+      scroll: scroll
+        ? {
+            box: boxOf(scroll),
+            clientWidth: scroll.clientWidth,
+            scrollWidth: scroll.scrollWidth,
+          }
+        : null,
+      table: table
+        ? {
+            box: boxOf(table),
+            minWidth: getComputedStyle(table).minWidth,
+          }
+        : null,
+      row: boxOf(row),
+      amount: amount
+        ? {
+            text: amount.textContent?.trim() || "",
+            box: boxOf(amount),
+            clientWidth: amount.clientWidth,
+            scrollWidth: amount.scrollWidth,
+          }
+        : null,
+    };
+  });
+
+  expect(metrics.listCard, "transaction list card should be measurable").not.toBeNull();
+  expect(metrics.scroll, "transaction scroll surface should be measurable").not.toBeNull();
+  expect(metrics.table, "transaction table should be measurable").not.toBeNull();
+  expect(metrics.row, "transaction row should be measurable").not.toBeNull();
+  expect(metrics.amount, "transaction amount should be measurable").not.toBeNull();
+  expect(metrics.pageOverflowX, `page should not overflow horizontally: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
+  expect(
+    metrics.listCard.scrollWidth - metrics.listCard.clientWidth,
+    `transaction list card content should not be clipped: ${JSON.stringify(metrics)}`,
+  ).toBeLessThanOrEqual(1);
+  expect(
+    metrics.scroll.scrollWidth - metrics.scroll.clientWidth,
+    `transaction table wrapper should not require hidden horizontal scrolling: ${JSON.stringify(metrics)}`,
+  ).toBeLessThanOrEqual(1);
+  expect(metrics.table.minWidth, "compact transaction table should remove desktop min-width").toBe("0px");
+  expect(metrics.row.right, `transaction row should stay inside the viewport: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(
+    metrics.viewportWidth + 1,
+  );
+  expect(metrics.amount.text, "transaction amount should render full grouped value").toContain("98,765");
+  expect(
+    metrics.amount.scrollWidth - metrics.amount.clientWidth,
+    `transaction amount should not clip: ${JSON.stringify(metrics)}`,
+  ).toBeLessThanOrEqual(1);
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "transactions-landscape-compact-ledger");
+});
+
 test("mobile quick entry preserves a closed draft and clears it only through reset", async ({ page }) => {
   test.setTimeout(180_000);
 
