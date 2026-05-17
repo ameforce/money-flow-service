@@ -270,6 +270,8 @@ test("settings flow: profile, household, colors, categories CRUD", async ({ page
     const minor = row.querySelector(".settings-category-minor");
     const rowBox = row.getBoundingClientRect();
     const minorBox = minor?.getBoundingClientRect();
+    const minorStyle = minor ? getComputedStyle(minor) : null;
+    const minorLineHeight = Number.parseFloat(minorStyle?.lineHeight || "") || Number.parseFloat(minorStyle?.fontSize || "") * 1.35 || 24;
     return {
       gridTemplateColumns: getComputedStyle(row).gridTemplateColumns,
       rowHeight: rowBox.height,
@@ -278,6 +280,7 @@ test("settings flow: profile, household, colors, categories CRUD", async ({ page
       minorText: minor?.textContent?.replace(/\s+/g, " ").trim() || "",
       minorWidth: minorBox?.width ?? 0,
       minorHeight: minorBox?.height ?? 0,
+      minorLineHeight,
     };
   });
   expect(
@@ -291,7 +294,7 @@ test("settings flow: profile, household, colors, categories CRUD", async ({ page
   expect(
     landscapeCategoryMetrics.minorHeight,
     `landscape category minor should not wrap one character per line: ${JSON.stringify(landscapeCategoryMetrics)}`,
-  ).toBeLessThanOrEqual(40);
+  ).toBeLessThanOrEqual(landscapeCategoryMetrics.minorLineHeight * 2.25);
   expect(
     landscapeCategoryMetrics.rowScrollWidth,
     `landscape category row should not overflow internally: ${JSON.stringify(landscapeCategoryMetrics)}`,
