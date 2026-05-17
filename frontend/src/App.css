@@ -1684,6 +1684,14 @@
   flex-wrap: wrap;
 }
 
+.topbar-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -4425,6 +4433,10 @@ thead {
 
   .topbar {
     align-items: flex-start;
+  }
+
+  .topbar-actions button {
+    min-height: 2.75rem;
   }
 
   .grid-2 {

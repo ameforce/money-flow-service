@@ -381,6 +381,24 @@ async function applyFontFamily(page, fontFamily) {
   }, fontFamily);
 }
 
+async function expectTopbarActionHitAreas(page, label) {
+  const metrics = await page.locator(".topbar-actions button").evaluateAll((buttons) =>
+    buttons.map((button) => {
+      const box = button.getBoundingClientRect();
+      return {
+        text: button.textContent?.replace(/\s+/g, " ").trim(),
+        height: box.height,
+        width: box.width,
+      };
+    }),
+  );
+  expect(metrics, `${label} should expose the three global topbar actions`).toHaveLength(3);
+  expect(
+    metrics.every(({ height, width }) => height >= 44 && width >= 44),
+    `${label} topbar action hit areas: ${JSON.stringify(metrics)}`,
+  ).toBe(true);
+}
+
 test("price refresh polling releases the global busy state after status failures", async ({ page }) => {
   test.setTimeout(120_000);
 
@@ -502,6 +520,38 @@ test("dashboard realtime status remains readable at minimum mobile width", async
   expect(metrics.textOverflow, `status text should not rely on ellipsis: ${JSON.stringify(metrics)}`).toBe("clip");
   await expectNoHorizontalOverflow(page, 12);
   await capture(page, "dashboard-status-chip-minimum-mobile");
+});
+
+test("dashboard topbar actions keep landscape touch targets", async ({ page }) => {
+  const email = `${unique("dashboard-landscape-topbar")}@example.com`;
+  const displayName = unique("dashboard-landscape-topbar-name");
+
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 844, height: 390 });
+  await applyFontFamily(page, '"Malgun Gothic", "Noto Sans KR", "Apple SD Gothic Neo", sans-serif');
+  await openTab(page, "대시보드");
+
+  const metrics = await page.locator(".topbar-actions button").evaluateAll((buttons) =>
+    buttons.map((button) => {
+      const box = button.getBoundingClientRect();
+      return {
+        label: button.textContent?.replace(/\s+/g, " ").trim() || "",
+        height: box.height,
+        width: box.width,
+        right: box.right,
+        bottom: box.bottom,
+      };
+    }),
+  );
+
+  expect(metrics, `landscape topbar actions should be present: ${JSON.stringify(metrics)}`).toHaveLength(3);
+  for (const metric of metrics) {
+    expect(metric.height, `${metric.label} should keep a 44px landscape hit area: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(44);
+    expect(metric.width, `${metric.label} should keep a 44px landscape hit area: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(44);
+    expect(metric.right, `${metric.label} should stay inside the landscape viewport: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(845);
+  }
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "dashboard-landscape-topbar-touch-targets");
 });
 
 test("dashboard month inputs expose visible focus state", async ({ page }) => {
