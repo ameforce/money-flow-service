@@ -4231,6 +4231,28 @@ thead {
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.38);
 }
 
+.settings-color-row input[type="color"] {
+  width: 3.25rem;
+  min-width: 3.25rem;
+  height: 2.5rem;
+  min-height: 2.5rem;
+  padding: 0.22rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.settings-color-row input[type="color"]:disabled {
+  cursor: not-allowed;
+}
+
+.settings-color-row input[type="color"]:focus-visible {
+  outline: 2px solid var(--mf-color-blue-600);
+  outline-offset: 2px;
+  box-shadow: var(--mf-focus-ring);
+}
+
 .settings-color-row code {
   color: #516985;
   background: #f7f9fc;
