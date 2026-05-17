@@ -476,6 +476,47 @@ async function expectMobileQuickEntryDefaults(page, transactionSheet) {
   }
 }
 
+async function expectQuickEntryFieldClearOfStickyActions(transactionSheet, labelText, fieldSelector) {
+  const field = labeledField(transactionSheet, labelText, fieldSelector);
+  await expect(field).toBeVisible();
+  await field.evaluate((element) => element.scrollIntoView({ block: "end", inline: "nearest" }));
+  await transactionSheet.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)));
+
+  const metrics = await field.evaluate((element) => {
+    const sheet = element.closest("[data-testid='transaction-entry-sheet']");
+    const actions = sheet?.querySelector(".transaction-quick-sticky-actions");
+    const box = element.getBoundingClientRect();
+    const sheetBox = sheet?.getBoundingClientRect();
+    const actionBox = actions?.getBoundingClientRect();
+    const centerX = box.left + box.width / 2;
+    const centerY = box.top + box.height / 2;
+    const topElement = document.elementFromPoint(centerX, centerY);
+    const style = sheet ? getComputedStyle(sheet) : null;
+
+    return {
+      actionHeight: actionBox?.height ?? 0,
+      actionTop: actionBox?.top ?? 0,
+      coveredByActions: Boolean(topElement?.closest(".transaction-quick-sticky-actions")),
+      fieldBottom: box.bottom,
+      fieldHeight: box.height,
+      fieldTop: box.top,
+      label: element.closest("label")?.textContent?.replace(/\s+/g, " ").trim() || "",
+      scrollPaddingBottom: style ? Number.parseFloat(style.scrollPaddingBottom || "0") : 0,
+      sheetBottom: sheetBox?.bottom ?? 0,
+      sheetClientHeight: sheet?.clientHeight ?? 0,
+      sheetScrollHeight: sheet?.scrollHeight ?? 0,
+      sheetScrollTop: sheet?.scrollTop ?? 0,
+    };
+  });
+
+  expect(metrics.fieldHeight, `${labelText} field should have measurable height`).toBeGreaterThan(0);
+  expect(metrics.coveredByActions, `${labelText} field center should not be under sticky actions`).toBe(false);
+  expect(metrics.fieldBottom, `${labelText} field should clear sticky actions: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(
+    metrics.actionTop - 6
+  );
+  expect(metrics.scrollPaddingBottom, "sheet should reserve scroll padding for sticky actions").toBeGreaterThan(metrics.actionHeight);
+}
+
 async function expectQuickCategoryReflectedInFullFallback(transactionSheet, selectedChipText) {
   const categoryTrigger = transactionSheet
     .getByRole("button", { name: /전체 카테고리|카테고리 선택|카테고리 변경|자세히|추가 입력/ })
@@ -617,6 +658,69 @@ test("mobile quick entry creates an expense through amount-first chip path", asy
 
   const createdRow = page.locator("tr.transaction-row", { hasText: memo }).first();
   await expect(createdRow).toBeVisible({ timeout: 20_000 });
+});
+
+test("mobile quick entry keeps expanded fields above sticky actions", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("tx-quick-sticky")}@example.com`;
+  const displayName = unique("tx-quick-sticky-name");
+  const seedMemo = unique("tx-quick-sticky-seed");
+  const mobileCases = [
+    {
+      name: "320-malgun",
+      viewport: { width: 320, height: 568 },
+      fontStack: '"Malgun Gothic", "Noto Sans KR", sans-serif',
+    },
+    {
+      name: "360-noto",
+      viewport: { width: 360, height: 640 },
+      fontStack: '"Noto Sans KR", "Apple SD Gothic Neo", sans-serif',
+    },
+    {
+      name: "390-apple",
+      viewport: { width: 390, height: 844 },
+      fontStack: '"Apple SD Gothic Neo", "Malgun Gothic", sans-serif',
+    },
+  ];
+
+  await page.setViewportSize(mobileCases[0].viewport);
+  await registerAndVerify(page, { email, displayName });
+  const seedCategory = await createCategoryViaApi(page, {
+    major: unique("고정버튼"),
+    minor: unique("최근카테고리"),
+  });
+  await createTransactionViaApi(page, {
+    memo: seedMemo,
+    amount: "13579",
+    categoryId: seedCategory.id,
+    ownerName: displayName,
+  });
+
+  for (const mobileCase of mobileCases) {
+    await page.setViewportSize(mobileCase.viewport);
+    await page.reload();
+    await page.addStyleTag({ content: `:root { --mf-font-family: ${mobileCase.fontStack}; }` });
+
+    const transactionSheet = await openMobileTransactionQuickEntry(page);
+    const quickAmount = page.getByTestId("transaction-quick-amount");
+    await expect(quickAmount).toBeVisible();
+    await quickAmount.fill("24680");
+
+    const quickCategoryChip = page.getByTestId("transaction-quick-category-chip").first();
+    await expect(quickCategoryChip).toBeVisible();
+    await quickCategoryChip.click();
+
+    await transactionSheet.getByText("전체 카테고리").click();
+    await transactionSheet.getByText("추가 입력").click();
+
+    await expectQuickEntryFieldClearOfStickyActions(transactionSheet, "일자", "input");
+    await expectQuickEntryFieldClearOfStickyActions(transactionSheet, "유형", "select");
+    await expectQuickEntryFieldClearOfStickyActions(transactionSheet, "거래자", "select");
+    await expectNoHorizontalOverflow(page, 12);
+    await capture(page, `transactions-quick-entry-sticky-clearance-${mobileCase.name}`);
+    await page.getByTestId("transaction-entry-sheet-close").click();
+  }
 });
 
 test("transaction mobile meta text keeps readable contrast", async ({ page }) => {
