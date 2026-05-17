@@ -2546,6 +2546,13 @@ button.danger:active:not(:disabled) {
   padding-bottom: calc(0.74rem + var(--transaction-quick-action-clearance));
 }
 
+.transaction-entry-sheet .transaction-quick-details input,
+.transaction-entry-sheet .transaction-quick-details select,
+.transaction-entry-sheet .transaction-quick-details textarea,
+.transaction-entry-sheet .transaction-quick-details button {
+  scroll-margin-bottom: calc(var(--transaction-quick-action-clearance) + 0.75rem);
+}
+
 .transaction-quick-sticky-actions {
   position: sticky;
   bottom: 0;
