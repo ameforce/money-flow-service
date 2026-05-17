@@ -2405,6 +2405,40 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
     await mobileToggleButton.evaluate((element) => element.click());
   });
   await expect(mobileRow).toHaveClass(/mobile-row-expanded/);
+  const expandedMemoMetrics = await mobileRow.locator(".transaction-memo-text").first().evaluate((memoElement) => {
+    const style = getComputedStyle(memoElement);
+    return {
+      text: memoElement.textContent?.trim() || "",
+      title: memoElement.getAttribute("title"),
+      ariaLabel: memoElement.getAttribute("aria-label"),
+      clientWidth: memoElement.clientWidth,
+      scrollWidth: memoElement.scrollWidth,
+      clientHeight: memoElement.clientHeight,
+      scrollHeight: memoElement.scrollHeight,
+      overflowX: style.overflowX,
+      overflowWrap: style.overflowWrap,
+      textOverflow: style.textOverflow,
+      whiteSpace: style.whiteSpace,
+    };
+  });
+  expect(expandedMemoMetrics.text).toBe(memo);
+  expect(expandedMemoMetrics.title).toBe(memo);
+  expect(expandedMemoMetrics.ariaLabel).toBe(`메모 ${memo}`);
+  expect(
+    expandedMemoMetrics.scrollWidth,
+    `expanded mobile memo should wrap within the row: ${JSON.stringify(expandedMemoMetrics)}`,
+  ).toBeLessThanOrEqual(expandedMemoMetrics.clientWidth + 1);
+  expect(
+    expandedMemoMetrics.scrollHeight,
+    `expanded mobile memo should not be vertically clipped: ${JSON.stringify(expandedMemoMetrics)}`,
+  ).toBeLessThanOrEqual(expandedMemoMetrics.clientHeight + 1);
+  expect(expandedMemoMetrics.whiteSpace, `expanded memo should allow wrapping: ${JSON.stringify(expandedMemoMetrics)}`).not.toBe("nowrap");
+  expect(expandedMemoMetrics.overflowWrap, `expanded memo should wrap long unbroken text: ${JSON.stringify(expandedMemoMetrics)}`).toBe(
+    "anywhere",
+  );
+  expect(expandedMemoMetrics.textOverflow, `expanded memo should not visually ellipsize: ${JSON.stringify(expandedMemoMetrics)}`).toBe(
+    "clip",
+  );
   const expandedActionRow = mobileRow.locator("xpath=following-sibling::tr[1][contains(@class,'transaction-mobile-expanded-actions-row')]");
   await expect(expandedActionRow).toBeVisible();
   await expect(expandedActionRow.getByRole("button", { name: "수정" })).toBeVisible();

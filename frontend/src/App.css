@@ -6837,6 +6837,18 @@ thead {
     text-overflow: ellipsis;
   }
 
+  .transactions-surface-table tbody tr.transaction-row.mobile-row-expanded .transaction-col-memo,
+  .transactions-surface-table tbody tr.transaction-row.mobile-row-expanded .transaction-memo-text {
+    white-space: normal;
+  }
+
+  .transactions-surface-table tbody tr.transaction-row.mobile-row-expanded .transaction-memo-text {
+    overflow: visible;
+    overflow-wrap: anywhere;
+    text-overflow: clip;
+    line-height: 1.25;
+  }
+
   .transactions-surface-table .transaction-owner-chip {
     display: inline-flex;
   }

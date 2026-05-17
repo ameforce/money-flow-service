@@ -471,7 +471,9 @@ export function TransactionSurfaceTable({
                   </td>
                   <td data-label="메모" className="transaction-col-memo" data-field-key="memo" data-mobile-priority={transactionMobilePriority("memo")}>
                     <span className="transaction-mobile-category-cue">{compactCategoryLabel}</span>
-                    <span className="transaction-memo-text">{item.memo || "-"}</span>
+                    <span className="transaction-memo-text" title={item.memo || "-"} aria-label={`메모 ${item.memo || "-"}`}>
+                      {item.memo || "-"}
+                    </span>
                   </td>
                   <td data-label="금액" className="transaction-col-amount" data-field-key="amount" data-mobile-priority={transactionMobilePriority("amount")}>
                     <span className="transaction-amount-text">{fmtKrw(item.amount)}</span>
