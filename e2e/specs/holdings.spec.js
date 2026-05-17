@@ -73,6 +73,8 @@ async function expectMobileHoldingNameReadable(row, expectedName) {
       labelText: nameLabel?.textContent?.trim() || "",
       labelClientWidth: nameLabel?.clientWidth ?? 0,
       labelScrollWidth: nameLabel?.scrollWidth ?? 0,
+      labelClientHeight: nameLabel?.clientHeight ?? 0,
+      labelScrollHeight: nameLabel?.scrollHeight ?? 0,
       nameCellWidth: nameCellBox?.width ?? 0,
       nameBottom: (nameLabelBox?.y ?? 0) + (nameLabelBox?.height ?? 0),
       typeY: typeBox?.y ?? 0,
@@ -84,7 +86,11 @@ async function expectMobileHoldingNameReadable(row, expectedName) {
   expect(metrics.labelText).toBe(expectedName);
   expect(
     metrics.labelScrollWidth <= metrics.labelClientWidth + 1,
-    `holding name should not be ellipsized at 320px: ${JSON.stringify(metrics)}`
+    `holding name should not be horizontally ellipsized at 320px: ${JSON.stringify(metrics)}`
+  ).toBe(true);
+  expect(
+    metrics.labelScrollHeight <= metrics.labelClientHeight + 1,
+    `holding name should fit within the visible mobile label area: ${JSON.stringify(metrics)}`
   ).toBe(true);
   expect(metrics.nameCellWidth).toBeGreaterThanOrEqual(170);
   expect(metrics.typeY).toBeGreaterThanOrEqual(metrics.nameBottom - 1);
@@ -520,23 +526,33 @@ test("mobile holding names remain readable at 320px", async ({ page }) => {
 
   const email = `${unique("holding-name-mobile")}@example.com`;
   const displayName = unique("holding-name-mobile-owner");
-  const holdingName = "KB 생활비 통장";
+  const holdingName = "현금성 / 모바일가져오기자산명 / 테스트은행";
 
   await registerAndVerify(page, { email, displayName });
   await page.setViewportSize({ width: 1366, height: 960 });
   await createBasicHolding(page, { name: holdingName, category: "현금성" });
 
   await page.setViewportSize({ width: 320, height: 568 });
-  await page.addStyleTag({
-    content: 'html, body, button, input, select, textarea { font-family: "Malgun Gothic", "Noto Sans KR", sans-serif !important; }',
-  });
   await openTab(page, "자산");
   const mobileRow = page.locator("tr.holding-row", { hasText: holdingName }).first();
   await expect(mobileRow).toBeVisible();
   await expect(mobileRow).not.toHaveClass(/mobile-row-expanded/);
-  await expectMobileHoldingNameReadable(mobileRow, holdingName);
-  await expectNoHorizontalOverflow(page, 12);
-  await capture(page, "holdings-mobile-name-readable-320");
+  const scenarios = [
+    { width: 320, height: 568, font: "Malgun Gothic", slug: "320-malgun" },
+    { width: 390, height: 844, font: "Apple SD Gothic Neo", slug: "390-apple" },
+    { width: 430, height: 932, font: "Noto Sans KR", slug: "430-noto" },
+  ];
+  for (const scenario of scenarios) {
+    await page.setViewportSize({ width: scenario.width, height: scenario.height });
+    await page.addStyleTag({
+      content: `html, body, button, input, select, textarea { font-family: "${scenario.font}", "Noto Sans KR", sans-serif !important; }`,
+    });
+    await mobileRow.scrollIntoViewIfNeeded();
+    await expect(mobileRow).not.toHaveClass(/mobile-row-expanded/);
+    await expectMobileHoldingNameReadable(mobileRow, holdingName);
+    await expectNoHorizontalOverflow(page, 12);
+    await capture(page, `holdings-mobile-name-readable-${scenario.slug}`);
+  }
 });
 
 test("holdings stock fields keep grouped decimals", async ({ page }) => {
