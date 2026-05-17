@@ -4468,6 +4468,21 @@ thead {
   .surface-support-card {
     order: 3;
   }
+
+  .settings-category-group .settings-category-row {
+    grid-template-columns: minmax(7.5rem, 0.9fr) minmax(9rem, 1.1fr) minmax(5.5rem, auto);
+  }
+
+  .settings-category-group .settings-category-row > .inline {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+  }
+
+  .settings-category-group .settings-category-minor {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
 }
 
 @media (max-width: 820px) {
