@@ -128,6 +128,45 @@ test("auth forms show Korean required-field validation", async ({ page }) => {
   await expect(page.getByText("본명을 입력해 주세요.")).toBeVisible();
 });
 
+test("auth verification submit waits for a link token or 6-digit code", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.route("**/api/v1/auth/register", async (route) => {
+    const request = route.request();
+    const payload = request.postDataJSON();
+    await route.fulfill({
+      status: 201,
+      contentType: "application/json",
+      body: JSON.stringify({
+        status: "verification_required",
+        email: payload.email,
+        verification_expires_in_seconds: 600,
+        verification_resend_limit: 3,
+        verification_resend_window_seconds: 300,
+        verification_resend_cooldown_seconds: 60,
+      }),
+    });
+  });
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "회원가입", exact: true }).click();
+  await page.getByLabel("이메일", { exact: true }).fill(`${unique("verify-cta-user")}@example.com`);
+  await page.getByLabel("비밀번호", { exact: true }).fill(TEST_PASSWORD);
+  await page.getByLabel("비밀번호 확인").fill(TEST_PASSWORD);
+  await page.getByLabel("본명").fill(unique("verify-cta-name"));
+  await page.getByRole("button", { name: "회원가입하고 시작" }).click();
+
+  await expect(page.getByText("인증 메일을 확인해 주세요.")).toBeVisible();
+  const verifyButton = page.getByRole("button", { name: "이메일 인증 완료" });
+  await expect(verifyButton).toBeDisabled();
+  await expect(page.getByText("메일 버튼으로 접속하거나 6자리 인증번호를 입력하면")).toBeVisible();
+
+  await page.getByLabel("6자리 인증번호").fill("12345");
+  await expect(verifyButton).toBeDisabled();
+  await page.getByLabel("6자리 인증번호").fill("123456");
+  await expect(verifyButton).toBeEnabled();
+  await capture(page, "auth-verify-submit-waits-for-code");
+});
+
 test("auth login shows origin guidance for CSRF origin rejection", async ({ page }) => {
   await page.route("**/api/v1/auth/login", async (route) => {
     await route.fulfill({

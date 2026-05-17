@@ -354,6 +354,10 @@
   gap: 0.25rem;
 }
 
+.auth-submit-helper {
+  margin-top: -0.1rem;
+}
+
 .check-row {
   display: flex;
   align-items: center;
