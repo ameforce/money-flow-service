@@ -946,6 +946,91 @@ test("transaction ledger stays readable in landscape compact width", async ({ pa
     `transaction amount should not clip: ${JSON.stringify(metrics)}`,
   ).toBeLessThanOrEqual(1);
   await expectNoHorizontalOverflow(page, 12);
+
+  await page.setViewportSize({ width: 812, height: 375 });
+  await openTab(page, "거래");
+  await page.waitForTimeout(250);
+  await expectMobileTransactionFilterTriggersSeparated(page, "812px landscape transaction ledger");
+
+  const landscapeLedgerHead = page.locator(".transactions-mobile-ledger-head").first();
+  await landscapeLedgerHead.getByRole("button", { name: "유형 필터 열기" }).click();
+  await expect(page.getByTestId("tx-ledger-filter-panel")).toBeVisible();
+
+  const landscapeRow = page.locator("tr.transaction-row", { hasText: memo }).first();
+  await expect(landscapeRow).toBeVisible();
+  await landscapeRow.locator(".mobile-toggle-btn").first().click();
+  await expect(landscapeRow).toHaveClass(/mobile-row-expanded/);
+
+  const landscapeMetrics = await page.evaluate(() => {
+    const boxOf = (element) => {
+      if (!element) return null;
+      const box = element.getBoundingClientRect();
+      return {
+        x: box.x,
+        y: box.y,
+        width: box.width,
+        height: box.height,
+        right: box.right,
+        bottom: box.bottom,
+      };
+    };
+    const intersects = (left, right) =>
+      Boolean(
+        left &&
+          right &&
+          left.x < right.right &&
+          left.right > right.x &&
+          left.y < right.bottom &&
+          left.bottom > right.y,
+      );
+    const listCard = document.querySelector(".transaction-list-card");
+    const ledgerHead = document.querySelector(".transactions-mobile-ledger-head");
+    const filterPanel = document.querySelector('[data-testid="tx-ledger-filter-panel"]');
+    const filterReset = filterPanel?.querySelector(".tx-ledger-filter-reset");
+    const row = document.querySelector("tr.transaction-row");
+    const actionRow = row?.nextElementSibling?.classList.contains("transaction-mobile-expanded-actions-row")
+      ? row.nextElementSibling
+      : null;
+    const fab = document.querySelector('[data-testid="transactions-fab"]');
+    const rowToggle = row?.querySelector(".mobile-toggle-btn");
+    const boxes = {
+      listCard: boxOf(listCard),
+      ledgerHead: boxOf(ledgerHead),
+      filterPanel: boxOf(filterPanel),
+      filterReset: boxOf(filterReset),
+      row: boxOf(row),
+      actionRow: boxOf(actionRow),
+      fab: boxOf(fab),
+      rowToggle: boxOf(rowToggle),
+    };
+    return {
+      viewportWidth: window.innerWidth,
+      pageOverflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      listCard: listCard
+        ? {
+            clientWidth: listCard.clientWidth,
+            scrollWidth: listCard.scrollWidth,
+          }
+        : null,
+      boxes,
+      filterPanelBelowHead: Boolean(boxes.filterPanel && boxes.ledgerHead && boxes.filterPanel.y >= boxes.ledgerHead.bottom - 2),
+      filterResetBeforeRow: Boolean(boxes.filterReset && boxes.row && boxes.filterReset.bottom <= boxes.row.y + 1),
+      actionStartsAfterRow: Boolean(boxes.actionRow && boxes.row && boxes.actionRow.y >= boxes.row.bottom - 1),
+      fabToggleOverlap: intersects(boxes.fab, boxes.rowToggle),
+      resetRowOverlap: intersects(boxes.filterReset, boxes.row),
+    };
+  });
+  expect(landscapeMetrics.pageOverflowX, `812px landscape should not overflow: ${JSON.stringify(landscapeMetrics)}`).toBeLessThanOrEqual(1);
+  expect(
+    landscapeMetrics.listCard.scrollWidth - landscapeMetrics.listCard.clientWidth,
+    `812px transaction list card content should not be clipped: ${JSON.stringify(landscapeMetrics)}`,
+  ).toBeLessThanOrEqual(1);
+  expect(landscapeMetrics.filterPanelBelowHead, `filter panel should sit below ledger head: ${JSON.stringify(landscapeMetrics)}`).toBe(true);
+  expect(landscapeMetrics.filterResetBeforeRow, `filter reset should not overlap ledger row: ${JSON.stringify(landscapeMetrics)}`).toBe(true);
+  expect(landscapeMetrics.actionStartsAfterRow, `expanded action row should not overlap details: ${JSON.stringify(landscapeMetrics)}`).toBe(true);
+  expect(landscapeMetrics.fabToggleOverlap, `transaction FAB should not overlap detail toggle: ${JSON.stringify(landscapeMetrics)}`).toBe(false);
+  expect(landscapeMetrics.resetRowOverlap, `filter reset should not overlap row content: ${JSON.stringify(landscapeMetrics)}`).toBe(false);
+  await expectNoHorizontalOverflow(page, 12);
   await capture(page, "transactions-landscape-compact-ledger");
 });
 
