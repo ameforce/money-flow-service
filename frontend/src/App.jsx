@@ -10275,7 +10275,7 @@ function App() {
                 {householdMembers.map((member) => {
                   const isSelf = Boolean(user?.id && member.user_id === user.id);
                   const roleSelectDisabled = !canManageHousehold || loading || isSelf;
-                  const memberRoleLabel = `${member.display_name || member.email || "구성원"} 권한`;
+                  const memberRoleLabel = `${member.display_name || member.email || "구성원"} 권한 변경`;
                   return (
                     <tr key={member.member_id}>
                       <td data-label="이름">{member.display_name || "-"}</td>

@@ -11,6 +11,24 @@ import {
   unique,
 } from "../support/helpers";
 
+async function expectMemberRoleSelectAccessible(page, row, expectedName, label) {
+  await row.scrollIntoViewIfNeeded();
+  const roleSelect = row.locator("select").first();
+  await expect(roleSelect, `${label} role select should name the target and action`).toHaveAccessibleName(expectedName);
+  const metrics = await roleSelect.evaluate((select) => {
+    const box = select.getBoundingClientRect();
+    return {
+      ariaLabel: select.getAttribute("aria-label") || "",
+      width: box.width,
+      height: box.height,
+    };
+  });
+  expect(metrics.ariaLabel, `${label} role select should not rely on options as its name`).toBe(expectedName);
+  expect(metrics.width, `${label} role select should remain visible`).toBeGreaterThan(80);
+  expect(metrics.height, `${label} role select touch target`).toBeGreaterThanOrEqual(32);
+  await expectNoHorizontalOverflow(page, 12);
+}
+
 test("collaboration flow: invite, accept, switch household, responsive", async ({ browser }) => {
   test.setTimeout(300_000);
 
@@ -146,12 +164,18 @@ test("collaboration flow: invite, accept, switch household, responsive", async (
       has: ownerPage.getByRole("heading", { name: "멤버 목록" }),
     });
     const ownerSelfMemberRow = ownerMembersCard.locator("tbody tr", { hasText: ownerDisplayName }).first();
-    await expect(ownerSelfMemberRow.locator("select").first()).toBeDisabled();
+    const ownerSelfRoleSelect = ownerSelfMemberRow.locator("select").first();
+    await expect(ownerSelfRoleSelect).toBeDisabled();
+    await expectMemberRoleSelectAccessible(ownerPage, ownerSelfMemberRow, `${ownerDisplayName} 권한 변경`, "desktop self member");
     await expect(ownerSelfMemberRow.getByRole("button", { name: "본인" })).toBeDisabled();
     const ownerGuestMemberRow = ownerMembersCard.locator("tbody tr", { hasText: guestDisplayName }).first();
     const ownerRoleSelect = ownerGuestMemberRow.locator("select").first();
     const canChangeRole = await ownerRoleSelect.isVisible().catch(() => false);
     if (canChangeRole) {
+      await expectMemberRoleSelectAccessible(ownerPage, ownerGuestMemberRow, `${guestDisplayName} 권한 변경`, "desktop guest member");
+      await ownerPage.setViewportSize({ width: 390, height: 844 });
+      await assertResponsiveShell(ownerPage, 12);
+      await expectMemberRoleSelectAccessible(ownerPage, ownerGuestMemberRow, `${guestDisplayName} 권한 변경`, "mobile guest member");
       await expect(ownerRoleSelect).toBeEnabled();
       await ownerRoleSelect.selectOption("editor");
     }
