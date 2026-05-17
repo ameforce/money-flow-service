@@ -273,8 +273,25 @@ function normalizeTabId(value) {
   return TAB_IDS.has(normalized) ? normalized : "dashboard";
 }
 
+function getUrlTabId(search = "") {
+  try {
+    const params = new URLSearchParams(search);
+    const value = String(params.get("tab") || "").trim();
+    return TAB_IDS.has(value) ? value : "";
+  } catch {
+    return "";
+  }
+}
+
 function getSavedTabId() {
   return normalizeTabId(localStorage.getItem(ACTIVE_TAB_KEY));
+}
+
+function getInitialTabId() {
+  if (typeof window === "undefined") {
+    return "dashboard";
+  }
+  return getUrlTabId(window.location.search) || getSavedTabId();
 }
 
 function setSavedTabId(value) {
@@ -283,6 +300,25 @@ function setSavedTabId(value) {
 
 function clearSavedTabId() {
   localStorage.removeItem(ACTIVE_TAB_KEY);
+}
+
+function syncUrlTabParam(value) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  const params = new URLSearchParams(window.location.search);
+  if (!params.has("tab")) {
+    return;
+  }
+  const tabId = normalizeTabId(value);
+  if (tabId === "dashboard") {
+    params.delete("tab");
+  } else {
+    params.set("tab", tabId);
+  }
+  const nextQuery = params.toString();
+  const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ""}${window.location.hash || ""}`;
+  window.history.replaceState(window.history.state || {}, "", nextUrl);
 }
 
 function applyCsrfHeader(headers, method) {
@@ -1606,7 +1642,7 @@ function App() {
   const [txQuickOwnerTouched, setTxQuickOwnerTouched] = useState(false);
   const [showHoldingForm, setShowHoldingForm] = useState(false);
   const [holdingSummaryOpen, setHoldingSummaryOpen] = useState(true);
-  const [tab, setTab] = useState(() => getSavedTabId());
+  const [tab, setTab] = useState(() => getInitialTabId());
   const [isCompactViewport, setIsCompactViewport] = useState(
     () => (typeof window !== "undefined" ? window.innerWidth <= MOBILE_BREAKPOINT_PX : false)
   );
@@ -3390,6 +3426,7 @@ function App() {
 
   useEffect(() => {
     setSavedTabId(tab);
+    syncUrlTabParam(tab);
     setMessage((prev) => (prev ? "" : prev));
     if (typeof window !== "undefined") {
       window.requestAnimationFrame(() => {
@@ -3397,6 +3434,23 @@ function App() {
       });
     }
   }, [tab]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+    const syncTabFromUrl = () => {
+      const nextTab = getUrlTabId(window.location.search);
+      if (nextTab) {
+        setTab((prev) => (prev === nextTab ? prev : nextTab));
+      }
+    };
+    syncTabFromUrl();
+    window.addEventListener("popstate", syncTabFromUrl);
+    return () => {
+      window.removeEventListener("popstate", syncTabFromUrl);
+    };
+  }, []);
 
   useEffect(() => {
     if (!txInlineEdit) {
