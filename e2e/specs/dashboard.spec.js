@@ -450,6 +450,56 @@ test("dashboard month shortcut keeps readable mobile contrast", async ({ page })
   await capture(page, "dashboard-this-month-contrast");
 });
 
+test("dashboard month inputs expose visible focus state", async ({ page }) => {
+  const email = `${unique("dashboard-month-focus")}@example.com`;
+  const displayName = unique("dashboard-month-focus-name");
+
+  await registerAndVerify(page, { email, displayName });
+
+  for (const viewport of [
+    { width: 1366, height: 768 },
+    { width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await openTab(page, "대시보드");
+
+    const filterCard = page.locator(".dashboard-filter-card");
+    await expect(filterCard).toBeVisible();
+
+    for (const label of ["연도", "월"]) {
+      const input = filterCard.getByLabel(label, { exact: true });
+      await input.focus();
+      const focusStyle = await input.evaluate((element) => {
+        const style = getComputedStyle(element);
+        const box = element.getBoundingClientRect();
+        return {
+          label: element.getAttribute("aria-label"),
+          width: box.width,
+          height: box.height,
+          outlineStyle: style.outlineStyle,
+          outlineWidth: Number.parseFloat(style.outlineWidth) || 0,
+          boxShadow: style.boxShadow,
+        };
+      });
+
+      expect(
+        focusStyle.outlineStyle,
+        `${viewport.width}x${viewport.height} ${label} focus style: ${JSON.stringify(focusStyle)}`,
+      ).not.toBe("none");
+      expect(
+        focusStyle.outlineWidth,
+        `${viewport.width}x${viewport.height} ${label} focus width: ${JSON.stringify(focusStyle)}`,
+      ).toBeGreaterThanOrEqual(2);
+      expect(
+        focusStyle.boxShadow,
+        `${viewport.width}x${viewport.height} ${label} focus shadow: ${JSON.stringify(focusStyle)}`,
+      ).not.toBe("none");
+    }
+  }
+
+  await capture(page, "dashboard-month-input-focus");
+});
+
 test("dashboard flow: onboarding, portfolio coherence, summary visibility", async ({ page }, testInfo) => {
   test.setTimeout(180_000);
 
