@@ -194,6 +194,77 @@ export async function expectNoHorizontalOverflow(page, allowance = 8) {
   expect(overflow).toBeLessThanOrEqual(allowance);
 }
 
+function srgbChannelToLinear(value) {
+  const normalized = value / 255;
+  return normalized <= 0.03928 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4;
+}
+
+function relativeLuminance({ r, g, b }) {
+  return (
+    0.2126 * srgbChannelToLinear(r) +
+    0.7152 * srgbChannelToLinear(g) +
+    0.0722 * srgbChannelToLinear(b)
+  );
+}
+
+function parseRgbColor(value) {
+  const match = String(value || "").match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([.\d]+))?\)/u);
+  if (!match) {
+    return null;
+  }
+  return {
+    r: Number(match[1]),
+    g: Number(match[2]),
+    b: Number(match[3]),
+    a: match[4] === undefined ? 1 : Number(match[4]),
+  };
+}
+
+export function contrastRatio(foreground, background) {
+  const foregroundRgb = typeof foreground === "string" ? parseRgbColor(foreground) : foreground;
+  const backgroundRgb = typeof background === "string" ? parseRgbColor(background) : background;
+  if (!foregroundRgb || !backgroundRgb) {
+    throw new Error(`Unable to parse contrast colors: ${foreground} / ${background}`);
+  }
+  const foregroundLuminance = relativeLuminance(foregroundRgb);
+  const backgroundLuminance = relativeLuminance(backgroundRgb);
+  const lighter = Math.max(foregroundLuminance, backgroundLuminance);
+  const darker = Math.min(foregroundLuminance, backgroundLuminance);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+export async function expectTextContrast(locator, label, minimumRatio = 4.5) {
+  const metrics = await locator.evaluate((element) => {
+    const effectiveBackground = (start) => {
+      let current = start;
+      while (current) {
+        const color = getComputedStyle(current).backgroundColor;
+        if (color && !/rgba?\(\s*0,\s*0,\s*0,\s*0\s*\)/u.test(color)) {
+          return color;
+        }
+        current = current.parentElement;
+      }
+      return "rgb(255, 255, 255)";
+    };
+    const style = getComputedStyle(element);
+    const box = element.getBoundingClientRect();
+    return {
+      text: element.textContent?.replace(/\s+/g, " ").trim() || "",
+      color: style.color,
+      background: effectiveBackground(element),
+      fontSize: Number.parseFloat(style.fontSize) || 0,
+      width: box.width,
+      height: box.height,
+    };
+  });
+  const ratio = contrastRatio(metrics.color, metrics.background);
+  expect(
+    ratio,
+    `${label} contrast ${ratio.toFixed(2)}:1 for ${metrics.text} (${metrics.color} on ${metrics.background})`,
+  ).toBeGreaterThanOrEqual(minimumRatio);
+  return { ...metrics, contrast: ratio };
+}
+
 export async function expectWithinViewport(locator, { allowance = 4, requireVertical = true } = {}) {
   await expect(locator).toBeVisible();
   const box = await locator.boundingBox();
