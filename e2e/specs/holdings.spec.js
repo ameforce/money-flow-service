@@ -132,18 +132,50 @@ async function expectSingleSliceDonutHasNoRadialSeam(chartCard, label) {
         });
       }
     }
+    const ringRadius = Math.min(width, height) * 0.38;
+    const quadrantSamples = [
+      { name: "upper-right", angle: -45 },
+      { name: "lower-right", angle: 45 },
+      { name: "lower-left", angle: 135 },
+      { name: "upper-left", angle: 225 },
+    ].map((sample) => {
+      const radians = (sample.angle * Math.PI) / 180;
+      const x = Math.round(centerX + Math.cos(radians) * ringRadius);
+      const y = Math.round(centerY + Math.sin(radians) * ringRadius);
+      let visiblePixels = 0;
+      for (let dy = -2; dy <= 2; dy += 1) {
+        for (let dx = -2; dx <= 2; dx += 1) {
+          if (isVisibleArc(pixelAt(x + dx, y + dy))) {
+            visiblePixels += 1;
+          }
+        }
+      }
+      return {
+        ...sample,
+        x,
+        y,
+        visiblePixels,
+      };
+    });
     return {
       width,
       height,
       centerX,
       centerY,
       seamRows,
+      quadrantSamples,
     };
   });
   expect(
     metrics.seamRows.length,
     `${label} should not have a white radial seam through the 100% ring: ${JSON.stringify(metrics)}`
   ).toBeLessThanOrEqual(1);
+  for (const sample of metrics.quadrantSamples) {
+    expect(
+      sample.visiblePixels,
+      `${label} should render a visible arc in ${sample.name}: ${JSON.stringify(metrics)}`
+    ).toBeGreaterThanOrEqual(6);
+  }
 }
 
 test("single holding portfolio donut renders a seamless 100 percent ring", async ({ page }) => {

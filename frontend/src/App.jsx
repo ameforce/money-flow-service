@@ -6874,6 +6874,7 @@ function App() {
     () => ({
       responsive: true,
       maintainAspectRatio: false,
+      animation: false,
       cutout: `${DONUT_CUTOUT_PERCENT}%`,
       plugins: {
         legend: {
