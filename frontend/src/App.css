@@ -5052,11 +5052,16 @@ thead {
   }
 
   .dashboard-card-footer-action {
+    align-items: center;
     width: 100%;
+    min-height: 44px;
     justify-content: center;
     margin-top: 0.45rem;
+    padding: 0.62rem 0.85rem;
     border-radius: 12px;
     background: #f3f8ff;
+    line-height: 1.2;
+    text-decoration: none;
   }
 
   .dashboard-activity-row {

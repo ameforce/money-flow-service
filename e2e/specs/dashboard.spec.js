@@ -554,6 +554,40 @@ test("dashboard topbar actions keep landscape touch targets", async ({ page }) =
   await capture(page, "dashboard-landscape-topbar-touch-targets");
 });
 
+test("dashboard mobile footer actions keep touch targets", async ({ page }) => {
+  const email = `${unique("dashboard-footer-actions")}@example.com`;
+  const displayName = unique("dashboard-footer-actions-name");
+
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await applyFontFamily(page, '"Malgun Gothic", "Noto Sans KR", "Apple SD Gothic Neo", sans-serif');
+  await openTab(page, "대시보드");
+
+  const metrics = await page.locator(".dashboard-card-footer-action").evaluateAll((buttons) =>
+    buttons.map((button) => {
+      const box = button.getBoundingClientRect();
+      return {
+        label: button.textContent?.replace(/\s+/g, " ").trim() || "",
+        height: box.height,
+        width: box.width,
+        left: box.left,
+        right: box.right,
+      };
+    }),
+  );
+
+  expect(metrics, `dashboard footer actions should be present: ${JSON.stringify(metrics)}`).toHaveLength(2);
+  for (const metric of metrics) {
+    expect(metric.label).toBe("전체 보기");
+    expect(metric.height, `${metric.label} should keep a mobile hit area: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(40);
+    expect(metric.width, `${metric.label} should keep a mobile hit area: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(44);
+    expect(metric.left, `${metric.label} should stay inside the mobile viewport: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(0);
+    expect(metric.right, `${metric.label} should stay inside the mobile viewport: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(391);
+  }
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "dashboard-mobile-footer-touch-targets");
+});
+
 test("dashboard month inputs expose visible focus state", async ({ page }) => {
   const email = `${unique("dashboard-month-focus")}@example.com`;
   const displayName = unique("dashboard-month-focus-name");
