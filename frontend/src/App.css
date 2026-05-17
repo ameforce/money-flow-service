@@ -4828,8 +4828,26 @@ thead {
 
   .transaction-quick-category-chip {
     flex: 1 1 8.2rem;
+    flex-direction: column;
+    align-items: flex-start;
     min-width: 0;
+    min-height: 2.75rem;
     max-width: 100%;
+    gap: 0.12rem;
+    text-align: left;
+    white-space: normal;
+  }
+
+  .transaction-quick-category-chip span {
+    max-width: 100%;
+    overflow: visible;
+    overflow-wrap: anywhere;
+    text-overflow: clip;
+    white-space: normal;
+  }
+
+  .transaction-quick-category-chip small {
+    width: 100%;
   }
 
   .topbar-tabs .tab-badge {

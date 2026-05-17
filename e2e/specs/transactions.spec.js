@@ -34,7 +34,7 @@ function yearMonthFromIso(value) {
   return { year, month };
 }
 
-async function expectQuickCategoryLayoutStable(page) {
+async function expectQuickCategoryLayoutStable(page, expectedHint = "추천 카테고리를 탭하면 바로 연결됩니다.") {
   const metrics = await page.locator(".transaction-quick-category-panel").evaluate((panel) => {
     const hint = panel.querySelector(".transaction-quick-section-title small");
     const chipContainer = panel.querySelector(".transaction-quick-category-chips");
@@ -46,8 +46,11 @@ async function expectQuickCategoryLayoutStable(page) {
     return {
       hint: hint
         ? {
+            text: hint.textContent?.trim() || "",
             clientWidth: hint.clientWidth,
             scrollWidth: hint.scrollWidth,
+            clientHeight: hint.clientHeight,
+            scrollHeight: hint.scrollHeight,
             overflowX: hintStyle?.overflowX || "",
             textOverflow: hintStyle?.textOverflow || "",
             whiteSpace: hintStyle?.whiteSpace || "",
@@ -73,17 +76,54 @@ async function expectQuickCategoryLayoutStable(page) {
           };
         })
         .filter((item) => item.left < -1 || item.right > item.viewportWidth + 1),
+      chipMetrics: chips.map((chip) => {
+        const rect = chip.getBoundingClientRect();
+        const label = chip.querySelector("span");
+        const labelStyle = label ? getComputedStyle(label) : null;
+        return {
+          text: chip.textContent?.trim() || "",
+          width: rect.width,
+          height: rect.height,
+          labelText: label?.textContent?.trim() || "",
+          labelClientWidth: label?.clientWidth || 0,
+          labelScrollWidth: label?.scrollWidth || 0,
+          labelClientHeight: label?.clientHeight || 0,
+          labelScrollHeight: label?.scrollHeight || 0,
+          labelWhiteSpace: labelStyle?.whiteSpace || "",
+        };
+      }),
     };
   });
 
   expect(metrics.hint).toBeTruthy();
+  if (expectedHint !== null) {
+    expect(metrics.hint.text).toBe(expectedHint);
+  }
   expect(metrics.hint.whiteSpace).not.toBe("nowrap");
   expect(metrics.hint.scrollWidth).toBeLessThanOrEqual(metrics.hint.clientWidth + 1);
+  expect(metrics.hint.scrollHeight).toBeLessThanOrEqual(metrics.hint.clientHeight + 1);
   expect(metrics.chips).toBeTruthy();
   expect(metrics.chips.display).toBe("flex");
   expect(metrics.chips.flexWrap).toBe("wrap");
   expect(metrics.chips.scrollWidth).toBeLessThanOrEqual(metrics.chips.clientWidth + 1);
   expect(metrics.outsideViewport).toEqual([]);
+  expect(metrics.chipMetrics.length).toBeGreaterThan(0);
+  expect(
+    metrics.chipMetrics.every((chip) => chip.height >= 44),
+    `quick category chips should keep mobile touch height: ${JSON.stringify(metrics.chipMetrics)}`,
+  ).toBe(true);
+  expect(
+    metrics.chipMetrics.every((chip) => chip.labelWhiteSpace !== "nowrap"),
+    `quick category labels should wrap on mobile: ${JSON.stringify(metrics.chipMetrics)}`,
+  ).toBe(true);
+  expect(
+    metrics.chipMetrics.every((chip) => chip.labelScrollWidth <= chip.labelClientWidth + 1),
+    `quick category labels should not clip horizontally: ${JSON.stringify(metrics.chipMetrics)}`,
+  ).toBe(true);
+  expect(
+    metrics.chipMetrics.every((chip) => chip.labelScrollHeight <= chip.labelClientHeight + 1),
+    `quick category labels should not clip vertically: ${JSON.stringify(metrics.chipMetrics)}`,
+  ).toBe(true);
 }
 
 async function expectMobileTransactionFilterTriggersSeparated(page, label) {
@@ -1063,7 +1103,7 @@ test("mobile quick entry stays usable across viewport and Korean font fallbacks"
   const email = `${unique("tx-quick-matrix")}@example.com`;
   const displayName = unique("tx-quick-matrix-name");
   const seedMemo = unique("tx-quick-matrix-seed");
-  const seedCategory = { major: unique("행렬입력"), minor: unique("최근카테고리") };
+  const seedCategory = { major: unique("행렬입력"), minor: unique("테스트긴분류명") };
   const scenarios = [
     { width: 390, height: 844, font: "Apple SD Gothic Neo", slug: "apple-sd-gothic" },
     { width: 360, height: 780, font: "Apple SD Gothic Neo", slug: "apple-sd-gothic-narrow" },
