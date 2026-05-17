@@ -8119,7 +8119,10 @@ function App() {
               aria-live="polite"
               aria-label={realtimeChipAriaLabel}
             >
-              <span className="socket-chip-text">실시간 연결: {realtimeChipLabel}</span>
+              <span className="socket-chip-text">
+                <span className="socket-chip-prefix">실시간 연결: </span>
+                <span className="socket-chip-status">{realtimeChipLabel}</span>
+              </span>
             </span>
           </div>
         </div>

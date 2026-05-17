@@ -542,6 +542,10 @@
   white-space: nowrap;
 }
 
+.socket-chip-status {
+  white-space: nowrap;
+}
+
 .socket-chip::before {
   content: "";
   width: 0.5rem;
@@ -4654,6 +4658,11 @@ thead {
     box-shadow: 0 0 0 3px rgba(15, 124, 255, 0.12);
   }
 
+  .topbar-meta .socket-chip-text {
+    display: inline-flex;
+    align-items: center;
+  }
+
   .topbar-actions {
     display: flex;
     justify-content: flex-end;
@@ -6082,6 +6091,19 @@ thead {
 }
 
 @media (max-width: 360px) {
+  .topbar-meta .socket-chip {
+    max-width: min(100%, 5.6rem);
+  }
+
+  .topbar-meta .socket-chip-prefix {
+    display: none;
+  }
+
+  .topbar-meta .socket-chip-text {
+    overflow: visible;
+    text-overflow: clip;
+  }
+
   .topbar-tabs {
     gap: 0.08rem;
     padding-inline: 0.24rem;

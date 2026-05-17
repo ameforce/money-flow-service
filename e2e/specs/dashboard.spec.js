@@ -451,6 +451,59 @@ test("dashboard month shortcut keeps readable mobile contrast", async ({ page })
   await capture(page, "dashboard-this-month-contrast");
 });
 
+test("dashboard realtime status remains readable at minimum mobile width", async ({ page }) => {
+  const email = `${unique("dashboard-status-chip")}@example.com`;
+  const displayName = unique("dashboard-status-chip-name");
+
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = "18px";
+  });
+  await applyFontFamily(page, '"Malgun Gothic", "Noto Sans KR", "Apple SD Gothic Neo", sans-serif');
+  await openTab(page, "대시보드");
+
+  const statusChip = page.locator(".socket-chip");
+  await expect(statusChip).toBeVisible();
+  const metrics = await statusChip.evaluate((chip) => {
+    const chipBox = chip.getBoundingClientRect();
+    const prefix = chip.querySelector(".socket-chip-prefix");
+    const text = chip.querySelector(".socket-chip-text");
+    const status = chip.querySelector(".socket-chip-status");
+    const textBox = text?.getBoundingClientRect();
+    const statusBox = status?.getBoundingClientRect();
+    return {
+      chipText: chip.textContent?.replace(/\s+/g, " ").trim() || "",
+      ariaLabel: chip.getAttribute("aria-label") || "",
+      chipWidth: chipBox.width,
+      textClientWidth: text?.clientWidth ?? 0,
+      textScrollWidth: text?.scrollWidth ?? 0,
+      statusText: status?.textContent?.trim() || "",
+      statusWidth: statusBox?.width ?? 0,
+      statusVisible: Boolean(statusBox && statusBox.width > 0 && statusBox.height > 0),
+      prefixDisplay: prefix ? getComputedStyle(prefix).display : "",
+      textOverflow: text ? getComputedStyle(text).textOverflow : "",
+      textWidth: textBox?.width ?? 0,
+    };
+  });
+
+  expect(metrics.ariaLabel, `full realtime label should stay available: ${JSON.stringify(metrics)}`).toContain(
+    "실시간 연결:",
+  );
+  expect(metrics.statusText, `status value should be rendered separately: ${JSON.stringify(metrics)}`).toMatch(
+    /연결됨|연결 끊김|연결 오류|권한 변경|동기화 중/,
+  );
+  expect(metrics.statusVisible, `status value should be visible: ${JSON.stringify(metrics)}`).toBeTruthy();
+  expect(metrics.statusWidth, `status value should keep measurable width: ${JSON.stringify(metrics)}`).toBeGreaterThan(28);
+  expect(metrics.prefixDisplay, `prefix should collapse at 320px: ${JSON.stringify(metrics)}`).toBe("none");
+  expect(metrics.textScrollWidth, `status text should not be clipped: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(
+    metrics.textClientWidth + 1,
+  );
+  expect(metrics.textOverflow, `status text should not rely on ellipsis: ${JSON.stringify(metrics)}`).toBe("clip");
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "dashboard-status-chip-minimum-mobile");
+});
+
 test("dashboard month inputs expose visible focus state", async ({ page }) => {
   const email = `${unique("dashboard-month-focus")}@example.com`;
   const displayName = unique("dashboard-month-focus-name");
