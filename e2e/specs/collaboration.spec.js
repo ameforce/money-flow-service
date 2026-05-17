@@ -281,3 +281,31 @@ test("collaboration invite accept shows invited-email guidance for same account"
   await expect(message).not.toContainText("요청 처리 중 오류가 발생했습니다.");
   await capture(page, "collaboration-invite-same-account-guidance");
 });
+
+test("collaboration invite accept shows token guidance for invalid token", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("collab-invalid-token")}@example.com`;
+  const displayName = unique("collab-invalid-token-name");
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await registerAndVerify(page, {
+    email,
+    password: TEST_PASSWORD,
+    displayName,
+  });
+  await openTab(page, "협업");
+
+  const collaborationCard = page.locator("article.card", {
+    has: page.getByRole("heading", { name: "가계 협업 관리" }),
+  });
+  const acceptTokenInput = labeledField(collaborationCard, "초대 수락 토큰", "input");
+  await acceptTokenInput.fill("invalid-token-for-browser-qa");
+  await collaborationCard.getByRole("button", { name: "초대 수락" }).click();
+
+  const message = page.locator(".message").first();
+  await expect(message).toContainText("초대 토큰이 올바르지 않거나 만료되었습니다.");
+  await expect(message).toContainText("새 초대를 요청해 주세요.");
+  await expect(message).not.toContainText("요청 처리 중 오류가 발생했습니다.");
+  await capture(page, "collaboration-invalid-invite-token-guidance");
+});
