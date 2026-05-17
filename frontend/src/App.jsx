@@ -1575,6 +1575,7 @@ function App() {
   const [showOnboardingGuide, setShowOnboardingGuide] = useState(false);
   const [showTransactionEntryBanner, setShowTransactionEntryBanner] = useState(false);
   const [showTransactionForm, setShowTransactionForm] = useState(false);
+  const [transactionSupportOpen, setTransactionSupportOpen] = useState(false);
   const [txEntrySheetStep, setTxEntrySheetStep] = useState("form");
   const [showTransactionQuickResume, setShowTransactionQuickResume] = useState(false);
   const [txQuickOwnerTouched, setTxQuickOwnerTouched] = useState(false);
@@ -3128,6 +3129,7 @@ function App() {
         if (transactionSupportDetailsRef.current) {
           transactionSupportDetailsRef.current.open = true;
         }
+        setTransactionSupportOpen(true);
         window.setTimeout(() => {
           txCategoryManagerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
         }, 0);
@@ -8649,12 +8651,16 @@ function App() {
             ref={transactionSupportDetailsRef}
             className="card compact-support-card transaction-support-card surface-support-card"
             onToggle={(event) => {
-              if (!event.currentTarget.open) {
+              const nextOpen = event.currentTarget.open;
+              setTransactionSupportOpen(nextOpen);
+              if (!nextOpen) {
                 setShowTxCategoryManager(false);
               }
             }}
           >
-            <summary>분석·관리 열기</summary>
+            <summary>
+              분석·관리 {transactionSupportOpen ? "접기" : "열기"}
+            </summary>
             <p className="table-summary compact-support-summary">집계와 카테고리 관리는 필요할 때만 펼쳐 확인합니다. 포트폴리오와 자산 요약은 자산 탭으로 이동했습니다.</p>
             <div className="compact-support-grid">
               <section className="compact-support-section">
