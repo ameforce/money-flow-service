@@ -368,6 +368,12 @@ test("holdings flow: create, inline edit, delete, responsive", async ({ page }) 
   expect((ledgerBox?.y ?? 0) - ((headingBox?.y ?? 0) + (headingBox?.height ?? 0))).toBeGreaterThanOrEqual(-14);
   await mobileEditedRow.evaluate((element) => element.scrollIntoView({ block: "center", inline: "nearest" }));
   const mobileToggleButton = mobileEditedRow.locator(".mobile-toggle-btn").first();
+  const holdingToggleBox = await mobileToggleButton.boundingBox();
+  expect(holdingToggleBox, "mobile holding detail toggle should have a bounding box").not.toBeNull();
+  expect(
+    (holdingToggleBox?.width ?? 0) >= 40 && (holdingToggleBox?.height ?? 0) >= 40,
+    `mobile holding detail toggle should keep a 40px hit target: ${JSON.stringify(holdingToggleBox)}`,
+  ).toBe(true);
   await expectStableButtonPosition(mobileToggleButton, async () => {
     await mobileToggleButton.click({ force: true });
   });
