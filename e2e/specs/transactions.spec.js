@@ -854,6 +854,113 @@ test("mobile transaction month stepper keeps usable touch targets", async ({ pag
   await capture(page, "transactions-mobile-month-touch-targets");
 });
 
+test("mobile transaction category flow summaries wrap long leading labels", async ({ page }) => {
+  const email = `${unique("tx-flow-wrap")}@example.com`;
+  const displayName = unique("tx-flow-wrap-name");
+  const memo = unique("tx-flow-wrap-memo");
+  const major = unique("issue175-flow-major");
+  const minor = `${unique("issue175-flow-minor")} browser verify long representative category label`;
+
+  await registerAndVerify(page, { email, displayName });
+  const category = await createCategoryViaApi(page, {
+    major,
+    minor,
+    flowType: "expense",
+  });
+  await createTransactionViaApi(page, {
+    memo,
+    amount: "110765",
+    flowType: "expense",
+    categoryId: category.id,
+    ownerName: displayName,
+  });
+  await page.reload();
+  await page.setViewportSize({ width: 320, height: 568 });
+  await openTab(page, "거래");
+
+  const supportDetails = page.locator("details.compact-support-card").first();
+  if ((await supportDetails.count()) > 0 && (await supportDetails.getAttribute("open")) === null) {
+    await supportDetails.locator("summary").click();
+    await expect(supportDetails).toHaveAttribute("open", "");
+  }
+
+  const breakdownCard = page
+    .locator(".compact-support-section", {
+      has: page.getByRole("heading", { name: "유형별 카테고리 집계" }),
+    })
+    .first();
+  await expect(breakdownCard).toBeVisible();
+  const expenseToggle = breakdownCard.getByTestId("tx-flow-summary-toggle-expense");
+  await expect(expenseToggle).toBeVisible();
+  await expect(expenseToggle.locator(".compact-flow-toggle-meta")).toContainText(minor);
+
+  const expenseCard = breakdownCard
+    .locator(".compact-flow-card", {
+      has: page.getByTestId("tx-flow-summary-toggle-expense"),
+    })
+    .first();
+  const metrics = await expenseCard.evaluate((card) => {
+    const boxOf = (element) => {
+      if (!element) return null;
+      const box = element.getBoundingClientRect();
+      return {
+        left: box.left,
+        right: box.right,
+        top: box.top,
+        bottom: box.bottom,
+        width: box.width,
+        height: box.height,
+      };
+    };
+    const readNode = (element) => {
+      const style = element ? getComputedStyle(element) : null;
+      return element
+        ? {
+            box: boxOf(element),
+            clientWidth: element.clientWidth,
+            scrollWidth: element.scrollWidth,
+            clientHeight: element.clientHeight,
+            scrollHeight: element.scrollHeight,
+            whiteSpace: style?.whiteSpace || "",
+            overflowWrap: style?.overflowWrap || "",
+            overflowX: style?.overflowX || "",
+            flexWrap: style?.flexWrap || "",
+            textOverflow: style?.textOverflow || "",
+            text: element.textContent?.replace(/\s+/g, " ").trim() || "",
+          }
+        : null;
+    };
+    const toggle = card.querySelector('[data-testid="tx-flow-summary-toggle-expense"]');
+    const line = card.querySelector('[data-testid="tx-flow-summary-line"]');
+    const meta = card.querySelector(".compact-flow-toggle-meta");
+    return {
+      viewportWidth: window.innerWidth,
+      pageOverflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      card: readNode(card),
+      toggle: readNode(toggle),
+      line: readNode(line),
+      meta: readNode(meta),
+    };
+  });
+
+  expect(metrics.pageOverflowX, `page should not overflow at 320px: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
+  expect(metrics.card.scrollWidth - metrics.card.clientWidth, `flow card should not clip: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
+  expect(metrics.toggle.scrollWidth - metrics.toggle.clientWidth, `flow toggle should not clip: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
+  expect(metrics.line.flexWrap, `summary line should wrap when narrow: ${JSON.stringify(metrics)}`).toBe("wrap");
+  expect(metrics.line.whiteSpace, `summary line should not force nowrap: ${JSON.stringify(metrics)}`).not.toBe("nowrap");
+  expect(metrics.meta.whiteSpace, `leading category should wrap: ${JSON.stringify(metrics)}`).not.toBe("nowrap");
+  expect(metrics.meta.scrollWidth - metrics.meta.clientWidth, `leading category should not clip: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
+  expect(metrics.meta.scrollHeight - metrics.meta.clientHeight, `leading category should not clip vertically: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
+  expect(metrics.card.box.right, `flow card should stay in viewport: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(
+    metrics.viewportWidth + 1,
+  );
+  expect(metrics.meta.box.right, `leading category should stay inside card: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(
+    metrics.card.box.right + 1,
+  );
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "transactions-compact-flow-mobile-wrap");
+});
+
 test("transaction ledger stays readable in landscape compact width", async ({ page }) => {
   const email = `${unique("tx-landscape-ledger")}@example.com`;
   const displayName = unique("tx-landscape-ledger-name");
