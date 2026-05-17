@@ -6843,13 +6843,23 @@ function App() {
     if (!chartSource?.items?.length) {
       return null;
     }
+    const values = chartSource.items.map((item) => Number(item.value || 0));
     const colors = categoryPalette(chartSource.items.length);
+    const isSingleVisibleSlice = values.filter((value) => Number.isFinite(value) && value > 0).length === 1;
     return {
       labels: chartSource.items.map((item) => item.label),
       datasets: [
         {
-          data: chartSource.items.map((item) => Number(item.value || 0)),
+          data: values,
           backgroundColor: colors,
+          ...(isSingleVisibleSlice
+            ? {
+                borderColor: colors,
+                borderWidth: 0,
+                hoverBorderWidth: 0,
+                spacing: 0,
+              }
+            : {}),
         },
       ],
     };
