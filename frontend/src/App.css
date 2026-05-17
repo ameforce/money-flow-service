@@ -3794,6 +3794,16 @@ thead {
   height: 42px;
 }
 
+.range-date-field {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.range-date-label {
+  display: none;
+}
+
 .range-picker input[type="date"] {
   border: none;
   background: transparent;
@@ -3804,9 +3814,11 @@ thead {
 }
 
 .range-picker input[type="date"]:focus {
-  outline: none;
+  outline: 2px solid var(--mf-color-blue-600);
+  outline-offset: 2px;
   background-color: #f1f5f9;
-  border-radius: 4px;
+  border-radius: 6px;
+  box-shadow: var(--mf-focus-ring);
 }
 
 .range-separator {
@@ -5924,9 +5936,12 @@ thead {
     padding: var(--dashboard-filter-control-inset) 0.36rem;
   }
 
-  .dashboard-filter-card .range-picker input[type="date"] {
+  .dashboard-filter-card .range-date-field {
     flex: 1 1 0;
-    width: 0;
+  }
+
+  .dashboard-filter-card .range-picker input[type="date"] {
+    width: 100%;
     min-width: 0;
     padding-inline: 0.12rem;
     font-size: max(16px, 0.82rem);
@@ -5936,6 +5951,52 @@ thead {
   .dashboard-filter-card .range-separator {
     flex: 0 0 auto;
     font-size: 0.8rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .dashboard-filter-card .filter-container {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.42rem;
+  }
+
+  .dashboard-filter-card .range-picker {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    gap: 0.28rem;
+    align-items: stretch;
+    height: auto;
+    min-height: calc(var(--dashboard-filter-control-height) + 1.1rem);
+    padding: 0.36rem;
+  }
+
+  .dashboard-filter-card .range-date-field {
+    display: grid;
+    gap: 0.16rem;
+    align-content: start;
+  }
+
+  .dashboard-filter-card .range-date-label {
+    display: block;
+    color: #51657f;
+    font-size: 0.72rem;
+    font-weight: 700;
+    line-height: 1;
+  }
+
+  .dashboard-filter-card .range-picker input[type="date"] {
+    height: 2.5rem;
+    min-height: 2.5rem;
+    padding-inline: 0.16rem;
+    border-radius: 8px;
+  }
+
+  .dashboard-filter-card .range-separator {
+    align-self: end;
+    min-height: 2.5rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
 }
 

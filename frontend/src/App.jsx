@@ -8222,19 +8222,27 @@ function App() {
                   </div>
                 ) : (
                   <div className="range-picker">
-                    <input
-                      type="date"
-                      value={range.start}
-                      onChange={(e) => handleRangeInputChange("start", e.target.value)}
-                      enterKeyHint="done"
-                    />
+                    <label className="range-date-field">
+                      <span className="range-date-label">시작일</span>
+                      <input
+                        type="date"
+                        aria-label="시작일"
+                        value={range.start}
+                        onChange={(e) => handleRangeInputChange("start", e.target.value)}
+                        enterKeyHint="done"
+                      />
+                    </label>
                     <span className="range-separator">~</span>
-                    <input
-                      type="date"
-                      value={range.end}
-                      onChange={(e) => handleRangeInputChange("end", e.target.value)}
-                      enterKeyHint="done"
-                    />
+                    <label className="range-date-field">
+                      <span className="range-date-label">종료일</span>
+                      <input
+                        type="date"
+                        aria-label="종료일"
+                        value={range.end}
+                        onChange={(e) => handleRangeInputChange("end", e.target.value)}
+                        enterKeyHint="done"
+                      />
+                    </label>
                   </div>
                 )}
               </div>
