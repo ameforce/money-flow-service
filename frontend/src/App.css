@@ -5733,18 +5733,18 @@ thead {
 
   .transaction-list-card .month-stepper {
     align-items: center;
-    gap: 0.08rem;
-    height: 2.72rem;
-    min-height: 2.72rem;
-    padding: 0.18rem;
+    gap: 0.12rem;
+    height: auto;
+    min-height: 3rem;
+    padding: 0.12rem;
     box-shadow: none;
   }
 
   .transaction-list-card .month-stepper .icon-btn {
-    flex: 0 0 2.25rem;
-    width: 2.25rem;
-    height: 2.25rem;
-    min-height: 2.25rem;
+    flex: 0 0 2.5rem;
+    width: 2.5rem;
+    height: 2.5rem;
+    min-height: 2.5rem;
   }
 
   .transaction-list-card .month-stepper .date-inputs {
@@ -5752,17 +5752,18 @@ thead {
     justify-content: center;
     gap: 0.22rem;
     min-width: 0;
+    min-height: 2.5rem;
     font-size: 0.82rem;
     line-height: 1;
   }
 
   .transaction-list-card .month-value-group {
-    min-height: 2.25rem;
+    min-height: 2.5rem;
     line-height: 1;
   }
 
   .transaction-list-card .month-value-group > span {
-    min-height: 2.25rem;
+    min-height: 2.5rem;
     align-items: center;
     line-height: 1;
   }
@@ -5770,8 +5771,8 @@ thead {
   .transaction-list-card .month-stepper .date-inputs input {
     width: 2.9rem;
     min-width: 2.9rem;
-    height: 2.25rem;
-    min-height: 2.25rem;
+    height: 2.5rem;
+    min-height: 2.5rem;
     font-size: max(16px, 0.92rem);
     line-height: 1;
   }
@@ -5782,8 +5783,8 @@ thead {
   }
 
   .transaction-list-card .month-stepper .text-btn {
-    height: 2.25rem;
-    min-height: 2.25rem;
+    height: 2.5rem;
+    min-height: 2.5rem;
     padding-inline: 0.4rem;
     font-size: 0.74rem;
     line-height: 1.15;

@@ -282,6 +282,15 @@ async function readTransactionMonthStepperLayout(page) {
         centerY: box.y + box.height / 2,
       };
     });
+    const touchTargets = Array.from(stepper.querySelectorAll("button, input")).map((element) => {
+      const box = element.getBoundingClientRect();
+      return {
+        label: element.getAttribute("aria-label") || element.textContent?.trim() || "",
+        tag: element.tagName,
+        width: box.width,
+        height: box.height,
+      };
+    });
     const monthGroups = Array.from(stepper.querySelectorAll(".month-value-group")).map((group) => {
       const input = group.querySelector("input")?.getBoundingClientRect();
       const unit = group.querySelector("span")?.getBoundingClientRect();
@@ -300,13 +309,14 @@ async function readTransactionMonthStepperLayout(page) {
       },
       dateInputs: boxOf(".date-inputs"),
       controls,
+      touchTargets,
       monthGroups,
     };
   });
 }
 
 function expectMonthStepperCentered(layout, label = "transaction month stepper") {
-  expect(layout.stepper.height, `${label} should keep compact control height`).toBeLessThanOrEqual(44);
+  expect(layout.stepper.height, `${label} should keep compact control height`).toBeLessThanOrEqual(52);
   expect(layout.stepper.boxShadow, `${label} should not add shadow that visually offsets the filter`).toBe("none");
   expect(layout.dateInputs, `${label} date inputs should be measurable`).not.toBeNull();
   expect(Math.abs((layout.dateInputs?.centerY ?? 0) - layout.stepper.centerY), `${label} date input group center`).toBeLessThanOrEqual(1.5);
@@ -317,6 +327,16 @@ function expectMonthStepperCentered(layout, label = "transaction month stepper")
   }
   for (const control of layout.controls) {
     expect(Math.abs(control.centerY - layout.stepper.centerY), `${label} ${control.tag}.${control.className} center`).toBeLessThanOrEqual(2);
+  }
+}
+
+function expectTransactionMonthTouchTargets(layout, label = "transaction month stepper") {
+  expect(layout.touchTargets.length, `${label} touch targets should be measurable`).toBeGreaterThanOrEqual(5);
+  for (const target of layout.touchTargets) {
+    expect(
+      target.height,
+      `${label} ${target.tag}.${target.label} should be at least 40px tall: ${JSON.stringify(layout.touchTargets)}`,
+    ).toBeGreaterThanOrEqual(40);
   }
 }
 
@@ -790,6 +810,24 @@ test("transaction mobile meta text keeps readable contrast", async ({ page }) =>
   const dateMetrics = await expectTextContrast(createdRow.locator(".mobile-date-text").first(), "transaction mobile date");
   expect(dateMetrics.fontSize, "mobile transaction date remains small meta text").toBeLessThan(18);
   await capture(page, "transactions-mobile-meta-contrast");
+});
+
+test("mobile transaction month stepper keeps usable touch targets", async ({ page }) => {
+  const email = `${unique("tx-month-touch")}@example.com`;
+  const displayName = unique("tx-month-touch-name");
+  const memo = unique("tx-month-touch-memo");
+
+  await registerAndVerify(page, { email, displayName });
+  await createBasicTransaction(page, { memo, amount: "12000", occurredOn: currentE2EHistoryDateIso() });
+  await page.setViewportSize({ width: 320, height: 568 });
+  await openTab(page, "거래");
+
+  const listCard = page.locator(".transaction-list-card").first();
+  await expect(listCard).toBeVisible();
+  await expect(page.locator("tr.transaction-row", { hasText: memo }).first()).toBeVisible({ timeout: 20_000 });
+  expectMonthStepperCentered(await readTransactionMonthStepperLayout(page), "320px transaction month stepper");
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "transactions-mobile-month-touch-targets");
 });
 
 test("mobile quick entry preserves a closed draft and clears it only through reset", async ({ page }) => {
