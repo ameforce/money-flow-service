@@ -14,6 +14,66 @@ import {
   unique,
 } from "../support/helpers";
 
+async function openSettingsDetails(page, text) {
+  const card = page.locator("details.card", { hasText: text }).first();
+  await card.scrollIntoViewIfNeeded();
+  if (!(await card.evaluate((element) => element.hasAttribute("open")))) {
+    await card.locator("summary").click();
+  }
+  await expect(card).toHaveAttribute("open", "");
+  return card;
+}
+
+async function readColorInputMetrics(card) {
+  return card.locator("input[type='color']").evaluateAll((inputs) =>
+    inputs.map((input) => {
+      const box = input.getBoundingClientRect();
+      return {
+        label: input.labels?.[0]?.textContent?.replace(/\s+/g, " ").trim() || input.getAttribute("aria-label") || "",
+        value: input.value,
+        width: box.width,
+        height: box.height,
+      };
+    }),
+  );
+}
+
+function expectColorInputsKeepTouchTargets(metrics, label) {
+  expect(metrics.length, `${label} should expose color inputs`).toBeGreaterThan(0);
+  for (const metric of metrics) {
+    expect(metric.width, `${label} ${metric.label || metric.value} width`).toBeGreaterThanOrEqual(44);
+    expect(metric.height, `${label} ${metric.label || metric.value} height`).toBeGreaterThanOrEqual(40);
+  }
+}
+
+test("settings color inputs keep mobile and tablet hit targets", async ({ page }) => {
+  const email = `${unique("settings-color-hit")}@example.com`;
+  const displayName = unique("settings-color-hit-name");
+
+  await registerAndVerify(page, { email, displayName });
+
+  for (const viewport of [
+    { width: 320, height: 568 },
+    { width: 768, height: 1024 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await assertResponsiveShell(page);
+    await openTab(page, "설정");
+
+    const rowColorCard = await openSettingsDetails(page, "거래 행 색상");
+    const rowMetrics = await readColorInputMetrics(rowColorCard);
+    expect(rowMetrics.length, "transaction row color inputs should cover flow types").toBeGreaterThanOrEqual(4);
+    expectColorInputsKeepTouchTargets(rowMetrics, `${viewport.width}x${viewport.height} transaction colors`);
+
+    const assetRulesCard = await openSettingsDetails(page, "자산 유형/색상 설정");
+    const assetMetrics = await readColorInputMetrics(assetRulesCard);
+    expectColorInputsKeepTouchTargets(assetMetrics, `${viewport.width}x${viewport.height} holding colors`);
+    await expectNoHorizontalOverflow(page, 12);
+  }
+
+  await capture(page, "settings-color-input-hit-targets");
+});
+
 test("settings flow: profile, household, colors, categories CRUD", async ({ page }) => {
   test.setTimeout(240_000);
 
