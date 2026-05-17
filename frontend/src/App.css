@@ -5841,6 +5841,39 @@ thead {
   }
 }
 
+@media (max-width: 400px) {
+  .dashboard-filter-card .filter-container {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.42rem;
+  }
+
+  .dashboard-filter-card .filter-modes-segmented {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .dashboard-filter-card .filter-modes-segmented button {
+    flex: 1 1 0;
+  }
+
+  .dashboard-filter-card .month-stepper {
+    display: grid;
+    grid-template-columns: 2.5rem minmax(0, 1fr) 2.5rem 2.75rem;
+    column-gap: 0.12rem;
+  }
+
+  .dashboard-filter-card .month-stepper .date-inputs {
+    justify-content: center;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .dashboard-filter-card .month-stepper .icon-btn,
+  .dashboard-filter-card .month-stepper .text-btn {
+    justify-self: stretch;
+  }
+}
+
 @media (max-width: 360px) {
   .topbar-tabs {
     gap: 0.08rem;
