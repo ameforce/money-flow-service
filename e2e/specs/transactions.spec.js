@@ -1501,8 +1501,11 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
       : page.locator("article.card", { has: page.getByRole("heading", { name: "거래 지원 카드" }) });
   const hasSupportCard = ((await supportDetails.count()) > 0) || ((await supportCard.count()) > 0);
   if ((await supportDetails.count()) > 0) {
-    await supportDetails.locator("summary").click();
+    const supportSummary = supportDetails.locator("summary");
+    await expect(supportSummary).toContainText("분석·관리 열기");
+    await supportSummary.click();
     await expect(supportDetails).toHaveAttribute("open", "");
+    await expect(supportSummary).toContainText("분석·관리 접기");
   }
 
   if (hasSupportCard) {
