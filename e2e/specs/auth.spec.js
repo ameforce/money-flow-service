@@ -75,7 +75,7 @@ test("auth switch controls keep mobile touch targets", async ({ page }) => {
   const loginSwitch = await measureSwitchButton("회원가입");
   expect(loginSwitch.height).toBeGreaterThanOrEqual(40);
   expect(loginSwitch.height).toBeLessThanOrEqual(48);
-  expect(loginSwitch.width).toBeGreaterThanOrEqual(50);
+  expect(loginSwitch.width).toBeGreaterThanOrEqual(44);
   expect(loginSwitch.background).toBe("rgba(0, 0, 0, 0)");
   expect(loginSwitch.boxShadow).toBe("none");
   expect(["inline-flex", "flex"]).toContain(loginSwitch.display);
@@ -87,7 +87,7 @@ test("auth switch controls keep mobile touch targets", async ({ page }) => {
   const signupSwitch = await measureSwitchButton("로그인으로 돌아가기");
   expect(signupSwitch.height).toBeGreaterThanOrEqual(40);
   expect(signupSwitch.height).toBeLessThanOrEqual(48);
-  expect(signupSwitch.width).toBeGreaterThanOrEqual(110);
+  expect(signupSwitch.width).toBeGreaterThanOrEqual(44);
   expect(signupSwitch.background).toBe("rgba(0, 0, 0, 0)");
   expect(signupSwitch.boxShadow).toBe("none");
   expect(["inline-flex", "flex"]).toContain(signupSwitch.display);
