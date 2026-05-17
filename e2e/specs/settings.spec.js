@@ -3,6 +3,7 @@ import { expect, test } from "@playwright/test";
 import {
   assertResponsiveShell,
   capture,
+  createCategoryViaApi,
   currentE2EHistoryDateIso,
   expectKeyboardReachableInOrder,
   expectNoHorizontalOverflow,
@@ -110,6 +111,93 @@ test("settings color inputs keep mobile and tablet hit targets", async ({ page }
   }
 
   await capture(page, "settings-color-input-hit-targets");
+});
+
+test("settings category row actions stay inside mobile cards", async ({ page }) => {
+  const email = `${unique("settings-category-actions")}@example.com`;
+  const displayName = unique("settings-category-actions-name");
+  const major = unique("settings-mobile-major");
+  const minor = unique("settings-mobile-minor");
+
+  await registerAndVerify(page, { email, displayName });
+  await createCategoryViaApi(page, { major, minor, flowType: "expense" });
+  await page.reload();
+
+  await page.setViewportSize({ width: 360, height: 740 });
+  await assertResponsiveShell(page);
+  await openTab(page, "설정");
+
+  const categoryCard = page.locator("article.card", { has: page.getByRole("heading", { name: "카테고리 관리" }) });
+  await categoryCard.scrollIntoViewIfNeeded();
+  const categoryRow = categoryCard.locator(".settings-category-row", { hasText: minor }).first();
+  await expect(categoryRow).toBeVisible();
+
+  const metrics = await categoryRow.evaluate((row) => {
+    const card = row.closest(".category-manager-card");
+    const actionGroup = row.querySelector(".inline");
+    const boxOf = (element) => {
+      if (!element) return null;
+      const box = element.getBoundingClientRect();
+      return {
+        x: box.x,
+        y: box.y,
+        width: box.width,
+        height: box.height,
+        right: box.right,
+        bottom: box.bottom,
+      };
+    };
+    return {
+      viewportWidth: window.innerWidth,
+      pageOverflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      card: card
+        ? {
+            box: boxOf(card),
+            clientWidth: card.clientWidth,
+            scrollWidth: card.scrollWidth,
+          }
+        : null,
+      row: {
+        box: boxOf(row),
+        clientWidth: row.clientWidth,
+        scrollWidth: row.scrollWidth,
+        gridTemplateColumns: getComputedStyle(row).gridTemplateColumns,
+      },
+      actionGroup: actionGroup
+        ? {
+            box: boxOf(actionGroup),
+            flexWrap: getComputedStyle(actionGroup).flexWrap,
+            clientWidth: actionGroup.clientWidth,
+            scrollWidth: actionGroup.scrollWidth,
+          }
+        : null,
+      buttons: Array.from(row.querySelectorAll("button")).map((button) => ({
+        text: button.textContent?.replace(/\s+/g, " ").trim() || "",
+        box: boxOf(button),
+      })),
+    };
+  });
+
+  expect(metrics.card, `category card should be measurable: ${JSON.stringify(metrics)}`).not.toBeNull();
+  expect(metrics.actionGroup, `category action group should be measurable: ${JSON.stringify(metrics)}`).not.toBeNull();
+  expect(metrics.pageOverflowX, `settings page should not overflow horizontally: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
+  expect(
+    metrics.card.scrollWidth,
+    `category card content should stay inside the card: ${JSON.stringify(metrics)}`,
+  ).toBeLessThanOrEqual(metrics.card.clientWidth + 1);
+  expect(
+    metrics.row.scrollWidth,
+    `category row content should stay inside the row: ${JSON.stringify(metrics)}`,
+  ).toBeLessThanOrEqual(metrics.row.clientWidth + 1);
+  expect(metrics.actionGroup.flexWrap, `mobile action group should wrap: ${JSON.stringify(metrics)}`).toBe("wrap");
+  for (const button of metrics.buttons) {
+    expect(button.box.right, `${button.text} button should stay inside the viewport: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(
+      metrics.viewportWidth + 1,
+    );
+    expect(button.box.height, `${button.text} button should keep touch height: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(40);
+  }
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "settings-category-actions-mobile");
 });
 
 test("settings flow: profile, household, colors, categories CRUD", async ({ page }) => {
