@@ -92,6 +92,59 @@ async function expectMobileHoldingNameReadable(row, expectedName) {
   expect(metrics.rowScrollWidth - metrics.rowClientWidth).toBeLessThanOrEqual(1);
 }
 
+test("desktop holding ledger controls keep usable hit targets", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("holding-hit-area")}@example.com`;
+  const displayName = unique("holding-hit-area-owner");
+  const holdingName = unique("holding-hit-area");
+
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 1366, height: 768 });
+  await createBasicHolding(page, { name: holdingName, category: "현금성" });
+  await openTab(page, "자산");
+
+  const sortMetrics = await page.locator(".holdings-surface-table thead .sort-header").evaluateAll((buttons) =>
+    buttons.map((button) => {
+      const box = button.getBoundingClientRect();
+      return {
+        text: button.textContent?.trim() || "",
+        width: box.width,
+        height: box.height,
+      };
+    }),
+  );
+  expect(sortMetrics.length, "holding sort headers should be present").toBeGreaterThanOrEqual(8);
+  expect(
+    sortMetrics.every((button) => button.width >= 40 && button.height >= 32),
+    `holding sort headers should keep desktop hit targets: ${JSON.stringify(sortMetrics)}`,
+  ).toBe(true);
+
+  const holdingActions = page
+    .locator("tr.holding-row", { hasText: holdingName })
+    .first()
+    .locator(".holding-col-actions .inline > button:not(.mobile-toggle-btn)");
+  await expect(holdingActions).toHaveCount(4);
+  const actionMetrics = await holdingActions.evaluateAll((buttons) =>
+    buttons.map((button) => {
+      const box = button.getBoundingClientRect();
+      const text = button.textContent?.trim() || "";
+      return {
+        text,
+        width: box.width,
+        height: box.height,
+        disabled: button.disabled,
+      };
+    }),
+  );
+  expect(
+    actionMetrics.every((button) => button.height >= 32 && button.width >= (["↑", "↓"].includes(button.text) ? 32 : 40)),
+    `holding row action buttons should keep desktop hit targets: ${JSON.stringify(actionMetrics)}`,
+  ).toBe(true);
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "holdings-desktop-hit-targets");
+});
+
 test("holdings flow: create, inline edit, delete, responsive", async ({ page }) => {
   test.setTimeout(240_000);
 
