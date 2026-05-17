@@ -774,6 +774,28 @@ test("mobile quick entry keeps expanded fields above sticky actions", async ({ p
     await expect(quickCategoryChip).toBeVisible();
     await quickCategoryChip.click();
 
+    const quickDetailSummaryMetrics = await transactionSheet.locator("details.transaction-quick-details > summary").evaluateAll((summaries) =>
+      summaries.map((summary) => {
+        const box = summary.getBoundingClientRect();
+        return {
+          text: summary.textContent?.replace(/\s+/g, " ").trim() || "",
+          width: box.width,
+          height: box.height,
+          clientWidth: summary.clientWidth,
+          scrollWidth: summary.scrollWidth,
+        };
+      }),
+    );
+    expect(quickDetailSummaryMetrics.length, `${mobileCase.name} quick detail summaries`).toBeGreaterThanOrEqual(2);
+    expect(
+      quickDetailSummaryMetrics.every(({ height }) => height >= 44),
+      `${mobileCase.name} quick detail summaries should keep 44px hit targets: ${JSON.stringify(quickDetailSummaryMetrics)}`,
+    ).toBe(true);
+    expect(
+      quickDetailSummaryMetrics.every(({ clientWidth, scrollWidth }) => scrollWidth - clientWidth <= 1),
+      `${mobileCase.name} quick detail summaries should not clip: ${JSON.stringify(quickDetailSummaryMetrics)}`,
+    ).toBe(true);
+
     await transactionSheet.getByText("전체 카테고리").click();
     await transactionSheet.getByText("추가 입력").click();
 
@@ -1860,7 +1882,7 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
       scrollWidth: summary.scrollWidth,
     };
   });
-  expect(mobileSupportSummaryMetrics.height).toBeGreaterThanOrEqual(40);
+  expect(mobileSupportSummaryMetrics.height).toBeGreaterThanOrEqual(44);
   expect(
     mobileSupportSummaryMetrics.scrollWidth - mobileSupportSummaryMetrics.clientWidth,
     `transaction support summary should keep a readable mobile hit area: ${JSON.stringify(mobileSupportSummaryMetrics)}`

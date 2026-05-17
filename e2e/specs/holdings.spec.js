@@ -376,6 +376,50 @@ test("holdings flow: create, inline edit, delete, responsive", async ({ page }) 
   await page.setViewportSize({ width: 390, height: 844 });
   await openTab(page, "자산");
   await page.waitForLoadState("networkidle");
+  const holdingDisplayOptions = page.locator("details.holding-display-options").first();
+  await expect(holdingDisplayOptions).toBeVisible();
+  const holdingDisplaySummary = holdingDisplayOptions.locator("summary").first();
+  await expect(holdingDisplaySummary).toContainText("보기 옵션");
+  const holdingDisplaySummaryMetrics = await holdingDisplaySummary.evaluate((summary) => {
+    const box = summary.getBoundingClientRect();
+    return {
+      text: summary.textContent?.trim() || "",
+      width: box.width,
+      height: box.height,
+      clientWidth: summary.clientWidth,
+      scrollWidth: summary.scrollWidth,
+    };
+  });
+  expect(holdingDisplaySummaryMetrics.height).toBeGreaterThanOrEqual(44);
+  expect(
+    holdingDisplaySummaryMetrics.scrollWidth - holdingDisplaySummaryMetrics.clientWidth,
+    `holding display summary should keep a readable mobile hit area: ${JSON.stringify(holdingDisplaySummaryMetrics)}`
+  ).toBeLessThanOrEqual(1);
+  const displayOptionsOpen = await holdingDisplayOptions.evaluate((element) => element.hasAttribute("open"));
+  if (!displayOptionsOpen) {
+    await holdingDisplaySummary.click();
+  }
+  const columnWidthSummary = holdingDisplayOptions.locator("details.holding-column-width-editor > summary").first();
+  await expect(columnWidthSummary).toContainText("열 너비 조정");
+  const columnWidthSummaryMetrics = await columnWidthSummary.evaluate((summary) => {
+    const box = summary.getBoundingClientRect();
+    return {
+      text: summary.textContent?.trim() || "",
+      width: box.width,
+      height: box.height,
+      clientWidth: summary.clientWidth,
+      scrollWidth: summary.scrollWidth,
+    };
+  });
+  expect(columnWidthSummaryMetrics.height).toBeGreaterThanOrEqual(44);
+  expect(
+    columnWidthSummaryMetrics.scrollWidth - columnWidthSummaryMetrics.clientWidth,
+    `holding column width summary should keep a readable mobile hit area: ${JSON.stringify(columnWidthSummaryMetrics)}`
+  ).toBeLessThanOrEqual(1);
+  if (!displayOptionsOpen) {
+    await holdingDisplaySummary.click();
+  }
+  await page.evaluate(() => window.scrollTo(0, 0));
   await expect(holdingSummaryCard).toBeVisible();
   const holdingSummary = holdingSummaryCard.locator("summary").first();
   await expect(holdingSummary).toContainText("자산 포트폴리오 차트 접기");
@@ -389,7 +433,7 @@ test("holdings flow: create, inline edit, delete, responsive", async ({ page }) 
       scrollWidth: summary.scrollWidth,
     };
   });
-  expect(holdingSummaryMetrics.height).toBeGreaterThanOrEqual(40);
+  expect(holdingSummaryMetrics.height).toBeGreaterThanOrEqual(44);
   expect(
     holdingSummaryMetrics.scrollWidth - holdingSummaryMetrics.clientWidth,
     `holding summary should keep a readable mobile hit area: ${JSON.stringify(holdingSummaryMetrics)}`
