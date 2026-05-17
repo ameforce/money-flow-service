@@ -825,7 +825,9 @@ test("mobile transaction month stepper keeps usable touch targets", async ({ pag
   const listCard = page.locator(".transaction-list-card").first();
   await expect(listCard).toBeVisible();
   await expect(page.locator("tr.transaction-row", { hasText: memo }).first()).toBeVisible({ timeout: 20_000 });
-  expectMonthStepperCentered(await readTransactionMonthStepperLayout(page), "320px transaction month stepper");
+  const layout = await readTransactionMonthStepperLayout(page);
+  expectMonthStepperCentered(layout, "320px transaction month stepper");
+  expectTransactionMonthTouchTargets(layout, "320px transaction month stepper");
   await expectNoHorizontalOverflow(page, 12);
   await capture(page, "transactions-mobile-month-touch-targets");
 });
