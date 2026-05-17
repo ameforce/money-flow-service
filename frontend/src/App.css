@@ -7251,6 +7251,26 @@ thead {
   }
 }
 
+@media (max-width: 900px) and (max-height: 520px) {
+  .transaction-list-card > .surface-list-heading,
+  .transaction-list-card > .table-header-group,
+  .transaction-list-card > .surface-ledger-mobile-head,
+  .transaction-list-card > .tx-ledger-filter-panel {
+    position: static;
+    top: auto;
+    align-self: stretch;
+    z-index: auto;
+  }
+
+  .transaction-list-card > .table-header-group {
+    margin-bottom: 0;
+  }
+
+  .transaction-list-card .transactions-surface-table.mobile-sticky-active tbody {
+    padding-top: 0;
+  }
+}
+
 @media (hover: none), (pointer: coarse) {
   button,
   select,
