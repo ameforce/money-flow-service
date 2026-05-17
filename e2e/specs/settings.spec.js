@@ -46,6 +46,26 @@ function expectColorInputsKeepTouchTargets(metrics, label) {
   }
 }
 
+async function expectCategoryUsageSummariesKeepHitTargets(page, group, label) {
+  await group.scrollIntoViewIfNeeded();
+  const summaryMetrics = await group.locator(".settings-category-usage-detail .category-usage-month summary").evaluateAll((summaries) =>
+    summaries.map((summary) => {
+      const box = summary.getBoundingClientRect();
+      return {
+        text: summary.textContent?.replace(/\s+/g, " ").trim() || "",
+        width: box.width,
+        height: box.height,
+      };
+    }),
+  );
+  expect(summaryMetrics.length, `${label} should expose monthly usage summaries`).toBeGreaterThan(0);
+  expect(
+    summaryMetrics.every(({ height }) => height >= 44),
+    `${label} monthly usage summaries should keep 44px hit targets: ${JSON.stringify(summaryMetrics)}`,
+  ).toBe(true);
+  await expectNoHorizontalOverflow(page, 12);
+}
+
 test("settings color inputs keep mobile and tablet hit targets", async ({ page }) => {
   const email = `${unique("settings-color-hit")}@example.com`;
   const displayName = unique("settings-color-hit-name");
@@ -313,6 +333,15 @@ test("settings flow: profile, household, colors, categories CRUD", async ({ page
     await expect.poll(() => usageMonthDetail.evaluate((node) => node.hasAttribute("open"))).toBe(true);
   } else {
     await expect(usageMonthDetail).toBeVisible();
+  }
+  for (const viewport of [
+    { width: 375, height: 667, label: "375x667" },
+    { width: 667, height: 375, label: "667x375" },
+    { width: 1024, height: 600, label: "1024x600" },
+  ]) {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await assertResponsiveShell(page);
+    await expectCategoryUsageSummariesKeepHitTargets(page, createdGroup, viewport.label);
   }
 
   const createdCategoryOption = await findCategoryOptionValue(majorSeed, minorSeed);
