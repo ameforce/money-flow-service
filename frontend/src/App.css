@@ -3294,12 +3294,18 @@ table {
 .transactions-surface-table .transaction-col-actions .inline,
 .holdings-surface-table .holding-col-actions .inline {
   flex-wrap: nowrap;
-  gap: 0.18rem;
   justify-content: flex-end;
 }
 
-.transactions-surface-table .transaction-col-actions button,
-.holdings-surface-table .holding-col-actions button {
+.transactions-surface-table .transaction-col-actions .inline {
+  gap: 0.18rem;
+}
+
+.holdings-surface-table .holding-col-actions .inline {
+  gap: 0.24rem;
+}
+
+.transactions-surface-table .transaction-col-actions button {
   min-height: 1.55rem;
   min-width: auto;
   padding: 0.12rem 0.28rem;
@@ -3310,9 +3316,20 @@ table {
   white-space: nowrap;
 }
 
+.holdings-surface-table .holding-col-actions button {
+  min-height: 2rem;
+  min-width: auto;
+  padding: 0.28rem 0.48rem;
+  border-radius: 0.46rem;
+  box-shadow: none;
+  font-size: 0.72rem;
+  line-height: 1.05;
+  white-space: nowrap;
+}
+
 .holdings-surface-table .holding-col-actions .row-order-btn {
-  width: 1.45rem;
-  min-width: 1.45rem;
+  width: 2rem;
+  min-width: 2rem;
   padding-inline: 0;
 }
 
@@ -3345,6 +3362,13 @@ thead {
   color: inherit;
   background: transparent;
   cursor: pointer;
+}
+
+.holdings-surface-table .sort-header {
+  min-height: 2rem;
+  min-width: 2.45rem;
+  padding: 0.32rem 0.34rem;
+  border-radius: 0.42rem;
 }
 
 .sort-header:hover {
@@ -4035,6 +4059,12 @@ thead {
 
 .holding-col-actions {
   width: var(--holding-col-actions, 124px);
+}
+
+@media (min-width: 769px) {
+  .holding-col-actions {
+    width: var(--holding-col-actions, 10.5rem);
+  }
 }
 
 .settings-category-usage-detail {
