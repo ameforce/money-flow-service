@@ -4498,6 +4498,26 @@ thead {
   }
 }
 
+@media (max-width: 900px) {
+  .auth-shell {
+    align-content: start;
+    align-items: start;
+    justify-items: stretch;
+    min-height: 100dvh;
+    padding: 0.75rem;
+  }
+
+  .auth-layout {
+    width: min(420px, 100%);
+    grid-template-columns: minmax(0, 1fr);
+    margin-inline: auto;
+  }
+
+  .auth-hero-panel {
+    display: none;
+  }
+}
+
 @media (max-width: 820px) {
   html {
     scroll-padding-top: calc(0.8rem + env(safe-area-inset-top));

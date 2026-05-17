@@ -499,6 +499,43 @@ test("auth signup layout stays compact across desktop and mobile fonts", async (
   }
 });
 
+test("auth landscape hides hero before headline creates orphan text", async ({ page }) => {
+  for (const mode of ["login", "signup"]) {
+    await test.step(mode, async () => {
+      await page.setViewportSize({ width: 844, height: 390 });
+      await page.goto("/");
+      await applyFontProfile(page, "Malgun Gothic");
+      if (mode === "signup") {
+        await page.getByRole("button", { name: "회원가입" }).click();
+        await expect(page.locator("form.auth-card-register")).toBeVisible();
+      } else {
+        await expect(page.locator("form.auth-card-login")).toBeVisible();
+      }
+
+      const metrics = await page.evaluate(() => {
+        const hero = document.querySelector(".auth-hero-panel");
+        const card = document.querySelector("form.auth-card");
+        const cardBox = card?.getBoundingClientRect();
+        return {
+          heroDisplay: hero ? getComputedStyle(hero).display : "missing",
+          cardWidth: cardBox?.width ?? 0,
+          cardLeft: cardBox?.left ?? 0,
+          cardRight: cardBox?.right ?? 0,
+          overflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        };
+      });
+
+      expect(metrics.heroDisplay, `${mode} hero should not render in 844x390 landscape`).toBe("none");
+      expect(metrics.cardWidth, `${mode} auth card should keep a measurable width`).toBeGreaterThan(320);
+      expect(metrics.cardLeft, `${mode} auth card should remain in viewport`).toBeGreaterThanOrEqual(0);
+      expect(metrics.cardRight, `${mode} auth card should remain in viewport`).toBeLessThanOrEqual(844);
+      expect(metrics.overflowX, `${mode} auth surface should not overflow horizontally`).toBeLessThanOrEqual(1);
+      await expectWithinViewport(page.locator("form.auth-card"), { allowance: 6, requireVertical: false });
+      await capture(page, `auth-landscape-${mode}-compact`);
+    });
+  }
+});
+
 test("mobile import navigation label stays readable at compact widths", async ({ page }) => {
   const email = `${unique("mobile-import-nav")}@example.com`;
   const displayName = unique("mobile-import-nav-user");
