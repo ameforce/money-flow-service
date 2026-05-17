@@ -261,6 +261,43 @@ test("settings flow: profile, household, colors, categories CRUD", async ({ page
   await createCategoryPairCompat(majorSeed, minorSeed);
   await categoryCard.getByRole("button", { name: "카테고리 추가" }).click();
   await expect(page.getByText("카테고리를 추가했습니다.")).toBeVisible();
+  const createdGroup = categoryCard.locator(".settings-category-group", { hasText: majorSeed }).first();
+  const createdCategoryRow = createdGroup.locator(".settings-category-row", { hasText: minorSeed }).first();
+  await page.setViewportSize({ width: 844, height: 390 });
+  await assertResponsiveShell(page);
+  await categoryCard.scrollIntoViewIfNeeded();
+  const landscapeCategoryMetrics = await createdCategoryRow.evaluate((row) => {
+    const minor = row.querySelector(".settings-category-minor");
+    const rowBox = row.getBoundingClientRect();
+    const minorBox = minor?.getBoundingClientRect();
+    return {
+      gridTemplateColumns: getComputedStyle(row).gridTemplateColumns,
+      rowHeight: rowBox.height,
+      rowClientWidth: row.clientWidth,
+      rowScrollWidth: row.scrollWidth,
+      minorText: minor?.textContent?.replace(/\s+/g, " ").trim() || "",
+      minorWidth: minorBox?.width ?? 0,
+      minorHeight: minorBox?.height ?? 0,
+    };
+  });
+  expect(
+    landscapeCategoryMetrics.gridTemplateColumns,
+    `landscape category row should not collapse a column: ${JSON.stringify(landscapeCategoryMetrics)}`,
+  ).not.toContain("0px");
+  expect(
+    landscapeCategoryMetrics.minorWidth,
+    `landscape category minor should remain readable: ${JSON.stringify(landscapeCategoryMetrics)}`,
+  ).toBeGreaterThanOrEqual(96);
+  expect(
+    landscapeCategoryMetrics.rowHeight,
+    `landscape category row should not grow from one-character wrapping: ${JSON.stringify(landscapeCategoryMetrics)}`,
+  ).toBeLessThanOrEqual(120);
+  expect(
+    landscapeCategoryMetrics.rowScrollWidth,
+    `landscape category row should not overflow internally: ${JSON.stringify(landscapeCategoryMetrics)}`,
+  ).toBeLessThanOrEqual(landscapeCategoryMetrics.rowClientWidth + 1);
+  await expectNoHorizontalOverflow(page, 12);
+  await page.setViewportSize({ width: 390, height: 844 });
   const assetRulesCard = page.locator("details.settings-asset-rules-card").first();
   await assetRulesCard.scrollIntoViewIfNeeded();
   if (!(await assetRulesCard.evaluate((element) => element.hasAttribute("open")))) {
@@ -333,7 +370,6 @@ test("settings flow: profile, household, colors, categories CRUD", async ({ page
   await categoryCard.getByRole("button", { name: "카테고리 추가" }).click();
   await expect(categoryCard).toContainText(deleteMinor);
 
-  const createdGroup = categoryCard.locator(".settings-category-group", { hasText: majorSeed }).first();
   for (const viewport of [
     { width: 320, height: 568, label: "320x568" },
     { width: 375, height: 667, label: "375x667" },
