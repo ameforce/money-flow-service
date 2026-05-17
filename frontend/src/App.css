@@ -2325,6 +2325,7 @@ button.danger:active:not(:disabled) {
 }
 
 .transaction-entry-sheet {
+  --transaction-quick-action-clearance: calc(4.7rem + env(safe-area-inset-bottom));
   position: relative;
   z-index: 1;
   box-sizing: border-box;
@@ -2332,6 +2333,7 @@ button.danger:active:not(:disabled) {
   max-width: calc(100vw - 1.5rem);
   max-height: min(32rem, calc(100dvh - 5.5rem));
   overflow: auto;
+  scroll-padding-bottom: calc(var(--transaction-quick-action-clearance) + 0.75rem);
   display: grid;
   gap: 0.85rem;
   background: #ffffff;
@@ -2538,6 +2540,10 @@ button.danger:active:not(:disabled) {
   grid-template-columns: minmax(0, 1fr);
   gap: 0.6rem;
   padding: 0 0.74rem 0.74rem;
+}
+
+.transaction-quick-details:last-of-type .transaction-quick-detail-grid {
+  padding-bottom: calc(0.74rem + var(--transaction-quick-action-clearance));
 }
 
 .transaction-quick-sticky-actions {
