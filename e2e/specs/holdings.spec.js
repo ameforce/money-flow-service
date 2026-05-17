@@ -210,6 +210,23 @@ test("holdings flow: create, inline edit, delete, responsive", async ({ page }) 
   await openTab(page, "자산");
   await page.waitForLoadState("networkidle");
   await expect(holdingSummaryCard).toBeVisible();
+  const holdingSummary = holdingSummaryCard.locator("summary").first();
+  await expect(holdingSummary).toContainText("자산 포트폴리오 차트 접기");
+  const holdingSummaryMetrics = await holdingSummary.evaluate((summary) => {
+    const box = summary.getBoundingClientRect();
+    return {
+      text: summary.textContent?.trim() || "",
+      width: box.width,
+      height: box.height,
+      clientWidth: summary.clientWidth,
+      scrollWidth: summary.scrollWidth,
+    };
+  });
+  expect(holdingSummaryMetrics.height).toBeGreaterThanOrEqual(40);
+  expect(
+    holdingSummaryMetrics.scrollWidth - holdingSummaryMetrics.clientWidth,
+    `holding summary should keep a readable mobile hit area: ${JSON.stringify(holdingSummaryMetrics)}`
+  ).toBeLessThanOrEqual(1);
   const holdingsJumpCue = page.getByTestId("holdings-summary-jump-cue");
   const holdingEntryCard = page.locator(".holding-entry-card").first();
   const holdingsFab = page.getByTestId("holdings-fab");
@@ -273,6 +290,12 @@ test("holdings flow: create, inline edit, delete, responsive", async ({ page }) 
   expect(summaryBoxAfterJump, "holding summary card should have a bounding box after jump").not.toBeNull();
   expect(summaryTopBeforeJump).toBeGreaterThan((summaryBoxAfterJump?.y ?? Number.POSITIVE_INFINITY));
   expect(summaryBoxAfterJump?.y ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(220);
+  await holdingSummary.click();
+  await expect(holdingSummary).toContainText("자산 포트폴리오 차트 열기");
+  await expect(holdingSummaryCard).not.toHaveAttribute("open", "");
+  await holdingSummary.click();
+  await expect(holdingSummary).toContainText("자산 포트폴리오 차트 접기");
+  await expect(holdingSummaryCard).toHaveAttribute("open", "");
   await expect(page.locator(".holdings-mobile-ledger-head")).toBeVisible();
   await expect(holdingSummaryCard.getByLabel("자산 포트폴리오 보기 기준")).toHaveCount(0);
   const mobileHoldingSummarySelect = holdingSummaryCard.getByLabel("자산 요약 보기 기준");

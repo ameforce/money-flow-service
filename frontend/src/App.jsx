@@ -1580,6 +1580,7 @@ function App() {
   const [showTransactionQuickResume, setShowTransactionQuickResume] = useState(false);
   const [txQuickOwnerTouched, setTxQuickOwnerTouched] = useState(false);
   const [showHoldingForm, setShowHoldingForm] = useState(false);
+  const [holdingSummaryOpen, setHoldingSummaryOpen] = useState(true);
   const [tab, setTab] = useState(() => getSavedTabId());
   const [isCompactViewport, setIsCompactViewport] = useState(
     () => (typeof window !== "undefined" ? window.innerWidth <= MOBILE_BREAKPOINT_PX : false)
@@ -3115,6 +3116,8 @@ function App() {
     if (!summaryCard || typeof window === "undefined") {
       return;
     }
+    summaryCard.open = true;
+    setHoldingSummaryOpen(true);
     const targetTop = window.scrollY + summaryCard.getBoundingClientRect().top - 96;
     window.scrollTo({
       top: Math.max(targetTop, 0),
@@ -8650,6 +8653,7 @@ function App() {
           <details
             ref={transactionSupportDetailsRef}
             className="card compact-support-card transaction-support-card surface-support-card"
+            open={transactionSupportOpen}
             onToggle={(event) => {
               const nextOpen = event.currentTarget.open;
               setTransactionSupportOpen(nextOpen);
@@ -9178,9 +9182,16 @@ function App() {
               fmtKrw={fmtKrw}
             />
           </article>
-          <details ref={holdingSummaryCardRef} className="card compact-support-card holding-summary-card surface-support-card" open>
+          <details
+            ref={holdingSummaryCardRef}
+            className="card compact-support-card holding-summary-card surface-support-card"
+            open={holdingSummaryOpen}
+            onToggle={(event) => {
+              setHoldingSummaryOpen(event.currentTarget.open);
+            }}
+          >
             <summary>
-              <span>자산 포트폴리오 차트</span>
+              <span>자산 포트폴리오 차트 {holdingSummaryOpen ? "접기" : "열기"}</span>
             </summary>
             <div className="compact-support-grid">
               <section className="compact-support-section">
