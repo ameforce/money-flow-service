@@ -4839,6 +4839,7 @@ thead {
   }
 
   .transaction-quick-category-chip span {
+    line-height: 1.25;
     max-width: 100%;
     overflow: visible;
     overflow-wrap: anywhere;
