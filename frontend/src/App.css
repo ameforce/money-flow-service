@@ -2930,14 +2930,20 @@ button.danger:active:not(:disabled) {
 
 .compact-flow-stack {
   gap: 0.8rem;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .compact-flow-card {
   gap: 0.65rem;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .compact-flow-toggle {
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
   display: grid;
   gap: 0.32rem;
   justify-items: start;
@@ -2947,6 +2953,11 @@ button.danger:active:not(:disabled) {
   border-color: #dbe3ef;
   background: linear-gradient(180deg, #ffffff, #f8fbff);
   color: #173a67;
+}
+
+.compact-flow-toggle > * {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .compact-flow-toggle:hover:not(:disabled) {
@@ -2979,6 +2990,7 @@ button.danger:active:not(:disabled) {
 }
 
 .compact-flow-toggle-meta {
+  width: 100%;
   font-size: 0.78rem;
   font-weight: 600;
   color: #5f7596;
@@ -5494,6 +5506,24 @@ thead {
   .month-stepper .text-btn,
   .month-stepper .icon-btn {
     white-space: nowrap;
+  }
+
+  .compact-flow-toggle,
+  .tx-flow-summary-line,
+  .compact-flow-toggle-meta {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .tx-flow-summary-line {
+    flex-wrap: wrap;
+    overflow: visible;
+  }
+
+  .tx-flow-summary-line > *,
+  .compact-flow-toggle-meta {
+    overflow: visible;
+    text-overflow: clip;
   }
 
   .compact-support-card > summary,
