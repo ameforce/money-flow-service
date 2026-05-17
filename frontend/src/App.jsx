@@ -11,6 +11,7 @@ import {
   Tooltip,
 } from "chart.js";
 import { Doughnut, Line } from "react-chartjs-2";
+import { IsoDateInput } from "./components/IsoDateInput";
 import { HoldingSurfaceTable } from "./components/worksurface/HoldingSurfaceTable";
 import { TransactionSurfaceTable } from "./components/worksurface/TransactionSurfaceTable";
 import { extractVisibleInitial, resolveSemanticColor, withAlpha } from "./components/worksurface/colorSemantics";
@@ -53,12 +54,12 @@ const TAB_LABELS = {
   import: "데이터 가져오기",
 };
 const TAB_NAV_META = {
-  dashboard: { icon: "⌂", helper: "요약" },
-  transactions: { icon: "↔", helper: "흐름" },
-  holdings: { icon: "◆", helper: "자산" },
-  collaboration: { icon: "◉", helper: "공유" },
-  import: { icon: "⇣", helper: "가져오기", mobileLabel: "가져오기" },
-  settings: { icon: "⚙", helper: "설정" },
+  dashboard: { icon: "⌂", helper: "요약", mobileLabel: "요약" },
+  transactions: { icon: "↔", helper: "흐름", mobileLabel: "거래" },
+  holdings: { icon: "◆", helper: "자산", mobileLabel: "자산" },
+  collaboration: { icon: "◉", helper: "공유", mobileLabel: "협업" },
+  import: { icon: "⇣", helper: "가져오기", mobileLabel: "가져\n오기" },
+  settings: { icon: "⚙", helper: "설정", mobileLabel: "설정" },
 };
 const TAB_GROUPS = {
   left: ["dashboard", "transactions", "holdings"],
@@ -119,6 +120,8 @@ const IMPORT_MODE_LABELS = {
 };
 const AUTO_PRICE_REFRESH_INTERVAL_MS = 20_000;
 const AUTO_PRICE_REFRESH_COOLDOWN_MS = 30_000;
+const PRICE_REFRESH_POLL_INTERVAL_MS = 1_000;
+const PRICE_REFRESH_STATUS_FAILURE_LIMIT = 3;
 const WS_REFRESH_DEBOUNCE_MS = 300;
 const REALTIME_FALLBACK_SYNC_INTERVAL_MS = 45_000;
 const COLLAB_ACTIVE_SYNC_INTERVAL_MS = 8_000;
@@ -127,7 +130,7 @@ const TRANSACTION_HISTORY_AUTO_FILL_THRESHOLD = 12;
 const TRANSACTION_HISTORY_SENTINEL_ROOT_MARGIN = "360px 0px";
 const IMPORT_MISMATCH_PREVIEW_LIMIT = 20;
 const IMPORT_ISSUE_PREVIEW_LIMIT = 20;
-const MOBILE_BREAKPOINT_PX = 760;
+const MOBILE_BREAKPOINT_PX = 820;
 const SOCKET_STATUS_LABELS = {
   connected: "연결됨",
   disconnected: "연결 끊김",
@@ -270,8 +273,25 @@ function normalizeTabId(value) {
   return TAB_IDS.has(normalized) ? normalized : "dashboard";
 }
 
+function getUrlTabId(search = "") {
+  try {
+    const params = new URLSearchParams(search);
+    const value = String(params.get("tab") || "").trim();
+    return TAB_IDS.has(value) ? value : "";
+  } catch {
+    return "";
+  }
+}
+
 function getSavedTabId() {
   return normalizeTabId(localStorage.getItem(ACTIVE_TAB_KEY));
+}
+
+function getInitialTabId() {
+  if (typeof window === "undefined") {
+    return "dashboard";
+  }
+  return getUrlTabId(window.location.search) || getSavedTabId();
 }
 
 function setSavedTabId(value) {
@@ -280,6 +300,25 @@ function setSavedTabId(value) {
 
 function clearSavedTabId() {
   localStorage.removeItem(ACTIVE_TAB_KEY);
+}
+
+function syncUrlTabParam(value) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  const params = new URLSearchParams(window.location.search);
+  if (!params.has("tab")) {
+    return;
+  }
+  const tabId = normalizeTabId(value);
+  if (tabId === "dashboard") {
+    params.delete("tab");
+  } else {
+    params.set("tab", tabId);
+  }
+  const nextQuery = params.toString();
+  const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ""}${window.location.hash || ""}`;
+  window.history.replaceState(window.history.state || {}, "", nextUrl);
 }
 
 function applyCsrfHeader(headers, method) {
@@ -924,21 +963,25 @@ function createVerifyForm() {
 function createVerificationMeta() {
   return {
     expiresInSeconds: null,
+    expiresAtMs: 0,
     resendLimit: null,
     resendWindowSeconds: null,
     resendCooldownSeconds: null,
     lastResendAt: 0,
+    resendUsedCount: 0,
   };
 }
 
-function verificationMetaFromPayload(payload, previous = createVerificationMeta()) {
+function verificationMetaFromPayload(payload, previous = createVerificationMeta(), receivedAt = Date.now()) {
   const seconds = Number(payload?.verification_expires_in_seconds);
   const resendLimit = Number(payload?.verification_resend_limit);
   const resendWindowSeconds = Number(payload?.verification_resend_window_seconds);
   const resendCooldownSeconds = Number(payload?.verification_resend_cooldown_seconds);
+  const expiresInSeconds = Number.isFinite(seconds) && seconds > 0 ? Math.round(seconds) : previous.expiresInSeconds;
   return {
     ...previous,
-    expiresInSeconds: Number.isFinite(seconds) && seconds > 0 ? Math.round(seconds) : previous.expiresInSeconds,
+    expiresInSeconds,
+    expiresAtMs: expiresInSeconds ? receivedAt + expiresInSeconds * 1000 : previous.expiresAtMs,
     resendLimit: Number.isFinite(resendLimit) && resendLimit > 0 ? Math.round(resendLimit) : previous.resendLimit,
     resendWindowSeconds:
       Number.isFinite(resendWindowSeconds) && resendWindowSeconds > 0
@@ -1087,6 +1130,14 @@ function holdingDefaultCategory(typeLike) {
   const assetType = typeof typeLike === "string" ? typeLike : typeLike?.asset_type || "other";
   const label = typeof typeLike === "object" ? String(typeLike?.label || "").trim() : "";
   return label || holdingPresetCategory(assetType);
+}
+
+function compactHouseholdSelectOptionName(name, maxLength = 24) {
+  const text = String(name || "").trim();
+  if (text.length <= maxLength) {
+    return text;
+  }
+  return `${text.slice(0, Math.max(1, maxLength - 3)).trimEnd()}...`;
 }
 
 function resolveHoldingCategoryOnTypeChange(currentCategory, previousType, nextType) {
@@ -1308,7 +1359,16 @@ function formatApiError(error, context) {
   const code = String(error?.code || "").toUpperCase();
   const detail = String(error?.detail || error?.message || error || "").toLowerCase();
   const networkIssue = status >= 500 || detail === "500" || detail.includes("failed to fetch") || detail.includes("network");
+  const apiMessage = String(error?.message || "").trim();
+  const apiAction = String(error?.action || "").trim();
+  const structuredApiMessage = code && apiMessage && !networkIssue ? uiGuideMessage(apiMessage, apiAction) : "";
 
+  if (code === "AUTH_CSRF_ORIGIN_FORBIDDEN") {
+    return uiGuideMessage("허용되지 않은 출처(origin) 요청입니다.", "앱을 실행한 프론트엔드 주소가 백엔드 허용 출처에 포함되어 있는지 확인해 주세요.");
+  }
+  if (code === "AUTH_CSRF_ORIGIN_REQUIRED") {
+    return uiGuideMessage("요청 출처를 확인할 수 없습니다.", "브라우저에서 앱을 다시 열고 로그인해 주세요.");
+  }
   if (context === "auth_login" && (code === "AUTH_INVALID_CREDENTIALS" || code === "AUTH_USER_NOT_FOUND" || status === 401)) {
     return uiGuideMessage("로그인에 실패했습니다.", "이메일과 비밀번호를 확인한 뒤 다시 시도해 주세요.");
   }
@@ -1347,6 +1407,31 @@ function formatApiError(error, context) {
   }
   if (context === "auth_resend" && (code === "AUTH_RESEND_RATE_LIMITED" || status === 429)) {
     return uiGuideMessage("인증 메일 재전송 횟수를 초과했습니다.", "잠시 후 다시 시도해 주세요.");
+  }
+  if (context === "household_invite_accept") {
+    if (code === "HOUSEHOLD_INVITE_EMAIL_MISMATCH" || (!code && status === 403)) {
+      return uiGuideMessage("로그인한 이메일과 초대 이메일이 다릅니다.", "초대 받은 이메일로 로그인해 주세요.");
+    }
+    if (code === "HOUSEHOLD_INVITE_EXPIRED") {
+      return uiGuideMessage("초대 토큰이 만료되었습니다.", "초대를 다시 요청해 주세요.");
+    }
+    if (code === "HOUSEHOLD_INVITE_NOT_FOUND" || status === 404) {
+      return uiGuideMessage("초대 정보를 찾을 수 없습니다.", "초대 현황을 새로고침해 주세요.");
+    }
+    if (code === "HOUSEHOLD_INVITE_INVALID" && apiMessage.includes("이미 처리")) {
+      return uiGuideMessage("이미 처리된 초대입니다.", "가계 목록을 새로고침하거나 새 초대를 요청해 주세요.");
+    }
+    if (
+      code === "HOUSEHOLD_INVITE_INVALID" ||
+      code === "REQUEST_VALIDATION_FAILED" ||
+      status === 400 ||
+      status === 422
+    ) {
+      return uiGuideMessage(
+        "초대 토큰이 올바르지 않거나 만료되었습니다.",
+        "메일 링크의 token 값을 다시 확인하거나 새 초대를 요청해 주세요."
+      );
+    }
   }
   if (context === "profile_save" && code === "AUTH_NICKNAME_REQUIRED") {
     return uiGuideMessage("닉네임 표시명을 선택하려면 닉네임이 필요합니다.", "닉네임을 입력하거나 표시명 모드를 본명으로 바꿔 주세요.");
@@ -1446,6 +1531,9 @@ function formatApiError(error, context) {
   }
   if (networkIssue) {
     return uiGuideMessage("서버 연결이 불안정합니다.", "잠시 후 다시 시도해 주세요.");
+  }
+  if (structuredApiMessage) {
+    return structuredApiMessage;
   }
   return uiGuideMessage("요청 처리 중 오류가 발생했습니다.", "입력값을 확인한 뒤 다시 시도해 주세요.");
 }
@@ -1556,11 +1644,13 @@ function App() {
   const [showOnboardingGuide, setShowOnboardingGuide] = useState(false);
   const [showTransactionEntryBanner, setShowTransactionEntryBanner] = useState(false);
   const [showTransactionForm, setShowTransactionForm] = useState(false);
+  const [transactionSupportOpen, setTransactionSupportOpen] = useState(false);
   const [txEntrySheetStep, setTxEntrySheetStep] = useState("form");
   const [showTransactionQuickResume, setShowTransactionQuickResume] = useState(false);
   const [txQuickOwnerTouched, setTxQuickOwnerTouched] = useState(false);
   const [showHoldingForm, setShowHoldingForm] = useState(false);
-  const [tab, setTab] = useState(() => getSavedTabId());
+  const [holdingSummaryOpen, setHoldingSummaryOpen] = useState(true);
+  const [tab, setTab] = useState(() => getInitialTabId());
   const [isCompactViewport, setIsCompactViewport] = useState(
     () => (typeof window !== "undefined" ? window.innerWidth <= MOBILE_BREAKPOINT_PX : false)
   );
@@ -1690,6 +1780,7 @@ function App() {
   const priceRefreshOriginRef = useRef("manual");
   const lastAutoRefreshAtRef = useRef(0);
   const priceRefreshRequestInFlightRef = useRef(false);
+  const priceRefreshPollFailureCountRef = useRef(0);
   const realtimeFallbackSyncInFlightRef = useRef(false);
   const tabRef = useRef(tab);
   const transactionHistoryLoadingRef = useRef({ initial: false, older: false, newer: false });
@@ -1805,7 +1896,7 @@ function App() {
     if (!normalizedMessage) {
       return undefined;
     }
-    const requiresUserAttention = /실패|오류|확인|입력|선택|권한|필요|수 없습니다|토큰|링크|메일|비밀번호|먼저/u.test(
+    const requiresUserAttention = /실패|오류|입력|선택|권한|필요|수 없습니다|토큰|비밀번호|먼저|초과|올바르지|유효하지|만료|일치|찾지 못|삭제할|비어/u.test(
       normalizedMessage
     );
     if (requiresUserAttention) {
@@ -2232,6 +2323,10 @@ function App() {
     holdingTypeFilter === "all"
       ? "전체"
       : holdingTypeTotals.find((item) => item.key === holdingTypeFilter)?.label || holdingTypeFilter;
+  const holdingListTabAriaLabel =
+    holdingTypeFilter === "all"
+      ? "자산 목록 분류"
+      : `자산 목록 분류, 유형 필터 ${activeHoldingTypeFilterLabel} 적용 중`;
   useEffect(() => {
     if (holdingTypeFilter === "all") {
       return;
@@ -2557,7 +2652,7 @@ function App() {
       return;
     }
     if (!transactionHistoryInitialized && !transactionHistoryLoadingRef.current.initial) {
-      refreshTransactionHistoryAtAnchor(transactionHistoryToday || todayIso(), { alignToEnd: true }).catch(() => undefined);
+      refreshTransactionHistoryAtAnchor(transactionHistoryToday || todayIso(), { alignToEnd: false }).catch(() => undefined);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [household?.id, tab, token, transactionHistoryInitialized]);
@@ -3090,6 +3185,8 @@ function App() {
     if (!summaryCard || typeof window === "undefined") {
       return;
     }
+    summaryCard.open = true;
+    setHoldingSummaryOpen(true);
     const targetTop = window.scrollY + summaryCard.getBoundingClientRect().top - 96;
     window.scrollTo({
       top: Math.max(targetTop, 0),
@@ -3104,6 +3201,7 @@ function App() {
         if (transactionSupportDetailsRef.current) {
           transactionSupportDetailsRef.current.open = true;
         }
+        setTransactionSupportOpen(true);
         window.setTimeout(() => {
           txCategoryManagerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
         }, 0);
@@ -3336,8 +3434,31 @@ function App() {
 
   useEffect(() => {
     setSavedTabId(tab);
+    syncUrlTabParam(tab);
     setMessage((prev) => (prev ? "" : prev));
+    if (typeof window !== "undefined") {
+      window.requestAnimationFrame(() => {
+        window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+      });
+    }
   }, [tab]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+    const syncTabFromUrl = () => {
+      const nextTab = getUrlTabId(window.location.search);
+      if (nextTab) {
+        setTab((prev) => (prev === nextTab ? prev : nextTab));
+      }
+    };
+    syncTabFromUrl();
+    window.addEventListener("popstate", syncTabFromUrl);
+    return () => {
+      window.removeEventListener("popstate", syncTabFromUrl);
+    };
+  }, []);
 
   useEffect(() => {
     if (!txInlineEdit) {
@@ -3492,57 +3613,71 @@ function App() {
   }, [household?.id]);
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const rawHash = String(window.location.hash || "").replace(/^#/, "");
-    const hashParams = new URLSearchParams(rawHash.startsWith("?") ? rawHash.slice(1) : rawHash);
-    const verifyToken = hashParams.get("verify_token");
-    const inviteToken = hashParams.get("invite_token");
-    const hadLegacyQueryTokens = params.has("verify_token") || params.has("invite_token");
-    if (verifyToken) {
-      setAuthMode("verify");
-      setVerifyForm((prev) => ({
-        ...prev,
-        email: prev.email || getSavedEmail() || "",
-        token: verifyToken,
-        verification_code: "",
-        password: "",
-        password_confirm: "",
-        requires_password_setup: false,
-        password_setup_reason: "",
-      }));
-      verifyEmailTokenFromLink(verifyToken).catch(() => undefined);
-      params.delete("verify_token");
-      hashParams.delete("verify_token");
-    }
-    if (inviteToken) {
-      setInviteAcceptToken(inviteToken);
-      hashParams.delete("invite_token");
-    }
-    if (hadLegacyQueryTokens) {
-      params.delete("verify_token");
-      params.delete("invite_token");
-      if (!verifyToken && !inviteToken) {
-        setMessage("보안을 위해 URL query 토큰은 지원하지 않습니다. 최신 인증 링크로 다시 시도해 주세요.");
+    const consumeDeepLinkTokens = () => {
+      const params = new URLSearchParams(window.location.search);
+      const rawHash = String(window.location.hash || "").replace(/^#/, "");
+      const hashParams = new URLSearchParams(rawHash.startsWith("?") ? rawHash.slice(1) : rawHash);
+      const verifyToken = hashParams.get("verify_token");
+      const inviteToken = hashParams.get("invite_token");
+      const hadLegacyQueryTokens = params.has("verify_token") || params.has("invite_token");
+
+      if (verifyToken || inviteToken) {
+        setMessage("");
       }
-    }
-    if (!verifyToken && !inviteToken && !hadLegacyQueryTokens) {
-      return;
-    }
-    const nextQuery = params.toString();
-    const nextHash = hashParams.toString();
-    const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ""}${nextHash ? `#${nextHash}` : ""}`;
-    window.history.replaceState({}, "", nextUrl);
-    // Deep-link token must be consumed exactly once on initial page load.
+      if (verifyToken) {
+        setAuthMode("verify");
+        setVerifyForm((prev) => ({
+          ...prev,
+          email: prev.email || getSavedEmail() || "",
+          token: verifyToken,
+          verification_code: "",
+          password: "",
+          password_confirm: "",
+          requires_password_setup: false,
+          password_setup_reason: "",
+        }));
+        verifyEmailTokenFromLink(verifyToken).catch(() => undefined);
+        params.delete("verify_token");
+        hashParams.delete("verify_token");
+      }
+      if (inviteToken) {
+        setInviteAcceptToken(inviteToken);
+        hashParams.delete("invite_token");
+      }
+      if (hadLegacyQueryTokens) {
+        params.delete("verify_token");
+        params.delete("invite_token");
+        if (!verifyToken && !inviteToken) {
+          setMessage("보안을 위해 URL query 토큰은 지원하지 않습니다. 최신 인증 링크로 다시 시도해 주세요.");
+        }
+      }
+      if (!verifyToken && !inviteToken && !hadLegacyQueryTokens) {
+        return;
+      }
+      const nextQuery = params.toString();
+      const nextHash = hashParams.toString();
+      const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ""}${nextHash ? `#${nextHash}` : ""}`;
+      window.history.replaceState({}, "", nextUrl);
+    };
+
+    consumeDeepLinkTokens();
+    window.addEventListener("hashchange", consumeDeepLinkTokens);
+    window.addEventListener("popstate", consumeDeepLinkTokens);
+    return () => {
+      window.removeEventListener("hashchange", consumeDeepLinkTokens);
+      window.removeEventListener("popstate", consumeDeepLinkTokens);
+    };
+    // Deep-link tokens must be consumed once per URL transition, including hash-only navigation in the mounted SPA.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    if (authMode !== "verify" || !verificationMeta.resendCooldownSeconds) {
+    if (authMode !== "verify" || (!verificationMeta.expiresAtMs && !verificationMeta.resendCooldownSeconds)) {
       return undefined;
     }
     const timer = window.setInterval(() => setNowTick(Date.now()), 1000);
     return () => window.clearInterval(timer);
-  }, [authMode, verificationMeta.resendCooldownSeconds]);
+  }, [authMode, verificationMeta.expiresAtMs, verificationMeta.resendCooldownSeconds]);
 
   async function loadAuthContext(nextToken = token) {
     const [me, householdResp, householdListResp] = await Promise.all([
@@ -3947,6 +4082,44 @@ function App() {
     });
   }
 
+  function applyPriceStatus(nextStatus) {
+    if (!nextStatus) {
+      setPriceStatus(nextStatus);
+      setPriceRefreshPolling(false);
+      priceRefreshOriginRef.current = "manual";
+      priceRefreshPollFailureCountRef.current = 0;
+      return nextStatus;
+    }
+    const normalizedStatus = {
+      ...nextStatus,
+      refresh_in_progress: Boolean(nextStatus?.refresh_in_progress),
+    };
+    setPriceStatus(normalizedStatus);
+    setPriceRefreshPolling(normalizedStatus.refresh_in_progress);
+    if (normalizedStatus.refresh_in_progress) {
+      priceRefreshPollFailureCountRef.current = 0;
+    } else {
+      priceRefreshOriginRef.current = "manual";
+      priceRefreshPollFailureCountRef.current = 0;
+    }
+    return normalizedStatus;
+  }
+
+  function releasePriceRefreshLock() {
+    setPriceRefreshPolling(false);
+    priceRefreshOriginRef.current = "manual";
+    priceRefreshPollFailureCountRef.current = 0;
+    setPriceStatus((current) => (
+      current?.refresh_in_progress ? { ...current, refresh_in_progress: false } : current
+    ));
+  }
+
+  function loadPriceStatusQuietly(nextToken = token) {
+    return api(`${API_PREFIX}/prices/status`, {}, nextToken)
+      .then((data) => ({ ok: true, data }))
+      .catch((error) => ({ ok: false, error }));
+  }
+
   async function refreshData(REFRESH_PRICES = false, nextToken = token, filterOverride = null, options = {}) {
     const silent = Boolean(options?.silent);
     void REFRESH_PRICES;
@@ -3961,14 +4134,17 @@ function App() {
         api(`${API_PREFIX}/transactions?${txQuery}&limit=1000`, {}, nextToken),
         api(`${API_PREFIX}/holdings`, {}, nextToken),
         api(`${API_PREFIX}/dashboard/portfolio`, {}, nextToken),
-        api(`${API_PREFIX}/prices/status`, {}, nextToken),
+        loadPriceStatusQuietly(nextToken),
       ]);
       setOverview(overviewResp);
       setTransactions(txResp);
       setHoldings(holdingResp);
       setPortfolio(portfolioResp);
-      setPriceStatus(statusResp);
-      setPriceRefreshPolling(Boolean(statusResp?.refresh_in_progress));
+      if (statusResp.ok) {
+        applyPriceStatus(statusResp.data);
+      } else {
+        releasePriceRefreshLock();
+      }
       setDashboardLoaded(true);
     } finally {
       if (!silent) {
@@ -4010,7 +4186,7 @@ function App() {
         requests.push(
           api(`${API_PREFIX}/holdings`, {}, nextToken).then((data) => ({ key: "holdings", data })),
           api(`${API_PREFIX}/dashboard/portfolio`, {}, nextToken).then((data) => ({ key: "portfolio", data })),
-          api(`${API_PREFIX}/prices/status`, {}, nextToken).then((data) => ({ key: "priceStatus", data })),
+          loadPriceStatusQuietly(nextToken).then((result) => ({ key: "priceStatus", result })),
         );
       }
       if (includeContext) {
@@ -4043,8 +4219,11 @@ function App() {
         } else if (item.key === "portfolio") {
           setPortfolio(item.data);
         } else if (item.key === "priceStatus") {
-          setPriceStatus(item.data);
-          setPriceRefreshPolling(Boolean(item.data?.refresh_in_progress));
+          if (item.result.ok) {
+            applyPriceStatus(item.result.data);
+          } else {
+            releasePriceRefreshLock();
+          }
         }
       }
       if (includeTransactions && tabRef.current !== "transactions" && transactionHistoryInitializedRef.current) {
@@ -4187,7 +4366,7 @@ function App() {
     if (inviteAcceptToken) {
       setTab("collaboration");
     }
-    if (showSuccessMessage) {
+    if (showSuccessMessage && inviteAcceptToken) {
       setMessage(
         successMessage ||
           uiGuideMessage(
@@ -4243,9 +4422,229 @@ function App() {
     }
   }
 
+  function validateAuthEmail(value, label = "이메일") {
+    const email = String(value || "").trim();
+    if (!email) {
+      return `${label}을 입력해 주세요.`;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return `올바른 ${label} 주소를 입력해 주세요.`;
+    }
+    return "";
+  }
+
+  function validateRequiredText(value, message) {
+    return String(value || "").trim() ? "" : message;
+  }
+
+  function validateDecimalInput(value, label, { min = 0, allowZero = false } = {}) {
+    const text = stripGrouping(value);
+    if (!text) {
+      return `${label}을 입력해 주세요.`;
+    }
+    const amount = Number(text);
+    if (!Number.isFinite(amount)) {
+      return `${label}을 숫자로 입력해 주세요.`;
+    }
+    if (allowZero ? amount < min : amount <= min) {
+      return allowZero
+        ? `${label}은 ${min} 이상으로 입력해 주세요.`
+        : `${label}은 ${min}보다 크게 입력해 주세요.`;
+    }
+    return "";
+  }
+
+  function validateLoginForm(form) {
+    const emailMessage = validateAuthEmail(form.email);
+    if (emailMessage) {
+      return emailMessage;
+    }
+    if (!String(form.password || "")) {
+      return "비밀번호를 입력해 주세요.";
+    }
+    return "";
+  }
+
+  function validateRegisterForm(form) {
+    const emailMessage = validateAuthEmail(form.email);
+    if (emailMessage) {
+      return emailMessage;
+    }
+    const password = String(form.password || "");
+    const passwordConfirm = String(form.password_confirm || "");
+    if (!password) {
+      return "비밀번호를 입력해 주세요.";
+    }
+    if (password.length < 8) {
+      return "비밀번호는 8자 이상이어야 합니다.";
+    }
+    if (!passwordConfirm) {
+      return "비밀번호 확인을 입력해 주세요.";
+    }
+    if (password !== passwordConfirm) {
+      return "비밀번호 확인이 일치하지 않습니다.";
+    }
+    if (!String(form.display_name || "").trim()) {
+      return "본명을 입력해 주세요.";
+    }
+    return "";
+  }
+
+  function validateInviteForm(form) {
+    return validateAuthEmail(form.email, "초대 이메일");
+  }
+
+  function validateTransactionForm(form) {
+    const dateMessage = validateRequiredText(form.occurred_on, "일자를 입력해 주세요.");
+    if (dateMessage) {
+      return dateMessage;
+    }
+    return validateDecimalInput(form.amount, "금액");
+  }
+
+  function validateCategoryDraftForm() {
+    if (categoryDraftMajorSelect === "__custom__" && !String(categoryDraft.major || "").trim()) {
+      return "새 대분류를 입력해 주세요.";
+    }
+    if (categoryDraftMinorSelect === "__custom__" && !String(categoryDraft.minor || "").trim()) {
+      return "첫 중분류를 입력해 주세요.";
+    }
+    return "";
+  }
+
+  function validateHoldingForm(form, { tracked, showAverageCost }) {
+    const nameMessage = validateRequiredText(form.name, "자산명을 입력해 주세요.");
+    if (nameMessage) {
+      return nameMessage;
+    }
+    if (tracked) {
+      const symbolMessage = validateRequiredText(form.symbol, "심볼을 입력해 주세요.");
+      if (symbolMessage) {
+        return symbolMessage;
+      }
+      const quantityMessage = validateDecimalInput(form.quantity, "수량");
+      if (quantityMessage) {
+        return quantityMessage;
+      }
+    }
+    if (showAverageCost) {
+      const averageCostLabel = tracked ? "평균단가" : "평가금액";
+      const averageCostMessage = validateDecimalInput(form.average_cost, averageCostLabel, { allowZero: true });
+      if (averageCostMessage) {
+        return averageCostMessage;
+      }
+    }
+    const currencyMessage = validateRequiredText(form.currency, "통화를 입력해 주세요.");
+    if (currencyMessage) {
+      return currencyMessage;
+    }
+    return "";
+  }
+
+  function validateHoldingTypeDraftForm() {
+    const nextKey = normalizeHoldingTypeKey(holdingTypeDraft.key || holdingTypeDraft.label);
+    const nextLabel = String(holdingTypeDraft.label || "").trim();
+    if (!nextKey && !nextLabel) {
+      return "유형 키와 이름을 입력해 주세요.";
+    }
+    if (!nextKey) {
+      return "유형 키를 입력해 주세요.";
+    }
+    if (!nextLabel) {
+      return "유형 이름을 입력해 주세요.";
+    }
+    return "";
+  }
+
+  function getValidationFieldLabel(target) {
+    const labelElement = target?.labels?.[0] || target?.closest?.("label");
+    const directLabelText =
+      labelElement && typeof Node !== "undefined"
+        ? Array.from(labelElement.childNodes || [])
+            .filter((node) => node.nodeType === Node.TEXT_NODE)
+            .map((node) => node.textContent || "")
+            .join(" ")
+        : "";
+    const fallbackText =
+      target?.getAttribute?.("aria-label") ||
+      target?.getAttribute?.("placeholder") ||
+      directLabelText ||
+      labelElement?.textContent ||
+      target?.name ||
+      "필수 입력값";
+    return String(fallbackText || "필수 입력값")
+      .replace(/\*/g, "")
+      .replace(/\s+/g, " ")
+      .trim() || "필수 입력값";
+  }
+
+  function getObjectParticle(text) {
+    const lastChar = Array.from(String(text || "").trim()).pop();
+    if (!lastChar) {
+      return "을";
+    }
+    const code = lastChar.charCodeAt(0);
+    if (code < 0xac00 || code > 0xd7a3) {
+      return "을";
+    }
+    return (code - 0xac00) % 28 === 0 ? "를" : "을";
+  }
+
+  function getNativeValidationMessage(target) {
+    if (!target?.validity) {
+      return "";
+    }
+    const label = getValidationFieldLabel(target);
+    const validity = target.validity;
+    if (validity.valueMissing) {
+      return `${label}${getObjectParticle(label)} 입력해 주세요.`;
+    }
+    if (validity.typeMismatch && target.type === "email") {
+      return `올바른 ${label.includes("이메일") ? label : "이메일"} 주소를 입력해 주세요.`;
+    }
+    if (validity.patternMismatch) {
+      return `${label} 형식을 확인해 주세요.`;
+    }
+    if (validity.rangeUnderflow) {
+      return `${label}은 최소값 이상으로 입력해 주세요.`;
+    }
+    if (validity.rangeOverflow) {
+      return `${label}은 최대값 이하로 입력해 주세요.`;
+    }
+    if (validity.stepMismatch || validity.badInput) {
+      return `${label} 값을 확인해 주세요.`;
+    }
+    return "";
+  }
+
+  function handleInvalidFormField(event) {
+    const target = event.target;
+    if (typeof target?.setCustomValidity !== "function") {
+      return;
+    }
+    const validationMessage = getNativeValidationMessage(target);
+    if (validationMessage) {
+      target.setCustomValidity(validationMessage);
+    }
+  }
+
+  function clearNativeValidationMessage(event) {
+    const target = event.target;
+    if (typeof target?.setCustomValidity === "function") {
+      target.setCustomValidity("");
+    }
+  }
+
   async function runAuth(event) {
     event.preventDefault();
     const currentMode = authMode;
+    if (currentMode === "login") {
+      const validationMessage = validateLoginForm(authForm);
+      if (validationMessage) {
+        setMessage(validationMessage);
+        return;
+      }
+    }
     if (currentMode === "register" || currentMode === "verify") {
       const activeForm = currentMode === "verify" ? verifyForm : authForm;
       if (currentMode === "verify") {
@@ -4281,14 +4680,9 @@ function App() {
           }
         }
       } else {
-        const password = String(activeForm.password || "");
-        const passwordConfirm = String(activeForm.password_confirm || "");
-        if (password.length < 8) {
-          setMessage("비밀번호는 8자 이상이어야 합니다.");
-          return;
-        }
-        if (password !== passwordConfirm) {
-          setMessage("비밀번호 확인이 일치하지 않습니다.");
+        const validationMessage = validateRegisterForm(activeForm);
+        if (validationMessage) {
+          setMessage(validationMessage);
           return;
         }
       }
@@ -4322,7 +4716,7 @@ function App() {
         await api(`${API_PREFIX}/auth/login`, {
           method: "POST",
           body: JSON.stringify({
-            email: authForm.email,
+            email: String(authForm.email || "").trim(),
             password: authForm.password,
             remember_me: keepSignedIn,
           }),
@@ -4331,15 +4725,21 @@ function App() {
         const registerResp = await api(`${API_PREFIX}/auth/register`, {
           method: "POST",
           body: JSON.stringify({
-            email: authForm.email,
+            email: String(authForm.email || "").trim(),
             password: authForm.password,
-            display_name: authForm.display_name,
+            display_name: String(authForm.display_name || "").trim(),
             remember_me: keepSignedIn,
           }),
         });
         if (registerResp?.status === "verification_required") {
           const debugToken = String(registerResp?.debug_verification_token || "").trim();
-          setVerificationMeta(verificationMetaFromPayload(registerResp));
+          const sentAt = Date.now();
+          setVerificationMeta({
+            ...verificationMetaFromPayload(registerResp, createVerificationMeta(), sentAt),
+            lastResendAt: sentAt,
+            resendUsedCount: 0,
+          });
+          setNowTick(sentAt);
           setAuthMode("verify");
           setVerifyForm({
             email: String(registerResp?.email || authForm.email || ""),
@@ -4350,10 +4750,7 @@ function App() {
             requires_password_setup: false,
             password_setup_reason: "",
           });
-          setMessage(
-            registerResp?.message ||
-              (DEBUG_TOKEN_OPT_IN ? "테스트 모드 인증 토큰이 주입되었습니다." : "이메일 인증이 필요합니다.")
-          );
+          setMessage("");
           return;
         }
       }
@@ -4409,11 +4806,19 @@ function App() {
         requires_password_setup: false,
         password_setup_reason: "",
       }));
-      setVerificationMeta((prev) => ({
-        ...verificationMetaFromPayload(payload, prev),
-        lastResendAt: Date.now(),
-      }));
-      setMessage(payload?.message || "인증 메일 재전송 요청이 접수되었습니다.");
+      const sentAt = Date.now();
+      setVerificationMeta((prev) => {
+        const next = verificationMetaFromPayload(payload, prev, sentAt);
+        const resendLimit = Number(next.resendLimit || 0);
+        const usedCount = Math.max(0, Number(prev.resendUsedCount || 0) + 1);
+        return {
+          ...next,
+          lastResendAt: sentAt,
+          resendUsedCount: resendLimit > 0 ? Math.min(resendLimit, usedCount) : usedCount,
+        };
+      });
+      setNowTick(sentAt);
+      setMessage("");
     } catch (error) {
       setMessage(formatAuthError(error, "resend"));
     } finally {
@@ -4475,6 +4880,11 @@ function App() {
 
   async function createHouseholdInvite(event) {
     event.preventDefault();
+    const validationMessage = validateInviteForm(inviteForm);
+    if (validationMessage) {
+      setMessage(validationMessage);
+      return;
+    }
     setLoading(true);
     setMessage("");
     try {
@@ -4483,7 +4893,7 @@ function App() {
         {
           method: "POST",
           body: JSON.stringify({
-            email: inviteForm.email,
+            email: String(inviteForm.email || "").trim(),
             role: inviteForm.role,
           }),
         },
@@ -4632,6 +5042,11 @@ function App() {
       setMessage(uiGuideMessage("현재 권한으로는 거래를 저장할 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
       return;
     }
+    const validationMessage = validateTransactionForm(txForm);
+    if (validationMessage) {
+      setMessage(validationMessage);
+      return;
+    }
     setLoading(true);
     setMessage("");
     try {
@@ -4742,6 +5157,14 @@ function App() {
       setMessage(uiGuideMessage("현재 권한으로는 자산을 저장할 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
       return;
     }
+    const validationMessage = validateHoldingForm(holdingForm, {
+      tracked: holdingFormTracked,
+      showAverageCost: holdingFormShowAverageCost,
+    });
+    if (validationMessage) {
+      setMessage(validationMessage);
+      return;
+    }
     setLoading(true);
     setMessage("");
     try {
@@ -4774,6 +5197,11 @@ function App() {
       return;
     }
     if (!txInlineEdit?.id) return;
+    const validationMessage = validateTransactionForm(txInlineEdit);
+    if (validationMessage) {
+      setMessage(validationMessage);
+      return;
+    }
     setLoading(true);
     setMessage("");
     try {
@@ -4830,6 +5258,16 @@ function App() {
       return;
     }
     if (!holdingInlineEdit?.id) {
+      return;
+    }
+    const inlineType =
+      holdingTypeByKey.get(normalizeHoldingTypeKey(holdingInlineEdit.type_key || holdingInlineEdit.asset_type || "")) || holdingFormType;
+    const validationMessage = validateHoldingForm(holdingInlineEdit, {
+      tracked: Boolean(inlineType?.tracked ?? isMarketTrackedAssetType(holdingInlineEdit.asset_type)),
+      showAverageCost: Boolean(inlineType?.show_average_cost ?? true),
+    });
+    if (validationMessage) {
+      setMessage(validationMessage);
       return;
     }
     setLoading(true);
@@ -4939,6 +5377,11 @@ function App() {
 
   async function createCategoryPair(event) {
     event.preventDefault();
+    const validationMessage = validateCategoryDraftForm();
+    if (validationMessage) {
+      setMessage(validationMessage);
+      return;
+    }
     setLoading(true);
     setMessage("");
     try {
@@ -5276,13 +5719,15 @@ function App() {
     }
     try {
       const refreshResp = await api(`${API_PREFIX}/prices/refresh`, { method: "POST" }, token);
-      setPriceRefreshPolling(Boolean(refreshResp?.in_progress));
-      if (!silent) {
-        if (refreshResp?.queued) {
-          setMessage("이미 시세 갱신이 진행 중입니다. 완료 시점에 자동 반영됩니다.");
-        } else {
-          setMessage("시세 갱신을 백그라운드로 시작했습니다. 완료 시점에 자동 반영됩니다.");
-        }
+      const inProgress = Boolean(refreshResp?.in_progress);
+      setPriceRefreshPolling(inProgress);
+      setPriceStatus((current) => (
+        current ? { ...current, refresh_in_progress: inProgress } : current
+      ));
+      if (inProgress) {
+        priceRefreshPollFailureCountRef.current = 0;
+      } else {
+        releasePriceRefreshLock();
       }
       return refreshResp;
     } catch (error) {
@@ -5460,6 +5905,11 @@ function App() {
 
   async function saveHoldingTypeDefinition(event) {
     event.preventDefault();
+    const validationMessage = validateHoldingTypeDraftForm();
+    if (validationMessage) {
+      setMessage(validationMessage);
+      return;
+    }
     const nextKey = normalizeHoldingTypeKey(holdingTypeDraft.key || holdingTypeDraft.label);
     const nextLabel = String(holdingTypeDraft.label || "").trim();
     if (!nextKey || !nextLabel) {
@@ -5647,7 +6097,12 @@ function App() {
               aria-label={`${item.name} 자산 선택`}
             />
           </td>
-          <td data-label="이름" className="holding-col-name holding-name-cell" data-field-key="name" data-mobile-priority={holdingMobilePriority("name")}>{item.name}</td>
+          <td data-label="이름" className="holding-col-name holding-name-cell" data-field-key="name" data-mobile-priority={holdingMobilePriority("name")}>
+            <span className="holding-name-text">
+              <span className="holding-name-dot" aria-hidden="true" />
+              <span className="holding-name-label">{item.name}</span>
+            </span>
+          </td>
           <td data-label="유형" className="holding-col-type" data-field-key="type_category_summary" data-mobile-priority={holdingMobilePriority("type_category_summary")}>
             <span className="holding-type-label">{typeLabel}</span>
             <span className="holding-type-category-hint">{item.category || "-"}</span>
@@ -5658,13 +6113,28 @@ function App() {
               </span>
             ) : null}
           </td>
-          <td data-label="보유자" className="holding-col-owner" data-field-key="owner_name" data-mobile-priority={holdingMobilePriority("owner_name")}>{item.owner_name || "-"}</td>
+          <td data-label="보유자" className="holding-col-owner holding-mobile-detail-cell" data-field-key="owner_name" data-mobile-priority={holdingMobilePriority("owner_name")}>
+            <span className="holding-mobile-detail-label">보유자</span>
+            <span className="holding-mobile-detail-value">{item.owner_name || "-"}</span>
+          </td>
           <td data-label="카테고리" className="holding-col-category" data-field-key="category" data-mobile-priority={holdingMobilePriority("category")}>{item.category}</td>
-          <td data-label="수량" className="holding-col-quantity" data-field-key="quantity" data-mobile-priority={holdingMobilePriority("quantity")}>{fmt(item.quantity)}</td>
-          <td data-label="평균단가" className="holding-col-average" data-field-key="average_cost" data-mobile-priority={holdingMobilePriority("average_cost")}>{itemType?.show_average_cost ?? true ? fmt(item.average_cost) : "-"}</td>
+          <td data-label="수량" className="holding-col-quantity holding-mobile-detail-cell" data-field-key="quantity" data-mobile-priority={holdingMobilePriority("quantity")}>
+            <span className="holding-mobile-detail-label">수량</span>
+            <span className="holding-mobile-detail-value">{fmt(item.quantity)}</span>
+          </td>
+          <td data-label="평균단가" className="holding-col-average holding-mobile-detail-cell" data-field-key="average_cost" data-mobile-priority={holdingMobilePriority("average_cost")}>
+            <span className="holding-mobile-detail-label">평균단가</span>
+            <span className="holding-mobile-detail-value">{itemType?.show_average_cost ?? true ? fmt(item.average_cost) : "-"}</span>
+          </td>
           <td data-label="평가(KRW)" className="holding-col-market" data-field-key="market_value_krw" data-mobile-priority={holdingMobilePriority("market_value_krw")}>{fmtKrw(item.market_value_krw)}</td>
-          <td data-label="손익(KRW)" className="holding-col-gain" data-field-key="gain_loss_krw" data-mobile-priority={holdingMobilePriority("gain_loss_krw")}>{showGainLoss ? fmtKrw(item.gain_loss_krw) : "-"}</td>
-          <td data-label="최종 수정일" className="holding-col-updated" data-field-key="updated_at" data-mobile-priority={holdingMobilePriority("updated_at")}>{fmtDate(holdingUpdatedAtById.get(item.holding_id))}</td>
+          <td data-label="손익(KRW)" className="holding-col-gain holding-mobile-detail-cell" data-field-key="gain_loss_krw" data-mobile-priority={holdingMobilePriority("gain_loss_krw")}>
+            <span className="holding-mobile-detail-label">손익</span>
+            <span className="holding-mobile-detail-value">{showGainLoss ? fmtKrw(item.gain_loss_krw) : "-"}</span>
+          </td>
+          <td data-label="최종 수정일" className="holding-col-updated holding-mobile-detail-cell" data-field-key="updated_at" data-mobile-priority={holdingMobilePriority("updated_at")}>
+            <span className="holding-mobile-detail-label">최종 수정일</span>
+            <span className="holding-mobile-detail-value">{fmtDate(holdingUpdatedAtById.get(item.holding_id))}</span>
+          </td>
           <td data-label="동작" className="holding-col-actions" data-mobile-priority="action">
             <div className="inline">
               <button type="button" className="secondary row-order-btn" disabled={!canEditRecords || loading} onClick={() => moveHoldingDisplayOrder(item, -1).catch(() => undefined)}>
@@ -5740,7 +6210,7 @@ function App() {
         {isEditing && editForm && (
           <tr key={`${rowKey}-editor`} className="holding-inline-editor-row">
             <td colSpan={11}>
-              <form className="form-grid holdings-inline-editor" onSubmit={submitHoldingInlineEdit}>
+              <form className="form-grid holdings-inline-editor" onSubmit={submitHoldingInlineEdit} noValidate>
                 <label>
                   유형
                   <select
@@ -5989,6 +6459,7 @@ function App() {
     priceRefreshOriginRef.current = "manual";
     lastAutoRefreshAtRef.current = 0;
     priceRefreshRequestInFlightRef.current = false;
+    priceRefreshPollFailureCountRef.current = 0;
     realtimeFallbackSyncInFlightRef.current = false;
     setAuthForm({
       ...createAuthForm(),
@@ -6008,19 +6479,28 @@ function App() {
       try {
         const statusResp = await api(`${API_PREFIX}/prices/status`, {}, token);
         if (stopped) return;
-        setPriceStatus(statusResp);
+        const nextStatus = applyPriceStatus(statusResp);
         if (!statusResp?.refresh_in_progress) {
-          setPriceRefreshPolling(false);
-          await refreshDataByKinds(new Set(["holding"]), token, { silent: true });
-          if (priceRefreshOriginRef.current === "manual") {
-            setMessage("시세 갱신 완료");
-          }
-          priceRefreshOriginRef.current = "manual";
+          void refreshDataByKinds(new Set(["holding"]), token, { silent: true }).catch(() => undefined);
+        } else if (nextStatus?.refresh_in_progress) {
+          priceRefreshPollFailureCountRef.current = 0;
         }
       } catch {
-        // Keep polling quietly; next cycle may recover from transient failures.
+        priceRefreshPollFailureCountRef.current += 1;
+        if (priceRefreshPollFailureCountRef.current >= PRICE_REFRESH_STATUS_FAILURE_LIMIT) {
+          const wasManualRefresh = priceRefreshOriginRef.current === "manual";
+          releasePriceRefreshLock();
+          if (wasManualRefresh) {
+            setMessage(
+              uiGuideMessage(
+                "시세 갱신 상태 확인이 지연되고 있습니다.",
+                "시세 상태를 다시 확인한 뒤 필요하면 갱신을 다시 시도해 주세요.",
+              ),
+            );
+          }
+        }
       }
-    }, 1000);
+    }, PRICE_REFRESH_POLL_INTERVAL_MS);
     return () => {
       stopped = true;
       clearInterval(timer);
@@ -6371,13 +6851,23 @@ function App() {
     if (!chartSource?.items?.length) {
       return null;
     }
+    const values = chartSource.items.map((item) => Number(item.value || 0));
     const colors = categoryPalette(chartSource.items.length);
+    const isSingleVisibleSlice = values.filter((value) => Number.isFinite(value) && value > 0).length === 1;
     return {
       labels: chartSource.items.map((item) => item.label),
       datasets: [
         {
-          data: chartSource.items.map((item) => Number(item.value || 0)),
+          data: values,
           backgroundColor: colors,
+          ...(isSingleVisibleSlice
+            ? {
+                borderColor: colors,
+                borderWidth: 0,
+                hoverBorderWidth: 0,
+                spacing: 0,
+              }
+            : {}),
         },
       ],
     };
@@ -6388,18 +6878,19 @@ function App() {
   const holdingPortfolioChartData = useMemo(() => {
     return buildPortfolioChartData(holdingPortfolioChartSource);
   }, [holdingPortfolioChartSource]);
-  const mobileDoughnutOptions = useMemo(
+  const donutChartOptions = useMemo(
     () => ({
       responsive: true,
       maintainAspectRatio: false,
+      animation: false,
       cutout: `${DONUT_CUTOUT_PERCENT}%`,
       plugins: {
         legend: {
-          display: !isCompactViewport,
+          display: false,
         },
       },
     }),
-    [isCompactViewport]
+    []
   );
   const dashboardPortfolioViewLabel = PORTFOLIO_VIEW_LABELS[dashboardPortfolioViewMode] || dashboardPortfolioViewMode;
   const dashboardPortfolioChartDescription = `${dashboardPortfolioChartSource?.title || "차트"} 기준 ${dashboardPortfolioViewLabel}`;
@@ -6511,7 +7002,8 @@ function App() {
   const { minMonth, maxMonth } = getMonthBounds();
   const isPrevMonthDisabled = compareYearMonth(yearMonth, minMonth) <= 0;
   const isNextMonthDisabled = compareYearMonth(yearMonth, maxMonth) >= 0;
-  const refreshStateLabel = priceStatus?.refresh_in_progress
+  const isPriceRefreshActive = priceRefreshPolling || Boolean(priceStatus?.refresh_in_progress);
+  const refreshStateLabel = isPriceRefreshActive
     ? "진행 중"
     : priceStatus?.refresh_finished_at
       ? "완료"
@@ -6566,7 +7058,7 @@ function App() {
       meta: item.label === "평가손익(KRW)" ? dashboardGainLossRatioText : "",
     };
   });
-  const dashboardPriceTone = priceStatus?.refresh_in_progress
+  const dashboardPriceTone = isPriceRefreshActive
     ? "warning"
     : Number(priceStatus?.stale_count || 0) > 0
       ? "negative"
@@ -6756,6 +7248,7 @@ function App() {
         className="transaction-quick-form transaction-entry-sheet-form"
         data-testid="transaction-quick-form"
         onSubmit={submitTransaction}
+        noValidate
         onFocusCapture={(event) => handleTransactionQuickFieldFocus(event.target)}
         onKeyDownCapture={handleTransactionQuickFormKeyDown}
         onPointerDownCapture={rememberActiveTransactionQuickField}
@@ -6886,12 +7379,11 @@ function App() {
             <label className="date-field">
               일자
               <div className="date-input-wrap">
-                <input
+                <IsoDateInput
                   ref={txDateInputRef}
-                  type="date"
                   enterKeyHint="next"
                   value={txForm.occurred_on}
-                  onChange={(e) => setTxForm((prev) => ({ ...prev, occurred_on: e.target.value }))}
+                  onValueChange={(value) => setTxForm((prev) => ({ ...prev, occurred_on: value }))}
                   disabled={transactionFormDisabled}
                   required
                 />
@@ -6973,16 +7465,16 @@ function App() {
       <form
         className={`form-grid transactions-form-grid${sheetMode ? " transaction-entry-sheet-form" : ""}`}
         onSubmit={submitTransaction}
+        noValidate
       >
       <label className="date-field">
         일자
         <div className="date-input-wrap">
-          <input
+          <IsoDateInput
             ref={txDateInputRef}
-            type="date"
             enterKeyHint="next"
             value={txForm.occurred_on}
-            onChange={(e) => setTxForm((prev) => ({ ...prev, occurred_on: e.target.value }))}
+            onValueChange={(value) => setTxForm((prev) => ({ ...prev, occurred_on: value }))}
             disabled={transactionFormDisabled}
             required
           />
@@ -7112,7 +7604,7 @@ function App() {
       className={`transaction-category-manager-content${sheetMode ? " transaction-category-manager-content-sheet" : ""}`}
       data-testid={sheetMode ? "transaction-category-sheet-step" : undefined}
     >
-      <form className="form-grid settings-form-grid category-create-form" onSubmit={createCategoryPair}>
+      <form className="form-grid settings-form-grid category-create-form" onSubmit={createCategoryPair} noValidate>
         <div className="settings-preview category-manager-guide">
           <strong>새 카테고리 만들기</strong>
           <span>{categoryDraftGuideText}</span>
@@ -7260,9 +7752,15 @@ function App() {
 
   if (!authReady) {
     return (
-      <main className="auth-shell" translate="no">
+      <main
+        className="auth-shell"
+        translate="no"
+        onInvalidCapture={handleInvalidFormField}
+        onInputCapture={clearNativeValidationMessage}
+        onChangeCapture={clearNativeValidationMessage}
+      >
         <div className="auth-card">
-          <h1>money-flow</h1>
+          <h1>Money Flow</h1>
           <p>세션을 확인하는 중입니다. 잠시만 기다려 주세요.</p>
         </div>
         <div className="app-copyright" aria-hidden="true">
@@ -7280,56 +7778,74 @@ function App() {
         ? Math.max(0, verificationMeta.lastResendAt + resendCooldownMs - nowTick)
         : 0;
     const resendRemainingSeconds = Math.ceil(resendRemainingMs / 1000);
-    const resendDisabled = loading || resendRemainingSeconds > 0;
+    const expiresAtMs = Math.max(0, Number(verificationMeta.expiresAtMs || 0));
+    const expiresRemainingSeconds =
+      authMode === "verify" && expiresAtMs
+        ? Math.max(0, Math.ceil((expiresAtMs - nowTick) / 1000))
+        : Math.max(0, Number(verificationMeta.expiresInSeconds || 0));
+    const resendLimit = Math.max(0, Number(verificationMeta.resendLimit || 0));
+    const resendUsedCount = Math.max(0, Number(verificationMeta.resendUsedCount || 0));
+    const resendRemainingCount = resendLimit > 0 ? Math.max(0, resendLimit - resendUsedCount) : null;
+    const resendDisabled = loading || resendRemainingSeconds > 0 || resendRemainingCount === 0;
+    const resendWaitText = resendRemainingSeconds > 0 ? `${formatDurationKo(resendRemainingSeconds)} 후 가능` : "지금 가능";
     const requiresVerificationPasswordSetup = authMode === "verify" && Boolean(verifyForm.requires_password_setup);
+    const verifyTokenText = String(verifyForm.token || "").trim();
+    const verificationCodeText = String(verifyForm.verification_code || "").trim();
+    const verificationEmailText = String(verifyForm.email || "").trim();
+    const verificationCodeReady = Boolean(verificationEmailText) && /^\d{6}$/.test(verificationCodeText);
+    const verificationSubmitReady =
+      authMode !== "verify" || requiresVerificationPasswordSetup || Boolean(verifyTokenText || verificationCodeReady);
+    const verifySubmitHelperId = "auth-verify-submit-helper";
     const authDescription =
       authMode === "verify"
         ? hasPendingInviteToken
-          ? "회원가입을 완료하면 협업 탭에서 가계부 초대를 수락할 수 있습니다."
-          : "회원가입을 완료하려면 이메일 인증을 진행해 주세요."
+          ? "인증 후 협업 탭에서 초대를 수락할 수 있습니다."
+          : "메일 인증으로 가입을 마무리합니다."
         : hasPendingInviteToken
-          ? "가계부 초대 링크를 확인했습니다. 로그인 후 협업 탭에서 초대를 수락해 주세요."
-          : "가구 전체를 쉽게 시작하는 가계부·투자 관리 서비스";
+          ? "로그인 후 초대를 수락할 수 있습니다."
+          : authMode === "register"
+            ? "가입 정보를 입력하고 이메일을 확인합니다."
+            : "이메일과 비밀번호로 로그인합니다.";
     const authModeTitle =
       authMode === "login"
-        ? "다시 오신 걸 환영합니다"
+        ? "로그인"
         : authMode === "register"
-          ? "우리집 가계 워크스페이스 만들기"
+          ? "회원가입"
           : requiresVerificationPasswordSetup
-            ? "새 비밀번호로 인증 마무리"
-            : "메일 인증으로 계정 보호";
+            ? "비밀번호 설정"
+            : "메일 인증";
     const authModeKicker =
       authMode === "login"
-        ? "보안 로그인"
+        ? "로그인"
         : authMode === "register"
-          ? "가계 시작"
-          : "이메일 인증";
+          ? "회원가입"
+          : "인증";
     return (
-      <main className="auth-shell" translate="no">
+      <main
+        className="auth-shell"
+        translate="no"
+        onInvalidCapture={handleInvalidFormField}
+        onInputCapture={clearNativeValidationMessage}
+        onChangeCapture={clearNativeValidationMessage}
+      >
         <div className="auth-layout">
           <section className="auth-hero-panel" aria-hidden="true">
             <div className="auth-brand-lockup">
               <span className="auth-brand-mark">M</span>
               <span>
-                <strong>money-flow</strong>
+                <strong>Money Flow</strong>
                 <small>가계 금융 워크스페이스</small>
               </span>
             </div>
             <div className="auth-hero-copy">
-              <span className="auth-hero-kicker">Household finance</span>
-              <h2>가계 흐름과 자산 상태를 한 화면에서 안전하게 시작하세요.</h2>
-              <p>로그인, 이메일 인증, 초대 수락까지 같은 보안 흐름 안에서 이어집니다.</p>
-            </div>
-            <div className="auth-proof-grid">
-              <span>이메일 인증</span>
-              <span>초대 토큰 보호</span>
-              <span>가계 협업 준비</span>
+              <h2>가계 흐름을 빠르게 시작합니다.</h2>
+              <p>계정 보호와 협업 준비를 간결한 흐름으로 이어갑니다.</p>
             </div>
           </section>
-          <form className={`auth-card auth-card-${authMode}`} onSubmit={runAuth}>
+          <form className={`auth-card auth-card-${authMode}`} onSubmit={runAuth} noValidate>
             <div className="auth-card-header">
               <span className="auth-mode-pill">{authModeKicker}</span>
-              <h1>money-flow</h1>
+              <h1>Money Flow</h1>
               <h2>{authModeTitle}</h2>
               <p>{authDescription}</p>
             </div>
@@ -7352,18 +7868,35 @@ function App() {
                   </>
                 ) : (
                   <span>
-                    메일의 버튼을 누르면 회원가입이 자동으로 완료됩니다. 직접 입력하려면 아래 6자리 인증번호를 사용해 주세요.
+                    메일의 버튼을 열거나 아래 6자리 인증번호를 입력해 주세요.
                   </span>
                 )}
-                {verificationMeta.expiresInSeconds ? (
-                  <span>인증 메일 유효기간: {formatDurationKo(verificationMeta.expiresInSeconds)}</span>
+                {expiresRemainingSeconds || verificationMeta.resendLimit ? (
+                  <div className="auth-verification-meta" aria-label="인증 상태">
+                    {expiresRemainingSeconds ? (
+                      <span>
+                        <b>남은 유효시간</b>
+                        <strong>{formatDurationKo(expiresRemainingSeconds)}</strong>
+                      </span>
+                    ) : null}
+                    {verificationMeta.resendLimit ? (
+                      <>
+                        <span>
+                          <b>재전송 대기</b>
+                          <strong>{resendWaitText}</strong>
+                        </span>
+                        <span>
+                          <b>남은 재전송</b>
+                          <strong>{resendRemainingCount}회</strong>
+                        </span>
+                      </>
+                    ) : null}
+                  </div>
                 ) : null}
                 {verificationMeta.resendLimit ? (
-                  <span>
-                    재전송은 {formatDurationKo(verificationMeta.resendWindowSeconds || 300)} 동안 최대 {verificationMeta.resendLimit}회까지 가능합니다.
-                    {verificationMeta.resendCooldownSeconds
-                      ? ` 다시 보내기는 ${formatDurationKo(verificationMeta.resendCooldownSeconds)} 간격으로 제한됩니다.`
-                      : ""}
+                  <span className="auth-verification-note">
+                    제한: {formatDurationKo(verificationMeta.resendWindowSeconds || 300)} 동안 최대 {verificationMeta.resendLimit}회
+                    {verificationMeta.resendCooldownSeconds ? `, ${formatDurationKo(verificationMeta.resendCooldownSeconds)} 간격` : ""}
                   </span>
                 ) : null}
               </div>
@@ -7477,7 +8010,18 @@ function App() {
               계정 정보 저장 (이메일)
             </label>
           </div>
-          <button disabled={loading} type="submit">
+          {authMode === "verify" && !requiresVerificationPasswordSetup && !verificationSubmitReady && (
+            <p id={verifySubmitHelperId} className="field-helper auth-submit-helper">
+              메일 버튼으로 접속하거나 6자리 인증번호를 입력하면 인증 완료 버튼이 활성화됩니다.
+            </p>
+          )}
+          <button
+            disabled={loading || !verificationSubmitReady}
+            type="submit"
+            aria-describedby={
+              authMode === "verify" && !requiresVerificationPasswordSetup && !verificationSubmitReady ? verifySubmitHelperId : undefined
+            }
+          >
             {loading
               ? "처리 중..."
               : authMode === "login"
@@ -7490,7 +8034,11 @@ function App() {
           </button>
           {authMode === "verify" && !requiresVerificationPasswordSetup && (
             <button type="button" className="secondary" onClick={() => resendVerification().catch(() => undefined)} disabled={resendDisabled}>
-              {resendRemainingSeconds > 0 ? `재전송 대기 ${formatDurationKo(resendRemainingSeconds)}` : "인증 메일 재전송"}
+              {resendRemainingCount === 0
+                ? "재전송 횟수 소진"
+                : resendRemainingSeconds > 0
+                  ? `재전송 ${formatDurationKo(resendRemainingSeconds)} 후 가능`
+                  : "인증 메일 재전송"}
             </button>
           )}
           <div className="auth-switch">
@@ -7548,7 +8096,7 @@ function App() {
       >
         <span className="tab-icon" aria-hidden="true">{meta.icon || "•"}</span>
         <span className="tab-text-break" aria-hidden="true">{"\n"}</span>
-        <span className="tab-copy" data-helper={meta.helper || undefined}>
+        <span className="tab-copy" data-helper={meta.helper || undefined} aria-hidden="true">
           <span className="tab-label" data-mobile-label={meta.mobileLabel || TAB_LABELS[item] || item}>
             {TAB_LABELS[item] || item}
           </span>
@@ -7559,11 +8107,17 @@ function App() {
   };
 
   return (
-    <main className="app-shell" translate="no">
+    <main
+      className="app-shell"
+      translate="no"
+      onInvalidCapture={handleInvalidFormField}
+      onInputCapture={clearNativeValidationMessage}
+      onChangeCapture={clearNativeValidationMessage}
+    >
       <header className="topbar">
         <div className="topbar-identity">
-          <span className="topbar-eyebrow">Money Flow Control Center</span>
-          <h1>money-flow</h1>
+          <span className="topbar-eyebrow">가계 금융 워크스페이스</span>
+          <h1>Money Flow</h1>
           <div className="meta topbar-meta">
             <span>사용자: {user?.display_name}</span>
             <span>가계: {household?.name}</span>
@@ -7573,7 +8127,10 @@ function App() {
               aria-live="polite"
               aria-label={realtimeChipAriaLabel}
             >
-              <span className="socket-chip-text">실시간 연결: {realtimeChipLabel}</span>
+              <span className="socket-chip-text">
+                <span className="socket-chip-prefix">실시간 연결: </span>
+                <span className="socket-chip-status">{realtimeChipLabel}</span>
+              </span>
             </span>
           </div>
         </div>
@@ -7584,9 +8141,9 @@ function App() {
           <button
             className="secondary"
             onClick={refreshPriceNow}
-            disabled={loading || dashboardLoading || priceStatus?.refresh_in_progress || priceRefreshPolling}
+            disabled={loading || dashboardLoading || isPriceRefreshActive}
           >
-            {priceStatus?.refresh_in_progress || priceRefreshPolling ? "시세 갱신 중..." : "시세 갱신"}
+            {isPriceRefreshActive ? "시세 갱신 중..." : "시세 갱신"}
           </button>
           <button className="danger" onClick={() => logout().catch(() => undefined)}>로그아웃</button>
         </div>
@@ -7596,8 +8153,8 @@ function App() {
         <div className="nav-brand" aria-hidden="true">
           <span className="nav-brand-mark">M</span>
           <span>
-            <strong>money-flow</strong>
-            <small>finance workspace</small>
+            <strong>Money Flow</strong>
+            <small>가계 금융 워크스페이스</small>
           </span>
         </div>
         <div className="tabs-left">
@@ -7648,7 +8205,7 @@ function App() {
 
           <article className="card summary-card dashboard-hero-card">
             <div className="dashboard-hero-copy">
-              <span className="dashboard-eyebrow">Money command center</span>
+              <span className="dashboard-eyebrow">요약</span>
               <h2>요약</h2>
               <p>
                 {filterMode === "month"
@@ -7673,7 +8230,7 @@ function App() {
                     <div key={item.label} className="dashboard-kpi-card" data-tone={item.tone}>
                       <span>{item.label}</span>
                       <strong className={item.meta ? "dashboard-kpi-value-line" : undefined}>
-                        {item.value}
+                        <span className="dashboard-kpi-value-main">{item.value}</span>
                         {item.meta && <em className="dashboard-kpi-value-meta">{item.meta}</em>}
                       </strong>
                       <small>{item.helper}</small>
@@ -7692,7 +8249,7 @@ function App() {
 
           <article className="card filter-card dashboard-filter-card">
             <div className="dashboard-filter-heading">
-              <span className="dashboard-eyebrow">기간 필터</span>
+                  <span className="dashboard-eyebrow">기간 필터</span>
               <strong>{filterMode === "month" ? "월별 리포트" : "기간 리포트"}</strong>
             </div>
             <div className="filter-container">
@@ -7759,19 +8316,27 @@ function App() {
                   </div>
                 ) : (
                   <div className="range-picker">
-                    <input
-                      type="date"
-                      value={range.start}
-                      onChange={(e) => handleRangeInputChange("start", e.target.value)}
-                      enterKeyHint="done"
-                    />
+                    <label className="range-date-field">
+                      <span className="range-date-label">시작일</span>
+                      <input
+                        type="date"
+                        aria-label="시작일"
+                        value={range.start}
+                        onChange={(e) => handleRangeInputChange("start", e.target.value)}
+                        enterKeyHint="done"
+                      />
+                    </label>
                     <span className="range-separator">~</span>
-                    <input
-                      type="date"
-                      value={range.end}
-                      onChange={(e) => handleRangeInputChange("end", e.target.value)}
-                      enterKeyHint="done"
-                    />
+                    <label className="range-date-field">
+                      <span className="range-date-label">종료일</span>
+                      <input
+                        type="date"
+                        aria-label="종료일"
+                        value={range.end}
+                        onChange={(e) => handleRangeInputChange("end", e.target.value)}
+                        enterKeyHint="done"
+                      />
+                    </label>
                   </div>
                 )}
               </div>
@@ -7782,7 +8347,7 @@ function App() {
             <article className="card chart-card dashboard-flow-card">
               <div className="dashboard-card-heading">
                 <div>
-                  <span className="dashboard-eyebrow">Cashflow radar</span>
+                  <span className="dashboard-eyebrow">현금 흐름</span>
                   <h2>월별 흐름</h2>
                 </div>
                 <span className="dashboard-chip">현금흐름 추이</span>
@@ -7804,7 +8369,7 @@ function App() {
             <article className="card chart-card dashboard-portfolio-card">
               <div className="inline chart-card-header dashboard-card-heading">
                 <div>
-                  <span className="dashboard-eyebrow">Asset mix</span>
+                  <span className="dashboard-eyebrow">자산 구성</span>
                   <h2>포트폴리오 및 거래내역 차트</h2>
                 </div>
                 <label className="compact-inline-select dashboard-portfolio-chart-select">
@@ -7834,7 +8399,7 @@ function App() {
                   </div>
                 ) : dashboardPortfolioChartData ? (
                   <>
-                    <Doughnut data={dashboardPortfolioChartData} options={mobileDoughnutOptions} />
+                    <Doughnut data={dashboardPortfolioChartData} options={donutChartOptions} />
                     {renderDonutSliceLabels(dashboardPortfolioChartSource.items, {
                       testId: "portfolio-donut-slice-label",
                       labelPrefix: dashboardPortfolioChartSource.title,
@@ -7855,7 +8420,7 @@ function App() {
             <article className="card dashboard-side-card dashboard-status-card">
               <div className="dashboard-card-heading">
                 <div>
-                  <span className="dashboard-eyebrow">Operations</span>
+                  <span className="dashboard-eyebrow">상태</span>
                   <h2>가져오기 & 상태</h2>
                 </div>
               </div>
@@ -7880,7 +8445,7 @@ function App() {
             <article className="card dashboard-side-card dashboard-members-card">
               <div className="dashboard-card-heading">
                 <div>
-                  <span className="dashboard-eyebrow">Household</span>
+                  <span className="dashboard-eyebrow">협업</span>
                   <h2>협업 멤버</h2>
                 </div>
                 <span className="dashboard-chip">{fmt(householdMembers.length)}명</span>
@@ -7905,7 +8470,7 @@ function App() {
             <article className="card dashboard-side-card dashboard-recent-card">
               <div className="dashboard-card-heading">
                 <div>
-                  <span className="dashboard-eyebrow">Recent updates</span>
+                  <span className="dashboard-eyebrow">최근</span>
                   <h2>최근 거래</h2>
                 </div>
               </div>
@@ -7933,7 +8498,7 @@ function App() {
             <article className="card dashboard-side-card dashboard-holdings-card">
               <div className="dashboard-card-heading">
                 <div>
-                  <span className="dashboard-eyebrow">Holdings</span>
+                  <span className="dashboard-eyebrow">자산</span>
                   <h2>보유 자산</h2>
                 </div>
               </div>
@@ -8114,18 +8679,16 @@ function App() {
               </label>
               <label className="tx-header-filter">
                 <span>시작</span>
-                <input
-                  type="date"
+                <IsoDateInput
                   value={txListFilter.start}
-                  onChange={(e) => setTxListFilter({ ...txListFilter, start: e.target.value })}
+                  onValueChange={(value) => setTxListFilter({ ...txListFilter, start: value })}
                 />
               </label>
               <label className="tx-header-filter">
                 <span>종료</span>
-                <input
-                  type="date"
+                <IsoDateInput
                   value={txListFilter.end}
-                  onChange={(e) => setTxListFilter({ ...txListFilter, end: e.target.value })}
+                  onValueChange={(value) => setTxListFilter({ ...txListFilter, end: value })}
                 />
               </label>
               <button
@@ -8217,13 +8780,18 @@ function App() {
           <details
             ref={transactionSupportDetailsRef}
             className="card compact-support-card transaction-support-card surface-support-card"
+            open={transactionSupportOpen}
             onToggle={(event) => {
-              if (!event.currentTarget.open) {
+              const nextOpen = event.currentTarget.open;
+              setTransactionSupportOpen(nextOpen);
+              if (!nextOpen) {
                 setShowTxCategoryManager(false);
               }
             }}
           >
-            <summary>분석·관리 열기</summary>
+            <summary>
+              분석·관리 {transactionSupportOpen ? "접기" : "열기"}
+            </summary>
             <p className="table-summary compact-support-summary">집계와 카테고리 관리는 필요할 때만 펼쳐 확인합니다. 포트폴리오와 자산 요약은 자산 탭으로 이동했습니다.</p>
             <div className="compact-support-grid">
               <section className="compact-support-section">
@@ -8440,7 +9008,7 @@ function App() {
             )}
             {showHoldingForm && (
               <div className="holdings-form-container">
-              <form className="holdings-form-grid" onSubmit={submitHolding}>
+              <form className="holdings-form-grid" onSubmit={submitHolding} noValidate>
                 <label>
                   유형
                   <select
@@ -8645,7 +9213,17 @@ function App() {
             >
               자산 포트폴리오 요약 보기
             </button>
-            <div className="tabs sub-tabs" role="tablist" aria-label="자산 목록 분류">
+            {holdingTypeFilter !== "all" && (
+              <div className="holding-type-filter-status" data-testid="holding-type-filter-status" role="status" aria-live="polite">
+                <span>
+                  유형 필터: <strong>{activeHoldingTypeFilterLabel}</strong>
+                </span>
+                <button type="button" className="secondary" onClick={() => setHoldingTypeFilter("all")}>
+                  유형 필터 해제
+                </button>
+              </div>
+            )}
+            <div className="tabs sub-tabs" role="tablist" aria-label={holdingListTabAriaLabel}>
               {dynamicHoldingTabs.map((tabItem) => (
                 <button
                   key={tabItem.value}
@@ -8692,6 +9270,8 @@ function App() {
                     ["average_cost", "평균단가"],
                     ["market_value_krw", "평가(KRW)"],
                     ["gain_loss_krw", "손익(KRW)"],
+                    ["updated_at", "최종 수정일"],
+                    ["actions", "동작"],
                   ].map(([columnKey, label]) => (
                     <label key={columnKey}>
                       {label}
@@ -8729,9 +9309,16 @@ function App() {
               fmtKrw={fmtKrw}
             />
           </article>
-          <details ref={holdingSummaryCardRef} className="card compact-support-card holding-summary-card surface-support-card" open>
+          <details
+            ref={holdingSummaryCardRef}
+            className="card compact-support-card holding-summary-card surface-support-card"
+            open={holdingSummaryOpen}
+            onToggle={(event) => {
+              setHoldingSummaryOpen(event.currentTarget.open);
+            }}
+          >
             <summary>
-              <span>자산 포트폴리오 차트</span>
+              <span>자산 포트폴리오 차트 {holdingSummaryOpen ? "접기" : "열기"}</span>
             </summary>
             <div className="compact-support-grid">
               <section className="compact-support-section">
@@ -8767,7 +9354,7 @@ function App() {
                 <div className={`chart-wrap compact-chart-wrap${holdingPortfolioChartData ? "" : " chart-wrap-empty"}`}>
                   {holdingPortfolioChartData ? (
                     <>
-                      <Doughnut data={holdingPortfolioChartData} options={mobileDoughnutOptions} />
+                      <Doughnut data={holdingPortfolioChartData} options={donutChartOptions} />
                       {renderDonutSliceLabels(holdingPortfolioChartSource.items, {
                         testId: "portfolio-donut-slice-label",
                         labelPrefix: holdingPortfolioChartSource.title,
@@ -8931,9 +9518,13 @@ function App() {
           </article>
 
           <details className="card compact-support-card settings-advanced-card secondary-surface-card">
-            <summary>
-              <span>거래 행 색상</span>
-              <span className="table-summary">기본 화면에서는 숨기고 필요할 때만 조정합니다.</span>
+            <summary role="button">
+              <span className="settings-disclosure-main">
+                <span>거래 행 색상</span>
+                <span className="table-summary">기본 화면에서는 숨기고 필요할 때만 조정합니다.</span>
+              </span>
+              <span className="settings-disclosure-chip settings-disclosure-chip-collapsed">펼치기</span>
+              <span className="settings-disclosure-chip settings-disclosure-chip-expanded">접기</span>
             </summary>
             <form className="settings-color-form" onSubmit={saveHouseholdSettings}>
               {FLOW_TYPE_OPTIONS.map((option) => {
@@ -8973,11 +9564,15 @@ function App() {
           </details>
 
           <details className="card compact-support-card settings-span-full settings-advanced-card secondary-surface-card settings-asset-rules-card">
-            <summary>
-              <span>자산 유형/색상 설정</span>
-              <span className="table-summary">유형 편집, 색상, 표시 규칙은 접어 둡니다.</span>
+            <summary role="button">
+              <span className="settings-disclosure-main">
+                <span>자산 유형/색상 설정</span>
+                <span className="table-summary">유형 편집, 색상, 표시 규칙은 접어 둡니다.</span>
+              </span>
+              <span className="settings-disclosure-chip settings-disclosure-chip-collapsed">펼치기</span>
+              <span className="settings-disclosure-chip settings-disclosure-chip-expanded">접기</span>
             </summary>
-            <form className="form-grid settings-form-grid" onSubmit={saveHoldingTypeDefinition}>
+            <form className="form-grid settings-form-grid" onSubmit={saveHoldingTypeDefinition} noValidate>
               <label>
                 유형 키
                 <input
@@ -9049,8 +9644,22 @@ function App() {
                   <span className="settings-category-minor">{typeItem.key}</span>
                   <span className="settings-category-usage">{typeItem.asset_type}</span>
                   <div className="inline">
-                    <button type="button" className="secondary" onClick={() => moveHoldingTypeOrder(typeItem.key, -1).catch(() => undefined)}>↑</button>
-                    <button type="button" className="secondary" onClick={() => moveHoldingTypeOrder(typeItem.key, 1).catch(() => undefined)}>↓</button>
+                    <button
+                      type="button"
+                      className="secondary settings-type-order-btn"
+                      aria-label={`${typeItem.label} 유형 순서 올리기`}
+                      onClick={() => moveHoldingTypeOrder(typeItem.key, -1).catch(() => undefined)}
+                    >
+                      ↑
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary settings-type-order-btn"
+                      aria-label={`${typeItem.label} 유형 순서 내리기`}
+                      onClick={() => moveHoldingTypeOrder(typeItem.key, 1).catch(() => undefined)}
+                    >
+                      ↓
+                    </button>
                     <button type="button" className="secondary" onClick={() => editHoldingType(typeItem)}>수정</button>
                     <button type="button" className="danger" onClick={() => removeHoldingTypeDefinition(typeItem.key).catch(() => undefined)}>삭제</button>
                   </div>
@@ -9127,20 +9736,22 @@ function App() {
               <label>
                 작업 가계
                 <select
+                  id="settings-household-select"
                   className="household-select"
                   value={household?.id || ""}
                   onChange={handleHouseholdSwitchChange}
                   disabled={householdSwitchDisabled}
+                  aria-describedby="settings-household-select-summary"
                 >
                   {householdList.length === 0 && <option value="">선택 가능한 가계 없음</option>}
                   {householdList.map((entry) => (
                     <option key={entry.household.id} value={entry.household.id}>
-                      {entry.household.name} · 내 권한 {COLLAB_ROLE_LABELS[entry.role] || entry.role}
+                      {entry.household.name}
                     </option>
                   ))}
                 </select>
               </label>
-              <p className="table-summary">
+              <p className="table-summary" id="settings-household-select-summary">
                 현재 작업 가계: {household?.name || "-"} / 내 권한: {COLLAB_ROLE_LABELS[householdRole] || householdRole || "-"}
               </p>
             </div>
@@ -9160,7 +9771,7 @@ function App() {
                 </span>
               </div>
             </div>
-            <form className="form-grid settings-form-grid category-create-form" onSubmit={createCategoryPair}>
+            <form className="form-grid settings-form-grid category-create-form" onSubmit={createCategoryPair} noValidate>
               <div className="settings-preview category-manager-guide">
                 <strong>새 카테고리 만들기</strong>
                 <span>{categoryDraftGuideText}</span>
@@ -9324,6 +9935,7 @@ function App() {
                                 }))
                               }
                               placeholder="새 대분류명"
+                              aria-label={`${FLOW_TYPE_LABELS[flowGroup.value] || flowGroup.value} ${toCategoryMajorLabel(major)} 대분류 변경 새 이름`}
                               disabled={!canEditHouseholdData}
                             />
                             <button type="button" className="secondary" disabled={!canEditHouseholdData} onClick={() => renameCategoryMajorGroup(flowGroup.value, major)}>
@@ -9454,20 +10066,22 @@ function App() {
               <label>
                 작업 가계
                 <select
+                  id="collaboration-household-select"
                   className="household-select"
                   value={household?.id || ""}
                   onChange={handleHouseholdSwitchChange}
                   disabled={householdSwitchDisabled}
+                  aria-describedby="collaboration-household-select-summary"
                 >
                   {householdList.length === 0 && <option value="">선택 가능한 가계 없음</option>}
                   {householdList.map((entry) => (
-                    <option key={entry.household.id} value={entry.household.id}>
-                      {entry.household.name} · 내 권한 {COLLAB_ROLE_LABELS[entry.role] || entry.role}
+                    <option key={entry.household.id} value={entry.household.id} aria-label={entry.household.name} title={entry.household.name}>
+                      {compactHouseholdSelectOptionName(entry.household.name)}
                     </option>
                   ))}
                 </select>
               </label>
-              <p className="table-summary">
+              <p className="table-summary" id="collaboration-household-select-summary">
                 현재 가계: {household?.name || "-"} / 내 권한: {COLLAB_ROLE_LABELS[householdRole] || householdRole || "-"}
               </p>
             </div>
@@ -9520,7 +10134,7 @@ function App() {
               </div>
             )}
 
-            <form className="form-grid collaboration-form-grid" onSubmit={createHouseholdInvite}>
+            <form className="form-grid collaboration-form-grid" onSubmit={createHouseholdInvite} noValidate>
               <label>
                 초대할 이메일
                 <input
@@ -9557,14 +10171,20 @@ function App() {
             )}
 
             <form className="form-grid collaboration-accept-grid" onSubmit={acceptHouseholdInvite}>
-              <label>
-                초대 수락 토큰
-                <input
-                  value={inviteAcceptToken}
-                  onChange={(event) => setInviteAcceptToken(event.target.value)}
-                  placeholder="메일 링크의 token 값을 붙여 넣으세요."
-                />
-              </label>
+              <div className="form-field invite-token-field">
+                <label>
+                  초대 수락 토큰
+                  <input
+                    value={inviteAcceptToken}
+                    onChange={(event) => setInviteAcceptToken(event.target.value)}
+                    placeholder="초대 token"
+                    aria-describedby="invite-accept-token-helper"
+                  />
+                </label>
+                <p id="invite-accept-token-helper" className="field-helper invite-token-helper">
+                  메일 초대 링크에서 token 값을 복사해 붙여 넣으세요.
+                </p>
+              </div>
               <div className="inline form-actions">
                 <button
                   type="submit"
@@ -9676,14 +10296,18 @@ function App() {
                 )}
                 {householdMembers.map((member) => {
                   const isSelf = Boolean(user?.id && member.user_id === user.id);
+                  const roleSelectDisabled = !canManageHousehold || loading || isSelf;
+                  const memberRoleLabel = `${member.display_name || member.email || "구성원"} 권한 변경`;
                   return (
                     <tr key={member.member_id}>
                       <td data-label="이름">{member.display_name || "-"}</td>
                       <td data-label="이메일">{member.email || "-"}</td>
                       <td data-label="권한">
                         <select
+                          aria-label={memberRoleLabel}
                           value={member.role}
-                          disabled={!canManageHousehold || loading}
+                          disabled={roleSelectDisabled}
+                          title={isSelf ? "본인 권한은 다른 공동 소유자가 변경해야 합니다." : undefined}
                           onChange={(event) =>
                             changeMemberRole(member.member_id, event.target.value).catch(() => undefined)
                           }
@@ -9801,56 +10425,74 @@ function App() {
             {!canEditRecords && (
               <p className="table-summary">데이터 가져오기는 편집자 이상 권한에서만 가능합니다.</p>
             )}
-            <div
-              className={`file-drop-area ${isDragOver ? "drag-over" : ""}`}
-              onDragOver={(e) => {
-                e.preventDefault();
-                if (!importLoadingMode && canEditRecords) setIsDragOver(true);
-              }}
-              onDragLeave={(e) => {
-                e.preventDefault();
-                setIsDragOver(false);
-              }}
-              onDrop={(e) => {
-                e.preventDefault();
-                setIsDragOver(false);
-                if (!importLoadingMode && canEditRecords && e.dataTransfer.files?.[0]) {
-                  setImportFile(e.dataTransfer.files[0]);
-                }
-              }}
-              onClick={() => {
-                if (!importLoadingMode && canEditRecords) importFileInputRef.current?.click();
-              }}
-            >
-              <input
-                ref={importFileInputRef}
-                type="file"
-                accept=".xlsx"
-                onChange={(e) => setImportFile(e.target.files?.[0] || null)}
-                style={{ display: "none" }}
-                aria-label="엑셀 파일 업로드"
-                disabled={Boolean(importLoadingMode) || !canEditRecords}
-              />
-              {importFile ? (
-                <div className="upload-file-name">선택된 파일: {importFile.name}</div>
-              ) : (
-                <div className="upload-placeholder">엑셀 파일을 이곳에 드래그 앤 드롭 하거나 클릭하여 업로드하세요.</div>
-              )}
-            </div>
-            <div className="inline import-action-row">
-              <button type="button" disabled={Boolean(importLoadingMode) || !canEditRecords} onClick={() => doImport("dry_run")}>
-                {importLoadingMode === "dry_run" ? "미리 검증 중..." : IMPORT_MODE_LABELS.dry_run}
-              </button>
-              <button type="button" disabled={Boolean(importLoadingMode) || !canEditRecords} onClick={() => doImport("apply")}>
-                {importLoadingMode === "apply" ? "적용 중..." : IMPORT_MODE_LABELS.apply}
+            <div className="mobile-import-package-export">
+              <button
+                type="button"
+                disabled={migrationExporting || Boolean(migrationLoadingMode) || !canEditRecords}
+                onClick={exportMigrationPackage}
+              >
+                {migrationExporting ? "패키지 추출 중..." : "현재 가계 패키지 추출"}
               </button>
             </div>
-            {importLoadingMode && (
-              <div className="import-progress">서버에서 파일을 처리 중입니다. 완료까지 잠시만 기다려 주세요.</div>
-            )}
-            {importReport && (
-              <section className="import-report">
+            <div className="import-mode-grid">
+              <section className="import-mode-panel import-excel-panel">
                 <div className="secondary-table-heading import-report-heading">
+                  <div className="work-surface-title">
+                    <span className="surface-eyebrow">엑셀 데이터</span>
+                    <h3 id="excel-import-heading">엑셀 파일 업로드</h3>
+                  </div>
+                  <p className="table-summary">{importFile ? "파일 선택됨" : "파일 대기"}</p>
+                </div>
+                <div
+                  className={`file-drop-area ${isDragOver ? "drag-over" : ""}`}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    if (!importLoadingMode && canEditRecords) setIsDragOver(true);
+                  }}
+                  onDragLeave={(e) => {
+                    e.preventDefault();
+                    setIsDragOver(false);
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setIsDragOver(false);
+                    if (!importLoadingMode && canEditRecords && e.dataTransfer.files?.[0]) {
+                      setImportFile(e.dataTransfer.files[0]);
+                    }
+                  }}
+                  onClick={() => {
+                    if (!importLoadingMode && canEditRecords) importFileInputRef.current?.click();
+                  }}
+                >
+                  <input
+                    ref={importFileInputRef}
+                    type="file"
+                    accept=".xlsx"
+                    onChange={(e) => setImportFile(e.target.files?.[0] || null)}
+                    style={{ display: "none" }}
+                    aria-label="엑셀 파일 업로드"
+                    disabled={Boolean(importLoadingMode) || !canEditRecords}
+                  />
+                  {importFile ? (
+                    <div className="upload-file-name">선택된 파일: {importFile.name}</div>
+                  ) : (
+                    <div className="upload-placeholder">엑셀 파일을 이곳에 드래그 앤 드롭 하거나 클릭하여 업로드하세요.</div>
+                  )}
+                </div>
+                <div className="inline import-action-row">
+                  <button type="button" disabled={Boolean(importLoadingMode) || !canEditRecords} onClick={() => doImport("dry_run")}>
+                    {importLoadingMode === "dry_run" ? "미리 검증 중..." : IMPORT_MODE_LABELS.dry_run}
+                  </button>
+                  <button type="button" disabled={Boolean(importLoadingMode) || !canEditRecords} onClick={() => doImport("apply")}>
+                    {importLoadingMode === "apply" ? "적용 중..." : IMPORT_MODE_LABELS.apply}
+                  </button>
+                </div>
+                {importLoadingMode && (
+                  <div className="import-progress">서버에서 파일을 처리 중입니다. 완료까지 잠시만 기다려 주세요.</div>
+                )}
+                {importReport && (
+                  <section className="import-report">
+                    <div className="secondary-table-heading import-report-heading">
                   <div className="work-surface-title">
                     <span className="surface-eyebrow">검증 리포트</span>
                     <h3>가져오기 결과</h3>
@@ -9912,18 +10554,19 @@ function App() {
                 </details>
               </section>
             )}
-            <section className="import-report">
+              </section>
+            <section className="import-mode-panel import-package-panel">
               <div className="secondary-table-heading import-report-heading">
                 <div className="work-surface-title">
                   <span className="surface-eyebrow">환경 이식 패키지</span>
-                  <h3>데이터 추출/업로드</h3>
+                  <h3 id="package-import-heading">데이터 추출/업로드</h3>
                 </div>
                 <p className="table-summary">{migrationStateLabel}</p>
               </div>
               <p className="table-summary">
                 계정 자체는 이식하지 않습니다. 대상 환경에서 로그인한 현재 가계에 거래/보유/카테고리와 가계 설정을 반영합니다.
               </p>
-              <div className="inline import-action-row">
+              <div className="inline import-action-row import-package-export-row">
                 <button
                   type="button"
                   disabled={migrationExporting || Boolean(migrationLoadingMode) || !canEditRecords}
@@ -10011,6 +10654,7 @@ function App() {
                 </>
               )}
             </section>
+            </div>
           </article>
         </section>
       )}
