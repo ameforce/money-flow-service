@@ -1364,6 +1364,31 @@ function formatApiError(error, context) {
   if (context === "auth_resend" && (code === "AUTH_RESEND_RATE_LIMITED" || status === 429)) {
     return uiGuideMessage("인증 메일 재전송 횟수를 초과했습니다.", "잠시 후 다시 시도해 주세요.");
   }
+  if (context === "household_invite_accept") {
+    if (code === "HOUSEHOLD_INVITE_EMAIL_MISMATCH" || (!code && status === 403)) {
+      return uiGuideMessage("로그인한 이메일과 초대 이메일이 다릅니다.", "초대 받은 이메일로 로그인해 주세요.");
+    }
+    if (code === "HOUSEHOLD_INVITE_EXPIRED") {
+      return uiGuideMessage("초대 토큰이 만료되었습니다.", "초대를 다시 요청해 주세요.");
+    }
+    if (code === "HOUSEHOLD_INVITE_NOT_FOUND" || status === 404) {
+      return uiGuideMessage("초대 정보를 찾을 수 없습니다.", "초대 현황을 새로고침해 주세요.");
+    }
+    if (code === "HOUSEHOLD_INVITE_INVALID" && apiMessage.includes("이미 처리")) {
+      return uiGuideMessage("이미 처리된 초대입니다.", "가계 목록을 새로고침하거나 새 초대를 요청해 주세요.");
+    }
+    if (
+      code === "HOUSEHOLD_INVITE_INVALID" ||
+      code === "REQUEST_VALIDATION_FAILED" ||
+      status === 400 ||
+      status === 422
+    ) {
+      return uiGuideMessage(
+        "초대 토큰이 올바르지 않거나 만료되었습니다.",
+        "메일 링크의 token 값을 다시 확인하거나 새 초대를 요청해 주세요."
+      );
+    }
+  }
   if (context === "profile_save" && code === "AUTH_NICKNAME_REQUIRED") {
     return uiGuideMessage("닉네임 표시명을 선택하려면 닉네임이 필요합니다.", "닉네임을 입력하거나 표시명 모드를 본명으로 바꿔 주세요.");
   }
