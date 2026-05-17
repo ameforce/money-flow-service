@@ -289,9 +289,9 @@ test("settings flow: profile, household, colors, categories CRUD", async ({ page
     `landscape category minor should remain readable: ${JSON.stringify(landscapeCategoryMetrics)}`,
   ).toBeGreaterThanOrEqual(96);
   expect(
-    landscapeCategoryMetrics.rowHeight,
-    `landscape category row should not grow from one-character wrapping: ${JSON.stringify(landscapeCategoryMetrics)}`,
-  ).toBeLessThanOrEqual(120);
+    landscapeCategoryMetrics.minorHeight,
+    `landscape category minor should not wrap one character per line: ${JSON.stringify(landscapeCategoryMetrics)}`,
+  ).toBeLessThanOrEqual(40);
   expect(
     landscapeCategoryMetrics.rowScrollWidth,
     `landscape category row should not overflow internally: ${JSON.stringify(landscapeCategoryMetrics)}`,

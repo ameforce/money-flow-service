@@ -4476,7 +4476,8 @@ thead {
   .settings-category-group .settings-category-row > .inline {
     grid-column: 1 / -1;
     justify-content: flex-end;
-    flex-wrap: wrap;
+    gap: 0.35rem;
+    flex-wrap: nowrap;
   }
 
   .settings-category-group .settings-category-minor {
