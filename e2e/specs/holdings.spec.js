@@ -98,6 +98,82 @@ async function expectMobileHoldingNameReadable(row, expectedName) {
   expect(metrics.rowScrollWidth - metrics.rowClientWidth).toBeLessThanOrEqual(1);
 }
 
+async function expectSingleSliceDonutHasNoRadialSeam(chartCard, label) {
+  const metrics = await chartCard.locator(".compact-chart-wrap canvas").first().evaluate((canvas) => {
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    const width = canvas.width;
+    const height = canvas.height;
+    const centerX = Math.round(width / 2);
+    const centerY = Math.round(height / 2);
+    const image = context.getImageData(0, 0, width, height).data;
+    const pixelAt = (x, y) => {
+      const index = (Math.max(0, Math.min(height - 1, y)) * width + Math.max(0, Math.min(width - 1, x))) * 4;
+      return {
+        red: image[index],
+        green: image[index + 1],
+        blue: image[index + 2],
+        alpha: image[index + 3],
+      };
+    };
+    const isWhiteLike = (pixel) => pixel.alpha > 220 && pixel.red > 235 && pixel.green > 235 && pixel.blue > 235;
+    const isVisibleArc = (pixel) =>
+      pixel.alpha > 220 && !isWhiteLike(pixel) && Math.max(pixel.red, pixel.green, pixel.blue) - Math.min(pixel.red, pixel.green, pixel.blue) > 24;
+    const seamRows = [];
+    for (let y = 0; y < centerY; y += 1) {
+      const centerPixel = pixelAt(centerX, y);
+      const leftPixel = pixelAt(centerX - 5, y);
+      const rightPixel = pixelAt(centerX + 5, y);
+      if (isVisibleArc(leftPixel) && isVisibleArc(rightPixel) && isWhiteLike(centerPixel)) {
+        seamRows.push({
+          y,
+          center: centerPixel,
+          left: leftPixel,
+          right: rightPixel,
+        });
+      }
+    }
+    return {
+      width,
+      height,
+      centerX,
+      centerY,
+      seamRows,
+    };
+  });
+  expect(
+    metrics.seamRows.length,
+    `${label} should not have a white radial seam through the 100% ring: ${JSON.stringify(metrics)}`
+  ).toBeLessThanOrEqual(1);
+}
+
+test("single holding portfolio donut renders a seamless 100 percent ring", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("holding-donut")}@example.com`;
+  const displayName = unique("holding-donut-owner");
+  const holdingName = unique("holding-donut");
+
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 1366, height: 768 });
+  await createBasicHolding(page, { name: holdingName, category: "현금성", marketValue: "300000" });
+  await page.setViewportSize({ width: 320, height: 568 });
+  await openTab(page, "자산");
+
+  const holdingSummaryCard = page.locator("details.holding-summary-card").first();
+  await expect(holdingSummaryCard).toBeVisible();
+  if (!(await holdingSummaryCard.evaluate((element) => element.hasAttribute("open")))) {
+    await holdingSummaryCard.locator("summary").click();
+  }
+  const holdingSummarySelect = holdingSummaryCard.getByLabel("자산 요약 보기 기준");
+  await expect(holdingSummarySelect).toBeVisible();
+  await holdingSummarySelect.selectOption("type");
+  await expect(holdingSummaryCard.getByTestId("portfolio-donut-slice-label")).toHaveCount(1);
+  await expect(holdingSummaryCard.getByTestId("portfolio-donut-slice-label")).toContainText("100.0%");
+  await expectSingleSliceDonutHasNoRadialSeam(holdingSummaryCard, "mobile holding portfolio 100% donut");
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "holdings-single-slice-donut-ring");
+});
+
 test("desktop holding ledger controls keep usable hit targets", async ({ page }) => {
   test.setTimeout(120_000);
 
