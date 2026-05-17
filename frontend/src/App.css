@@ -6742,6 +6742,9 @@ thead {
     grid-template-columns: minmax(4.9rem, 36%) minmax(0, 1fr);
     align-items: start;
     box-sizing: border-box;
+    justify-self: stretch;
+    width: 100%;
+    max-width: 100%;
     min-width: 0;
     overflow: visible;
     column-gap: 0.52rem;
@@ -6773,6 +6776,8 @@ thead {
 
   .transactions-surface-table tbody tr.transaction-row.mobile-row-expanded .transaction-mobile-detail-value {
     display: block;
+    width: 100%;
+    max-width: 100%;
     min-width: 0;
     color: #23344d;
     font-size: 0.76rem;
@@ -6785,6 +6790,8 @@ thead {
   }
 
   .transactions-surface-table tbody tr.transaction-row.mobile-row-expanded .transaction-mobile-detail-value .category-cell {
+    width: 100%;
+    max-width: 100%;
     min-width: 0;
     overflow: visible;
     text-overflow: clip;

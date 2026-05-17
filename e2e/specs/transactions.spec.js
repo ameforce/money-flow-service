@@ -1308,6 +1308,100 @@ test("transaction date controls use unambiguous ISO text fields", async ({ page 
   await capture(page, "transactions-date-iso-mobile-edit");
 });
 
+test("mobile transaction expanded row keeps details readable with filter panel open", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("tx-expanded-filter")}@example.com`;
+  const displayName = unique("tx-expanded-filter-name");
+  const memo = unique("모바일가져오기테스트긴메모");
+  const category = await registerAndVerify(page, { email, displayName }).then(() =>
+    createCategoryViaApi(page, {
+      major: unique("테스트긴대분류명"),
+      minor: unique("모바일가져오기테스트긴분류명"),
+    })
+  );
+
+  await createTransactionViaApi(page, {
+    memo,
+    amount: "43210",
+    categoryId: category.id,
+    ownerName: displayName,
+    occurredOn: currentE2EHistoryDateIso(),
+  });
+  await page.reload();
+  await page.setViewportSize({ width: 360, height: 740 });
+  await openTab(page, "거래");
+  await page.waitForLoadState("networkidle");
+
+  const mobileLedgerHead = page.locator(".transactions-mobile-ledger-head").first();
+  await mobileLedgerHead.getByRole("button", { name: "유형 필터 열기" }).click();
+  await expect(page.getByTestId("tx-ledger-filter-panel")).toBeVisible();
+
+  const mobileRow = page.locator("tr.transaction-row", { hasText: memo }).first();
+  await expect(mobileRow).toBeVisible();
+  await mobileRow.locator(".mobile-toggle-btn").first().click();
+  await expect(mobileRow).toHaveClass(/mobile-row-expanded/);
+
+  const metrics = await mobileRow.evaluate((row) => {
+    const rowBox = row.getBoundingClientRect();
+    const actionBox = row.nextElementSibling?.classList.contains("transaction-mobile-expanded-actions-row")
+      ? row.nextElementSibling.getBoundingClientRect()
+      : null;
+    const detailCells = Array.from(row.querySelectorAll(".transaction-mobile-detail-cell")).map((cell) => {
+      const box = cell.getBoundingClientRect();
+      return {
+        className: cell.className,
+        width: box.width,
+        clientHeight: cell.clientHeight,
+        scrollHeight: cell.scrollHeight,
+        hasVerticalOverflow: cell.scrollHeight > cell.clientHeight + 1,
+      };
+    });
+    const categoryValue = row.querySelector(".transaction-col-category .transaction-mobile-detail-value");
+    const categoryText = row.querySelector(".transaction-col-category .category-cell");
+    return {
+      rowWidth: rowBox.width,
+      rowClientHeight: row.clientHeight,
+      rowScrollHeight: row.scrollHeight,
+      rowHasVerticalOverflow: row.scrollHeight > row.clientHeight + 1,
+      actionStartsAfterRow: Boolean(actionBox && actionBox.top >= rowBox.bottom - 1),
+      detailCells,
+      categoryValue: categoryValue
+        ? {
+            clientWidth: categoryValue.clientWidth,
+            scrollWidth: categoryValue.scrollWidth,
+          }
+        : null,
+      categoryText: categoryText
+        ? {
+            text: categoryText.textContent?.trim() || "",
+            clientWidth: categoryText.clientWidth,
+            scrollWidth: categoryText.scrollWidth,
+            clientHeight: categoryText.clientHeight,
+            scrollHeight: categoryText.scrollHeight,
+          }
+        : null,
+      pageOverflowX: Math.max(0, document.documentElement.scrollWidth - document.documentElement.clientWidth),
+    };
+  });
+
+  expect(metrics.rowHasVerticalOverflow, `expanded row should not clip details: ${JSON.stringify(metrics)}`).toBe(false);
+  expect(metrics.actionStartsAfterRow, `expanded actions should start after row details: ${JSON.stringify(metrics)}`).toBe(true);
+  expect(metrics.detailCells.length).toBeGreaterThanOrEqual(3);
+  for (const cell of metrics.detailCells) {
+    expect(
+      cell.width,
+      `${cell.className} should span the mobile row instead of inheriting desktop column width: ${JSON.stringify(metrics)}`,
+    ).toBeGreaterThanOrEqual(metrics.rowWidth * 0.78);
+    expect(cell.hasVerticalOverflow, `${cell.className} should not clip detail text`).toBe(false);
+  }
+  expect(metrics.categoryValue?.clientWidth ?? 0, `category value should keep readable width: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(130);
+  expect(metrics.categoryText?.scrollWidth ?? 0).toBeLessThanOrEqual((metrics.categoryText?.clientWidth ?? 0) + 1);
+  expect(metrics.categoryText?.scrollHeight ?? 0).toBeLessThanOrEqual((metrics.categoryText?.clientHeight ?? 0) + 1);
+  expect(metrics.pageOverflowX).toBe(0);
+  await capture(page, "transactions-mobile-expanded-row-filter-open");
+});
+
 test("mobile transaction filter panel stays visible after list scroll", async ({ page }) => {
   test.setTimeout(120_000);
 
