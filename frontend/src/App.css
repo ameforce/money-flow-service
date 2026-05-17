@@ -2513,7 +2513,8 @@ button.danger:active:not(:disabled) {
 }
 
 .transaction-quick-details > summary {
-  min-height: 2.6rem;
+  box-sizing: border-box;
+  min-height: 2.75rem;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2686,6 +2687,7 @@ button.danger:active:not(:disabled) {
 
 .compact-support-card > summary::-webkit-details-marker,
 .compact-inline-details > summary::-webkit-details-marker,
+.transaction-quick-details > summary::-webkit-details-marker,
 .holding-column-width-editor > summary::-webkit-details-marker {
   display: none;
 }
@@ -4031,7 +4033,12 @@ thead {
   color: var(--mf-color-ink-500);
 }
 
-.holding-column-width-editor summary {
+.holding-column-width-editor > summary {
+  box-sizing: border-box;
+  min-height: 2.75rem;
+  display: flex;
+  align-items: center;
+  list-style: none;
   cursor: pointer;
   font-weight: 600;
   color: #355177;
