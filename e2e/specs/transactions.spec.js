@@ -492,6 +492,7 @@ async function expectQuickEntryFieldClearOfStickyActions(transactionSheet, label
     const centerY = box.top + box.height / 2;
     const topElement = document.elementFromPoint(centerX, centerY);
     const style = sheet ? getComputedStyle(sheet) : null;
+    const fieldStyle = getComputedStyle(element);
 
     return {
       actionHeight: actionBox?.height ?? 0,
@@ -501,6 +502,7 @@ async function expectQuickEntryFieldClearOfStickyActions(transactionSheet, label
       fieldHeight: box.height,
       fieldTop: box.top,
       label: element.closest("label")?.textContent?.replace(/\s+/g, " ").trim() || "",
+      scrollMarginBottom: Number.parseFloat(fieldStyle.scrollMarginBottom || "0"),
       scrollPaddingBottom: style ? Number.parseFloat(style.scrollPaddingBottom || "0") : 0,
       sheetBottom: sheetBox?.bottom ?? 0,
       sheetClientHeight: sheet?.clientHeight ?? 0,
@@ -514,6 +516,7 @@ async function expectQuickEntryFieldClearOfStickyActions(transactionSheet, label
   expect(metrics.fieldBottom, `${labelText} field should clear sticky actions: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(
     metrics.actionTop - 6
   );
+  expect(metrics.scrollMarginBottom, "field should reserve scroll margin for sticky actions").toBeGreaterThan(metrics.actionHeight);
   expect(metrics.scrollPaddingBottom, "sheet should reserve scroll padding for sticky actions").toBeGreaterThan(metrics.actionHeight);
 }
 
