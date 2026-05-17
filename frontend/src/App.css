@@ -3599,8 +3599,12 @@ thead {
 }
 
 .category-usage-month summary {
+  min-height: 44px;
+  box-sizing: border-box;
+  padding: 0.62rem 0;
   cursor: pointer;
   font-weight: 600;
+  line-height: 1.35;
   color: #244772;
 }
 
