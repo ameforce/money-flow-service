@@ -240,15 +240,22 @@
 
 .auth-switch {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: center;
-  column-gap: 0.28rem;
+  column-gap: 0.36rem;
   row-gap: 0.16rem;
   flex-wrap: wrap;
   color: #355177;
   font-size: 0.85rem;
   line-height: 1.35;
   text-align: center;
+}
+
+.auth-switch .text-button {
+  align-items: center;
+  min-height: 2.75rem;
+  padding: 0 0.24rem;
+  line-height: 1.25;
 }
 
 .auth-pending-invite {

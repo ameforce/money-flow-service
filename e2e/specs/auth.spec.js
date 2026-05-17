@@ -53,6 +53,49 @@ async function expectAuthFooterClear(page) {
   expect(metrics.switcherGap).toBeGreaterThanOrEqual(6);
 }
 
+test("auth switch controls keep mobile touch targets", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 844 });
+  await page.goto("/");
+
+  const measureSwitchButton = async (name) =>
+    page.getByRole("button", { name, exact: true }).evaluate((button) => {
+      const box = button.getBoundingClientRect();
+      const styles = getComputedStyle(button);
+      return {
+        width: box.width,
+        height: box.height,
+        background: styles.backgroundColor,
+        boxShadow: styles.boxShadow,
+        display: styles.display,
+        viewportWidth: document.documentElement.clientWidth,
+        pageWidth: document.documentElement.scrollWidth,
+      };
+    });
+
+  const loginSwitch = await measureSwitchButton("회원가입");
+  expect(loginSwitch.height).toBeGreaterThanOrEqual(40);
+  expect(loginSwitch.height).toBeLessThanOrEqual(48);
+  expect(loginSwitch.width).toBeGreaterThanOrEqual(50);
+  expect(loginSwitch.background).toBe("rgba(0, 0, 0, 0)");
+  expect(loginSwitch.boxShadow).toBe("none");
+  expect(["inline-flex", "flex"]).toContain(loginSwitch.display);
+  expect(loginSwitch.pageWidth - loginSwitch.viewportWidth).toBeLessThanOrEqual(1);
+
+  await page.getByRole("button", { name: "회원가입", exact: true }).click();
+  await expect(page.locator("form.auth-card-register")).toBeVisible();
+
+  const signupSwitch = await measureSwitchButton("로그인으로 돌아가기");
+  expect(signupSwitch.height).toBeGreaterThanOrEqual(40);
+  expect(signupSwitch.height).toBeLessThanOrEqual(48);
+  expect(signupSwitch.width).toBeGreaterThanOrEqual(110);
+  expect(signupSwitch.background).toBe("rgba(0, 0, 0, 0)");
+  expect(signupSwitch.boxShadow).toBe("none");
+  expect(["inline-flex", "flex"]).toContain(signupSwitch.display);
+  expect(signupSwitch.pageWidth - signupSwitch.viewportWidth).toBeLessThanOrEqual(1);
+
+  await capture(page, "auth-switch-touch-targets");
+});
+
 test("auth forms show Korean required-field validation", async ({ page }) => {
   await page.goto("/");
 

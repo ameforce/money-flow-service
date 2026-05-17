@@ -475,7 +475,8 @@ async function expectSignupLayoutStable(page, profile) {
   expect(metrics.authSwitchButton.background).toBe("rgba(0, 0, 0, 0)");
   expect(metrics.authSwitchButton.boxShadow).toBe("none");
   expect(["inline-flex", "flex"]).toContain(metrics.authSwitchButton.display);
-  expect(metrics.authSwitchButton.height).toBeLessThanOrEqual(22);
+  expect(metrics.authSwitchButton.height).toBeGreaterThanOrEqual(40);
+  expect(metrics.authSwitchButton.height).toBeLessThanOrEqual(48);
   expect(metrics.authSwitchButton.centerDelta).toBeLessThanOrEqual(3);
 
   if (profile.mobile) {
