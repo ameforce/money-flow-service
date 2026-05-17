@@ -7770,6 +7770,13 @@ function App() {
     const resendDisabled = loading || resendRemainingSeconds > 0 || resendRemainingCount === 0;
     const resendWaitText = resendRemainingSeconds > 0 ? `${formatDurationKo(resendRemainingSeconds)} 후 가능` : "지금 가능";
     const requiresVerificationPasswordSetup = authMode === "verify" && Boolean(verifyForm.requires_password_setup);
+    const verifyTokenText = String(verifyForm.token || "").trim();
+    const verificationCodeText = String(verifyForm.verification_code || "").trim();
+    const verificationEmailText = String(verifyForm.email || "").trim();
+    const verificationCodeReady = Boolean(verificationEmailText) && /^\d{6}$/.test(verificationCodeText);
+    const verificationSubmitReady =
+      authMode !== "verify" || requiresVerificationPasswordSetup || Boolean(verifyTokenText || verificationCodeReady);
+    const verifySubmitHelperId = "auth-verify-submit-helper";
     const authDescription =
       authMode === "verify"
         ? hasPendingInviteToken
@@ -7984,7 +7991,18 @@ function App() {
               계정 정보 저장 (이메일)
             </label>
           </div>
-          <button disabled={loading} type="submit">
+          {authMode === "verify" && !requiresVerificationPasswordSetup && !verificationSubmitReady && (
+            <p id={verifySubmitHelperId} className="field-helper auth-submit-helper">
+              메일 버튼으로 접속하거나 6자리 인증번호를 입력하면 인증 완료 버튼이 활성화됩니다.
+            </p>
+          )}
+          <button
+            disabled={loading || !verificationSubmitReady}
+            type="submit"
+            aria-describedby={
+              authMode === "verify" && !requiresVerificationPasswordSetup && !verificationSubmitReady ? verifySubmitHelperId : undefined
+            }
+          >
             {loading
               ? "처리 중..."
               : authMode === "login"
