@@ -7,7 +7,10 @@ import {
   createBasicTransaction,
   currentE2EHistoryDateIso,
   expectKeyboardReachableInOrder,
+  expectNoOrphanTextLine,
   expectNoHorizontalOverflow,
+  expectPortfolioLabelsClearOfBottomNav,
+  expectTextContrast,
   expectWithinViewport,
   openTab,
   registerAndVerify,
@@ -47,6 +50,76 @@ async function expectDonutTextNotClipped(labelLocator) {
   }
 }
 
+async function expectDonutLabelsInsideChart(card, label) {
+  const metrics = await card.getByTestId("portfolio-donut-slice-label").evaluateAll((nodes) =>
+    nodes.map((node) => {
+      const chart = node.closest(".chart-wrap")?.getBoundingClientRect();
+      const box = node.getBoundingClientRect();
+      return {
+        text: node.textContent?.replace(/\s+/g, " ").trim(),
+        missingChart: !chart,
+        topGap: chart ? box.top - chart.top : 0,
+        bottomGap: chart ? chart.bottom - box.bottom : 0,
+      };
+    }),
+  );
+  expect(metrics.length, `${label} should expose visible slice labels`).toBeGreaterThan(0);
+  for (const item of metrics) {
+    expect(item.missingChart, `${label} ${item.text} should be measured against a chart`).toBeFalsy();
+    expect(item.topGap, `${label} ${item.text} should stay clear of chart top chrome`).toBeGreaterThanOrEqual(12);
+    expect(item.bottomGap, `${label} ${item.text} should stay clear of chart bottom edge`).toBeGreaterThanOrEqual(12);
+  }
+}
+
+async function expectDashboardHeroNoInternalOverflow(page, label) {
+  const metrics = await page.locator(".dashboard-hero-card").evaluate((hero) => {
+    const heroBox = hero.getBoundingClientRect();
+    const selectors = [
+      ".dashboard-hero-copy",
+      ".dashboard-hero-metric",
+      ".dashboard-hero-metric strong",
+      ".dashboard-hero-metric small",
+      ".dashboard-kpi-grid",
+      ".dashboard-kpi-card",
+      ".dashboard-kpi-card strong",
+      ".dashboard-kpi-value-line",
+      ".dashboard-kpi-value-main",
+      ".dashboard-kpi-value-meta",
+    ];
+    const elements = Array.from(hero.querySelectorAll(selectors.join(",")))
+      .map((element) => {
+        const box = element.getBoundingClientRect();
+        const style = getComputedStyle(element);
+        const overflowX = Math.max(
+          0,
+          element.scrollWidth - element.clientWidth,
+          box.right - heroBox.right,
+          heroBox.left - box.left,
+        );
+        return {
+          selector: selectors.find((selector) => element.matches(selector)) || element.tagName.toLowerCase(),
+          text: element.textContent?.replace(/\s+/g, " ").trim().slice(0, 80) || "",
+          display: style.display,
+          width: box.width,
+          height: box.height,
+          overflowX,
+        };
+      })
+      .filter((item) => item.display !== "none" && item.width > 0 && item.height > 0);
+    return {
+      heroClientWidth: hero.clientWidth,
+      heroScrollWidth: hero.scrollWidth,
+      worstElement: elements.sort((left, right) => right.overflowX - left.overflowX)[0] || null,
+    };
+  });
+
+  expect(metrics.heroScrollWidth, `${label} hero internal width`).toBeLessThanOrEqual(metrics.heroClientWidth + 1);
+  expect(
+    metrics.worstElement?.overflowX ?? 0,
+    `${label} internal overflow at ${metrics.worstElement?.selector || "none"}: ${metrics.worstElement?.text || ""}`,
+  ).toBeLessThanOrEqual(1);
+}
+
 async function readDashboardFilterLayout(filterCard) {
   return filterCard.evaluate((card) => {
     const mode = card.querySelector(".filter-modes-segmented")?.getBoundingClientRect();
@@ -80,8 +153,18 @@ async function readDashboardFilterLayout(filterCard) {
       return {
         label: item.getAttribute("aria-label") || item.textContent?.trim() || item.tagName,
         height: childBox.height,
+        left: childBox.left,
+        right: childBox.right,
         topInset: stepper ? childBox.top - stepper.top : 0,
         bottomInset: stepper ? stepper.bottom - childBox.bottom : 0,
+      };
+    });
+    const orderedStepperChildren = [...stepperChildren].sort((left, right) => left.left - right.left);
+    const stepperOverlaps = orderedStepperChildren.slice(1).map((child, index) => {
+      const previous = orderedStepperChildren[index];
+      return {
+        pair: `${previous.label} -> ${child.label}`,
+        overlap: previous.right - child.left,
       };
     });
     const box = card.getBoundingClientRect();
@@ -92,9 +175,12 @@ async function readDashboardFilterLayout(filterCard) {
       height: box.height,
       modeY: mode?.y ?? 0,
       inputsY: inputs?.y ?? 0,
+      modeBottom: mode?.bottom ?? 0,
       modeHeight: mode?.height ?? 0,
       stepperHeight: stepper?.height ?? 0,
       rangeHeight: range?.height ?? 0,
+      stepperClientWidth: stepper ? Math.round(stepper.width) : 0,
+      stepperScrollWidth: stepper ? card.querySelector(".month-stepper").scrollWidth : 0,
       modeCenterY: mode ? mode.y + mode.height / 2 : 0,
       stepperCenterY: stepper ? stepper.y + stepper.height / 2 : 0,
       rangeCenterY: range ? range.y + range.height / 2 : 0,
@@ -110,6 +196,7 @@ async function readDashboardFilterLayout(filterCard) {
         : null,
       monthGroups,
       stepperChildren,
+      stepperOverlaps,
       cardBoxShadow: getComputedStyle(card).boxShadow,
       modeBoxShadow: modeStyle?.boxShadow || "",
       stepperBoxShadow: stepperStyle?.boxShadow || "",
@@ -119,10 +206,17 @@ async function readDashboardFilterLayout(filterCard) {
 }
 
 function expectMonthlyFilterLayout(layout) {
-  expect(layout.height).toBeLessThanOrEqual(72);
-  expect(Math.abs(layout.modeY - layout.inputsY)).toBeLessThanOrEqual(2);
+  const stacked = layout.inputsY > layout.modeBottom + 2;
+  expect(layout.height).toBeLessThanOrEqual(stacked ? 138 : 72);
+  if (stacked) {
+    expect(layout.inputsY - layout.modeBottom).toBeGreaterThanOrEqual(4);
+  } else {
+    expect(Math.abs(layout.modeY - layout.inputsY)).toBeLessThanOrEqual(2);
+  }
   expect(Math.abs(layout.modeHeight - layout.stepperHeight)).toBeLessThanOrEqual(1);
-  expect(Math.abs(layout.modeCenterY - layout.stepperCenterY)).toBeLessThanOrEqual(1);
+  if (!stacked) {
+    expect(Math.abs(layout.modeCenterY - layout.stepperCenterY)).toBeLessThanOrEqual(1);
+  }
   expect(layout.cardBoxShadow).toBe("none");
   expect(layout.modeBoxShadow).toBe("none");
   expect(layout.stepperBoxShadow).toBe("none");
@@ -134,6 +228,10 @@ function expectMonthlyFilterLayout(layout) {
   expect(layout.modeOuterInset.minButtonHeight).toBeGreaterThanOrEqual(40);
   expect(layout.monthGroups.length).toBeGreaterThanOrEqual(2);
   expect(layout.stepperChildren.length).toBeGreaterThanOrEqual(5);
+  expect(layout.stepperScrollWidth, "month-stepper should not overflow horizontally").toBeLessThanOrEqual(layout.stepperClientWidth + 1);
+  for (const overlap of layout.stepperOverlaps) {
+    expect(overlap.overlap, `${overlap.pair} should not overlap horizontally`).toBeLessThanOrEqual(0.5);
+  }
   for (const child of layout.stepperChildren) {
     expect(child.height, `${child.label} should keep a 40px mobile touch target`).toBeGreaterThanOrEqual(40);
     expect(child.topInset, `${child.label} should stay clear of the month-stepper top border`).toBeGreaterThanOrEqual(3.5);
@@ -146,10 +244,18 @@ function expectMonthlyFilterLayout(layout) {
 }
 
 function expectRangeFilterLayout(layout) {
-  expect(layout.height).toBeLessThanOrEqual(72);
-  expect(Math.abs(layout.modeY - layout.inputsY)).toBeLessThanOrEqual(2);
-  expect(Math.abs(layout.modeHeight - layout.rangeHeight)).toBeLessThanOrEqual(1);
-  expect(Math.abs(layout.modeCenterY - layout.rangeCenterY)).toBeLessThanOrEqual(1);
+  const stacked = layout.inputsY > layout.modeBottom + 2;
+  expect(layout.height).toBeLessThanOrEqual(stacked ? 180 : 72);
+  if (stacked) {
+    expect(layout.inputsY - layout.modeBottom).toBeGreaterThanOrEqual(4);
+    expect(layout.rangeHeight).toBeGreaterThanOrEqual(layout.modeHeight);
+  } else {
+    expect(Math.abs(layout.modeY - layout.inputsY)).toBeLessThanOrEqual(2);
+    expect(Math.abs(layout.modeHeight - layout.rangeHeight)).toBeLessThanOrEqual(1);
+  }
+  if (!stacked) {
+    expect(Math.abs(layout.modeCenterY - layout.rangeCenterY)).toBeLessThanOrEqual(1);
+  }
   expect(layout.dateYDelta).toBeLessThanOrEqual(2);
   expect(layout.cardBoxShadow).toBe("none");
   expect(layout.modeBoxShadow).toBe("none");
@@ -269,32 +375,342 @@ async function expectDonutLabelsCenteredOnRing(card, label) {
   }
 }
 
-async function expectDonutLabelsClearOfMobileNav(page, card, label) {
-  const navBox = await page.locator(".topbar-tabs").boundingBox();
-  if (!navBox) {
-    return;
-  }
-  const labels = await card.getByTestId("portfolio-donut-slice-label").evaluateAll((nodes) =>
-    nodes.map((node) => {
-      const box = node.getBoundingClientRect();
-      return {
-        text: node.textContent?.replace(/\s+/g, " ").trim(),
-        bottom: box.bottom,
-      };
-    }),
-  );
-  for (const item of labels) {
-    expect(item.bottom, `${label} ${item.text} should not be hidden by the bottom navigation`).toBeLessThanOrEqual(
-      navBox.y - 4,
-    );
-  }
-}
-
 async function applyFontFamily(page, fontFamily) {
   await page.evaluate((nextFontFamily) => {
     document.documentElement.style.setProperty("--mf-font-family", nextFontFamily);
   }, fontFamily);
 }
+
+async function expectTopbarActionHitAreas(page, label) {
+  const metrics = await page.locator(".topbar-actions button").evaluateAll((buttons) =>
+    buttons.map((button) => {
+      const box = button.getBoundingClientRect();
+      return {
+        text: button.textContent?.replace(/\s+/g, " ").trim(),
+        height: box.height,
+        width: box.width,
+      };
+    }),
+  );
+  expect(metrics, `${label} should expose the three global topbar actions`).toHaveLength(3);
+  expect(
+    metrics.every(({ height, width }) => height >= 44 && width >= 44),
+    `${label} topbar action hit areas: ${JSON.stringify(metrics)}`,
+  ).toBe(true);
+}
+
+test("price refresh polling releases the global busy state after status failures", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("price-refresh-status")}@example.com`;
+  await registerAndVerify(page, { email, displayName: unique("price-refresh-user") });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openTab(page, "대시보드");
+
+  let refreshRequested = false;
+  let statusAttempts = 0;
+  await page.route("**/api/v1/prices/refresh", async (route) => {
+    refreshRequested = true;
+    await route.fulfill({
+      status: 202,
+      contentType: "application/json",
+      body: JSON.stringify({
+        household_id: 1,
+        accepted: true,
+        queued: false,
+        in_progress: true,
+        started_at: new Date().toISOString(),
+        target_count: 1,
+        completed_count: 0,
+      }),
+    });
+  });
+  await page.route("**/api/v1/prices/status", async (route) => {
+    statusAttempts += 1;
+    await route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({ detail: { code: "PRICE_STATUS_TEMPORARILY_UNAVAILABLE" } }),
+    });
+  });
+
+  const priceRefreshButton = page.getByRole("button", { name: /시세 갱신/ });
+  await expect(priceRefreshButton).toBeEnabled();
+  await priceRefreshButton.click();
+  await expect(priceRefreshButton).toContainText("시세 갱신 중...");
+  await expect(priceRefreshButton).toBeEnabled({ timeout: 8_000 });
+  await expect(priceRefreshButton).toContainText("시세 갱신");
+  await expect(page.locator(".message", { hasText: "시세 갱신 상태 확인이 지연되고 있습니다." })).toBeVisible();
+  await expect(page.locator(".message", { hasText: "요청 처리 중 오류" })).toHaveCount(0);
+
+  await openTab(page, "협업");
+  await expect(page.getByRole("button", { name: "시세 갱신" })).toBeEnabled();
+  await expect(page.locator(".message", { hasText: "요청 처리 중 오류" })).toHaveCount(0);
+  await capture(page, "price-refresh-polling-release");
+  expect(refreshRequested).toBe(true);
+  expect(statusAttempts).toBeGreaterThanOrEqual(3);
+});
+
+test("dashboard month shortcut keeps readable mobile contrast", async ({ page }) => {
+  const email = `${unique("dashboard-contrast")}@example.com`;
+  const displayName = unique("dashboard-contrast-name");
+
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openTab(page, "대시보드");
+
+  const filterCard = page.locator(".dashboard-filter-card");
+  await expect(filterCard).toBeVisible();
+  const shortcutMetrics = await expectTextContrast(
+    filterCard.getByRole("button", { name: "이번 달" }),
+    "dashboard this-month shortcut",
+  );
+  expect(shortcutMetrics.fontSize, "dashboard this-month shortcut should remain normal text").toBeLessThan(18);
+  await capture(page, "dashboard-this-month-contrast");
+});
+
+test("dashboard realtime status remains readable at minimum mobile width", async ({ page }) => {
+  const email = `${unique("dashboard-status-chip")}@example.com`;
+  const displayName = unique("dashboard-status-chip-name");
+
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = "18px";
+  });
+  await applyFontFamily(page, '"Malgun Gothic", "Noto Sans KR", "Apple SD Gothic Neo", sans-serif');
+  await openTab(page, "대시보드");
+
+  const statusChip = page.locator(".socket-chip");
+  await expect(statusChip).toBeVisible();
+  const metrics = await statusChip.evaluate((chip) => {
+    const chipBox = chip.getBoundingClientRect();
+    const prefix = chip.querySelector(".socket-chip-prefix");
+    const text = chip.querySelector(".socket-chip-text");
+    const status = chip.querySelector(".socket-chip-status");
+    const textBox = text?.getBoundingClientRect();
+    const statusBox = status?.getBoundingClientRect();
+    return {
+      chipText: chip.textContent?.replace(/\s+/g, " ").trim() || "",
+      ariaLabel: chip.getAttribute("aria-label") || "",
+      chipWidth: chipBox.width,
+      textClientWidth: text?.clientWidth ?? 0,
+      textScrollWidth: text?.scrollWidth ?? 0,
+      statusText: status?.textContent?.trim() || "",
+      statusWidth: statusBox?.width ?? 0,
+      statusVisible: Boolean(statusBox && statusBox.width > 0 && statusBox.height > 0),
+      prefixDisplay: prefix ? getComputedStyle(prefix).display : "",
+      textOverflow: text ? getComputedStyle(text).textOverflow : "",
+      textWidth: textBox?.width ?? 0,
+    };
+  });
+
+  expect(metrics.ariaLabel, `full realtime label should stay available: ${JSON.stringify(metrics)}`).toContain(
+    "실시간 연결:",
+  );
+  expect(metrics.statusText, `status value should be rendered separately: ${JSON.stringify(metrics)}`).toMatch(
+    /연결됨|연결 끊김|연결 오류|권한 변경|동기화 중/,
+  );
+  expect(metrics.statusVisible, `status value should be visible: ${JSON.stringify(metrics)}`).toBeTruthy();
+  expect(metrics.statusWidth, `status value should keep measurable width: ${JSON.stringify(metrics)}`).toBeGreaterThan(0);
+  expect(metrics.prefixDisplay, `prefix should collapse at 320px: ${JSON.stringify(metrics)}`).toBe("none");
+  expect(metrics.textScrollWidth, `status text should not be clipped: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(
+    metrics.textClientWidth + 1,
+  );
+  expect(metrics.textOverflow, `status text should not rely on ellipsis: ${JSON.stringify(metrics)}`).toBe("clip");
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "dashboard-status-chip-minimum-mobile");
+});
+
+test("dashboard topbar actions keep landscape touch targets", async ({ page }) => {
+  const email = `${unique("dashboard-landscape-topbar")}@example.com`;
+  const displayName = unique("dashboard-landscape-topbar-name");
+
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 844, height: 390 });
+  await applyFontFamily(page, '"Malgun Gothic", "Noto Sans KR", "Apple SD Gothic Neo", sans-serif');
+  await openTab(page, "대시보드");
+
+  const metrics = await page.locator(".topbar-actions button").evaluateAll((buttons) =>
+    buttons.map((button) => {
+      const box = button.getBoundingClientRect();
+      return {
+        label: button.textContent?.replace(/\s+/g, " ").trim() || "",
+        height: box.height,
+        width: box.width,
+        right: box.right,
+        bottom: box.bottom,
+      };
+    }),
+  );
+
+  expect(metrics, `landscape topbar actions should be present: ${JSON.stringify(metrics)}`).toHaveLength(3);
+  for (const metric of metrics) {
+    expect(metric.height, `${metric.label} should keep a 44px landscape hit area: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(44);
+    expect(metric.width, `${metric.label} should keep a 44px landscape hit area: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(44);
+    expect(metric.right, `${metric.label} should stay inside the landscape viewport: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(845);
+  }
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "dashboard-landscape-topbar-touch-targets");
+});
+
+test("dashboard mobile footer actions keep touch targets", async ({ page }) => {
+  const email = `${unique("dashboard-footer-actions")}@example.com`;
+  const displayName = unique("dashboard-footer-actions-name");
+
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await applyFontFamily(page, '"Malgun Gothic", "Noto Sans KR", "Apple SD Gothic Neo", sans-serif');
+  await openTab(page, "대시보드");
+
+  const metrics = await page.locator(".dashboard-card-footer-action").evaluateAll((buttons) =>
+    buttons.map((button) => {
+      const box = button.getBoundingClientRect();
+      return {
+        label: button.textContent?.replace(/\s+/g, " ").trim() || "",
+        height: box.height,
+        width: box.width,
+        left: box.left,
+        right: box.right,
+      };
+    }),
+  );
+
+  expect(metrics, `dashboard footer actions should be present: ${JSON.stringify(metrics)}`).toHaveLength(2);
+  for (const metric of metrics) {
+    expect(metric.label).toBe("전체 보기");
+    expect(metric.height, `${metric.label} should keep a mobile hit area: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(40);
+    expect(metric.width, `${metric.label} should keep a mobile hit area: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(44);
+    expect(metric.left, `${metric.label} should stay inside the mobile viewport: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(0);
+    expect(metric.right, `${metric.label} should stay inside the mobile viewport: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(391);
+  }
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "dashboard-mobile-footer-touch-targets");
+});
+
+test("dashboard month inputs expose visible focus state", async ({ page }) => {
+  const email = `${unique("dashboard-month-focus")}@example.com`;
+  const displayName = unique("dashboard-month-focus-name");
+
+  await registerAndVerify(page, { email, displayName });
+
+  for (const viewport of [
+    { width: 1366, height: 768 },
+    { width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await openTab(page, "대시보드");
+
+    const filterCard = page.locator(".dashboard-filter-card");
+    await expect(filterCard).toBeVisible();
+
+    for (const label of ["연도", "월"]) {
+      const input = filterCard.getByLabel(label, { exact: true });
+      await input.focus();
+      const focusStyle = await input.evaluate((element) => {
+        const style = getComputedStyle(element);
+        const box = element.getBoundingClientRect();
+        return {
+          label: element.getAttribute("aria-label"),
+          width: box.width,
+          height: box.height,
+          outlineStyle: style.outlineStyle,
+          outlineWidth: Number.parseFloat(style.outlineWidth) || 0,
+          boxShadow: style.boxShadow,
+        };
+      });
+
+      expect(
+        focusStyle.outlineStyle,
+        `${viewport.width}x${viewport.height} ${label} focus style: ${JSON.stringify(focusStyle)}`,
+      ).not.toBe("none");
+      expect(
+        focusStyle.outlineWidth,
+        `${viewport.width}x${viewport.height} ${label} focus width: ${JSON.stringify(focusStyle)}`,
+      ).toBeGreaterThanOrEqual(2);
+      expect(
+        focusStyle.boxShadow,
+        `${viewport.width}x${viewport.height} ${label} focus shadow: ${JSON.stringify(focusStyle)}`,
+      ).not.toBe("none");
+    }
+  }
+
+  await capture(page, "dashboard-month-input-focus");
+});
+
+test("dashboard range inputs expose readable mobile labels and focus", async ({ page }) => {
+  const email = `${unique("dashboard-range-labels")}@example.com`;
+  const displayName = unique("dashboard-range-labels-name");
+
+  await registerAndVerify(page, { email, displayName });
+
+  for (const viewport of [
+    { width: 320, height: 568 },
+    { width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await openTab(page, "대시보드");
+
+    const filterCard = page.locator(".dashboard-filter-card");
+    await expect(filterCard).toBeVisible();
+    await filterCard.getByRole("button", { name: "기간" }).click();
+    await expect(filterCard.locator('input[type="date"]')).toHaveCount(2);
+
+    const rangeMetrics = await filterCard.locator(".range-picker").evaluate((picker) => {
+      const box = picker.getBoundingClientRect();
+      return {
+        width: box.width,
+        clientWidth: picker.clientWidth,
+        scrollWidth: picker.scrollWidth,
+        fields: Array.from(picker.querySelectorAll(".range-date-field")).map((field) => {
+          const label = field.querySelector(".range-date-label");
+          const input = field.querySelector('input[type="date"]');
+          const labelBox = label?.getBoundingClientRect();
+          const inputBox = input?.getBoundingClientRect();
+          return {
+            label: label?.textContent?.trim() || "",
+            labelVisible: Boolean(labelBox && labelBox.width > 0 && labelBox.height > 0),
+            ariaLabel: input?.getAttribute("aria-label") || "",
+            value: input?.value || "",
+            inputWidth: inputBox?.width ?? 0,
+            inputHeight: inputBox?.height ?? 0,
+          };
+        }),
+      };
+    });
+
+    expect(rangeMetrics.scrollWidth, `${viewport.width} range picker should not overflow horizontally`).toBeLessThanOrEqual(
+      rangeMetrics.clientWidth + 1,
+    );
+    expect(rangeMetrics.fields).toHaveLength(2);
+    for (const field of rangeMetrics.fields) {
+      expect(field.labelVisible, `${viewport.width} ${field.label} visible label`).toBeTruthy();
+      expect(["시작일", "종료일"]).toContain(field.ariaLabel);
+      expect(field.value, `${viewport.width} ${field.label} should show a full ISO date value`).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(field.inputWidth, `${viewport.width} ${field.label} input width`).toBeGreaterThanOrEqual(118);
+      expect(field.inputHeight, `${viewport.width} ${field.label} input height`).toBeGreaterThanOrEqual(40);
+    }
+
+    for (const label of ["시작일", "종료일"]) {
+      const input = filterCard.getByLabel(label, { exact: true });
+      await input.focus();
+      const focusStyle = await input.evaluate((element) => {
+        const style = getComputedStyle(element);
+        return {
+          outlineStyle: style.outlineStyle,
+          outlineWidth: Number.parseFloat(style.outlineWidth) || 0,
+          boxShadow: style.boxShadow,
+        };
+      });
+      expect(focusStyle.outlineStyle, `${viewport.width} ${label} focus style`).not.toBe("none");
+      expect(focusStyle.outlineWidth, `${viewport.width} ${label} focus width`).toBeGreaterThanOrEqual(2);
+      expect(focusStyle.boxShadow, `${viewport.width} ${label} focus shadow`).not.toBe("none");
+    }
+  }
+
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "dashboard-range-mobile-labels");
+});
 
 test("dashboard flow: onboarding, portfolio coherence, summary visibility", async ({ page }, testInfo) => {
   test.setTimeout(180_000);
@@ -340,7 +756,9 @@ test("dashboard flow: onboarding, portfolio coherence, summary visibility", asyn
   await expect(page.getByRole("button", { name: "시세 갱신" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "요약" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "월별 흐름" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "포트폴리오 및 거래내역 차트" })).toBeVisible();
+  const dashboardPortfolioHeading = page.getByRole("heading", { name: "포트폴리오 및 거래내역 차트" });
+  await expect(dashboardPortfolioHeading).toBeVisible();
+  await expectNoOrphanTextLine(dashboardPortfolioHeading, "desktop dashboard portfolio heading");
   await expect(page.getByRole("heading", { name: "가져오기 & 상태" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "협업 멤버" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "최근 거래" })).toBeVisible();
@@ -352,6 +770,7 @@ test("dashboard flow: onboarding, portfolio coherence, summary visibility", asyn
   const dashboardSliceLabels = dashboardPortfolioCard.getByTestId("portfolio-donut-slice-label");
   const gainKpiCard = page.locator(".dashboard-kpi-card", { hasText: "평가손익(KRW)" }).first();
   await expect(gainKpiCard.locator(".dashboard-kpi-value-meta")).toContainText(/[+-]\d+(\.\d+)?%/);
+  await expectDashboardHeroNoInternalOverflow(page, "desktop 1366 dashboard hero");
   if ((await dashboardPortfolioSelect.count()) > 0) {
     await expect(dashboardPortfolioSelect).toHaveValue("holding_type");
     await expect(dashboardPortfolioSelect.locator("option")).toHaveText(["자산 유형", "거래 유형"]);
@@ -362,6 +781,7 @@ test("dashboard flow: onboarding, portfolio coherence, summary visibility", asyn
     await expect(dashboardCenterLabel).not.toContainText("%");
     await expectDonutTextNotClipped(dashboardCenterLabel);
     await expectDonutTextNotClipped(dashboardSliceLabels);
+    await expectDonutLabelsInsideChart(dashboardPortfolioCard, "desktop dashboard asset type");
     const assetTypeLabelBox = await dashboardSliceLabels.first().boundingBox();
     const dashboardChartBox = await dashboardPortfolioCard.locator(".dashboard-donut-wrap").boundingBox();
     expect(assetTypeLabelBox, "asset type label should have a bounding box").not.toBeNull();
@@ -376,6 +796,7 @@ test("dashboard flow: onboarding, portfolio coherence, summary visibility", asyn
     await expect(dashboardCenterLabel).toHaveAttribute("aria-label", /거래 유형/);
     await expectDonutTextNotClipped(dashboardCenterLabel);
     await expectDonutTextNotClipped(dashboardSliceLabels);
+    await expectDonutLabelsInsideChart(dashboardPortfolioCard, "desktop dashboard transaction flow");
 
     await openTab(page, "자산");
     const holdingSummaryCard = page.locator("details.holding-summary-card").first();
@@ -411,6 +832,44 @@ test("dashboard flow: onboarding, portfolio coherence, summary visibility", asyn
   }
   await capture(page, "dashboard-summary-result");
 
+  const shouldRunNarrowDesktopProfile =
+    testInfo.project.name === "desktop-chromium" || process.env.E2E_PROJECT_MATRIX !== "1";
+  if (shouldRunNarrowDesktopProfile && (await dashboardPortfolioSelect.count()) > 0) {
+    await page.setViewportSize({ width: 1366, height: 768 });
+    await applyFontFamily(page, '"Malgun Gothic", "Noto Sans KR", "Segoe UI", sans-serif');
+    await openTab(page, "대시보드");
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await expectNoHorizontalOverflow(page, 12);
+    await dashboardPortfolioCard.evaluate((card) => card.scrollIntoView({ block: "start", inline: "nearest" }));
+    await page.waitForTimeout(80);
+    await expectNoOrphanTextLine(dashboardPortfolioHeading, "narrow desktop dashboard portfolio heading");
+    await expectWithinViewport(dashboardPortfolioSelect);
+    const narrowDesktopHeaderLayout = await dashboardPortfolioCard.evaluate((card) => {
+      const cardBox = card.getBoundingClientRect();
+      const heading = card.querySelector(".dashboard-card-heading h2")?.getBoundingClientRect();
+      const select = card.querySelector(".dashboard-portfolio-chart-select")?.getBoundingClientRect();
+      return {
+        missingElements: !heading || !select,
+        headingBottom: heading?.bottom ?? 0,
+        selectTop: select?.top ?? 0,
+        selectLeftGap: select ? select.left - cardBox.left : Number.NEGATIVE_INFINITY,
+        selectRightGap: select ? cardBox.right - select.right : Number.NEGATIVE_INFINITY,
+      };
+    });
+    expect(narrowDesktopHeaderLayout.missingElements, "narrow desktop heading/select should be measurable").toBeFalsy();
+    expect(narrowDesktopHeaderLayout.selectTop).toBeGreaterThanOrEqual(
+      narrowDesktopHeaderLayout.headingBottom - 2,
+    );
+    expect(narrowDesktopHeaderLayout.selectLeftGap).toBeGreaterThanOrEqual(0);
+    expect(narrowDesktopHeaderLayout.selectRightGap).toBeGreaterThanOrEqual(0);
+    await dashboardPortfolioSelect.selectOption("transaction_flow");
+    await expect(dashboardSliceLabels).toHaveCount(2);
+    await expectDonutTextNotClipped(dashboardCenterLabel);
+    await expectDonutTextNotClipped(dashboardSliceLabels);
+    await expectDonutLabelsInsideChart(dashboardPortfolioCard, "narrow desktop dashboard transaction flow");
+    await capture(page, "dashboard-narrow-desktop-portfolio");
+  }
+
   await page.setViewportSize({ width: 390, height: 844 });
   await openTab(page, "대시보드");
   await page.evaluate(() => window.scrollTo(0, 0));
@@ -419,6 +878,7 @@ test("dashboard flow: onboarding, portfolio coherence, summary visibility", asyn
   await expectWithinViewport(page.getByRole("button", { name: "새로고침" }));
   await expectWithinViewport(page.getByRole("button", { name: "시세 갱신" }));
   await expect(page.locator(".dashboard-hero-card")).toBeVisible();
+  await expectDashboardHeroNoInternalOverflow(page, "mobile 390 dashboard hero");
   const mobileFilterCard = page.locator(".dashboard-filter-card");
   await expect(mobileFilterCard).toBeVisible();
   expectMonthlyFilterLayout(await readDashboardFilterLayout(mobileFilterCard));
@@ -454,10 +914,7 @@ test("dashboard flow: onboarding, portfolio coherence, summary visibility", asyn
   const priceRefreshButton = page.getByRole("button", { name: /시세 갱신/ });
   if (await priceRefreshButton.isEnabled().catch(() => false)) {
     await priceRefreshButton.click();
-    await expect(mobileGlobalMessage).toBeVisible({ timeout: 10_000 });
-    await expect(mobileGlobalMessage).toHaveCSS("position", "fixed");
-    const mobileMessageBox = await mobileGlobalMessage.boundingBox();
-    expect(mobileMessageBox?.y ?? 0).toBeGreaterThan(844 * 0.55);
+    await expect(page.locator("main.app-shell > .message, .app-content > .message", { hasText: /시세 갱신/ })).toHaveCount(0);
     const afterMessageFilterY = (await mobileFilterCard.boundingBox())?.y ?? 0;
     expect(Math.abs(afterMessageFilterY - messageShiftFilterY)).toBeLessThanOrEqual(2);
   }
@@ -496,6 +953,7 @@ test("dashboard flow: onboarding, portfolio coherence, summary visibility", asyn
     await expect(dashboardCenterLabel).toContainText("총 자산");
     await expectDonutTextNotClipped(dashboardCenterLabel);
     await expectDonutLabelsCenteredOnRing(dashboardPortfolioCard, "mobile dashboard asset type");
+    await expectDonutLabelsInsideChart(dashboardPortfolioCard, "mobile dashboard asset type");
     await dashboardPortfolioSelect.selectOption("transaction_flow");
     await expect(dashboardSliceLabels).toHaveCount(2);
     await expect(dashboardSliceLabels.first()).toContainText("%");
@@ -504,7 +962,8 @@ test("dashboard flow: onboarding, portfolio coherence, summary visibility", asyn
     await expectDonutTextNotClipped(dashboardCenterLabel);
     await expectDonutTextNotClipped(dashboardSliceLabels);
     await expectDonutLabelsCenteredOnRing(dashboardPortfolioCard, "mobile dashboard transaction flow");
-    await expectDonutLabelsClearOfMobileNav(page, dashboardPortfolioCard, "mobile dashboard transaction flow");
+    await expectDonutLabelsInsideChart(dashboardPortfolioCard, "mobile dashboard transaction flow");
+    await expectPortfolioLabelsClearOfBottomNav(page, dashboardPortfolioCard, "mobile dashboard transaction flow");
     await expectWithinViewport(dashboardCenterLabel);
     await expect(priceRefreshButton).toBeEnabled({ timeout: 10_000 });
     await expectKeyboardReachableInOrder(page, [
@@ -516,7 +975,9 @@ test("dashboard flow: onboarding, portfolio coherence, summary visibility", asyn
     await capture(page, "dashboard-mobile-portfolio-sync");
   }
 
-  if (testInfo.project.name === "mobile-chromium") {
+  const shouldRunMobileLayoutProfiles =
+    testInfo.project.name === "mobile-chromium" || process.env.E2E_PROJECT_MATRIX !== "1";
+  if (shouldRunMobileLayoutProfiles) {
     const mobileLayoutProfiles = [
       {
         name: "chrome-devtools-390-system",
@@ -527,6 +988,16 @@ test("dashboard flow: onboarding, portfolio coherence, summary visibility", asyn
         name: "iphone-se-compact-apple",
         viewport: { width: 375, height: 667 },
         fontFamily: '"Apple SD Gothic Neo", -apple-system, BlinkMacSystemFont, sans-serif',
+      },
+      {
+        name: "narrow-345-malgun",
+        viewport: { width: 345, height: 740 },
+        fontFamily: '"Malgun Gothic", "Noto Sans KR", system-ui, sans-serif',
+      },
+      {
+        name: "minimum-320-noto",
+        viewport: { width: 320, height: 740 },
+        fontFamily: '"Noto Sans KR", "Malgun Gothic", system-ui, sans-serif',
       },
       {
         name: "iphone-pro-393-fallback",
@@ -546,16 +1017,19 @@ test("dashboard flow: onboarding, portfolio coherence, summary visibility", asyn
       await openTab(page, "대시보드");
       await page.evaluate(() => window.scrollTo(0, 0));
       await expectNoHorizontalOverflow(page, 12);
+      await expectDashboardHeroNoInternalOverflow(page, profile.name);
       await expectMonthlyFilterLayout(await readDashboardFilterLayout(mobileFilterCard));
       await dashboardPortfolioCard.evaluate((card) => card.scrollIntoView({ block: "start", inline: "nearest" }));
       await page.waitForTimeout(80);
       await dashboardPortfolioSelect.selectOption("transaction_flow");
+      await expectNoOrphanTextLine(dashboardPortfolioHeading, profile.name);
       await expect(dashboardCenterLabel).not.toContainText("분포");
       await expect(dashboardCenterLabel).toContainText(/\d{1,2}월 거래/);
       await expectDonutTextNotClipped(dashboardCenterLabel);
       await expectDonutTextNotClipped(dashboardSliceLabels);
       await expectDonutLabelsCenteredOnRing(dashboardPortfolioCard, profile.name);
-      await expectDonutLabelsClearOfMobileNav(page, dashboardPortfolioCard, profile.name);
+      await expectDonutLabelsInsideChart(dashboardPortfolioCard, profile.name);
+      await expectPortfolioLabelsClearOfBottomNav(page, dashboardPortfolioCard, profile.name);
       await expectNoHorizontalOverflow(page, 12);
       await capture(page, `dashboard-mobile-layout-${profile.name}`);
     }

@@ -194,6 +194,77 @@ export async function expectNoHorizontalOverflow(page, allowance = 8) {
   expect(overflow).toBeLessThanOrEqual(allowance);
 }
 
+function srgbChannelToLinear(value) {
+  const normalized = value / 255;
+  return normalized <= 0.03928 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4;
+}
+
+function relativeLuminance({ r, g, b }) {
+  return (
+    0.2126 * srgbChannelToLinear(r) +
+    0.7152 * srgbChannelToLinear(g) +
+    0.0722 * srgbChannelToLinear(b)
+  );
+}
+
+function parseRgbColor(value) {
+  const match = String(value || "").match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([.\d]+))?\)/u);
+  if (!match) {
+    return null;
+  }
+  return {
+    r: Number(match[1]),
+    g: Number(match[2]),
+    b: Number(match[3]),
+    a: match[4] === undefined ? 1 : Number(match[4]),
+  };
+}
+
+export function contrastRatio(foreground, background) {
+  const foregroundRgb = typeof foreground === "string" ? parseRgbColor(foreground) : foreground;
+  const backgroundRgb = typeof background === "string" ? parseRgbColor(background) : background;
+  if (!foregroundRgb || !backgroundRgb) {
+    throw new Error(`Unable to parse contrast colors: ${foreground} / ${background}`);
+  }
+  const foregroundLuminance = relativeLuminance(foregroundRgb);
+  const backgroundLuminance = relativeLuminance(backgroundRgb);
+  const lighter = Math.max(foregroundLuminance, backgroundLuminance);
+  const darker = Math.min(foregroundLuminance, backgroundLuminance);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+export async function expectTextContrast(locator, label, minimumRatio = 4.5) {
+  const metrics = await locator.evaluate((element) => {
+    const effectiveBackground = (start) => {
+      let current = start;
+      while (current) {
+        const color = getComputedStyle(current).backgroundColor;
+        if (color && !/rgba?\(\s*0,\s*0,\s*0,\s*0\s*\)/u.test(color)) {
+          return color;
+        }
+        current = current.parentElement;
+      }
+      return "rgb(255, 255, 255)";
+    };
+    const style = getComputedStyle(element);
+    const box = element.getBoundingClientRect();
+    return {
+      text: element.textContent?.replace(/\s+/g, " ").trim() || "",
+      color: style.color,
+      background: effectiveBackground(element),
+      fontSize: Number.parseFloat(style.fontSize) || 0,
+      width: box.width,
+      height: box.height,
+    };
+  });
+  const ratio = contrastRatio(metrics.color, metrics.background);
+  expect(
+    ratio,
+    `${label} contrast ${ratio.toFixed(2)}:1 for ${metrics.text} (${metrics.color} on ${metrics.background})`,
+  ).toBeGreaterThanOrEqual(minimumRatio);
+  return { ...metrics, contrast: ratio };
+}
+
 export async function expectWithinViewport(locator, { allowance = 4, requireVertical = true } = {}) {
   await expect(locator).toBeVisible();
   const box = await locator.boundingBox();
@@ -206,6 +277,36 @@ export async function expectWithinViewport(locator, { allowance = 4, requireVert
     expect(box?.y ?? Number.NEGATIVE_INFINITY).toBeGreaterThanOrEqual(-allowance);
     expect((box?.y ?? 0) + (box?.height ?? 0)).toBeLessThanOrEqual((viewport?.height ?? 0) + allowance);
   }
+}
+
+export async function expectClearOfFixedBottomNav(locator, { allowance = 4 } = {}) {
+  await expect(locator).toBeVisible();
+  const metrics = await locator.evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    const nav = document.querySelector("nav.topbar-tabs");
+    const navBox = nav?.getBoundingClientRect();
+    const navStyle = nav ? window.getComputedStyle(nav) : null;
+    const fixedBottomNav =
+      navBox &&
+      navStyle?.position === "fixed" &&
+      window.innerWidth <= 820 &&
+      navBox.top > 0 &&
+      navBox.bottom >= window.innerHeight - 32;
+
+    return {
+      bottom: box.bottom,
+      top: box.top,
+      viewportBottom: window.innerHeight,
+      fixedNavTop: fixedBottomNav ? navBox.top : window.innerHeight,
+    };
+  });
+  expect(metrics.top, "locator should not be above the viewport").toBeGreaterThanOrEqual(-allowance);
+  expect(metrics.bottom, "locator should be clear of the fixed mobile nav").toBeLessThanOrEqual(
+    metrics.fixedNavTop + allowance
+  );
+  expect(metrics.bottom, "locator should remain within the viewport").toBeLessThanOrEqual(
+    metrics.viewportBottom + allowance
+  );
 }
 
 export async function expectKeyboardReachableInOrder(page, locators, { maxTabsPerLocator = 60 } = {}) {
@@ -347,6 +448,80 @@ export async function expectCompactHeader(locator, maxHeight = 30) {
   const box = await locator.boundingBox();
   expect(box, "header bounding box should exist").not.toBeNull();
   expect(box?.height ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(maxHeight);
+}
+
+export async function expectNoOrphanTextLine(locator, label) {
+  const metrics = await locator.evaluate((element) => {
+    const lines = new Map();
+    let measuredCharacters = 0;
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+    let textNode = walker.nextNode();
+    while (textNode) {
+      const text = textNode.textContent || "";
+      for (let index = 0; index < text.length; index += 1) {
+        const char = text[index];
+        if (!char.trim()) {
+          continue;
+        }
+        const range = document.createRange();
+        range.setStart(textNode, index);
+        range.setEnd(textNode, index + 1);
+        const rect = range.getBoundingClientRect();
+        range.detach();
+        if (rect.width === 0 && rect.height === 0) {
+          continue;
+        }
+        measuredCharacters += 1;
+        const lineKey = String(Math.round(rect.top));
+        lines.set(lineKey, (lines.get(lineKey) || "") + char);
+      }
+      textNode = walker.nextNode();
+    }
+    return {
+      lines: Array.from(lines.values()).filter((line) => line.trim()),
+      measuredCharacters,
+    };
+  });
+  expect(metrics.measuredCharacters, `${label} should expose measurable rendered text`).toBeGreaterThan(0);
+  const lastLine = metrics.lines.at(-1) || "";
+  expect(lastLine.length, `${label} should not leave a one-character orphan line`).not.toBe(1);
+}
+
+export async function expectPortfolioLabelsClearOfBottomNav(page, card, label) {
+  const metrics = await card.getByTestId("portfolio-donut-slice-label").evaluateAll((nodes) => {
+    const nav = document.querySelector("nav.topbar-tabs");
+    const navBox = nav?.getBoundingClientRect();
+    const navStyle = nav ? getComputedStyle(nav) : null;
+    const fixedBottomNav = Boolean(
+      navBox &&
+        navStyle?.position === "fixed" &&
+        window.innerWidth <= 820 &&
+        navBox.bottom >= window.innerHeight - 32 &&
+        navBox.top > window.innerHeight * 0.5,
+    );
+    return nodes.map((node) => {
+      const box = node.getBoundingClientRect();
+      return {
+        text: node.textContent?.replace(/\s+/g, " ").trim(),
+        bottom: box.bottom,
+        fixedBottomNav,
+        navTop: fixedBottomNav ? navBox.top : window.innerHeight,
+        viewportBottom: window.innerHeight,
+      };
+    });
+  });
+  expect(metrics.length, `${label} should expose visible slice labels`).toBeGreaterThan(0);
+  for (const item of metrics) {
+    expect(item.bottom, `${label} ${item.text} should stay within the viewport`).toBeLessThanOrEqual(
+      item.viewportBottom,
+    );
+    if (item.fixedBottomNav) {
+      expect(item.bottom, `${label} ${item.text} should clear the fixed bottom navigation`).toBeLessThanOrEqual(
+        item.navTop - 4,
+      );
+    }
+  }
+  await expect(page.locator("nav.topbar-tabs")).toBeVisible();
 }
 
 export function hexToRgb(hex) {
@@ -705,6 +880,7 @@ export async function createTransactionViaApi(
     occurredOn = currentE2EHistoryDateIso(),
     ownerName = "",
     categoryId = "",
+    sourceRef = "",
   }
 ) {
   const result = await page.evaluate(
@@ -719,6 +895,7 @@ export async function createTransactionViaApi(
       memo,
       occurredOn,
       ownerName,
+      sourceRef,
     }) => {
       const cookieValue = (name) => {
         const prefix = `${name}=`;
@@ -748,6 +925,7 @@ export async function createTransactionViaApi(
           currency: "KRW",
           memo,
           owner_name: ownerName,
+          source_ref: sourceRef || null,
         }),
       });
       const text = await response.text();
@@ -770,13 +948,24 @@ export async function createTransactionViaApi(
       memo,
       occurredOn,
       ownerName,
+      sourceRef,
     }
   );
   expect(result.ok, `transaction api create failed: ${result.status} ${result.text}`).toBe(true);
   return result.payload;
 }
 
-export async function createBasicHolding(page, { name, category = "현금성" }) {
+export async function createBasicHolding(page, {
+  name,
+  category = "현금성",
+  type = "cash",
+  account = "검증계좌",
+  symbol = "MFS",
+  marketSymbol = "KRX",
+  quantity = "1",
+  averageCost = "300000",
+  marketValue = "300000",
+}) {
   await openTab(page, "자산");
   const holdingCard = page.locator("article.card", {
     has: page.getByRole("heading", { name: "자산 입력" }),
@@ -805,9 +994,9 @@ export async function createBasicHolding(page, { name, category = "현금성" })
     holdingContainer = holdingSheet;
   }
   const typeSelect = labeledField(holdingContainer, "유형", "select");
-  const hasCashOption = (await typeSelect.locator("option[value='cash']").count()) > 0;
-  if (hasCashOption) {
-    await typeSelect.selectOption("cash");
+  const hasRequestedType = (await typeSelect.locator(`option[value='${type}']`).count()) > 0;
+  if (hasRequestedType) {
+    await typeSelect.selectOption(type);
   } else {
     await selectFirstNonEmptyOption(typeSelect);
   }
@@ -821,7 +1010,30 @@ export async function createBasicHolding(page, { name, category = "현금성" })
   if ((await categoryInput.count()) > 0) {
     await categoryInput.fill(category);
   }
-  await labeledField(holdingContainer, "평가금액", "input").fill("300000");
+  const marketValueInput = labeledField(holdingContainer, "평가금액", "input");
+  if ((await marketValueInput.count()) > 0) {
+    await marketValueInput.fill(marketValue);
+  }
+  const accountInput = labeledField(holdingContainer, "계좌", "input");
+  if ((await accountInput.count()) > 0) {
+    await accountInput.fill(account);
+  }
+  const symbolInput = labeledField(holdingContainer, "심볼", "input");
+  if ((await symbolInput.count()) > 0) {
+    await symbolInput.fill(symbol);
+  }
+  const marketSymbolInput = labeledField(holdingContainer, "시장심볼", "input");
+  if ((await marketSymbolInput.count()) > 0) {
+    await marketSymbolInput.fill(marketSymbol);
+  }
+  const quantityInput = labeledField(holdingContainer, "수량", "input");
+  if ((await quantityInput.count()) > 0) {
+    await quantityInput.fill(quantity);
+  }
+  const averageCostInput = labeledField(holdingContainer, "평균단가", "input");
+  if ((await averageCostInput.count()) > 0) {
+    await averageCostInput.fill(averageCost);
+  }
 
   const ownerSelect = labeledField(holdingContainer, "보유자", "select");
   await selectFirstNonEmptyOption(ownerSelect);
