@@ -1540,6 +1540,23 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   await page.setViewportSize({ width: 390, height: 844 });
   await openTab(page, "거래");
   await page.waitForLoadState("networkidle");
+  const mobileSupportSummary = page.locator("details.transaction-support-card > summary").first();
+  await expect(mobileSupportSummary).toContainText("분석·관리");
+  const mobileSupportSummaryMetrics = await mobileSupportSummary.evaluate((summary) => {
+    const box = summary.getBoundingClientRect();
+    return {
+      text: summary.textContent?.trim() || "",
+      width: box.width,
+      height: box.height,
+      clientWidth: summary.clientWidth,
+      scrollWidth: summary.scrollWidth,
+    };
+  });
+  expect(mobileSupportSummaryMetrics.height).toBeGreaterThanOrEqual(40);
+  expect(
+    mobileSupportSummaryMetrics.scrollWidth - mobileSupportSummaryMetrics.clientWidth,
+    `transaction support summary should keep a readable mobile hit area: ${JSON.stringify(mobileSupportSummaryMetrics)}`
+  ).toBeLessThanOrEqual(1);
   const routeBeforeMobileSheet = page.url();
   const activeTabBeforeMobileSheet = await page.locator("nav.tabs button.active").first().innerText();
   const transactionFab = page.getByTestId("transactions-fab");

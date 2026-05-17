@@ -2605,6 +2605,10 @@ button.danger:active:not(:disabled) {
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
+  box-sizing: border-box;
+  min-height: 2.75rem;
+  padding-block: 0.32rem;
+  line-height: 1.25;
   font-weight: 700;
   color: #173a67;
 }
@@ -5294,6 +5298,7 @@ thead {
   .compact-inline-details > summary {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
+    align-content: center;
     justify-items: start;
     gap: 0.16rem;
     white-space: normal;
