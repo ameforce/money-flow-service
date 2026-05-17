@@ -309,3 +309,43 @@ test("collaboration invite accept shows token guidance for invalid token", async
   await expect(message).not.toContainText("요청 처리 중 오류가 발생했습니다.");
   await capture(page, "collaboration-invalid-invite-token-guidance");
 });
+
+test("collaboration invite token helper stays readable on narrow mobile", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("collab-token-helper")}@example.com`;
+  const displayName = unique("collab-token-helper-name");
+
+  await page.setViewportSize({ width: 320, height: 568 });
+  await registerAndVerify(page, {
+    email,
+    password: TEST_PASSWORD,
+    displayName,
+  });
+  await openTab(page, "협업");
+
+  const collaborationCard = page.locator("article.card", {
+    has: page.getByRole("heading", { name: "가계 협업 관리" }),
+  });
+  const acceptTokenInput = labeledField(collaborationCard, "초대 수락 토큰", "input");
+  await expect(acceptTokenInput).toHaveAttribute("placeholder", "초대 token");
+  await expect(acceptTokenInput).toHaveAttribute("aria-describedby", "invite-accept-token-helper");
+
+  const helper = collaborationCard.locator("#invite-accept-token-helper");
+  await expect(helper).toBeVisible();
+  await expect(helper).toHaveText("메일 초대 링크에서 token 값을 복사해 붙여 넣으세요.");
+  const helperMetrics = await helper.evaluate((element) => {
+    const style = window.getComputedStyle(element);
+    return {
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+      textOverflow: style.textOverflow,
+      whiteSpace: style.whiteSpace,
+    };
+  });
+  expect(helperMetrics.whiteSpace).not.toBe("nowrap");
+  expect(helperMetrics.textOverflow).not.toBe("ellipsis");
+  expect(helperMetrics.scrollWidth).toBeLessThanOrEqual(helperMetrics.clientWidth + 1);
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "collaboration-invite-token-mobile-helper");
+});
