@@ -152,8 +152,18 @@ async function readDashboardFilterLayout(filterCard) {
       return {
         label: item.getAttribute("aria-label") || item.textContent?.trim() || item.tagName,
         height: childBox.height,
+        left: childBox.left,
+        right: childBox.right,
         topInset: stepper ? childBox.top - stepper.top : 0,
         bottomInset: stepper ? stepper.bottom - childBox.bottom : 0,
+      };
+    });
+    const orderedStepperChildren = [...stepperChildren].sort((left, right) => left.left - right.left);
+    const stepperOverlaps = orderedStepperChildren.slice(1).map((child, index) => {
+      const previous = orderedStepperChildren[index];
+      return {
+        pair: `${previous.label} -> ${child.label}`,
+        overlap: previous.right - child.left,
       };
     });
     const box = card.getBoundingClientRect();
@@ -164,9 +174,12 @@ async function readDashboardFilterLayout(filterCard) {
       height: box.height,
       modeY: mode?.y ?? 0,
       inputsY: inputs?.y ?? 0,
+      modeBottom: mode?.bottom ?? 0,
       modeHeight: mode?.height ?? 0,
       stepperHeight: stepper?.height ?? 0,
       rangeHeight: range?.height ?? 0,
+      stepperClientWidth: stepper ? Math.round(stepper.width) : 0,
+      stepperScrollWidth: stepper ? card.querySelector(".month-stepper").scrollWidth : 0,
       modeCenterY: mode ? mode.y + mode.height / 2 : 0,
       stepperCenterY: stepper ? stepper.y + stepper.height / 2 : 0,
       rangeCenterY: range ? range.y + range.height / 2 : 0,
@@ -182,6 +195,7 @@ async function readDashboardFilterLayout(filterCard) {
         : null,
       monthGroups,
       stepperChildren,
+      stepperOverlaps,
       cardBoxShadow: getComputedStyle(card).boxShadow,
       modeBoxShadow: modeStyle?.boxShadow || "",
       stepperBoxShadow: stepperStyle?.boxShadow || "",
@@ -191,10 +205,17 @@ async function readDashboardFilterLayout(filterCard) {
 }
 
 function expectMonthlyFilterLayout(layout) {
-  expect(layout.height).toBeLessThanOrEqual(72);
-  expect(Math.abs(layout.modeY - layout.inputsY)).toBeLessThanOrEqual(2);
+  const stacked = layout.inputsY > layout.modeBottom + 2;
+  expect(layout.height).toBeLessThanOrEqual(stacked ? 138 : 72);
+  if (stacked) {
+    expect(layout.inputsY - layout.modeBottom).toBeGreaterThanOrEqual(4);
+  } else {
+    expect(Math.abs(layout.modeY - layout.inputsY)).toBeLessThanOrEqual(2);
+  }
   expect(Math.abs(layout.modeHeight - layout.stepperHeight)).toBeLessThanOrEqual(1);
-  expect(Math.abs(layout.modeCenterY - layout.stepperCenterY)).toBeLessThanOrEqual(1);
+  if (!stacked) {
+    expect(Math.abs(layout.modeCenterY - layout.stepperCenterY)).toBeLessThanOrEqual(1);
+  }
   expect(layout.cardBoxShadow).toBe("none");
   expect(layout.modeBoxShadow).toBe("none");
   expect(layout.stepperBoxShadow).toBe("none");
@@ -206,6 +227,10 @@ function expectMonthlyFilterLayout(layout) {
   expect(layout.modeOuterInset.minButtonHeight).toBeGreaterThanOrEqual(40);
   expect(layout.monthGroups.length).toBeGreaterThanOrEqual(2);
   expect(layout.stepperChildren.length).toBeGreaterThanOrEqual(5);
+  expect(layout.stepperScrollWidth, "month-stepper should not overflow horizontally").toBeLessThanOrEqual(layout.stepperClientWidth + 1);
+  for (const overlap of layout.stepperOverlaps) {
+    expect(overlap.overlap, `${overlap.pair} should not overlap horizontally`).toBeLessThanOrEqual(0.5);
+  }
   for (const child of layout.stepperChildren) {
     expect(child.height, `${child.label} should keep a 40px mobile touch target`).toBeGreaterThanOrEqual(40);
     expect(child.topInset, `${child.label} should stay clear of the month-stepper top border`).toBeGreaterThanOrEqual(3.5);
@@ -218,10 +243,17 @@ function expectMonthlyFilterLayout(layout) {
 }
 
 function expectRangeFilterLayout(layout) {
-  expect(layout.height).toBeLessThanOrEqual(72);
-  expect(Math.abs(layout.modeY - layout.inputsY)).toBeLessThanOrEqual(2);
+  const stacked = layout.inputsY > layout.modeBottom + 2;
+  expect(layout.height).toBeLessThanOrEqual(stacked ? 138 : 72);
+  if (stacked) {
+    expect(layout.inputsY - layout.modeBottom).toBeGreaterThanOrEqual(4);
+  } else {
+    expect(Math.abs(layout.modeY - layout.inputsY)).toBeLessThanOrEqual(2);
+  }
   expect(Math.abs(layout.modeHeight - layout.rangeHeight)).toBeLessThanOrEqual(1);
-  expect(Math.abs(layout.modeCenterY - layout.rangeCenterY)).toBeLessThanOrEqual(1);
+  if (!stacked) {
+    expect(Math.abs(layout.modeCenterY - layout.rangeCenterY)).toBeLessThanOrEqual(1);
+  }
   expect(layout.dateYDelta).toBeLessThanOrEqual(2);
   expect(layout.cardBoxShadow).toBe("none");
   expect(layout.modeBoxShadow).toBe("none");
