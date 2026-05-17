@@ -10,6 +10,7 @@ import {
   expectNoOrphanTextLine,
   expectNoHorizontalOverflow,
   expectPortfolioLabelsClearOfBottomNav,
+  expectTextContrast,
   expectWithinViewport,
   openTab,
   registerAndVerify,
@@ -429,6 +430,24 @@ test("price refresh polling releases the global busy state after status failures
   await capture(page, "price-refresh-polling-release");
   expect(refreshRequested).toBe(true);
   expect(statusAttempts).toBeGreaterThanOrEqual(3);
+});
+
+test("dashboard month shortcut keeps readable mobile contrast", async ({ page }) => {
+  const email = `${unique("dashboard-contrast")}@example.com`;
+  const displayName = unique("dashboard-contrast-name");
+
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openTab(page, "대시보드");
+
+  const filterCard = page.locator(".dashboard-filter-card");
+  await expect(filterCard).toBeVisible();
+  const shortcutMetrics = await expectTextContrast(
+    filterCard.getByRole("button", { name: "이번 달" }),
+    "dashboard this-month shortcut",
+  );
+  expect(shortcutMetrics.fontSize, "dashboard this-month shortcut should remain normal text").toBeLessThan(18);
+  await capture(page, "dashboard-this-month-contrast");
 });
 
 test("dashboard flow: onboarding, portfolio coherence, summary visibility", async ({ page }, testInfo) => {

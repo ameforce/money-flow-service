@@ -13,6 +13,7 @@ import {
   expectSingleLineText,
   expectStableButtonPosition,
   expectStickyStack,
+  expectTextContrast,
   expectTransparentBackground,
   labeledField,
   openTab,
@@ -616,6 +617,32 @@ test("mobile quick entry creates an expense through amount-first chip path", asy
 
   const createdRow = page.locator("tr.transaction-row", { hasText: memo }).first();
   await expect(createdRow).toBeVisible({ timeout: 20_000 });
+});
+
+test("transaction mobile meta text keeps readable contrast", async ({ page }) => {
+  const email = `${unique("tx-contrast")}@example.com`;
+  const displayName = unique("tx-contrast-name");
+  const memo = unique("tx-contrast-memo");
+  const occurredOn = currentE2EHistoryDateIso();
+
+  await registerAndVerify(page, { email, displayName });
+  await createBasicTransaction(page, { memo, amount: "12000", occurredOn });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openTab(page, "거래");
+
+  const listCard = page.locator(".transaction-list-card").first();
+  await expect(listCard).toBeVisible();
+  const shortcutMetrics = await expectTextContrast(
+    listCard.getByRole("button", { name: "이번 달" }),
+    "transaction this-month shortcut",
+  );
+  expect(shortcutMetrics.fontSize, "transaction this-month shortcut should remain normal text").toBeLessThan(18);
+
+  const createdRow = page.locator("tr.transaction-row", { hasText: memo }).first();
+  await expect(createdRow).toBeVisible({ timeout: 20_000 });
+  const dateMetrics = await expectTextContrast(createdRow.locator(".mobile-date-text").first(), "transaction mobile date");
+  expect(dateMetrics.fontSize, "mobile transaction date remains small meta text").toBeLessThan(18);
+  await capture(page, "transactions-mobile-meta-contrast");
 });
 
 test("mobile quick entry preserves a closed draft and clears it only through reset", async ({ page }) => {

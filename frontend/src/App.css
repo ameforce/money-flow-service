@@ -1051,7 +1051,7 @@
 .dashboard-status-list small,
 .dashboard-activity-row small,
 .dashboard-member-row small {
-  color: #6a7f99;
+  color: var(--mf-color-ink-500);
   font-size: 0.76rem;
   font-weight: 700;
 }
@@ -1271,7 +1271,7 @@
 
 .dashboard-empty-state {
   margin: 0;
-  color: #6a7f99;
+  color: var(--mf-color-ink-500);
   font-size: 0.86rem;
   font-weight: 700;
 }
@@ -1415,7 +1415,7 @@
 }
 
 .surface-chip-muted {
-  color: #6a7f99;
+  color: var(--mf-color-ink-500);
   background: #ffffff;
 }
 
@@ -1833,7 +1833,7 @@
   display: inline-flex;
   align-items: center;
   min-height: 2rem;
-  color: #6a7f99;
+  color: var(--mf-color-ink-500);
   font-size: 0.82rem;
   font-weight: 700;
 }
@@ -3714,7 +3714,7 @@ thead {
   justify-content: center;
   background: transparent;
   border: none;
-  color: #3b82f6;
+  color: var(--mf-color-blue-600);
   font-weight: 600;
   font-size: 0.85rem;
   padding: 0 0.75rem;
@@ -3726,16 +3726,17 @@ thead {
 
 .month-stepper .text-btn:hover {
   background-color: #eff6ff;
+  color: var(--mf-color-blue-700);
 }
 
 .month-stepper .text-btn.apply-btn {
   color: white;
-  background-color: #3b82f6;
+  background-color: var(--mf-color-blue-600);
   margin-left: 0.5rem;
 }
 
 .month-stepper .text-btn.apply-btn:hover {
-  background-color: #2563eb;
+  background-color: var(--mf-color-blue-700);
 }
 
 .range-picker {
@@ -3950,7 +3951,7 @@ thead {
 .holding-type-category-hint {
   display: none;
   font-size: 0.78rem;
-  color: #6a7f99;
+  color: var(--mf-color-ink-500);
 }
 
 .holding-column-width-editor summary {
@@ -4263,7 +4264,7 @@ thead {
 
 .settings-category-usage {
   font-size: 0.82rem;
-  color: #6a7f99;
+  color: var(--mf-color-ink-500);
 }
 
 .settings-category-row .settings-type-order-btn {
@@ -6459,7 +6460,7 @@ thead {
     grid-area: date;
     align-self: center;
     font-size: 0.68rem;
-    color: #6a7f99;
+    color: var(--mf-color-ink-500);
     white-space: nowrap;
   }
 
@@ -6579,7 +6580,7 @@ thead {
   }
 
   .transactions-surface-table tbody tr.transaction-row.mobile-row-expanded .transaction-col-updated.transaction-mobile-detail-cell {
-    color: #6a7f99;
+    color: var(--mf-color-ink-500);
   }
 
   .transactions-surface-table tbody tr.transaction-row.mobile-row-expanded .transaction-col-category.transaction-mobile-detail-cell {
@@ -6590,7 +6591,7 @@ thead {
   .transactions-surface-table tbody tr.transaction-row.mobile-row-expanded .transaction-mobile-detail-label {
     display: block;
     min-width: 0;
-    color: #6a7f99;
+    color: var(--mf-color-ink-500);
     font-size: 0.68rem;
     font-weight: 800;
     line-height: 1.25;
