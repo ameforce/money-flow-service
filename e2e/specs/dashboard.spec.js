@@ -245,13 +245,14 @@ function expectMonthlyFilterLayout(layout) {
 
 function expectRangeFilterLayout(layout) {
   const stacked = layout.inputsY > layout.modeBottom + 2;
-  expect(layout.height).toBeLessThanOrEqual(stacked ? 138 : 72);
+  expect(layout.height).toBeLessThanOrEqual(stacked ? 180 : 72);
   if (stacked) {
     expect(layout.inputsY - layout.modeBottom).toBeGreaterThanOrEqual(4);
+    expect(layout.rangeHeight).toBeGreaterThanOrEqual(layout.modeHeight);
   } else {
     expect(Math.abs(layout.modeY - layout.inputsY)).toBeLessThanOrEqual(2);
+    expect(Math.abs(layout.modeHeight - layout.rangeHeight)).toBeLessThanOrEqual(1);
   }
-  expect(Math.abs(layout.modeHeight - layout.rangeHeight)).toBeLessThanOrEqual(1);
   if (!stacked) {
     expect(Math.abs(layout.modeCenterY - layout.rangeCenterY)).toBeLessThanOrEqual(1);
   }
@@ -498,6 +499,80 @@ test("dashboard month inputs expose visible focus state", async ({ page }) => {
   }
 
   await capture(page, "dashboard-month-input-focus");
+});
+
+test("dashboard range inputs expose readable mobile labels and focus", async ({ page }) => {
+  const email = `${unique("dashboard-range-labels")}@example.com`;
+  const displayName = unique("dashboard-range-labels-name");
+
+  await registerAndVerify(page, { email, displayName });
+
+  for (const viewport of [
+    { width: 320, height: 568 },
+    { width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await openTab(page, "대시보드");
+
+    const filterCard = page.locator(".dashboard-filter-card");
+    await expect(filterCard).toBeVisible();
+    await filterCard.getByRole("button", { name: "기간" }).click();
+    await expect(filterCard.locator('input[type="date"]')).toHaveCount(2);
+
+    const rangeMetrics = await filterCard.locator(".range-picker").evaluate((picker) => {
+      const box = picker.getBoundingClientRect();
+      return {
+        width: box.width,
+        clientWidth: picker.clientWidth,
+        scrollWidth: picker.scrollWidth,
+        fields: Array.from(picker.querySelectorAll(".range-date-field")).map((field) => {
+          const label = field.querySelector(".range-date-label");
+          const input = field.querySelector('input[type="date"]');
+          const labelBox = label?.getBoundingClientRect();
+          const inputBox = input?.getBoundingClientRect();
+          return {
+            label: label?.textContent?.trim() || "",
+            labelVisible: Boolean(labelBox && labelBox.width > 0 && labelBox.height > 0),
+            ariaLabel: input?.getAttribute("aria-label") || "",
+            value: input?.value || "",
+            inputWidth: inputBox?.width ?? 0,
+            inputHeight: inputBox?.height ?? 0,
+          };
+        }),
+      };
+    });
+
+    expect(rangeMetrics.scrollWidth, `${viewport.width} range picker should not overflow horizontally`).toBeLessThanOrEqual(
+      rangeMetrics.clientWidth + 1,
+    );
+    expect(rangeMetrics.fields).toHaveLength(2);
+    for (const field of rangeMetrics.fields) {
+      expect(field.labelVisible, `${viewport.width} ${field.label} visible label`).toBeTruthy();
+      expect(["시작일", "종료일"]).toContain(field.ariaLabel);
+      expect(field.value, `${viewport.width} ${field.label} should show a full ISO date value`).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(field.inputWidth, `${viewport.width} ${field.label} input width`).toBeGreaterThanOrEqual(118);
+      expect(field.inputHeight, `${viewport.width} ${field.label} input height`).toBeGreaterThanOrEqual(40);
+    }
+
+    for (const label of ["시작일", "종료일"]) {
+      const input = filterCard.getByLabel(label, { exact: true });
+      await input.focus();
+      const focusStyle = await input.evaluate((element) => {
+        const style = getComputedStyle(element);
+        return {
+          outlineStyle: style.outlineStyle,
+          outlineWidth: Number.parseFloat(style.outlineWidth) || 0,
+          boxShadow: style.boxShadow,
+        };
+      });
+      expect(focusStyle.outlineStyle, `${viewport.width} ${label} focus style`).not.toBe("none");
+      expect(focusStyle.outlineWidth, `${viewport.width} ${label} focus width`).toBeGreaterThanOrEqual(2);
+      expect(focusStyle.boxShadow, `${viewport.width} ${label} focus shadow`).not.toBe("none");
+    }
+  }
+
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "dashboard-range-mobile-labels");
 });
 
 test("dashboard flow: onboarding, portfolio coherence, summary visibility", async ({ page }, testInfo) => {
