@@ -5693,6 +5693,18 @@ thead {
     padding: 0.55rem 0.58rem;
   }
 
+  .settings-category-group .settings-category-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settings-category-group .settings-category-row > .inline {
+    grid-column: auto;
+    min-width: 0;
+    max-width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
   .settings-category-row .inline,
   .settings-category-usage-detail .inline,
   .category-row-editing .inline {
