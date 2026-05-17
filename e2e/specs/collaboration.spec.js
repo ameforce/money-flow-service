@@ -11,6 +11,11 @@ import {
   unique,
 } from "../support/helpers";
 
+const ACTIVE_HOUSEHOLD_KEY = "money-flow-active-household-id";
+const DEFAULT_CSRF_COOKIE_NAME = "mf_csrf_token";
+const DEFAULT_CSRF_HEADER_NAME = "x-csrf-token";
+const DEFAULT_HOUSEHOLD_HEADER_NAME = "x-household-id";
+
 async function expectMemberRoleSelectAccessible(page, row, expectedName, label) {
   await row.scrollIntoViewIfNeeded();
   const roleSelect = row.locator("select").first();
@@ -28,6 +33,135 @@ async function expectMemberRoleSelectAccessible(page, row, expectedName, label) 
   expect(metrics.height, `${label} role select touch target`).toBeGreaterThanOrEqual(32);
   await expectNoHorizontalOverflow(page, 12);
 }
+
+async function renameHouseholdViaApi(page, name) {
+  const result = await page.evaluate(
+    async ({ activeHouseholdKey, csrfCookieName, csrfHeaderName, householdHeaderName, name }) => {
+      const cookieValue = (cookieName) => {
+        const prefix = `${cookieName}=`;
+        return (
+          String(document.cookie || "")
+            .split(";")
+            .map((item) => item.trim())
+            .find((item) => item.startsWith(prefix))
+            ?.slice(prefix.length) || ""
+        );
+      };
+      const householdId = String(localStorage.getItem(activeHouseholdKey) || "").trim();
+      const headers = {
+        "Content-Type": "application/json",
+        [csrfHeaderName]: decodeURIComponent(cookieValue(csrfCookieName)),
+      };
+      if (householdId) {
+        headers[householdHeaderName] = householdId;
+      }
+      const response = await fetch("/api/v1/household/settings", {
+        method: "PATCH",
+        credentials: "include",
+        headers,
+        body: JSON.stringify({ name }),
+      });
+      const text = await response.text();
+      let payload = null;
+      try {
+        payload = text ? JSON.parse(text) : null;
+      } catch {
+        payload = null;
+      }
+      return { ok: response.ok, status: response.status, payload, text };
+    },
+    {
+      activeHouseholdKey: ACTIVE_HOUSEHOLD_KEY,
+      csrfCookieName: DEFAULT_CSRF_COOKIE_NAME,
+      csrfHeaderName: DEFAULT_CSRF_HEADER_NAME,
+      householdHeaderName: DEFAULT_HOUSEHOLD_HEADER_NAME,
+      name,
+    }
+  );
+  expect(result.ok, `household settings api update failed: ${result.status} ${result.text}`).toBe(true);
+  return result.payload;
+}
+
+test("collaboration household selector keeps long mobile names readable", async ({ page }) => {
+  const email = `${unique("collab-select")}@example.com`;
+  const displayName = unique("collab-select-name");
+  const householdName = `${unique("collaboration household")} desktop chromium mobile readability household`;
+
+  await registerAndVerify(page, { email, displayName });
+  await renameHouseholdViaApi(page, householdName);
+  await page.reload();
+  await page.setViewportSize({ width: 320, height: 568 });
+  await openTab(page, "협업");
+
+  const collaborationCard = page.locator("article.card", {
+    has: page.getByRole("heading", { name: "가계 협업 관리" }),
+  });
+  await expect(collaborationCard).toBeVisible();
+  const householdSelect = collaborationCard.locator("select.household-select").first();
+  await expect(householdSelect).toBeVisible();
+  const metrics = await householdSelect.evaluate((select) => {
+    const summaryId = select.getAttribute("aria-describedby") || "";
+    const summary = summaryId ? document.getElementById(summaryId) : null;
+    const box = select.getBoundingClientRect();
+    const summaryBox = summary?.getBoundingClientRect();
+    return {
+      viewportWidth: window.innerWidth,
+      documentOverflowDelta: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      select: {
+        optionText: select.options[select.selectedIndex]?.textContent?.trim() || "",
+        optionAriaLabel: select.options[select.selectedIndex]?.getAttribute("aria-label") || "",
+        clientWidth: select.clientWidth,
+        scrollWidth: select.scrollWidth,
+        box: {
+          left: box.left,
+          right: box.right,
+          width: box.width,
+          height: box.height,
+        },
+      },
+      summary: summary
+        ? {
+            text: summary.textContent?.replace(/\s+/g, " ").trim() || "",
+            clientWidth: summary.clientWidth,
+            scrollWidth: summary.scrollWidth,
+            clientHeight: summary.clientHeight,
+            scrollHeight: summary.scrollHeight,
+            box: summaryBox
+              ? {
+                  left: summaryBox.left,
+                  right: summaryBox.right,
+                  width: summaryBox.width,
+                  height: summaryBox.height,
+                }
+              : null,
+          }
+        : null,
+    };
+  });
+
+  expect(metrics.documentOverflowDelta, `collaboration page should not overflow: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
+  expect(metrics.select.box.right, `household select should stay in viewport: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(
+    metrics.viewportWidth + 1,
+  );
+  expect(metrics.select.optionText.length, `select option should use compact visual text: ${JSON.stringify(metrics)}`).toBeLessThan(
+    householdName.length,
+  );
+  expect(metrics.select.optionText, `select option should show truncation cue: ${JSON.stringify(metrics)}`).toContain("...");
+  expect(metrics.select.scrollWidth - metrics.select.clientWidth, `compact select text should not clip: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(
+    1,
+  );
+  expect(metrics.select.optionAriaLabel, `full name should remain available to assistive tech: ${JSON.stringify(metrics)}`).toBe(householdName);
+  expect(metrics.summary, `full household summary should exist: ${JSON.stringify(metrics)}`).toBeTruthy();
+  expect(metrics.summary.text, `summary should retain full household name: ${JSON.stringify(metrics)}`).toContain(householdName);
+  expect(metrics.summary.scrollWidth - metrics.summary.clientWidth, `summary should wrap within card: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(
+    1,
+  );
+  expect(metrics.summary.box.right, `summary should stay in viewport: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(
+    metrics.viewportWidth + 1,
+  );
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "collaboration-household-select-mobile-long-name");
+});
 
 test("collaboration flow: invite, accept, switch household, responsive", async ({ browser }) => {
   test.setTimeout(300_000);
