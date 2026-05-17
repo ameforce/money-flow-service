@@ -163,6 +163,28 @@ test("settings flow: profile, household, colors, categories CRUD", async ({ page
   await createCategoryPairCompat(majorSeed, minorSeed);
   await categoryCard.getByRole("button", { name: "카테고리 추가" }).click();
   await expect(page.getByText("카테고리를 추가했습니다.")).toBeVisible();
+  const assetRulesCard = page.locator("details.settings-asset-rules-card").first();
+  await assetRulesCard.scrollIntoViewIfNeeded();
+  if (!(await assetRulesCard.evaluate((element) => element.hasAttribute("open")))) {
+    await assetRulesCard.locator("summary").click();
+  }
+  await expect(assetRulesCard).toHaveAttribute("open", "");
+  const typeOrderButtonMetrics = await assetRulesCard.locator(".settings-type-order-btn").evaluateAll((buttons) =>
+    buttons.map((button) => {
+      const box = button.getBoundingClientRect();
+      return {
+        label: button.getAttribute("aria-label") || button.textContent?.trim() || "",
+        width: box.width,
+        height: box.height,
+      };
+    }),
+  );
+  expect(typeOrderButtonMetrics.length, "asset type order buttons should be present").toBeGreaterThanOrEqual(4);
+  expect(
+    typeOrderButtonMetrics.every(({ width, height }) => width >= 40 && height >= 40),
+    `asset type order buttons should keep mobile hit targets: ${JSON.stringify(typeOrderButtonMetrics)}`,
+  ).toBe(true);
+  await capture(page, "settings-asset-type-order-buttons-mobile");
 
   await page.setViewportSize({ width: 1366, height: 960 });
   await assertResponsiveShell(page);

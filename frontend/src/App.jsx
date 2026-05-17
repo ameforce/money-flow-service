@@ -9500,8 +9500,22 @@ function App() {
                   <span className="settings-category-minor">{typeItem.key}</span>
                   <span className="settings-category-usage">{typeItem.asset_type}</span>
                   <div className="inline">
-                    <button type="button" className="secondary" onClick={() => moveHoldingTypeOrder(typeItem.key, -1).catch(() => undefined)}>↑</button>
-                    <button type="button" className="secondary" onClick={() => moveHoldingTypeOrder(typeItem.key, 1).catch(() => undefined)}>↓</button>
+                    <button
+                      type="button"
+                      className="secondary settings-type-order-btn"
+                      aria-label={`${typeItem.label} 유형 순서 올리기`}
+                      onClick={() => moveHoldingTypeOrder(typeItem.key, -1).catch(() => undefined)}
+                    >
+                      ↑
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary settings-type-order-btn"
+                      aria-label={`${typeItem.label} 유형 순서 내리기`}
+                      onClick={() => moveHoldingTypeOrder(typeItem.key, 1).catch(() => undefined)}
+                    >
+                      ↓
+                    </button>
                     <button type="button" className="secondary" onClick={() => editHoldingType(typeItem)}>수정</button>
                     <button type="button" className="danger" onClick={() => removeHoldingTypeDefinition(typeItem.key).catch(() => undefined)}>삭제</button>
                   </div>

@@ -4254,6 +4254,18 @@ thead {
   color: #6a7f99;
 }
 
+.settings-category-row .settings-type-order-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  min-width: 2.5rem;
+  min-height: 2.5rem;
+  padding: 0;
+  line-height: 1;
+}
+
 @media (max-width: 1366px) and (min-width: 821px) {
   .dashboard-portfolio-card .dashboard-card-heading {
     display: grid;
