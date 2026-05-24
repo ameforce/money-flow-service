@@ -45,3 +45,4 @@
 - Do not commit secrets or copied `.env` files.
 - Prefer `uv run` for Python entrypoints so local dependencies stay in sync.
 - If Playwright system libs are missing on Linux/WSL, the repo auto-detects vendored libs under `.omx/local-libs/...` during E2E runs.
+- WSL/Windows cross-checkout hygiene: avoid accidental executable-bit drift. Do not run `chmod`, copy tools, or formatter steps that change file modes unless the mode change is intentional. Before finalizing work, check for mode-only diffs with `git diff --summary --diff-filter=T` and `git status --short`; revert unintended `100755 ↔ 100644` changes instead of committing them. In Windows-native forks where the filesystem reports unstable executable bits, use local-only `git config core.filemode false`.
