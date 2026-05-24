@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import os
 from pathlib import Path
 import sys
 
@@ -44,6 +45,12 @@ def test_is_up_accepts_only_2xx(monkeypatch: pytest.MonkeyPatch) -> None:
     assert e2e_runner.is_up("http://127.0.0.1:9999/healthz") is True
 
 
+def test_e2e_runner_avoids_browser_unsafe_ports() -> None:
+    assert e2e_runner.is_browser_unsafe_port(6665) is True
+    assert e2e_runner.is_browser_unsafe_port(6669) is True
+    assert e2e_runner.is_browser_unsafe_port(5173) is False
+
+
 def test_start_orchestrator_enforces_deterministic_test_env(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -75,8 +82,36 @@ def test_start_orchestrator_enforces_deterministic_test_env(
     assert env["ENV"] == "test"
     assert env["AUTH_COOKIE_SECURE"] == "false"
     assert env["AUTH_DEBUG_RETURN_VERIFY_TOKEN"] == "true"
+    assert env["REGISTER_RATE_LIMIT_MAX_ATTEMPTS"] == "1000"
     assert env["VITE_BACKEND_ORIGIN"] == "http://127.0.0.1:1346"
     assert env["CORS_ORIGINS"] == "http://127.0.0.1:1347"
+    assert env["FRONTEND_BASE_URL"] == "http://127.0.0.1:1347"
+
+
+def test_start_orchestrator_can_skip_frontend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    @dataclass
+    class DummyProc:
+        pid: int = 778
+
+    def fake_popen(cmd, **kwargs):  # noqa: ANN001
+        captured["cmd"] = cmd
+        captured["kwargs"] = kwargs
+        return DummyProc()
+
+    monkeypatch.setattr(e2e_runner.subprocess, "Popen", fake_popen)
+
+    e2e_runner.start_orchestrator(
+        db_url="sqlite:///./test-runner.db",
+        backend_port=1346,
+        frontend_port=1346,
+        skip_frontend=True,
+    )
+
+    assert "--skip-frontend" in list(captured["cmd"])
 
 
 def test_orchestrator_defaults_missing_env_to_local(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -99,7 +134,7 @@ def test_with_local_playwright_runtime_prepends_vendored_lib_dir(
 
     env = e2e_runner.with_local_playwright_runtime({"LD_LIBRARY_PATH": "/existing/lib"})
 
-    parts = env["LD_LIBRARY_PATH"].split(":")
+    parts = env["LD_LIBRARY_PATH"].split(os.pathsep)
     assert parts[0] == str(local_lib_dir)
     assert "/existing/lib" in parts
 
@@ -113,6 +148,78 @@ def test_with_local_playwright_runtime_leaves_env_unchanged_when_missing(
     env = e2e_runner.with_local_playwright_runtime({"LD_LIBRARY_PATH": "/existing/lib"})
 
     assert env["LD_LIBRARY_PATH"] == "/existing/lib"
+
+
+def test_normalize_playwright_args_caps_default_windows_workers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(e2e_runner.os, "name", "nt")
+
+    assert e2e_runner.normalize_playwright_args(["e2e/specs/auth.spec.js"]) == [
+        "e2e/specs/auth.spec.js",
+        "--workers=3",
+    ]
+    assert e2e_runner.normalize_playwright_args(
+        ["e2e/specs/auth.spec.js"],
+        cap_windows_workers=False,
+    ) == ["e2e/specs/auth.spec.js"]
+    assert e2e_runner.normalize_playwright_args(["--workers=1"]) == ["--workers=1"]
+    assert e2e_runner.normalize_playwright_args(["--workers", "2"]) == ["--workers", "2"]
+
+
+def test_split_runner_args_removes_runner_only_options() -> None:
+    playwright_args, options = e2e_runner.split_runner_args(
+        ["--project-matrix", "e2e/specs/auth.spec.js", "--include-slow", "--html-report", "--workers=2"]
+    )
+
+    assert playwright_args == ["e2e/specs/auth.spec.js", "--workers=2"]
+    assert options == {
+        "html_report": True,
+        "project_matrix": True,
+        "include_slow": True,
+    }
+
+
+def test_resolve_frontend_mode_uses_static_for_full_windows_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(e2e_runner.os, "name", "nt")
+    monkeypatch.delenv("E2E_FRONTEND_MODE", raising=False)
+
+    assert e2e_runner.resolve_frontend_mode([]) == "static"
+    assert e2e_runner.resolve_frontend_mode(["e2e/specs/auth.spec.js"]) == "dev"
+
+    monkeypatch.setenv("E2E_FRONTEND_MODE", "dev")
+    assert e2e_runner.resolve_frontend_mode([]) == "dev"
+    monkeypatch.setenv("E2E_FRONTEND_MODE", "static")
+    assert e2e_runner.resolve_frontend_mode(["e2e/specs/auth.spec.js"]) == "static"
+
+
+def test_build_frontend_for_static_uses_backend_origin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    @dataclass
+    class DummyResult:
+        returncode: int = 0
+
+    def fake_run(cmd, **kwargs):  # noqa: ANN001
+        captured["cmd"] = cmd
+        captured["kwargs"] = kwargs
+        return DummyResult()
+
+    monkeypatch.setattr(e2e_runner.subprocess, "run", fake_run)
+
+    assert e2e_runner.build_frontend_for_static(1818) == 0
+
+    expected_cmd = ["npm", "run", "frontend:build"]
+    if os.name == "nt":
+        expected_cmd = ["cmd", "/c", *expected_cmd]
+    assert captured["cmd"] == expected_cmd
+    env = dict(dict(captured["kwargs"])["env"])
+    assert env["VITE_BACKEND_ORIGIN"] == "http://127.0.0.1:1818"
+    assert env["VITE_DEBUG_TOKEN_OPT_IN"] == "true"
 
 
 def test_run_playwright_forwards_focused_args_and_records_manifest(
@@ -143,18 +250,38 @@ def test_run_playwright_forwards_focused_args_and_records_manifest(
     )
 
     assert result == 0
-    assert captured["cmd"] == [
+    expected_cmd = [
         "npx",
         "playwright",
         "test",
         "e2e/specs/auth.spec.js",
         "--project=desktop-chromium",
     ]
+    expected_manifest_args = ["e2e/specs/auth.spec.js", "--project=desktop-chromium"]
+    if os.name == "nt":
+        expected_cmd.append("--workers=3")
+        expected_manifest_args.append("--workers=3")
+    if os.name == "nt":
+        expected_cmd = ["cmd", "/c", *expected_cmd]
+    assert captured["cmd"] == expected_cmd
     env = dict(dict(captured["kwargs"])["env"])
     assert env["E2E_BASE_URL"] == "http://127.0.0.1:5173"
     assert env["E2E_API_BASE_URL"] == "http://127.0.0.1:8000"
 
+    e2e_runner.run_playwright(
+        frontend_port=5173,
+        backend_port=8000,
+        playwright_args=["e2e/specs/auth.spec.js", "--project=desktop-chromium"],
+        html_report=True,
+        project_matrix=True,
+        include_slow=True,
+    )
+    env = dict(dict(captured["kwargs"])["env"])
+    assert env["E2E_HTML_REPORT"] == "1"
+    assert env["E2E_PROJECT_MATRIX"] == "1"
+    assert env["E2E_INCLUDE_SLOW"] == "1"
+
     manifest = json.loads((tmp_path / "latest-run.json").read_text(encoding="utf-8"))
     assert manifest["count"] == 1
     assert manifest["files"] == ["focused-auth.png"]
-    assert manifest["playwright_args"] == ["e2e/specs/auth.spec.js", "--project=desktop-chromium"]
+    assert manifest["playwright_args"] == expected_manifest_args

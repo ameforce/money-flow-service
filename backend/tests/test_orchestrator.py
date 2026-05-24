@@ -59,6 +59,42 @@ def test_make_backend_env_sets_insecure_cookie_for_local_non_prod(
     assert env["AUTH_COOKIE_SECURE"] == "false"
 
 
+def test_apply_frontend_origin_env_adds_custom_local_port(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ENV", "local")
+    monkeypatch.setenv("SECRET_KEY", "test-secret-key")
+    monkeypatch.setenv("CORS_ORIGINS", "http://127.0.0.1:5173")
+    monkeypatch.setenv("FRONTEND_BASE_URL", "http://127.0.0.1:5173")
+    env = orchestrator.make_backend_env("sqlite:///./dev.db")
+    args = argparse.Namespace(frontend_host="0.0.0.0", frontend_port=5174)
+
+    orchestrator.apply_frontend_origin_env(env, args)
+
+    origins = set(env["CORS_ORIGINS"].split(","))
+    assert "http://127.0.0.1:5173" in origins
+    assert "http://127.0.0.1:5174" in origins
+    assert "http://localhost:5174" in origins
+    assert env["FRONTEND_BASE_URL"] == "http://127.0.0.1:5174"
+
+
+def test_apply_frontend_origin_env_does_not_mutate_production() -> None:
+    env = {
+        "ENV": "production",
+        "CORS_ORIGINS": "https://moneyflow.enmsoftware.com",
+        "FRONTEND_BASE_URL": "https://moneyflow.enmsoftware.com",
+    }
+    args = argparse.Namespace(frontend_host="0.0.0.0", frontend_port=5174)
+
+    orchestrator.apply_frontend_origin_env(env, args)
+
+    assert env == {
+        "ENV": "production",
+        "CORS_ORIGINS": "https://moneyflow.enmsoftware.com",
+        "FRONTEND_BASE_URL": "https://moneyflow.enmsoftware.com",
+    }
+
+
 def test_spawn_frontend_injects_backend_origin(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
 

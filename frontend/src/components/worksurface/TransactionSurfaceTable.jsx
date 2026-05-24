@@ -1,5 +1,6 @@
 import { Fragment, useState } from "react";
 
+import { IsoDateInput } from "../IsoDateInput";
 import { extractVisibleInitial, resolveSemanticColor, withAlpha } from "./colorSemantics";
 import { TRANSACTION_SURFACE_FIELDS, getWorkSurfaceMobilePriority } from "./fieldPriority";
 
@@ -212,20 +213,18 @@ export function TransactionSurfaceTable({
             <div className="tx-ledger-filter-date-grid">
               <label className="tx-ledger-filter-field">
                 <span>시작일</span>
-                <input
-                  type="date"
+                <IsoDateInput
                   aria-label="시작일"
                   value={safeTxListFilter.start}
-                  onChange={(event) => updateTxListFilter({ start: event.target.value })}
+                  onValueChange={(value) => updateTxListFilter({ start: value })}
                 />
               </label>
               <label className="tx-ledger-filter-field">
                 <span>종료일</span>
-                <input
-                  type="date"
+                <IsoDateInput
                   aria-label="종료일"
                   value={safeTxListFilter.end}
-                  onChange={(event) => updateTxListFilter({ end: event.target.value })}
+                  onValueChange={(value) => updateTxListFilter({ end: value })}
                 />
               </label>
             </div>
@@ -339,8 +338,10 @@ export function TransactionSurfaceTable({
           )}
           {sortedTransactions.length === 0 && (
             <tr className="surface-empty-row">
-              <td colSpan={columnSpan} className="empty-state surface-empty-state" data-testid="transactions-empty-state">
-                거래 내역이 없습니다.
+              <td colSpan={columnSpan} className="surface-empty-cell">
+                <div className="empty-state surface-empty-state" data-testid="transactions-empty-state">
+                  거래 내역이 없습니다.
+                </div>
               </td>
             </tr>
           )}
@@ -464,18 +465,27 @@ export function TransactionSurfaceTable({
                       <span className="transaction-owner-empty" title="거래자 미입력" aria-label="거래자 미입력">-</span>
                     )}
                   </td>
-                  <td data-label="카테고리" className="transaction-col-category" data-field-key="category" data-mobile-priority={transactionMobilePriority("category")}>{renderCategoryCell(category)}</td>
+                  <td data-label="카테고리" className="transaction-col-category transaction-mobile-detail-cell" data-field-key="category" data-mobile-priority={transactionMobilePriority("category")}>
+                    <span className="transaction-mobile-detail-label">카테고리</span>
+                    <div className="transaction-mobile-detail-value">{renderCategoryCell(category)}</div>
+                  </td>
                   <td data-label="메모" className="transaction-col-memo" data-field-key="memo" data-mobile-priority={transactionMobilePriority("memo")}>
                     <span className="transaction-mobile-category-cue">{compactCategoryLabel}</span>
-                    <span className="transaction-memo-text">{item.memo || "-"}</span>
+                    <span className="transaction-memo-text" title={item.memo || "-"} aria-label={`메모 ${item.memo || "-"}`}>
+                      {item.memo || "-"}
+                    </span>
                   </td>
                   <td data-label="금액" className="transaction-col-amount" data-field-key="amount" data-mobile-priority={transactionMobilePriority("amount")}>
                     <span className="transaction-amount-text">{fmtKrw(item.amount)}</span>
                   </td>
-                  <td data-label="거래자명" className="transaction-col-owner" data-field-key="owner_name" data-mobile-priority={transactionMobilePriority("owner_name")}>
-                    <span className="transaction-owner-cue">{item.owner_name || "-"}</span>
+                  <td data-label="거래자명" className="transaction-col-owner transaction-mobile-detail-cell" data-field-key="owner_name" data-mobile-priority={transactionMobilePriority("owner_name")}>
+                    <span className="transaction-mobile-detail-label">거래자명</span>
+                    <div className="transaction-mobile-detail-value transaction-owner-cue">{item.owner_name || "-"}</div>
                   </td>
-                  <td data-label="최종 수정일" className="transaction-col-updated" data-field-key="updated_at" data-mobile-priority={transactionMobilePriority("updated_at")}>{fmtDate(item.updated_at)}</td>
+                  <td data-label="최종 수정일" className="transaction-col-updated transaction-mobile-detail-cell" data-field-key="updated_at" data-mobile-priority={transactionMobilePriority("updated_at")}>
+                    <span className="transaction-mobile-detail-label">최종 수정일</span>
+                    <div className="transaction-mobile-detail-value">{fmtDate(item.updated_at)}</div>
+                  </td>
                   <td data-label="동작" className="transaction-col-actions" data-mobile-priority="action">
                     <div className="inline">
                       <button
@@ -545,146 +555,142 @@ export function TransactionSurfaceTable({
                 )}
               {isEditing && editForm && (
                 <tr className="transaction-inline-editor-row transactions-inline-editor" onKeyDown={handleTxInlineEditKeyDown}>
-                  <td data-label="선택">-</td>
-                  <td data-label="일자">
-                    <label className="tx-inline-date-field">
-                      <input
-                        aria-label="일자"
-                        type="date"
-                        placeholder="일자"
-                        value={editForm.occurred_on}
-                        onChange={(e) => setTxInlineEdit({ ...editForm, occurred_on: e.target.value })}
-                        disabled={!canEditRecords}
-                        required
-                      />
-                    </label>
-                  </td>
-                  <td data-label="유형">
-                    <label className="tx-inline-type-field">
-                      <select
-                        aria-label="유형"
-                        value={editForm.flow_type}
-                        disabled={!canEditRecords}
-                        onChange={(e) => {
-                          setTxInlineEdit({
-                            ...editForm,
-                            flow_type: e.target.value,
-                            category_id: "",
-                            category_major: "",
-                          });
-                        }}
-                      >
-                        {FLOW_TYPE_OPTIONS.map((opt) => (
-                          <option key={opt.value} value={opt.value}>
-                            {opt.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  </td>
-                  <td data-label="카테고리">
-                    <div className="tx-inline-category-section" aria-label="카테고리 선택">
-                      <label className="tx-inline-major-field">
+                  <td colSpan={columnSpan} className="transaction-inline-editor-cell">
+                    <div className="transaction-inline-editor-grid">
+                      <label className="tx-inline-date-field">
+                        <span className="tx-inline-field-label">일자</span>
+                        <IsoDateInput
+                          aria-label="일자"
+                          value={editForm.occurred_on}
+                          onValueChange={(value) => setTxInlineEdit({ ...editForm, occurred_on: value })}
+                          disabled={!canEditRecords}
+                          required
+                        />
+                      </label>
+                      <label className="tx-inline-type-field">
+                        <span className="tx-inline-field-label">유형</span>
                         <select
-                          aria-label="카테고리 그룹"
-                          value={txInlineCategoryMajor}
+                          aria-label="유형"
+                          value={editForm.flow_type}
+                          disabled={!canEditRecords}
+                          onChange={(e) => {
+                            setTxInlineEdit({
+                              ...editForm,
+                              flow_type: e.target.value,
+                              category_id: "",
+                              category_major: "",
+                            });
+                          }}
+                        >
+                          {FLOW_TYPE_OPTIONS.map((opt) => (
+                            <option key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <div className="tx-inline-category-section" aria-label="카테고리 선택">
+                        <label className="tx-inline-major-field">
+                          <span className="tx-inline-field-label">카테고리 그룹</span>
+                          <select
+                            aria-label="카테고리 그룹"
+                            value={txInlineCategoryMajor}
+                            disabled={!canEditRecords}
+                            onChange={(event) =>
+                              setTxInlineEdit({
+                                ...editForm,
+                                category_major: event.target.value,
+                                category_id: "",
+                              })
+                            }
+                          >
+                            <option value="">(선택 안함)</option>
+                            {txInlineCategoryMajorOptions.map((major) => (
+                              <option key={major} value={major}>
+                                {toCategoryMajorLabel(major)}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="tx-inline-minor-field">
+                          <span className="tx-inline-field-label">카테고리</span>
+                          <select
+                            aria-label="카테고리"
+                            value={editForm.category_id}
+                            disabled={!canEditRecords || !txInlineCategoryMajor}
+                            onChange={(e) => setTxInlineEdit({ ...editForm, category_id: e.target.value })}
+                          >
+                            <option value="">(선택 안함)</option>
+                            {txInlineCategoryMinorOptions.map((cat) => (
+                              <option key={cat.id} value={cat.id}>
+                                {toCategoryMinorLabel(cat.minor)}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      </div>
+                      <label className="tx-inline-memo-field">
+                        <span className="tx-inline-field-label">메모</span>
+                        <input
+                          aria-label="메모"
+                          placeholder="메모"
+                          value={editForm.memo}
+                          onChange={(e) => setTxInlineEdit({ ...editForm, memo: e.target.value })}
+                          disabled={!canEditRecords}
+                        />
+                      </label>
+                      <label className="tx-inline-amount-field">
+                        <span className="tx-inline-field-label">금액</span>
+                        <input
+                          aria-label="금액"
+                          placeholder="금액"
+                          type="text"
+                          inputMode="decimal"
+                          value={editForm.amount}
+                          onChange={(event) => handleGroupedDecimalInput(event, setTxInlineEdit, "amount")}
+                          disabled={!canEditRecords}
+                          required
+                        />
+                      </label>
+                      <label className="tx-inline-owner-field">
+                        <span className="tx-inline-field-label">거래자명</span>
+                        <select
+                          aria-label="거래자"
+                          value={ownerSelectValue(editForm.owner_user_id, editForm.owner_name)}
                           disabled={!canEditRecords}
                           onChange={(event) =>
                             setTxInlineEdit({
                               ...editForm,
-                              category_major: event.target.value,
-                              category_id: "",
+                              ...ownerSelectionFromValue(event.target.value, editOwnerOptions),
                             })
                           }
                         >
                           <option value="">(선택 안함)</option>
-                          {txInlineCategoryMajorOptions.map((major) => (
-                            <option key={major} value={major}>
-                              {toCategoryMajorLabel(major)}
+                          {editOwnerOptions.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
                             </option>
                           ))}
                         </select>
                       </label>
-                      <label className="tx-inline-minor-field">
-                        <select
-                          aria-label="카테고리"
-                          value={editForm.category_id}
-                          disabled={!canEditRecords || !txInlineCategoryMajor}
-                          onChange={(e) => setTxInlineEdit({ ...editForm, category_id: e.target.value })}
+                      <span className="tx-inline-updated-field" aria-label="최종 수정일">
+                        -
+                      </span>
+                      <div className="inline tx-inline-editor-actions">
+                        <button type="button" className="secondary" disabled={!canEditRecords} onClick={() => closeTxInlineEdit()}>
+                          취소
+                        </button>
+                        <button
+                          type="button"
+                          className="primary"
+                          disabled={!canEditRecords}
+                          onClick={() => {
+                            void submitTxInlineEdit();
+                          }}
                         >
-                          <option value="">(선택 안함)</option>
-                          {txInlineCategoryMinorOptions.map((cat) => (
-                            <option key={cat.id} value={cat.id}>
-                              {toCategoryMinorLabel(cat.minor)}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    </div>
-                  </td>
-                  <td data-label="메모">
-                    <label className="tx-inline-memo-field">
-                      <input
-                        aria-label="메모"
-                        placeholder="메모"
-                        value={editForm.memo}
-                        onChange={(e) => setTxInlineEdit({ ...editForm, memo: e.target.value })}
-                        disabled={!canEditRecords}
-                      />
-                    </label>
-                  </td>
-                  <td data-label="금액">
-                    <label className="tx-inline-amount-field">
-                      <input
-                        aria-label="금액"
-                        placeholder="금액"
-                        type="text"
-                        inputMode="decimal"
-                        value={editForm.amount}
-                        onChange={(event) => handleGroupedDecimalInput(event, setTxInlineEdit, "amount")}
-                        disabled={!canEditRecords}
-                        required
-                      />
-                    </label>
-                  </td>
-                  <td data-label="거래자명">
-                    <label className="tx-inline-owner-field">
-                      <select
-                        aria-label="거래자"
-                        value={ownerSelectValue(editForm.owner_user_id, editForm.owner_name)}
-                        disabled={!canEditRecords}
-                        onChange={(event) =>
-                          setTxInlineEdit({
-                            ...editForm,
-                            ...ownerSelectionFromValue(event.target.value, editOwnerOptions),
-                          })
-                        }
-                      >
-                        <option value="">(선택 안함)</option>
-                        {editOwnerOptions.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  </td>
-                  <td data-label="최종 수정일">-</td>
-                  <td data-label="동작">
-                    <div className="inline tx-inline-editor-actions">
-                      <button type="button" className="secondary" disabled={!canEditRecords} onClick={() => closeTxInlineEdit()}>
-                        취소
-                      </button>
-                      <button
-                        type="button"
-                        className="primary"
-                        disabled={!canEditRecords}
-                        onClick={() => {
-                          void submitTxInlineEdit();
-                        }}
-                      >
-                        저장
-                      </button>
+                          저장
+                        </button>
+                      </div>
                     </div>
                   </td>
                 </tr>

@@ -11,6 +11,158 @@ import {
   unique,
 } from "../support/helpers";
 
+const ACTIVE_HOUSEHOLD_KEY = "money-flow-active-household-id";
+const DEFAULT_CSRF_COOKIE_NAME = "mf_csrf_token";
+const DEFAULT_CSRF_HEADER_NAME = "x-csrf-token";
+const DEFAULT_HOUSEHOLD_HEADER_NAME = "x-household-id";
+
+async function expectMemberRoleSelectAccessible(page, row, expectedName, label) {
+  await row.scrollIntoViewIfNeeded();
+  const roleSelect = row.locator("select").first();
+  await expect(roleSelect, `${label} role select should name the target and action`).toHaveAccessibleName(expectedName);
+  const metrics = await roleSelect.evaluate((select) => {
+    const box = select.getBoundingClientRect();
+    return {
+      ariaLabel: select.getAttribute("aria-label") || "",
+      width: box.width,
+      height: box.height,
+    };
+  });
+  expect(metrics.ariaLabel, `${label} role select should not rely on options as its name`).toBe(expectedName);
+  expect(metrics.width, `${label} role select should remain visible`).toBeGreaterThan(80);
+  expect(metrics.height, `${label} role select touch target`).toBeGreaterThanOrEqual(32);
+  await expectNoHorizontalOverflow(page, 12);
+}
+
+async function renameHouseholdViaApi(page, name) {
+  const result = await page.evaluate(
+    async ({ activeHouseholdKey, csrfCookieName, csrfHeaderName, householdHeaderName, name }) => {
+      const cookieValue = (cookieName) => {
+        const prefix = `${cookieName}=`;
+        return (
+          String(document.cookie || "")
+            .split(";")
+            .map((item) => item.trim())
+            .find((item) => item.startsWith(prefix))
+            ?.slice(prefix.length) || ""
+        );
+      };
+      const householdId = String(localStorage.getItem(activeHouseholdKey) || "").trim();
+      const headers = {
+        "Content-Type": "application/json",
+        [csrfHeaderName]: decodeURIComponent(cookieValue(csrfCookieName)),
+      };
+      if (householdId) {
+        headers[householdHeaderName] = householdId;
+      }
+      const response = await fetch("/api/v1/household/settings", {
+        method: "PATCH",
+        credentials: "include",
+        headers,
+        body: JSON.stringify({ name }),
+      });
+      const text = await response.text();
+      let payload = null;
+      try {
+        payload = text ? JSON.parse(text) : null;
+      } catch {
+        payload = null;
+      }
+      return { ok: response.ok, status: response.status, payload, text };
+    },
+    {
+      activeHouseholdKey: ACTIVE_HOUSEHOLD_KEY,
+      csrfCookieName: DEFAULT_CSRF_COOKIE_NAME,
+      csrfHeaderName: DEFAULT_CSRF_HEADER_NAME,
+      householdHeaderName: DEFAULT_HOUSEHOLD_HEADER_NAME,
+      name,
+    }
+  );
+  expect(result.ok, `household settings api update failed: ${result.status} ${result.text}`).toBe(true);
+  return result.payload;
+}
+
+test("collaboration household selector keeps long mobile names readable", async ({ page }) => {
+  const email = `${unique("collab-select")}@example.com`;
+  const displayName = unique("collab-select-name");
+  const householdName = `${unique("collaboration household")} desktop chromium mobile readability household`;
+
+  await registerAndVerify(page, { email, displayName });
+  await renameHouseholdViaApi(page, householdName);
+  await page.reload();
+  await page.setViewportSize({ width: 320, height: 568 });
+  await openTab(page, "협업");
+
+  const collaborationCard = page.locator("article.card", {
+    has: page.getByRole("heading", { name: "가계 협업 관리" }),
+  });
+  await expect(collaborationCard).toBeVisible();
+  const householdSelect = collaborationCard.locator("select.household-select").first();
+  await expect(householdSelect).toBeVisible();
+  const metrics = await householdSelect.evaluate((select) => {
+    const summaryId = select.getAttribute("aria-describedby") || "";
+    const summary = summaryId ? document.getElementById(summaryId) : null;
+    const box = select.getBoundingClientRect();
+    const summaryBox = summary?.getBoundingClientRect();
+    return {
+      viewportWidth: window.innerWidth,
+      documentOverflowDelta: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      select: {
+        optionText: select.options[select.selectedIndex]?.textContent?.trim() || "",
+        optionAriaLabel: select.options[select.selectedIndex]?.getAttribute("aria-label") || "",
+        clientWidth: select.clientWidth,
+        scrollWidth: select.scrollWidth,
+        box: {
+          left: box.left,
+          right: box.right,
+          width: box.width,
+          height: box.height,
+        },
+      },
+      summary: summary
+        ? {
+            text: summary.textContent?.replace(/\s+/g, " ").trim() || "",
+            clientWidth: summary.clientWidth,
+            scrollWidth: summary.scrollWidth,
+            clientHeight: summary.clientHeight,
+            scrollHeight: summary.scrollHeight,
+            box: summaryBox
+              ? {
+                  left: summaryBox.left,
+                  right: summaryBox.right,
+                  width: summaryBox.width,
+                  height: summaryBox.height,
+                }
+              : null,
+          }
+        : null,
+    };
+  });
+
+  expect(metrics.documentOverflowDelta, `collaboration page should not overflow: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
+  expect(metrics.select.box.right, `household select should stay in viewport: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(
+    metrics.viewportWidth + 1,
+  );
+  expect(metrics.select.optionText.length, `select option should use compact visual text: ${JSON.stringify(metrics)}`).toBeLessThan(
+    householdName.length,
+  );
+  expect(metrics.select.optionText, `select option should show truncation cue: ${JSON.stringify(metrics)}`).toContain("...");
+  expect(metrics.select.scrollWidth - metrics.select.clientWidth, `compact select text should not clip: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(
+    1,
+  );
+  expect(metrics.select.optionAriaLabel, `full name should remain available to assistive tech: ${JSON.stringify(metrics)}`).toBe(householdName);
+  expect(metrics.summary, `full household summary should exist: ${JSON.stringify(metrics)}`).toBeTruthy();
+  expect(metrics.summary.text, `summary should retain full household name: ${JSON.stringify(metrics)}`).toContain(householdName);
+  expect(metrics.summary.scrollWidth - metrics.summary.clientWidth, `summary should wrap within card: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(
+    1,
+  );
+  expect(metrics.summary.box.right, `summary should stay in viewport: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(
+    metrics.viewportWidth + 1,
+  );
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "collaboration-household-select-mobile-long-name");
+});
+
 test("collaboration flow: invite, accept, switch household, responsive", async ({ browser }) => {
   test.setTimeout(300_000);
 
@@ -145,10 +297,20 @@ test("collaboration flow: invite, accept, switch household, responsive", async (
     const ownerMembersCard = ownerPage.locator("article.card", {
       has: ownerPage.getByRole("heading", { name: "멤버 목록" }),
     });
+    const ownerSelfMemberRow = ownerMembersCard.locator("tbody tr", { hasText: ownerDisplayName }).first();
+    const ownerSelfRoleSelect = ownerSelfMemberRow.locator("select").first();
+    await expect(ownerSelfRoleSelect).toBeDisabled();
+    await expectMemberRoleSelectAccessible(ownerPage, ownerSelfMemberRow, `${ownerDisplayName} 권한 변경`, "desktop self member");
+    await expect(ownerSelfMemberRow.getByRole("button", { name: "본인" })).toBeDisabled();
     const ownerGuestMemberRow = ownerMembersCard.locator("tbody tr", { hasText: guestDisplayName }).first();
     const ownerRoleSelect = ownerGuestMemberRow.locator("select").first();
     const canChangeRole = await ownerRoleSelect.isVisible().catch(() => false);
     if (canChangeRole) {
+      await expectMemberRoleSelectAccessible(ownerPage, ownerGuestMemberRow, `${guestDisplayName} 권한 변경`, "desktop guest member");
+      await ownerPage.setViewportSize({ width: 390, height: 844 });
+      await assertResponsiveShell(ownerPage, 12);
+      await expectMemberRoleSelectAccessible(ownerPage, ownerGuestMemberRow, `${guestDisplayName} 권한 변경`, "mobile guest member");
+      await expect(ownerRoleSelect).toBeEnabled();
       await ownerRoleSelect.selectOption("editor");
     }
 
@@ -233,7 +395,7 @@ test("collaboration flow: invite, accept, switch household, responsive", async (
     }
 
     await guestPage.setViewportSize({ width: 390, height: 844 });
-    await guestPage.waitForLoadState("networkidle");
+    await expect(guestPage.locator("nav.tabs")).toBeVisible();
     await assertResponsiveShell(guestPage, 12);
     await expectNoHorizontalOverflow(guestPage, 12);
     await expect(guestPage.locator("article.table-card").first()).toBeVisible();
@@ -242,4 +404,106 @@ test("collaboration flow: invite, accept, switch household, responsive", async (
     await ownerContext.close();
     await guestContext.close();
   }
+});
+
+test("collaboration invite accept shows invited-email guidance for same account", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const ownerDisplayName = unique("owner-self-accept");
+  const ownerEmail = `${unique("owner-self-accept")}@example.com`;
+  const invitedEmail = `${unique("guest-self-accept")}@example.com`;
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await registerAndVerify(page, {
+    email: ownerEmail,
+    password: TEST_PASSWORD,
+    displayName: ownerDisplayName,
+  });
+  await openTab(page, "협업");
+
+  const collaborationCard = page.locator("article.card", {
+    has: page.getByRole("heading", { name: "가계 협업 관리" }),
+  });
+  await labeledField(collaborationCard, "초대할 이메일", "input").fill(invitedEmail);
+  await labeledField(collaborationCard, "권한", "select").selectOption("viewer");
+  await collaborationCard.getByRole("button", { name: "초대 발송" }).click();
+  await expect(page.getByText("초대를 발송했습니다.")).toBeVisible();
+
+  const acceptTokenInput = labeledField(collaborationCard, "초대 수락 토큰", "input");
+  await expect(acceptTokenInput).not.toHaveValue("");
+  await collaborationCard.getByRole("button", { name: "초대 수락" }).click();
+
+  const message = page.locator(".message").first();
+  await expect(message).toContainText("로그인한 이메일과 초대 이메일이 다릅니다.");
+  await expect(message).toContainText("초대 받은 이메일로 로그인해 주세요.");
+  await expect(message).not.toContainText("요청 처리 중 오류가 발생했습니다.");
+  await capture(page, "collaboration-invite-same-account-guidance");
+});
+
+test("collaboration invite accept shows token guidance for invalid token", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("collab-invalid-token")}@example.com`;
+  const displayName = unique("collab-invalid-token-name");
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await registerAndVerify(page, {
+    email,
+    password: TEST_PASSWORD,
+    displayName,
+  });
+  await openTab(page, "협업");
+
+  const collaborationCard = page.locator("article.card", {
+    has: page.getByRole("heading", { name: "가계 협업 관리" }),
+  });
+  const acceptTokenInput = labeledField(collaborationCard, "초대 수락 토큰", "input");
+  await acceptTokenInput.fill("invalid-token-for-browser-qa");
+  await collaborationCard.getByRole("button", { name: "초대 수락" }).click();
+
+  const message = page.locator(".message").first();
+  await expect(message).toContainText("초대 토큰이 올바르지 않거나 만료되었습니다.");
+  await expect(message).toContainText("새 초대를 요청해 주세요.");
+  await expect(message).not.toContainText("요청 처리 중 오류가 발생했습니다.");
+  await capture(page, "collaboration-invalid-invite-token-guidance");
+});
+
+test("collaboration invite token helper stays readable on narrow mobile", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("collab-token-helper")}@example.com`;
+  const displayName = unique("collab-token-helper-name");
+
+  await page.setViewportSize({ width: 320, height: 568 });
+  await registerAndVerify(page, {
+    email,
+    password: TEST_PASSWORD,
+    displayName,
+  });
+  await openTab(page, "협업");
+
+  const collaborationCard = page.locator("article.card", {
+    has: page.getByRole("heading", { name: "가계 협업 관리" }),
+  });
+  const acceptTokenInput = labeledField(collaborationCard, "초대 수락 토큰", "input");
+  await expect(acceptTokenInput).toHaveAttribute("placeholder", "초대 token");
+  await expect(acceptTokenInput).toHaveAttribute("aria-describedby", "invite-accept-token-helper");
+
+  const helper = collaborationCard.locator("#invite-accept-token-helper");
+  await expect(helper).toBeVisible();
+  await expect(helper).toHaveText("메일 초대 링크에서 token 값을 복사해 붙여 넣으세요.");
+  const helperMetrics = await helper.evaluate((element) => {
+    const style = window.getComputedStyle(element);
+    return {
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+      textOverflow: style.textOverflow,
+      whiteSpace: style.whiteSpace,
+    };
+  });
+  expect(helperMetrics.whiteSpace).not.toBe("nowrap");
+  expect(helperMetrics.textOverflow).not.toBe("ellipsis");
+  expect(helperMetrics.scrollWidth).toBeLessThanOrEqual(helperMetrics.clientWidth + 1);
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "collaboration-invite-token-mobile-helper");
 });
