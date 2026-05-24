@@ -661,8 +661,64 @@ test("mobile transaction sheet actions keep navigation reachable", async ({ page
   await registerAndVerify(page, { email, displayName });
   await openTab(page, "거래");
 
-  await page.getByTestId("transactions-fab").click();
+  const fab = page.getByTestId("transactions-fab");
+  await expect(fab).toBeVisible();
+  const fabMetrics = await fab.evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    return {
+      position: style.position,
+      inListHeading: Boolean(element.closest(".surface-list-heading")),
+      right: box.right,
+      bottom: box.bottom,
+      left: box.left,
+      top: box.top,
+      width: box.width,
+      height: box.height,
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+    };
+  });
+  expect(fabMetrics.position, `transaction FAB should stay fixed: ${JSON.stringify(fabMetrics)}`).toBe("fixed");
+  expect(fabMetrics.inListHeading, `transaction FAB should not be an inline heading action: ${JSON.stringify(fabMetrics)}`).toBe(false);
+  expect(fabMetrics.left, `transaction FAB should sit in the right half: ${JSON.stringify(fabMetrics)}`).toBeGreaterThan(
+    fabMetrics.viewportWidth * 0.5,
+  );
+  expect(fabMetrics.right, `transaction FAB should be clear of the right edge: ${JSON.stringify(fabMetrics)}`).toBeLessThanOrEqual(
+    fabMetrics.viewportWidth - 8,
+  );
+  expect(fabMetrics.bottom, `transaction FAB should be clear of the bottom edge: ${JSON.stringify(fabMetrics)}`).toBeLessThanOrEqual(
+    fabMetrics.viewportHeight - 8,
+  );
+  expect(fabMetrics.width).toBeGreaterThanOrEqual(48);
+  expect(fabMetrics.height).toBeGreaterThanOrEqual(48);
+
+  await fab.click();
   await expect(page.getByTestId("transaction-entry-sheet")).toBeVisible();
+  const overlayMetrics = await page.evaluate(() => {
+    const fabElement = document.querySelector('[data-testid="transactions-fab"]');
+    const toolbar = document.querySelector('[data-testid="transaction-sticky-toolbar"]');
+    const backdrop = document.querySelector(".transaction-entry-sheet-backdrop");
+    const sheet = document.querySelector('[data-testid="transaction-entry-sheet"]');
+    const fabBox = fabElement?.getBoundingClientRect();
+    const centerX = fabBox ? fabBox.left + fabBox.width / 2 : 0;
+    const centerY = fabBox ? fabBox.top + fabBox.height / 2 : 0;
+    const topElement = fabBox ? document.elementFromPoint(centerX, centerY) : null;
+    return {
+      fabCenterCoveredByOverlay: Boolean(topElement?.closest(".transaction-entry-sheet-backdrop, [data-testid='transaction-entry-sheet']")),
+      backdropZ: backdrop ? Number.parseInt(getComputedStyle(backdrop).zIndex || "0", 10) : 0,
+      sheetZ: sheet ? Number.parseInt(getComputedStyle(sheet).zIndex || "0", 10) : 0,
+      toolbarZ: toolbar ? Number.parseInt(getComputedStyle(toolbar).zIndex || "0", 10) : 0,
+    };
+  });
+  expect(
+    overlayMetrics.fabCenterCoveredByOverlay,
+    `transaction sheet overlay should cover the FAB hit center: ${JSON.stringify(overlayMetrics)}`,
+  ).toBe(true);
+  expect(overlayMetrics.backdropZ, `transaction backdrop should outrank toolbar: ${JSON.stringify(overlayMetrics)}`).toBeGreaterThan(
+    overlayMetrics.toolbarZ,
+  );
+  await capture(page, "layout-mobile-transaction-fab-sheet-layer");
 
   const metrics = await page.locator(".transaction-quick-sticky-actions").evaluate((element) => {
     const button = element.querySelector("button");
@@ -681,6 +737,7 @@ test("mobile transaction sheet actions keep navigation reachable", async ({ page
 
   await page.getByTestId("transaction-entry-sheet-close").click();
   await expect(page.getByTestId("transaction-entry-sheet")).toBeHidden();
+  await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute("data-testid") || "")).toBe("transactions-fab");
   await openTab(page, "자산");
   await expect(page.locator(".holding-list-card")).toBeVisible();
 });
