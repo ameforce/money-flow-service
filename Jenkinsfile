@@ -153,15 +153,38 @@ pipeline {
       }
     }
 
+    stage('Gitflow Policy Gate') {
+      steps {
+        script {
+          def policyBranch = (env.BRANCH_NAME ?: env.GIT_BRANCH ?: env.GIT_LOCAL_BRANCH ?: env.CHANGE_BRANCH ?: env.JOB_BASE_NAME ?: 'manual').trim()
+          if (policyBranch.startsWith('origin/')) {
+            policyBranch = policyBranch.substring('origin/'.length())
+          }
+          if (policyBranch.startsWith('refs/heads/')) {
+            policyBranch = policyBranch.substring('refs/heads/'.length())
+          }
+          env.GITFLOW_POLICY_BRANCH = policyBranch
+          if (isUnix()) {
+            sh '''
+              set -e
+              git fetch --all --tags --prune
+              python3 scripts/ci/enforce_gitflow_policy.py --branch "$GITFLOW_POLICY_BRANCH"
+            '''
+          } else {
+            powershell '''
+              git fetch --all --tags --prune
+              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+              py scripts/ci/enforce_gitflow_policy.py --branch $env:GITFLOW_POLICY_BRANCH
+              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            '''
+          }
+        }
+      }
+    }
+
     stage('Resolve App Version') {
       steps {
         script {
-          if (isUnix()) {
-            sh 'git fetch --all --tags --prune'
-          } else {
-            bat 'git fetch --all --tags --prune'
-          }
-
           def resolveBranch = (env.BRANCH_NAME ?: env.GIT_BRANCH ?: env.GIT_LOCAL_BRANCH ?: env.CHANGE_BRANCH ?: env.JOB_BASE_NAME ?: 'main').trim()
           if (resolveBranch.startsWith('origin/')) {
             resolveBranch = resolveBranch.substring('origin/'.length())
@@ -169,71 +192,20 @@ pipeline {
           if (resolveBranch.startsWith('refs/heads/')) {
             resolveBranch = resolveBranch.substring('refs/heads/'.length())
           }
+          env.RESOLVE_APP_VERSION_BRANCH = resolveBranch
 
           def version = ''
           if (isUnix()) {
             version = sh(
               returnStdout: true,
-              script: '''
-                set -e
-                latest_tag=$(git tag --list --sort=-v:refname 'v[0-9]*.[0-9]*.[0-9]*' | sed -n '1p')
-                if [ -z "$latest_tag" ]; then
-                  echo "NONE"
-                  exit 0
-                fi
-                latest_count=$(git rev-list --count "${latest_tag}..HEAD")
-                echo "${latest_tag},${latest_count}"
-              '''
+              script: 'python3 scripts/ci/resolve_app_version.py --branch "$RESOLVE_APP_VERSION_BRANCH"'
             ).trim()
           } else {
             version = powershell(
               returnStdout: true,
-              script: '''
-                $tagLines = git tag --list --sort=-v:refname "v[0-9]*.[0-9]*.[0-9]*"
-                $latestTag = ($tagLines | Where-Object { $_ -match '^v[0-9]+[.][0-9]+[.][0-9]+$' } | Select-Object -First 1)
-                if ([string]::IsNullOrWhiteSpace($latestTag)) {
-                  Write-Output "NONE"
-                  exit 0
-                }
-                $count = (git rev-list --count "$latestTag..HEAD").Trim()
-                "${latestTag},${count}"
-              '''
+              script: 'py scripts/ci/resolve_app_version.py --branch $env:RESOLVE_APP_VERSION_BRANCH'
             ).trim()
           }
-
-          def parsedVersion = ''
-          def parts = version.split(',')
-          if (version && version != 'NONE' && parts.size() == 2) {
-            def latestTag = parts[0]?.trim()
-            def commitCount = (parts[1]?.trim() ?: '0')
-            def tagMatcher = (latestTag =~ /^v?([0-9]+\.[0-9]+\.[0-9]+)$/)
-            if (tagMatcher.matches()) {
-              def baseTag = tagMatcher[0][1]
-              parsedVersion = "v${baseTag}.${commitCount}"
-            }
-          } else {
-            def tagMatcher = (version =~ /^v([0-9]+\.[0-9]+\.[0-9]+)$/)
-            if (tagMatcher.matches()) {
-              def baseTag = tagMatcher[0][1]
-              parsedVersion = "v${baseTag}.0"
-            }
-          }
-
-          if (!parsedVersion) {
-            def branchTail = resolveBranch.tokenize('/').last()
-            if (branchTail ==~ /^v?[0-9]+\.[0-9]+\.[0-9]+$/) {
-              def normalizedBranchTail = branchTail.startsWith('v') ? branchTail.substring(1) : branchTail
-              parsedVersion = "v${normalizedBranchTail}.0"
-            } else {
-              parsedVersion = 'v0.1.1.0'
-            }
-          }
-
-          if (parsedVersion == 'v0.0.0.0' || parsedVersion ==~ /^v0\\.0\\.0\\.[0-9]+$/) {
-            parsedVersion = 'v0.1.1.0'
-          }
-
-          version = parsedVersion
 
           env.APP_VERSION = version
           echo "Resolved version = ${env.APP_VERSION}"
