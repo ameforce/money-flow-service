@@ -723,6 +723,55 @@ test("mobile quick entry creates an expense through amount-first chip path", asy
   await expect(createdRow).toBeVisible({ timeout: 20_000 });
 });
 
+test("mobile quick entry selected category chip remains readable while hovered", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("tx-quick-chip-hover")}@example.com`;
+  const displayName = unique("tx-quick-chip-hover-name");
+  const seedMemo = unique("tx-quick-chip-hover-seed");
+
+  await registerAndVerify(page, { email, displayName });
+  const seedCategory = await createCategoryViaApi(page, {
+    major: unique("선택칩"),
+    minor: unique("대비확인"),
+  });
+  await createTransactionViaApi(page, {
+    memo: seedMemo,
+    amount: "31415",
+    categoryId: seedCategory.id,
+    ownerName: displayName,
+  });
+  await page.reload();
+
+  const transactionSheet = await openMobileTransactionQuickEntry(page);
+  await page.getByTestId("transaction-quick-amount").fill("27182");
+  const quickCategoryChip = page.getByTestId("transaction-quick-category-chip").first();
+  await expect(quickCategoryChip).toBeVisible();
+  await quickCategoryChip.hover();
+  await quickCategoryChip.click();
+  await quickCategoryChip.hover();
+  await expect(quickCategoryChip).toHaveAttribute("aria-pressed", "true");
+
+  const selectedChipMetrics = await quickCategoryChip.evaluate((chip) => {
+    const style = getComputedStyle(chip);
+    const label = chip.querySelector("span");
+    const labelStyle = label ? getComputedStyle(label) : style;
+    return {
+      backgroundColor: style.backgroundColor,
+      backgroundImage: style.backgroundImage,
+      color: labelStyle.color || style.color,
+      text: chip.textContent?.replace(/\s+/g, " ").trim() || "",
+    };
+  });
+  expect(
+    selectedChipMetrics.backgroundImage,
+    `selected quick category chip should not inherit the global primary-button hover gradient: ${JSON.stringify(selectedChipMetrics)}`
+  ).toBe("none");
+  await expectTextContrast(quickCategoryChip.locator("span").first(), "selected quick category chip");
+  await capture(page, "transactions-quick-entry-selected-chip-hover");
+  await transactionSheet.getByTestId("transaction-entry-sheet-close").click();
+});
+
 test("mobile quick entry keeps expanded fields above sticky actions", async ({ page }) => {
   test.setTimeout(180_000);
 

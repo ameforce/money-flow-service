@@ -2504,6 +2504,16 @@ button.danger:active:not(:disabled) {
   box-shadow: 0 10px 24px -20px rgba(13, 74, 163, 0.58);
 }
 
+.transaction-quick-category-chip.selected:hover:not(:disabled),
+.transaction-quick-category-chip.selected:active:not(:disabled),
+.transaction-quick-category-chip.selected:focus-visible {
+  border-color: #1d66d1;
+  background: #eaf3ff;
+  color: #0d4aa3;
+  transform: none;
+  box-shadow: 0 10px 24px -20px rgba(13, 74, 163, 0.58);
+}
+
 .transaction-quick-memo-field input {
   min-height: 2.8rem;
 }
