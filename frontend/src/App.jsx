@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, Fragment } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, Fragment } from "react";
 import {
   ArcElement,
   CategoryScale,
@@ -1793,6 +1793,7 @@ function App() {
   const transactionHistoryMonthSyncScrollYRef = useRef(0);
   const transactionHistoryMonthSyncFrameRef = useRef(0);
   const transactionHistoryRequestGenerationRef = useRef(0);
+  const pendingTransactionHistoryScrollAnchorRef = useRef(null);
   const roleNoticeStateRef = useRef({ householdId: "", role: "" });
   const receivedInviteIdsRef = useRef(new Set());
   const confirmResolveRef = useRef(null);
@@ -3735,6 +3736,7 @@ function App() {
     transactionHistoryMonthSyncScrollYRef.current = typeof window === "undefined" ? 0 : window.scrollY || 0;
     transactionHistoryAnchorDateRef.current = today;
     transactionHistoryTodayRef.current = today;
+    pendingTransactionHistoryScrollAnchorRef.current = null;
     setTransactionHistoryItems([]);
     setTransactionHistoryOlderCursor("");
     setTransactionHistoryNewerCursor("");
@@ -3895,7 +3897,7 @@ function App() {
   }
 
   function restoreTransactionHistoryScrollAnchor(anchor) {
-    if (!anchor?.id || typeof document === "undefined") {
+    if (!anchor?.id || typeof document === "undefined" || typeof window === "undefined") {
       return;
     }
     let attempts = 0;
@@ -3926,6 +3928,18 @@ function App() {
       requestAnimationFrame(restore);
     });
   }
+
+  useLayoutEffect(() => {
+    const pendingAnchor = pendingTransactionHistoryScrollAnchorRef.current;
+    if (tab !== "transactions" || !pendingAnchor?.id) {
+      return;
+    }
+    pendingTransactionHistoryScrollAnchorRef.current = null;
+    restoreTransactionHistoryScrollAnchor(pendingAnchor);
+    // The restore helper reads current DOM/refs; only history list commits and
+    // tab changes should consume a queued anchor.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, transactionHistoryItems]);
 
   function scrollTransactionHistoryToEnd() {
     if (typeof document === "undefined") {
@@ -3998,21 +4012,24 @@ function App() {
 
       if (direction === "older") {
         const restoreAnchor = preserveAnchor ? captureTransactionHistoryScrollAnchor() || scrollAnchor : null;
+        if (restoreAnchor) {
+          pendingTransactionHistoryScrollAnchorRef.current = restoreAnchor;
+        }
         setTransactionHistoryItems((prev) => mergeTransactionHistoryItems(prev, pageItems));
         setTransactionHistoryOlderCursor(String(payload?.older_cursor || ""));
         setTransactionHistoryHasOlder(Boolean(payload?.has_older));
-        if (restoreAnchor) {
-          restoreTransactionHistoryScrollAnchor(restoreAnchor);
-        }
       } else if (direction === "newer") {
         const restoreAnchor = preserveAnchor ? captureTransactionHistoryScrollAnchor() || scrollAnchor : null;
+        if (restoreAnchor) {
+          pendingTransactionHistoryScrollAnchorRef.current = restoreAnchor;
+        }
         setTransactionHistoryItems((prev) => mergeTransactionHistoryItems(prev, pageItems));
         setTransactionHistoryNewerCursor(String(payload?.newer_cursor || ""));
         setTransactionHistoryHasNewer(Boolean(payload?.has_newer));
-        if (restoreAnchor) {
-          restoreTransactionHistoryScrollAnchor(restoreAnchor);
-        }
       } else {
+        if (preserveAnchor && scrollAnchor) {
+          pendingTransactionHistoryScrollAnchorRef.current = scrollAnchor;
+        }
         setTransactionHistoryItems(mergeTransactionHistoryItems([], pageItems));
         setTransactionHistoryOlderCursor(String(payload?.older_cursor || ""));
         setTransactionHistoryNewerCursor(String(payload?.newer_cursor || ""));
@@ -4021,7 +4038,9 @@ function App() {
       }
 
       if (preserveAnchor && direction === "initial") {
-        restoreTransactionHistoryScrollAnchor(scrollAnchor);
+        // Scroll restoration is performed from useLayoutEffect after React has
+        // committed the new history rows. Restoring immediately here can race
+        // the commit and exhaust its retry loop against the pre-update DOM.
       } else if (options.alignToEnd && pageItems.length > 0) {
         scrollTransactionHistoryToEnd();
       }
@@ -4207,6 +4226,10 @@ function App() {
           setTransactions(item.data);
           if (tabRef.current === "transactions" && transactionHistoryInitializedRef.current) {
             const historyToday = transactionHistoryTodayRef.current || transactionHistoryToday || todayIso();
+            const historyMergeAnchor = captureTransactionHistoryScrollAnchor();
+            if (historyMergeAnchor) {
+              pendingTransactionHistoryScrollAnchorRef.current = historyMergeAnchor;
+            }
             setTransactionHistoryItems((prev) =>
               mergeTransactionHistoryItems(
                 filterTransactionHistoryItemsToToday(prev, historyToday),
