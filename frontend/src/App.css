@@ -1585,11 +1585,7 @@
 
 .portfolio-donut-slice-label::before {
   content: "";
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 0.24rem;
-  border-radius: 999px 0 0 999px;
-  background: var(--slice-label-color, #0b4ab4);
+  display: none;
 }
 
 .portfolio-donut-slice-label strong {

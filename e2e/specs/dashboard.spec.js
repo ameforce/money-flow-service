@@ -71,6 +71,27 @@ async function expectDonutLabelsInsideChart(card, label) {
   }
 }
 
+async function expectDonutSliceLabelsWithoutLeftAccentBars(card, label) {
+  const metrics = await card.getByTestId("portfolio-donut-slice-label").evaluateAll((nodes) =>
+    nodes.map((node) => {
+      const before = getComputedStyle(node, "::before");
+      return {
+        text: node.textContent?.replace(/\s+/g, " ").trim(),
+        beforeContent: before.content,
+        beforeDisplay: before.display,
+        beforeWidth: Number.parseFloat(before.width || "0") || 0,
+      };
+    }),
+  );
+  expect(metrics.length, `${label} should expose slice labels before checking accent bars`).toBeGreaterThan(0);
+  for (const item of metrics) {
+    expect(
+      item.beforeDisplay === "none" || item.beforeContent === "none" || item.beforeWidth <= 0.5,
+      `${label} ${item.text} should not render a left accent bar: ${JSON.stringify(item)}`
+    ).toBe(true);
+  }
+}
+
 async function expectDashboardHeroNoInternalOverflow(page, label) {
   const metrics = await page.locator(".dashboard-hero-card").evaluate((hero) => {
     const heroBox = hero.getBoundingClientRect();
@@ -782,6 +803,7 @@ test("dashboard flow: onboarding, portfolio coherence, summary visibility", asyn
     await expectDonutTextNotClipped(dashboardCenterLabel);
     await expectDonutTextNotClipped(dashboardSliceLabels);
     await expectDonutLabelsInsideChart(dashboardPortfolioCard, "desktop dashboard asset type");
+    await expectDonutSliceLabelsWithoutLeftAccentBars(dashboardPortfolioCard, "desktop dashboard asset type");
     const assetTypeLabelBox = await dashboardSliceLabels.first().boundingBox();
     const dashboardChartBox = await dashboardPortfolioCard.locator(".dashboard-donut-wrap").boundingBox();
     expect(assetTypeLabelBox, "asset type label should have a bounding box").not.toBeNull();
@@ -797,6 +819,7 @@ test("dashboard flow: onboarding, portfolio coherence, summary visibility", asyn
     await expectDonutTextNotClipped(dashboardCenterLabel);
     await expectDonutTextNotClipped(dashboardSliceLabels);
     await expectDonutLabelsInsideChart(dashboardPortfolioCard, "desktop dashboard transaction flow");
+    await expectDonutSliceLabelsWithoutLeftAccentBars(dashboardPortfolioCard, "desktop dashboard transaction flow");
 
     await openTab(page, "자산");
     const holdingSummaryCard = page.locator("details.holding-summary-card").first();
@@ -963,6 +986,7 @@ test("dashboard flow: onboarding, portfolio coherence, summary visibility", asyn
     await expectDonutTextNotClipped(dashboardSliceLabels);
     await expectDonutLabelsCenteredOnRing(dashboardPortfolioCard, "mobile dashboard transaction flow");
     await expectDonutLabelsInsideChart(dashboardPortfolioCard, "mobile dashboard transaction flow");
+    await expectDonutSliceLabelsWithoutLeftAccentBars(dashboardPortfolioCard, "mobile dashboard transaction flow");
     await expectPortfolioLabelsClearOfBottomNav(page, dashboardPortfolioCard, "mobile dashboard transaction flow");
     await expectWithinViewport(dashboardCenterLabel);
     await expect(priceRefreshButton).toBeEnabled({ timeout: 10_000 });
@@ -1029,6 +1053,7 @@ test("dashboard flow: onboarding, portfolio coherence, summary visibility", asyn
       await expectDonutTextNotClipped(dashboardSliceLabels);
       await expectDonutLabelsCenteredOnRing(dashboardPortfolioCard, profile.name);
       await expectDonutLabelsInsideChart(dashboardPortfolioCard, profile.name);
+      await expectDonutSliceLabelsWithoutLeftAccentBars(dashboardPortfolioCard, profile.name);
       await expectPortfolioLabelsClearOfBottomNav(page, dashboardPortfolioCard, profile.name);
       await expectNoHorizontalOverflow(page, 12);
       await capture(page, `dashboard-mobile-layout-${profile.name}`);
