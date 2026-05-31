@@ -145,6 +145,7 @@ def test_upload_limit_probe_requires_authenticated_app_response() -> None:
 
     assert "UPLOAD_LIMIT_PROBE_OK_APP_REACHED" in deploy_stage
     assert "scripts/deploy/seed_upload_probe_user.py" in deploy_stage
+    assert ":/tmp/seed_upload_probe_user.py:ro" in deploy_stage
     assert "seed-upload-probe-user" in deploy_stage
     assert "/api/v1/auth/login" in deploy_stage
     assert "debug_verification_token" not in deploy_stage

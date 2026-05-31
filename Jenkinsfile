@@ -1177,7 +1177,7 @@ fi
 dd if=/dev/zero of="$tmp_probe_file" bs=1M count=2 >/dev/null 2>&1
 probe_email="jenkins-upload-probe-${BUILD_NUMBER:-manual}-$(date +%s)@example.com"
 probe_password="UploadProbe123!"
-run_ssh "seed-upload-probe-user" "set -euo pipefail; cd '$REMOTE_DEPLOY_PATH'; docker compose -p '$COMPOSE_PROJECT' -f '$COMPOSE_FILE' --env-file '$ENV_FILE_PATH' run --rm app env PYTHONPATH=backend python scripts/deploy/seed_upload_probe_user.py --email '$probe_email' --password '$probe_password' --display-name 'Upload Probe'"
+run_ssh "seed-upload-probe-user" "set -euo pipefail; cd '$REMOTE_DEPLOY_PATH'; docker compose -p '$COMPOSE_PROJECT' -f '$COMPOSE_FILE' --env-file '$ENV_FILE_PATH' run --rm -v '$REMOTE_DEPLOY_PATH/scripts/deploy/seed_upload_probe_user.py:/tmp/seed_upload_probe_user.py:ro' app env PYTHONPATH=backend python /tmp/seed_upload_probe_user.py --email '$probe_email' --password '$probe_password' --display-name 'Upload Probe'"
 probe_login_payload="$("$PYTHON_BIN" - "$probe_email" "$probe_password" <<'PY'
 import json
 import sys
