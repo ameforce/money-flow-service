@@ -484,6 +484,266 @@ async function expectMobileTransactionMonthStepperSticky(page) {
   await expectTransactionMonthStepperSticky(page, "mobile transaction month stepper");
 }
 
+async function expectTransactionSelectionSummary(page, count, expectedAmountText = null) {
+  const summary = page.getByTestId("transaction-sticky-toolbar").getByTestId("transaction-selection-summary");
+  await expect(summary).toBeVisible();
+  await expect(summary).toContainText(`선택 ${count}건`);
+  await expect(summary).toContainText("선택 합계");
+  if (expectedAmountText) {
+    await expect(summary).toContainText(expectedAmountText);
+  }
+  await expect(page.locator(".transaction-list-card > .message", { hasText: "선택" })).toHaveCount(0);
+  return summary;
+}
+
+async function clearTransactionSelection(page) {
+  const summary = page.getByTestId("transaction-sticky-toolbar").getByTestId("transaction-selection-summary");
+  await expect(summary).toBeVisible();
+  const clearButton = summary.getByRole("button", { name: "선택 해제" });
+  if (await clearButton.isEnabled().catch(() => false)) {
+    await clearButton.click();
+  }
+  await expectTransactionSelectionSummary(page, 0, "0원");
+}
+
+async function clickDesktopTransactionRowAction(row, actionName) {
+  await expect(row).toBeVisible();
+  await row.evaluate((element) => element.scrollIntoView({ block: "center", inline: "nearest" }));
+  const actionButton = row.locator("td").last().getByRole("button", { name: actionName }).first();
+  await expect(actionButton).toBeVisible();
+  await actionButton.evaluate((button) => button.click());
+}
+
+async function scrollTransactionHeaderIntoStickyRange(page) {
+  await page.evaluate(() => {
+    const toolbar = document.querySelector('[data-testid="transaction-sticky-toolbar"]');
+    const header =
+      window.innerWidth <= 820
+        ? document.querySelector(".transactions-mobile-ledger-head")
+        : document.querySelector(".transactions-desktop-ledger-head") ||
+          document.querySelector(".transaction-list-card .transactions-surface-table thead");
+    if (!toolbar || !header) {
+      return;
+    }
+    const toolbarBox = toolbar.getBoundingClientRect();
+    const headerTop = header.getBoundingClientRect().top + window.scrollY;
+    const stickyReserve = Math.max(toolbarBox.height + 28, 96);
+    window.scrollTo(0, Math.max(0, headerTop - stickyReserve));
+  });
+  await page.waitForTimeout(300);
+}
+
+async function readTransactionStickyHeaderGeometry(page) {
+  return page.evaluate(() => {
+    const boxOf = (element) => {
+      const box = element?.getBoundingClientRect();
+      return box
+        ? {
+            top: box.top,
+            bottom: box.bottom,
+            left: box.left,
+            right: box.right,
+            width: box.width,
+            height: box.height,
+          }
+        : null;
+    };
+    const toolbar = document.querySelector('[data-testid="transaction-sticky-toolbar"]');
+    const desktopHead =
+      document.querySelector(".transactions-desktop-ledger-head") ||
+      document.querySelector(".transaction-list-card .transactions-surface-table thead");
+    const mobileHead = document.querySelector(".transactions-mobile-ledger-head");
+    const header = window.innerWidth <= 820 ? mobileHead : desktopHead;
+    const firstVisibleRow = Array.from(document.querySelectorAll("tr.transaction-row")).find((row) => {
+      const box = row.getBoundingClientRect();
+      return box.bottom > 0 && box.top < window.innerHeight;
+    });
+    const toolbarBox = boxOf(toolbar);
+    const headerBox = boxOf(header);
+    const toolbarStyle = toolbar ? getComputedStyle(toolbar) : null;
+    const headerStyle = header ? getComputedStyle(header) : null;
+    const listCard = document.querySelector(".transaction-list-card");
+    const listStyle = listCard ? getComputedStyle(listCard) : null;
+    const fabBox = boxOf(document.querySelector('[data-testid="transactions-fab"]'));
+    const intersects = (left, right) =>
+      Boolean(
+        left &&
+          right &&
+          left.left < right.right &&
+          left.right > right.left &&
+          left.top < right.bottom &&
+          left.bottom > right.top,
+      );
+    return {
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+      scrollY: window.scrollY,
+      toolbar: {
+        box: toolbarBox,
+        position: toolbarStyle?.position || "",
+        topCss: toolbarStyle?.top || "",
+      },
+      header: {
+        box: headerBox,
+        position: headerStyle?.position || "",
+        topCss: headerStyle?.top || "",
+        display: headerStyle?.display || "",
+      },
+      firstVisibleRow: boxOf(firstVisibleRow),
+      gap: toolbarBox && headerBox ? headerBox.top - toolbarBox.bottom : null,
+      headerOverlapsToolbar: intersects(toolbarBox, headerBox),
+      headerOverlapsFab: intersects(headerBox, fabBox),
+      firstRowUnderHeader: Boolean(headerBox && firstVisibleRow && firstVisibleRow.getBoundingClientRect().top >= headerBox.bottom - 2),
+      cssVars: {
+        toolbarHeight: listStyle?.getPropertyValue("--transaction-toolbar-sticky-height").trim() || "",
+        columnHeadTop: listStyle?.getPropertyValue("--transaction-column-head-top").trim() || "",
+        ledgerTop: listStyle?.getPropertyValue("--surface-ledger-sticky-top").trim() || "",
+      },
+    };
+  });
+}
+
+async function expectTransactionStickyHeaderGeometry(page, label) {
+  await scrollTransactionHeaderIntoStickyRange(page);
+  const geometry = await readTransactionStickyHeaderGeometry(page);
+  expect(geometry.toolbar.box, `${label} toolbar should be measurable: ${JSON.stringify(geometry)}`).not.toBeNull();
+  expect(geometry.header.box, `${label} header should be measurable: ${JSON.stringify(geometry)}`).not.toBeNull();
+  expect(["sticky", "fixed"], `${label} toolbar sticky state: ${JSON.stringify(geometry)}`).toContain(
+    geometry.toolbar.position,
+  );
+  expect(geometry.header.position, `${label} column/ledger header sticky state: ${JSON.stringify(geometry)}`).toBe("sticky");
+  expect(geometry.header.display, `${label} header should be displayed: ${JSON.stringify(geometry)}`).not.toBe("none");
+  expect(geometry.header.box?.top ?? -1, `${label} header should remain in viewport: ${JSON.stringify(geometry)}`).toBeGreaterThanOrEqual(0);
+  expect(geometry.headerOverlapsToolbar, `${label} header should not overlap toolbar: ${JSON.stringify(geometry)}`).toBe(false);
+  expect(geometry.headerOverlapsFab, `${label} header should not overlap FAB: ${JSON.stringify(geometry)}`).toBe(false);
+  expect(geometry.gap ?? Number.NEGATIVE_INFINITY, `${label} header should sit below toolbar: ${JSON.stringify(geometry)}`).toBeGreaterThanOrEqual(-2);
+  return geometry;
+}
+
+async function expectDesktopTransactionColumnHeaderLabels(page, label) {
+  const header = page.locator(".transactions-desktop-ledger-head").first();
+  await expect(header, `${label} desktop ledger header visible`).toBeVisible();
+  for (const columnLabel of ["일자", "유형", "카테고리", "메모", "금액", "거래자명", "최종 수정일", "동작"]) {
+    await expect(header, `${label} should include ${columnLabel}`).toContainText(columnLabel);
+  }
+  const metrics = await header.evaluate((element) => {
+    const toolbar = document.querySelector('[data-testid="transaction-sticky-toolbar"]');
+    const toolbarBox = toolbar?.getBoundingClientRect();
+    const box = element.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    return {
+      position: style.position,
+      display: style.display,
+      topCss: style.top,
+      box: {
+        top: box.top,
+        bottom: box.bottom,
+        width: box.width,
+        height: box.height,
+      },
+      toolbarBox: toolbarBox
+        ? {
+            top: toolbarBox.top,
+            bottom: toolbarBox.bottom,
+            height: toolbarBox.height,
+          }
+        : null,
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+      scrollY: window.scrollY,
+    };
+  });
+  expect(metrics.position, `${label} desktop ledger header sticky metrics: ${JSON.stringify(metrics)}`).toBe("sticky");
+  expect(metrics.display, `${label} desktop ledger header display: ${JSON.stringify(metrics)}`).not.toBe("none");
+  expect(metrics.topCss, `${label} desktop ledger header top css: ${JSON.stringify(metrics)}`).not.toBe("auto");
+  expect(metrics.box.top, `${label} desktop ledger header should stay in viewport: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(0);
+  expect(metrics.box.bottom, `${label} desktop ledger header should stay in viewport: ${JSON.stringify(metrics)}`).toBeLessThan(
+    metrics.viewportHeight,
+  );
+  if (metrics.toolbarBox) {
+    expect(
+      metrics.box.top,
+      `${label} desktop ledger header should follow toolbar, not overlap it: ${JSON.stringify(metrics)}`,
+    ).toBeGreaterThanOrEqual(metrics.toolbarBox.bottom - 2);
+  }
+}
+
+async function sweepSelectRows(page, rows) {
+  await page.evaluate(() => window.getSelection()?.removeAllRanges());
+  const boxes = [];
+  for (const row of rows) {
+    await expect(row).toBeVisible();
+    const box = await row.boundingBox();
+    expect(box, "sweep row should have a bounding box").not.toBeNull();
+    boxes.push(box);
+  }
+  const pointFor = (box) => ({
+    x: Math.round(box.x + box.width * 0.42),
+    y: Math.round(box.y + box.height / 2),
+  });
+  const firstPoint = pointFor(boxes[0]);
+  await page.mouse.move(firstPoint.x, firstPoint.y);
+  await page.mouse.down();
+  for (const box of boxes.slice(1)) {
+    const point = pointFor(box);
+    await page.mouse.move(point.x, point.y, { steps: 8 });
+    await expectNoActiveTextSelection(page, "row sweep selection during drag");
+  }
+  await page.mouse.up();
+}
+
+async function sweepFromRowToViewportEdge(page, row, direction = "down", holdMs = 900) {
+  await page.evaluate(() => window.getSelection()?.removeAllRanges());
+  await expect(row).toBeVisible();
+  const box = await row.boundingBox();
+  expect(box, "edge sweep row should have a bounding box").not.toBeNull();
+  const viewport = page.viewportSize();
+  expect(viewport, "edge sweep viewport should exist").not.toBeNull();
+  const start = {
+    x: Math.round((box?.x ?? 0) + (box?.width ?? 0) * 0.42),
+    y: Math.round((box?.y ?? 0) + (box?.height ?? 0) / 2),
+  };
+  const endY = direction === "up" ? 24 : Math.max(48, (viewport?.height ?? 0) - 24);
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await page.mouse.move(start.x, start.y + (direction === "up" ? -14 : 14), { steps: 2 });
+  await expectNoActiveTextSelection(page, `row edge sweep ${direction} after activation`);
+  await page.mouse.move(start.x, endY, { steps: 16 });
+  await page.waitForTimeout(holdMs);
+  await expectNoActiveTextSelection(page, `row edge sweep ${direction} during auto-scroll`);
+  await page.mouse.up();
+  await page.waitForTimeout(250);
+}
+
+async function expectNoActiveTextSelection(page, label) {
+  const selectedText = await page.evaluate(() => window.getSelection()?.toString() || "");
+  expect(selectedText.trim(), `${label} should not leave browser text selected`).toBe("");
+}
+
+async function performTouchScrollGestureOnRow(page, row, deltaY = 260) {
+  await expect(row).toBeVisible();
+  const box = await row.boundingBox();
+  expect(box, "touch scroll row should have a bounding box").not.toBeNull();
+  const x = Math.round((box?.x ?? 0) + Math.min(Math.max((box?.width ?? 0) * 0.42, 24), (box?.width ?? 0) - 12));
+  const startY = Math.round((box?.y ?? 0) + Math.min(Math.max((box?.height ?? 0) * 0.5, 18), (box?.height ?? 0) - 8));
+  const endY = Math.max(16, startY - Math.abs(deltaY));
+  const beforeScrollY = await page.evaluate(() => window.scrollY);
+  const client = await page.context().newCDPSession(page);
+  await client.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 1 });
+  const touchPoint = (y) => [{ x, y, radiusX: 6, radiusY: 6, force: 0.6 }];
+  await client.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: touchPoint(startY) });
+  await page.waitForTimeout(40);
+  await client.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: touchPoint(Math.round((startY + endY) / 2)) });
+  await page.waitForTimeout(40);
+  await client.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: touchPoint(endY) });
+  await page.waitForTimeout(40);
+  await client.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await page.waitForTimeout(350);
+  const afterScrollY = await page.evaluate(() => window.scrollY);
+  const touchAction = await row.evaluate((element) => getComputedStyle(element).touchAction);
+  return { beforeScrollY, afterScrollY, touchAction, x, startY, endY };
+}
+
 async function expectDesktopTransactionRowsSingleLine(page) {
   const viewport = page.viewportSize();
   if ((viewport?.width ?? 0) <= 820) {
@@ -1600,6 +1860,263 @@ test("mobile quick entry stays usable across viewport and Korean font fallbacks"
   }
 });
 
+
+test("desktop transaction row click and sweep selection keep toolbar summary stable", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("tx-row-select")}@example.com`;
+  const displayName = unique("tx-row-select-name");
+  const memoPrefix = unique("tx-row-select-memo");
+  const amounts = [12345, 23456, 34567, 45678, 56789, 67890];
+  const memos = amounts.map((_, index) => `${memoPrefix}-${String(index).padStart(2, "0")}`);
+
+  await registerAndVerify(page, { email, displayName });
+  for (const [index, memo] of memos.entries()) {
+    await createTransactionViaApi(page, {
+      memo,
+      amount: String(amounts[index]),
+      ownerName: displayName,
+      sourceRef: `${memoPrefix}-source-${index}`,
+    });
+  }
+  await page.reload();
+  await page.setViewportSize({ width: 1366, height: 960 });
+  await openTab(page, "거래");
+  await page.waitForLoadState("networkidle");
+
+  const rows = page.locator("tr.transaction-row[data-transaction-id]");
+  await expect(rows.nth(2)).toBeVisible({ timeout: 20_000 });
+  await expectTransactionSelectionSummary(page, 0, "0원");
+  await expectTransactionStickyHeaderGeometry(page, "desktop transaction sticky header before selection");
+
+  const targetRow = page.locator("tr.transaction-row", { hasText: memos[0] }).first();
+  await targetRow.evaluate((element) => element.scrollIntoView({ block: "center", inline: "nearest" }));
+  await page.waitForTimeout(150);
+  const targetTopBefore = await targetRow.evaluate((row) => row.getBoundingClientRect().top);
+  const headerBeforeClick = await readTransactionStickyHeaderGeometry(page);
+  await targetRow.locator(".transaction-col-memo").click();
+  await expect(targetRow).toHaveAttribute("data-row-selected", "true");
+  await expect(targetRow).toHaveAttribute("aria-selected", "true");
+  await expectTransactionSelectionSummary(page, 1, `${amounts[0].toLocaleString("ko-KR")}원`);
+  const targetTopAfter = await targetRow.evaluate((row) => row.getBoundingClientRect().top);
+  expect(Math.abs(targetTopAfter - targetTopBefore), "first row selection should not insert a flow banner that moves rows").toBeLessThanOrEqual(1.5);
+  const headerAfterClick = await readTransactionStickyHeaderGeometry(page);
+  expect(
+    Math.abs((headerAfterClick.header.box?.top ?? 0) - (headerBeforeClick.header.box?.top ?? 0)),
+    `desktop header should not jump after toolbar summary update: ${JSON.stringify({ headerBeforeClick, headerAfterClick })}`,
+  ).toBeLessThanOrEqual(4);
+
+  await clearTransactionSelection(page);
+  await expect(targetRow).toHaveAttribute("data-row-selected", "false");
+  await targetRow.locator("td").first().locator("input[type='checkbox']").check();
+  await expect(targetRow).toHaveAttribute("data-row-selected", "true");
+  await expectTransactionSelectionSummary(page, 1, `${amounts[0].toLocaleString("ko-KR")}원`);
+  await clearTransactionSelection(page);
+
+  const headerCheckbox = page.getByLabel("표시된 거래 전체 선택");
+  await headerCheckbox.check();
+  const selectedAfterHeaderCheck = await page.locator("tr.transaction-row[data-row-selected='true']").count();
+  expect(selectedAfterHeaderCheck, "header checkbox should select at least this test's visible seeded rows").toBeGreaterThanOrEqual(
+    memos.length,
+  );
+  await expectTransactionSelectionSummary(page, selectedAfterHeaderCheck);
+  await headerCheckbox.uncheck();
+  await expectTransactionSelectionSummary(page, 0, "0원");
+
+  const sweepRows = [memos[1], memos[2], memos[3]].map((memo) =>
+    page.locator("tr.transaction-row", { hasText: memo }).first(),
+  );
+  await sweepRows[0].evaluate((element) => element.scrollIntoView({ block: "center", inline: "nearest" }));
+  await page.waitForTimeout(150);
+  await sweepSelectRows(page, sweepRows);
+  await expectNoActiveTextSelection(page, "desktop row sweep selection");
+  for (const row of sweepRows) {
+    await expect(row).toHaveAttribute("data-row-selected", "true");
+    await expect(row).toHaveAttribute("data-row-expanded", "false");
+  }
+  const selectedAfterSweep = await page.locator("tr.transaction-row[data-row-selected='true']").count();
+  expect(selectedAfterSweep, "sweep should select at least the rows that the pointer passed over").toBeGreaterThanOrEqual(3);
+  await expectTransactionSelectionSummary(page, selectedAfterSweep);
+
+  const toolbar = page.getByTestId("transaction-sticky-toolbar");
+  await toolbar.getByRole("button", { name: "필터 열기" }).click();
+  await expect(toolbar.locator(".tx-header-filters")).toBeVisible();
+  await expectTransactionSelectionSummary(page, selectedAfterSweep);
+  await toolbar.getByRole("button", { name: "필터 닫기" }).click();
+  await expect(toolbar.locator(".tx-header-filters")).toBeHidden();
+  await capture(page, "transactions-row-selection-desktop");
+});
+
+test("desktop transaction sticky column titles and sweep auto-scroll selection toggle work", async ({ page }) => {
+  test.setTimeout(240_000);
+
+  const email = `${unique("tx-row-sweep-scroll")}@example.com`;
+  const displayName = unique("tx-row-sweep-scroll-name");
+  const memoPrefix = unique("tx-row-sweep-scroll-memo");
+  const rowCount = 52;
+  const amounts = Array.from({ length: rowCount }, (_, index) => 1000 + index * 111);
+  const memos = amounts.map((_, index) => `${memoPrefix}-${String(index).padStart(2, "0")}`);
+
+  await registerAndVerify(page, { email, displayName });
+  for (const [index, memo] of memos.entries()) {
+    await createTransactionViaApi(page, {
+      memo,
+      amount: String(amounts[index]),
+      ownerName: displayName,
+      sourceRef: `${memoPrefix}-source-${index}`,
+    });
+  }
+  await page.reload();
+  await page.setViewportSize({ width: 1366, height: 620 });
+  await openTab(page, "거래");
+  await page.waitForLoadState("networkidle");
+  await expect(page.locator("tr.transaction-row", { hasText: memos[2] }).first()).toBeVisible({ timeout: 20_000 });
+
+  await page.evaluate(() => window.scrollTo(0, Math.min(document.documentElement.scrollHeight - window.innerHeight, 520)));
+  await page.waitForTimeout(250);
+  await expectTransactionStickyHeaderGeometry(page, "desktop sticky column titles after page scroll");
+  await expectDesktopTransactionColumnHeaderLabels(page, "desktop sticky column titles after page scroll");
+
+  const startScrollY = await page.evaluate(() => window.scrollY);
+  const startRow = page.locator("tr.transaction-row", { hasText: memos[4] }).first();
+  await startRow.evaluate((element) => element.scrollIntoView({ block: "center", inline: "nearest" }));
+  await page.waitForTimeout(150);
+  await sweepFromRowToViewportEdge(page, startRow, "down", 1200);
+  await expectNoActiveTextSelection(page, "desktop auto-scroll sweep selection");
+  const afterDownScrollY = await page.evaluate(() => window.scrollY);
+  expect(afterDownScrollY, "dragging near the lower viewport edge should auto-scroll the ledger").toBeGreaterThan(
+    startScrollY + 80,
+  );
+  const selectedAfterAutoScroll = await page.locator("tr.transaction-row[data-row-selected='true']").count();
+  expect(selectedAfterAutoScroll, "auto-scroll sweep should select multiple rows while the page scrolls").toBeGreaterThanOrEqual(5);
+  await expectTransactionSelectionSummary(page, selectedAfterAutoScroll);
+  await expect(page.locator("tr.transaction-row[data-row-expanded='true']")).toHaveCount(0);
+  await expectTransactionStickyHeaderGeometry(page, "desktop sticky column titles after auto-scroll select");
+  await expectDesktopTransactionColumnHeaderLabels(page, "desktop sticky column titles after auto-scroll select");
+
+  const selectedRowsBeforeDeselect = selectedAfterAutoScroll;
+  const selectedRows = page.locator("tr.transaction-row[data-row-selected='true']");
+  await selectedRows.first().evaluate((element) => element.scrollIntoView({ block: "center", inline: "nearest" }));
+  await page.waitForTimeout(150);
+  await sweepSelectRows(page, [
+    selectedRows.nth(0),
+    selectedRows.nth(1),
+    selectedRows.nth(2),
+  ]);
+  await expectNoActiveTextSelection(page, "desktop sweep deselection without scroll");
+  const selectedAfterDeselectSweep = await page.locator("tr.transaction-row[data-row-selected='true']").count();
+  expect(
+    selectedAfterDeselectSweep,
+    "starting a sweep on selected rows should deselect visited rows",
+  ).toBeLessThanOrEqual(selectedRowsBeforeDeselect - 2);
+  await expectTransactionSelectionSummary(page, selectedAfterDeselectSweep);
+  await expect(page.locator("tr.transaction-row[data-row-expanded='true']")).toHaveCount(0);
+
+  const selectedForUpwardDeselect = page.locator("tr.transaction-row[data-row-selected='true']").last();
+  await selectedForUpwardDeselect.evaluate((element) => element.scrollIntoView({ block: "center", inline: "nearest" }));
+  await page.waitForTimeout(150);
+  const beforeUpDeselectY = await page.evaluate(() => window.scrollY);
+  const selectedBeforeUpDeselect = await page.locator("tr.transaction-row[data-row-selected='true']").count();
+  await sweepFromRowToViewportEdge(page, selectedForUpwardDeselect, "up", 900);
+  await expectNoActiveTextSelection(page, "desktop upward auto-scroll sweep deselection");
+  const afterUpDeselectY = await page.evaluate(() => window.scrollY);
+  expect(afterUpDeselectY, "dragging near the upper viewport edge should auto-scroll upward").toBeLessThan(
+    beforeUpDeselectY - 20,
+  );
+  const selectedAfterUpDeselect = await page.locator("tr.transaction-row[data-row-selected='true']").count();
+  expect(
+    selectedAfterUpDeselect,
+    "auto-scroll deselection sweep should reduce selected rows",
+  ).toBeLessThan(selectedBeforeUpDeselect);
+  await expectTransactionSelectionSummary(page, selectedAfterUpDeselect);
+  await expect(page.locator("tr.transaction-row[data-row-expanded='true']")).toHaveCount(0);
+  await expectTransactionStickyHeaderGeometry(page, "desktop sticky column titles after sweep deselect");
+  await capture(page, "transactions-row-selection-autoscroll-toggle");
+});
+
+test("mobile transaction row selection, touch scroll, and sticky ledger head survive Korean font viewports", async ({ page }) => {
+  test.setTimeout(240_000);
+
+  const email = `${unique("tx-mobile-row-select")}@example.com`;
+  const displayName = unique("tx-mobile-row-select-name");
+  const memoPrefix = unique("tx-mobile-row-select-memo");
+  const amounts = Array.from({ length: 24 }, (_, index) => 11000 + index * 777);
+  const memos = amounts.map((_, index) => `${memoPrefix}-${String(index).padStart(2, "0")}`);
+  const scenarios = [
+    { label: "390px Apple SD Gothic Neo", width: 390, height: 844, font: "Apple SD Gothic Neo", targetIndex: 2, scrollIndex: 13 },
+    { label: "320px Malgun Gothic", width: 320, height: 568, font: "Malgun Gothic", targetIndex: 4, scrollIndex: 15 },
+    { label: "432px Noto Sans KR", width: 432, height: 936, font: "Noto Sans KR", targetIndex: 6, scrollIndex: 17 },
+  ];
+
+  await registerAndVerify(page, { email, displayName });
+  for (const [index, memo] of memos.entries()) {
+    await createTransactionViaApi(page, {
+      memo,
+      amount: String(amounts[index]),
+      ownerName: displayName,
+      sourceRef: `${memoPrefix}-source-${index}`,
+    });
+  }
+
+  for (const scenario of scenarios) {
+    await page.reload();
+    await page.setViewportSize({ width: scenario.width, height: scenario.height });
+    await page.addStyleTag({
+      content: `html, body, button, input, select, textarea { font-family: "${scenario.font}", "Noto Sans KR", sans-serif !important; }`,
+    });
+    await openTab(page, "거래");
+    await page.waitForLoadState("networkidle");
+    await expect(page.locator("tr.transaction-row", { hasText: memos[scenario.targetIndex] }).first()).toBeVisible({
+      timeout: 20_000,
+    });
+    await expectNoHorizontalOverflow(page, 12);
+    await expectTransactionSelectionSummary(page, 0, "0원");
+
+    const stickyBeforeSelection = await expectTransactionStickyHeaderGeometry(page, `${scenario.label} sticky ledger before selection`);
+    const targetRow = page.locator("tr.transaction-row", { hasText: memos[scenario.targetIndex] }).first();
+    await targetRow.evaluate((element) => element.scrollIntoView({ block: "center", inline: "nearest" }));
+    await page.waitForTimeout(150);
+    const headerBeforeClick = await readTransactionStickyHeaderGeometry(page);
+    await targetRow.locator(".transaction-col-memo").click();
+    await expect(targetRow).toHaveAttribute("data-row-selected", "true");
+    await expect(targetRow).toHaveClass(/mobile-row-expanded/);
+    await expect(
+      targetRow.locator("xpath=following-sibling::tr[1][contains(@class,'transaction-mobile-expanded-actions-row')]"),
+    ).toBeVisible();
+    await expectTransactionSelectionSummary(
+      page,
+      1,
+      `${amounts[scenario.targetIndex].toLocaleString("ko-KR")}원`,
+    );
+    const headerAfterClick = await expectTransactionStickyHeaderGeometry(page, `${scenario.label} sticky ledger after row selection`);
+    expect(
+      Math.abs((headerAfterClick.gap ?? 0) - (stickyBeforeSelection.gap ?? 0)),
+      `${scenario.label} ledger head gap should remain stable after row selection: ${JSON.stringify({
+        stickyBeforeSelection,
+        headerBeforeClick,
+        headerAfterClick,
+      })}`,
+    ).toBeLessThanOrEqual(8);
+
+    await clearTransactionSelection(page);
+    const scrollRow = page.locator("tr.transaction-row", { hasText: memos[scenario.scrollIndex] }).first();
+    await scrollRow.evaluate((element) => element.scrollIntoView({ block: "center", inline: "nearest" }));
+    await page.waitForTimeout(150);
+    const touchMetrics = await performTouchScrollGestureOnRow(page, scrollRow);
+    expect(touchMetrics.touchAction, `${scenario.label} rows should preserve vertical touch scrolling`).toBe("pan-y");
+    expect(
+      touchMetrics.afterScrollY,
+      `${scenario.label} touch-like vertical drag should scroll the page: ${JSON.stringify(touchMetrics)}`,
+    ).toBeGreaterThan(touchMetrics.beforeScrollY + 8);
+    await expect(scrollRow).toHaveAttribute("data-row-selected", "false");
+    await expect(scrollRow).not.toHaveClass(/mobile-row-expanded/);
+    await expectTransactionSelectionSummary(page, 0, "0원");
+    await expectTransactionStickyHeaderGeometry(page, `${scenario.label} sticky ledger after touch scroll`);
+    await expectNoHorizontalOverflow(page, 12);
+    await capture(page, `transactions-row-selection-mobile-${scenario.width}`);
+  }
+});
+
 test("transaction FAB and sticky toolbar stay reachable after ledger scroll", async ({ page }) => {
   test.setTimeout(180_000);
 
@@ -1705,8 +2222,7 @@ test("transactions flow: create, inline edit, delete, responsive", async ({ page
   await expect(createdRow).toContainText(memo);
   await capture(page, "transactions-created");
 
-  const actionCell = createdRow.locator("td").last();
-  await actionCell.getByRole("button", { name: "수정" }).click();
+  await clickDesktopTransactionRowAction(createdRow, "수정");
   const editorRow = page.locator("tr.transaction-inline-editor-row").first();
   await expect(editorRow).toBeVisible();
 
@@ -1764,7 +2280,7 @@ test("transactions flow: create, inline edit, delete, responsive", async ({ page
   }
   await expect(editedRow).toBeVisible();
 
-  await editedRow.locator("td").last().getByRole("button", { name: "삭제" }).click();
+  await clickDesktopTransactionRowAction(editedRow, "삭제");
   const confirmDialog = page.locator(".confirm-dialog");
   await expect(confirmDialog).toBeVisible();
   await confirmDialog.getByRole("button", { name: "삭제" }).click();
@@ -2302,7 +2818,8 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
     await expect(extraRow).toBeVisible();
   }
 
-  const headerTexts = await page.getByRole("columnheader").evaluateAll((nodes) =>
+  await expectDesktopTransactionColumnHeaderLabels(page, "transactions list affordance column header");
+  const headerTexts = await page.locator(".transactions-desktop-ledger-head [role='columnheader']").evaluateAll((nodes) =>
     nodes.map((node) => String(node.innerText || node.textContent || "").replace(/\s+/g, " ").trim())
   );
   const findHeaderIndex = (label) => headerTexts.findIndex((text) => text.includes(label));
@@ -2312,16 +2829,14 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   expect(findHeaderIndex("메모")).toBeGreaterThan(findHeaderIndex("카테고리"));
   expect(findHeaderIndex("금액")).toBeGreaterThan(findHeaderIndex("메모"));
 
-  const staticDateSort = page.locator("th .sort-header-static").first();
+  const staticDateSort = page.locator(".transactions-desktop-ledger-head .sort-header-static").first();
   await expect(staticDateSort).toBeVisible();
   await expect(staticDateSort).toHaveAttribute("aria-label", /연속 내역순 고정/);
-  await expect(page.locator("th button.sort-header")).toHaveCount(0);
+  await expect(page.locator(".transactions-desktop-ledger-head button.sort-header")).toHaveCount(0);
   await expectDesktopTransactionRowsSingleLine(page);
 
   await createdRow.locator("td").first().locator("input[type='checkbox']").check();
-  const selectedSummaryBanner = page.locator(".message", { hasText: "선택 1건" }).first();
-  await expect(selectedSummaryBanner).toBeVisible();
-  await expect(selectedSummaryBanner).toContainText("합계");
+  await expectTransactionSelectionSummary(page, 1, "22,222원");
 
   const supportDetails = page.locator("details.compact-support-card").first();
   const supportCard =
@@ -2734,7 +3249,9 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   await openTab(page, "거래");
   for (const cleanupMemo of [memo, incomeMemo, investmentMemo, ownerlessMemo, ...extraMemos]) {
     const cleanupRow = page.locator("tr.transaction-row", { hasText: cleanupMemo }).first();
-    await cleanupRow.locator("td").last().getByRole("button", { name: "삭제" }).click();
+    await cleanupRow.evaluate((row) => row.scrollIntoView({ block: "center", inline: "nearest" }));
+    await page.waitForTimeout(50);
+    await cleanupRow.locator("td").last().getByRole("button", { name: "삭제" }).evaluate((button) => button.click());
     const confirmDialog = page.locator(".confirm-dialog");
     await expect(confirmDialog).toBeVisible();
     await confirmDialog.getByRole("button", { name: "삭제" }).click();

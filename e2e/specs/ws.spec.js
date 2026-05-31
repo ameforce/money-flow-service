@@ -19,7 +19,8 @@ test.use({ trace: "off", video: "off" });
 async function clickTransactionRowAction(row, actionName) {
   const inlineAction = row.locator("td").last().getByRole("button", { name: actionName }).first();
   if (await inlineAction.isVisible().catch(() => false)) {
-    await inlineAction.click();
+    await row.evaluate((element) => element.scrollIntoView({ block: "center", inline: "nearest" }));
+    await inlineAction.evaluate((button) => button.click());
     return;
   }
 

@@ -1429,6 +1429,12 @@
 
 .transaction-list-card {
   --transaction-fab-clearance: calc(5.4rem + env(safe-area-inset-bottom));
+  --transaction-toolbar-sticky-top: max(0.75rem, env(safe-area-inset-top));
+  --transaction-toolbar-sticky-height: 10.75rem;
+  --transaction-column-head-gap: 0.18rem;
+  --transaction-column-head-top: calc(
+    var(--transaction-toolbar-sticky-top) + var(--transaction-toolbar-sticky-height) + var(--transaction-column-head-gap)
+  );
   overflow: visible;
   padding-bottom: var(--transaction-fab-clearance);
 }
@@ -1456,7 +1462,7 @@
 
 .transaction-list-card > .transaction-sticky-toolbar {
   position: sticky;
-  top: max(0.75rem, env(safe-area-inset-top));
+  top: var(--transaction-toolbar-sticky-top);
   align-self: start;
   z-index: 44;
   display: grid;
@@ -1495,6 +1501,38 @@
 
 .transaction-filter-actions .table-summary {
   margin: 0;
+}
+
+.transaction-selection-summary,
+.transaction-selection-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.transaction-selection-summary .surface-chip {
+  flex: 0 0 auto;
+}
+
+.transaction-selection-amount {
+  font-variant-numeric: tabular-nums;
+}
+
+.transaction-selection-clear {
+  flex: 0 0 auto;
+  min-height: 1.45rem;
+  padding: 0.16rem 0.52rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  line-height: 1.05;
+  white-space: nowrap;
+}
+
+.transaction-selection-summary[data-selection-active="false"] .transaction-selection-amount {
+  color: var(--mf-color-ink-500);
+  background: #ffffff;
 }
 
 .work-surface-header {
@@ -2497,7 +2535,15 @@ button.danger:active:not(:disabled) {
 }
 
 .transaction-entry-sheet {
-  --transaction-quick-action-clearance: calc(4.7rem + env(safe-area-inset-bottom));
+  --transaction-quick-action-button-height: 2.82rem;
+  --transaction-quick-action-padding-top: 0.62rem;
+  --transaction-quick-action-padding-bottom: 0.78rem;
+  --transaction-quick-action-scroll-gap: 1.75rem;
+  --transaction-quick-action-clearance: calc(
+    var(--transaction-quick-action-button-height) + var(--transaction-quick-action-padding-top) +
+      var(--transaction-quick-action-padding-bottom) + var(--transaction-quick-action-scroll-gap) +
+      env(safe-area-inset-bottom)
+  );
   position: relative;
   z-index: 1;
   box-sizing: border-box;
@@ -2506,6 +2552,7 @@ button.danger:active:not(:disabled) {
   max-height: min(32rem, calc(100dvh - 5.5rem));
   overflow: auto;
   scroll-padding-bottom: calc(var(--transaction-quick-action-clearance) + 0.75rem);
+  scroll-padding-block-end: calc(var(--transaction-quick-action-clearance) + 0.75rem);
   display: grid;
   gap: 0.85rem;
   background: #ffffff;
@@ -2751,6 +2798,7 @@ button.danger:active:not(:disabled) {
 .transaction-entry-sheet .transaction-quick-details textarea,
 .transaction-entry-sheet .transaction-quick-details button {
   scroll-margin-bottom: calc(var(--transaction-quick-action-clearance) + 0.75rem);
+  scroll-margin-block-end: calc(var(--transaction-quick-action-clearance) + 0.75rem);
 }
 
 .transaction-quick-sticky-actions {
@@ -2761,7 +2809,7 @@ button.danger:active:not(:disabled) {
   grid-template-columns: minmax(0, 0.82fr) minmax(0, 1.18fr);
   gap: 0.5rem;
   margin: 0.05rem -0.35rem 0;
-  padding: 0.62rem 0.35rem calc(0.78rem + env(safe-area-inset-bottom));
+  padding: var(--transaction-quick-action-padding-top) 0.35rem calc(var(--transaction-quick-action-padding-bottom) + env(safe-area-inset-bottom));
   border-top: 1px solid rgba(219, 227, 239, 0.88);
   background: rgba(255, 255, 255, 0.96);
   backdrop-filter: blur(12px);
@@ -2770,7 +2818,7 @@ button.danger:active:not(:disabled) {
 
 .transaction-quick-sticky-actions button {
   min-width: 0;
-  min-height: 2.82rem;
+  min-height: var(--transaction-quick-action-button-height);
   pointer-events: auto;
 }
 
@@ -3396,6 +3444,10 @@ table {
   -webkit-overflow-scrolling: touch;
 }
 
+.surface-ledger-desktop-head {
+  display: none;
+}
+
 .transactions-surface-table {
   table-layout: fixed;
 }
@@ -3450,6 +3502,56 @@ table {
   box-shadow: 0 1px 0 #dbe3ef;
 }
 
+.transaction-list-card .transactions-surface-table thead {
+  display: none;
+}
+
+.transaction-list-card .surface-ledger-desktop-head {
+  position: sticky;
+  top: var(--transaction-column-head-top, calc(max(0.75rem, env(safe-area-inset-top)) + 10.75rem));
+  z-index: 43;
+  display: grid;
+  grid-template-columns: 2.4rem 6.6rem 4.6rem 7.2rem minmax(9rem, 1fr) 6.3rem 7.3rem 6.4rem 4.8rem;
+  align-items: stretch;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  border: 1px solid #dbe3ef;
+  border-bottom: 0;
+  border-radius: 12px 12px 0 0;
+  background: linear-gradient(180deg, #f4f8ff, #edf4ff);
+  box-shadow: 0 1px 0 #dbe3ef, 0 10px 20px -24px rgba(15, 23, 42, 0.52);
+  overflow: hidden;
+}
+
+.transaction-list-card .surface-ledger-desktop-head .desktop-ledger-head-cell {
+  display: inline-flex;
+  min-width: 0;
+  min-height: 2.02rem;
+  align-items: center;
+  padding: 0.34rem 0.38rem;
+  border-right: 1px solid rgba(219, 227, 239, 0.82);
+  color: #355177;
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+
+.transaction-list-card .surface-ledger-desktop-head .desktop-ledger-head-cell:last-child {
+  border-right: 0;
+}
+
+.transaction-list-card .surface-ledger-desktop-head .transaction-col-amount {
+  justify-content: flex-end;
+  text-align: right;
+}
+
+.transaction-list-card .surface-ledger-desktop-head .transaction-col-actions,
+.transaction-list-card .surface-ledger-desktop-head .transaction-col-select {
+  justify-content: center;
+}
+
 .holdings-surface-table th,
 .holdings-surface-table td {
   padding: 0.38rem 0.46rem;
@@ -3475,6 +3577,29 @@ table {
 
 .transactions-surface-table tbody tr.transaction-row {
   height: 2.42rem;
+  cursor: pointer;
+  scroll-margin-top: calc(var(--transaction-column-head-top, 12rem) + 2.4rem);
+}
+
+.transactions-surface-table tbody tr.transaction-row,
+.transactions-surface-table tbody tr.transaction-row * {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.transactions-surface-table tbody tr.transaction-row.transaction-row-editing,
+.transactions-surface-table tbody tr.transaction-row.transaction-row-editing * {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.transactions-surface-table tbody tr.transaction-row[data-row-selected="true"] {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--transaction-row-accent, #2563eb) 16%, #eff6ff),
+    rgba(37, 99, 235, 0.035)
+  );
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.22);
 }
 
 .transactions-surface-table tbody tr.transaction-row td {
@@ -5386,6 +5511,10 @@ thead {
     order: 7;
   }
 
+  .transaction-list-card .surface-ledger-desktop-head {
+    display: none;
+  }
+
   .holding-list-card > .surface-list-heading {
     order: 1;
   }
@@ -6525,14 +6654,16 @@ thead {
   }
 
   .transaction-list-card {
-    --surface-heading-sticky-height: 13.25rem;
+    --transaction-toolbar-sticky-top: var(--surface-section-sticky-top);
+    --transaction-toolbar-sticky-height: 10.75rem;
+    --surface-heading-sticky-height: calc(var(--transaction-toolbar-sticky-height) + 0.25rem);
     --surface-filter-sticky-height: 0rem;
     --transaction-fab-clearance: calc(5.6rem + env(safe-area-inset-bottom));
     padding-bottom: var(--transaction-fab-clearance);
   }
 
   .transaction-list-card > .transaction-sticky-toolbar {
-    top: var(--surface-section-sticky-top);
+    top: var(--transaction-toolbar-sticky-top);
     z-index: 44;
     gap: 0.26rem;
     margin: 0 -0.16rem 0;
@@ -6551,6 +6682,7 @@ thead {
 
   .transaction-sticky-toolbar .surface-control-strip {
     display: flex;
+    flex-wrap: nowrap;
     gap: 0.3rem;
     overflow-x: auto;
     padding-bottom: 0.04rem;
@@ -6563,6 +6695,18 @@ thead {
 
   .transaction-sticky-toolbar .surface-chip {
     flex: 0 0 auto;
+  }
+
+  .transaction-sticky-toolbar .transaction-selection-summary,
+  .transaction-sticky-toolbar .transaction-selection-status {
+    flex: 0 0 auto;
+    gap: 0.24rem;
+  }
+
+  .transaction-sticky-toolbar .transaction-selection-clear {
+    min-height: 1.26rem;
+    padding: 0.13rem 0.42rem;
+    font-size: 0.66rem;
   }
 
   .transaction-sticky-toolbar .month-stepper-inline {
@@ -6929,7 +7073,7 @@ thead {
 
   .transactions-surface-table tbody tr.transaction-row {
     cursor: pointer;
-    touch-action: manipulation;
+    touch-action: pan-y;
     scroll-margin-top: calc(
       var(--surface-ledger-sticky-top, 2.8rem) + var(--surface-ledger-head-height, 3.12rem) + 0.9rem
     );

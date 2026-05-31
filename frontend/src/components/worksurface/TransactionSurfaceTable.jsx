@@ -1,4 +1,4 @@
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 
 import { IsoDateInput } from "../IsoDateInput";
 import { extractVisibleInitial, resolveSemanticColor, withAlpha } from "./colorSemantics";
@@ -19,9 +19,26 @@ function firstDefinedValue(values) {
 function isInteractiveRowTarget(target) {
   return Boolean(
     target?.closest?.(
-      "button, input, select, textarea, a, label, summary, details, [role='button'], [data-row-action='true']"
+      "button, input, select, textarea, a, label, summary, details, [contenteditable='true'], [role='button'], [data-row-action='true']"
     )
   );
+}
+
+const ROW_SWEEP_THRESHOLD_PX = 7;
+const TOUCH_VERTICAL_SCROLL_RATIO = 1.18;
+const ROW_CLICK_SUPPRESS_MS = 360;
+const ROW_SWEEP_AUTO_SCROLL_EDGE_PX = 86;
+const ROW_SWEEP_AUTO_SCROLL_MAX_PX = 24;
+const ROW_SWEEP_AUTO_SCROLL_MIN_PX = 5;
+
+function clearRowSweepTextSelection() {
+  if (typeof window === "undefined" || typeof window.getSelection !== "function") {
+    return;
+  }
+  const selection = window.getSelection();
+  if (selection && !selection.isCollapsed) {
+    selection.removeAllRanges();
+  }
 }
 
 export function TransactionSurfaceTable({
@@ -37,6 +54,8 @@ export function TransactionSurfaceTable({
   historyLoadingNewer = false,
   selectedTransactionIds,
   toggleTransactionSelection,
+  selectTransactionRows,
+  setTransactionRowsSelected,
   txInlineEdit,
   ownerOptionsWithFallback,
   ownerSelectValue,
@@ -77,6 +96,226 @@ export function TransactionSurfaceTable({
   const categoryColors = householdSettings?.holding_settings?.category_colors || {};
   const transactionMobilePriority = (fieldKey) => getWorkSurfaceMobilePriority("transactions", fieldKey);
   const [mobileFilterKey, setMobileFilterKey] = useState("");
+  const rowPointerGestureRef = useRef(null);
+  const suppressNextRowClickRef = useRef(false);
+  const rowClickSuppressTimerRef = useRef(null);
+  const rowSweepAutoScrollFrameRef = useRef(0);
+
+  useEffect(() => {
+    const stopAutoScroll = () => {
+      if (rowSweepAutoScrollFrameRef.current) {
+        window.cancelAnimationFrame(rowSweepAutoScrollFrameRef.current);
+        rowSweepAutoScrollFrameRef.current = 0;
+      }
+    };
+    const clearPointerGesture = () => {
+      stopAutoScroll();
+      rowPointerGestureRef.current = null;
+    };
+    window.addEventListener("pointerup", clearPointerGesture);
+    window.addEventListener("pointercancel", clearPointerGesture);
+    return () => {
+      window.removeEventListener("pointerup", clearPointerGesture);
+      window.removeEventListener("pointercancel", clearPointerGesture);
+      stopAutoScroll();
+      if (rowClickSuppressTimerRef.current) {
+        window.clearTimeout(rowClickSuppressTimerRef.current);
+      }
+    };
+  }, []);
+
+  const findTransactionIdAtPoint = (clientX, clientY, fallbackId = "") => {
+    if (typeof document === "undefined") {
+      return fallbackId;
+    }
+    const target = document.elementFromPoint(clientX, clientY);
+    return target?.closest?.("tr.transaction-row[data-transaction-id]")?.getAttribute("data-transaction-id") || fallbackId;
+  };
+
+  const stopRowSweepAutoScroll = () => {
+    if (rowSweepAutoScrollFrameRef.current && typeof window !== "undefined") {
+      window.cancelAnimationFrame(rowSweepAutoScrollFrameRef.current);
+      rowSweepAutoScrollFrameRef.current = 0;
+    }
+  };
+
+  const applyRowsDuringSweep = (transactionIds, selected) => {
+    const ids = Array.from(new Set(transactionIds.filter(Boolean)));
+    if (ids.length === 0) {
+      return;
+    }
+    if (typeof setTransactionRowsSelected === "function") {
+      setTransactionRowsSelected(ids, selected);
+      return;
+    }
+    if (selected && typeof selectTransactionRows === "function") {
+      selectTransactionRows(ids);
+      return;
+    }
+    for (const transactionId of ids) {
+      const isSelected = selectedTransactionIds.has(transactionId);
+      if (selected !== isSelected) {
+        toggleTransactionSelection(transactionId);
+      }
+    }
+  };
+
+  const visitRowDuringSweep = (gesture, transactionId) => {
+    if (!gesture || !transactionId || gesture.visitedIds.has(transactionId)) {
+      return;
+    }
+    gesture.visitedIds.add(transactionId);
+    applyRowsDuringSweep([transactionId], gesture.shouldSelect);
+  };
+
+  const updateRowSweepAutoScroll = (gesture) => {
+    if (
+      typeof window === "undefined" ||
+      !gesture?.sweepActive ||
+      gesture.touchScrollFirst ||
+      gesture.pointerType !== "mouse"
+    ) {
+      stopRowSweepAutoScroll();
+      return;
+    }
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+    if (viewportHeight <= 0) {
+      return;
+    }
+    const pointerY = gesture.lastY;
+    const upperEdge = ROW_SWEEP_AUTO_SCROLL_EDGE_PX;
+    const lowerEdge = viewportHeight - ROW_SWEEP_AUTO_SCROLL_EDGE_PX;
+    let scrollDelta = 0;
+    if (pointerY < upperEdge) {
+      const intensity = Math.min(1, Math.max(0, (upperEdge - pointerY) / ROW_SWEEP_AUTO_SCROLL_EDGE_PX));
+      scrollDelta = -Math.ceil(ROW_SWEEP_AUTO_SCROLL_MIN_PX + intensity * ROW_SWEEP_AUTO_SCROLL_MAX_PX);
+    } else if (pointerY > lowerEdge) {
+      const intensity = Math.min(1, Math.max(0, (pointerY - lowerEdge) / ROW_SWEEP_AUTO_SCROLL_EDGE_PX));
+      scrollDelta = Math.ceil(ROW_SWEEP_AUTO_SCROLL_MIN_PX + intensity * ROW_SWEEP_AUTO_SCROLL_MAX_PX);
+    }
+    if (scrollDelta === 0) {
+      stopRowSweepAutoScroll();
+      return;
+    }
+    if (rowSweepAutoScrollFrameRef.current) {
+      return;
+    }
+    rowSweepAutoScrollFrameRef.current = window.requestAnimationFrame(() => {
+      rowSweepAutoScrollFrameRef.current = 0;
+      const beforeScrollY = window.scrollY || window.pageYOffset || 0;
+      window.scrollBy({ top: scrollDelta, behavior: "auto" });
+      const rowIdAtPointer = findTransactionIdAtPoint(gesture.lastX, gesture.lastY, gesture.lastId);
+      if (rowIdAtPointer) {
+        gesture.lastId = rowIdAtPointer;
+        visitRowDuringSweep(gesture, rowIdAtPointer);
+      }
+      clearRowSweepTextSelection();
+      const afterScrollY = window.scrollY || window.pageYOffset || 0;
+      if (Math.abs(afterScrollY - beforeScrollY) > 0.5) {
+        updateRowSweepAutoScroll(gesture);
+      }
+    });
+  };
+
+  const activateSweepGesture = (gesture, transactionId) => {
+    gesture.sweepActive = true;
+    clearRowSweepTextSelection();
+    applyRowsDuringSweep([gesture.startId, transactionId], gesture.shouldSelect);
+    updateRowSweepAutoScroll(gesture);
+  };
+
+  const startRowPointerGesture = (event, transactionId, disabled) => {
+    if (
+      disabled ||
+      isInteractiveRowTarget(event.target) ||
+      event.button > 0 ||
+      event.pointerType === "pen"
+    ) {
+      rowPointerGestureRef.current = null;
+      return;
+    }
+    rowPointerGestureRef.current = {
+      pointerId: event.pointerId,
+      pointerType: event.pointerType || "mouse",
+      startX: event.clientX,
+      startY: event.clientY,
+      lastX: event.clientX,
+      lastY: event.clientY,
+      startId: transactionId,
+      lastId: transactionId,
+      visitedIds: new Set([transactionId]),
+      sweepActive: false,
+      shouldSelect: !selectedTransactionIds.has(transactionId),
+      touchScrollFirst: false,
+    };
+    if ((event.pointerType || "mouse") === "mouse" && event.cancelable) {
+      event.currentTarget?.setPointerCapture?.(event.pointerId);
+      event.preventDefault();
+    }
+  };
+
+  const updateRowPointerGesture = (event, transactionId) => {
+    const gesture = rowPointerGestureRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) {
+      return;
+    }
+    const rowIdAtPointer = findTransactionIdAtPoint(event.clientX, event.clientY, transactionId || gesture.lastId);
+    gesture.lastX = event.clientX;
+    gesture.lastY = event.clientY;
+    gesture.lastId = rowIdAtPointer;
+    const deltaX = event.clientX - gesture.startX;
+    const deltaY = event.clientY - gesture.startY;
+    const distance = Math.hypot(deltaX, deltaY);
+    if (!gesture.sweepActive && !gesture.touchScrollFirst && distance >= ROW_SWEEP_THRESHOLD_PX) {
+      const absX = Math.abs(deltaX);
+      const absY = Math.abs(deltaY);
+      if (gesture.pointerType === "touch" && absY > absX * TOUCH_VERTICAL_SCROLL_RATIO) {
+        gesture.touchScrollFirst = true;
+        return;
+      }
+      activateSweepGesture(gesture, rowIdAtPointer);
+    }
+    if (!gesture.sweepActive) {
+      return;
+    }
+    clearRowSweepTextSelection();
+    visitRowDuringSweep(gesture, rowIdAtPointer);
+    updateRowSweepAutoScroll(gesture);
+    if (event.cancelable) {
+      event.preventDefault();
+    }
+  };
+
+  const finishRowPointerGesture = (event) => {
+    const gesture = rowPointerGestureRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) {
+      return;
+    }
+    stopRowSweepAutoScroll();
+    if (event.currentTarget?.hasPointerCapture?.(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    if (gesture.sweepActive || gesture.touchScrollFirst) {
+      suppressNextRowClickRef.current = true;
+      if (rowClickSuppressTimerRef.current) {
+        window.clearTimeout(rowClickSuppressTimerRef.current);
+      }
+      rowClickSuppressTimerRef.current = window.setTimeout(() => {
+        suppressNextRowClickRef.current = false;
+        rowClickSuppressTimerRef.current = null;
+      }, ROW_CLICK_SUPPRESS_MS);
+    }
+    rowPointerGestureRef.current = null;
+  };
+
+  const shouldSuppressRowClick = () => {
+    if (suppressNextRowClickRef.current) {
+      suppressNextRowClickRef.current = false;
+      return true;
+    }
+    return false;
+  };
+
   const safeTxListFilter = txListFilter || {
     keyword: "",
     flow_type: "all",
@@ -129,6 +368,50 @@ export function TransactionSurfaceTable({
         <span>{label}</span>
         {active && <span className="ledger-head-filter-indicator" aria-hidden="true" />}
       </button>
+    );
+  };
+
+  const renderDesktopColumnHead = (field) => {
+    if (field.key === "occurred_on") {
+      return (
+        <div
+          key={field.key}
+          className={`desktop-ledger-head-cell ${field.className}`}
+          role="columnheader"
+          aria-sort={txSortDirection === "asc" ? "ascending" : "descending"}
+          data-field-key={field.key}
+        >
+          {historyMode ? (
+            <span
+              className="sort-header active sort-header-static"
+              aria-label="일자 정렬 연속 내역순 고정"
+            >
+              {field.label}
+              <span className="sort-indicator" aria-hidden="true">↑</span>
+            </span>
+          ) : (
+            <button
+              type="button"
+              className={`sort-header${txSortDirection ? " active" : ""}`}
+              aria-label={`일자 정렬 ${txSortDirection === "asc" ? "내림차순으로 변경" : "오름차순으로 변경"}`}
+              onClick={toggleTxSortDirection}
+            >
+              {field.label}
+              <span className="sort-indicator" aria-hidden="true">{txSortDirection === "asc" ? "↑" : "↓"}</span>
+            </button>
+          )}
+        </div>
+      );
+    }
+    return (
+      <div
+        key={field.key}
+        className={`desktop-ledger-head-cell ${field.className}`}
+        role="columnheader"
+        data-field-key={field.key}
+      >
+        {field.label}
+      </div>
     );
   };
 
@@ -269,6 +552,18 @@ export function TransactionSurfaceTable({
           </button>
         </div>
       )}
+      <div className="surface-ledger-desktop-head transactions-desktop-ledger-head" role="row" aria-label="거래 컬럼 제목">
+        <div className="desktop-ledger-head-cell transaction-col-select" role="columnheader">
+          <input
+            type="checkbox"
+            aria-label="표시된 거래 전체 선택"
+            checked={areAllFilteredTransactionsSelected}
+            onChange={(event) => toggleAllFilteredTransactionSelection(Boolean(event.target.checked))}
+          />
+        </div>
+        {TRANSACTION_SURFACE_FIELDS.map(renderDesktopColumnHead)}
+        <div className="desktop-ledger-head-cell transaction-col-actions" role="columnheader">동작</div>
+      </div>
       <div className="transactions-surface-scroll">
         <table
           className={`transactions-surface-table${mobileStickyActive ? " mobile-sticky-active" : " mobile-sticky-inactive"}`}
@@ -279,7 +574,7 @@ export function TransactionSurfaceTable({
               <th data-mobile-priority="hidden">
                 <input
                   type="checkbox"
-                  aria-label="표시된 거래 전체 선택"
+                  aria-label="거래 표 숨김 전체 선택"
                   checked={areAllFilteredTransactionsSelected}
                   onChange={(event) => toggleAllFilteredTransactionSelection(Boolean(event.target.checked))}
                 />
@@ -380,10 +675,11 @@ export function TransactionSurfaceTable({
             const previousItem = index > 0 ? sortedTransactions[index - 1] : null;
             const shouldRenderDateHeader =
               historyMode && String(previousItem?.occurred_on || "") !== String(item.occurred_on || "");
-            const handleRowToggle = (event) => {
-              if (isEditing || isInteractiveRowTarget(event.target)) {
+            const handleRowClick = (event) => {
+              if (isEditing || isInteractiveRowTarget(event.target) || shouldSuppressRowClick()) {
                 return;
               }
+              toggleTransactionSelection(item.id);
               toggleExpandedTransactionRow(item.id);
             };
             const handleEditToggle = () => {
@@ -419,9 +715,16 @@ export function TransactionSurfaceTable({
                 <tr
                   className={`transaction-row transaction-row-${item.flow_type} ${isEditing ? "transaction-row-editing" : ""} ${isExpanded ? "mobile-row-expanded" : ""}`}
                   data-row-expanded={isExpanded ? "true" : "false"}
+                  data-row-selected={selectedTransactionIds.has(item.id) ? "true" : "false"}
                   data-transaction-id={item.id}
                   data-transaction-date={item.occurred_on}
-                  onClick={handleRowToggle}
+                  aria-selected={selectedTransactionIds.has(item.id) ? "true" : "false"}
+                  onPointerDown={(event) => startRowPointerGesture(event, item.id, isEditing)}
+                  onPointerMove={(event) => updateRowPointerGesture(event, item.id)}
+                  onPointerEnter={(event) => updateRowPointerGesture(event, item.id)}
+                  onPointerUp={finishRowPointerGesture}
+                  onPointerCancel={finishRowPointerGesture}
+                  onClick={handleRowClick}
                   style={{
                     "--transaction-row-bg": rowAccent,
                     "--transaction-row-accent": rowAccent,
@@ -439,6 +742,7 @@ export function TransactionSurfaceTable({
                       type="checkbox"
                       aria-label={`${item.occurred_on} 거래 선택`}
                       checked={selectedTransactionIds.has(item.id)}
+                      onClick={(event) => event.stopPropagation()}
                       onChange={() => toggleTransactionSelection(item.id)}
                     />
                   </td>
