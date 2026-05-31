@@ -4258,6 +4258,7 @@ function App() {
     return loadTransactionHistoryPage({
       direction: "initial",
       anchorDate: normalizeIsoDateKey(anchorDate, transactionHistoryToday || todayIso()),
+      preserveScroll: Boolean(options.preserveScroll),
       alignToEnd: options.alignToEnd !== false,
       silent: options.silent,
       nextToken: options.nextToken,
@@ -4430,12 +4431,10 @@ function App() {
           }
         }
       }
-      if (includeTransactions && tabRef.current !== "transactions" && transactionHistoryInitializedRef.current) {
+      if (includeTransactions && transactionHistoryInitializedRef.current) {
         const historyAnchor =
           transactionHistoryAnchorDateRef.current || transactionHistoryTodayRef.current || todayIso();
-        await loadTransactionHistoryPage({
-          direction: "initial",
-          anchorDate: historyAnchor,
+        await refreshTransactionHistoryAtAnchor(historyAnchor, {
           preserveScroll: tabRef.current === "transactions",
           alignToEnd: false,
           silent: true,
