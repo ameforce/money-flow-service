@@ -779,4 +779,6 @@ test("layout stability matrix: pages remain clean across desktop, tablet, and mo
       await page.evaluate(() => window.scrollTo(0, 0));
     }
   }
+
+  await capture(page, "layout-stability-matrix");
 });
