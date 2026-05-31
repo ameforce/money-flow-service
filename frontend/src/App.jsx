@@ -1884,6 +1884,7 @@ function App() {
   const transactionSupportDetailsRef = useRef(null);
   const transactionListHeadingRef = useRef(null);
   const transactionListCardRef = useRef(null);
+  const transactionStickyToolbarRef = useRef(null);
   const transactionFabRef = useRef(null);
   const transactionSheetScrollYRef = useRef(0);
   const holdingSheetScrollYRef = useRef(0);
@@ -2928,6 +2929,62 @@ function App() {
     };
   }, []);
 
+  useLayoutEffect(() => {
+    if (typeof window === "undefined" || tab !== "transactions") {
+      return undefined;
+    }
+
+    const listCard = transactionListCardRef.current;
+    const toolbar = transactionStickyToolbarRef.current;
+    if (!listCard || !toolbar) {
+      return undefined;
+    }
+
+    let frameId = 0;
+    const applyStickyGeometry = () => {
+      const toolbarHeight = Math.ceil(toolbar.getBoundingClientRect().height);
+      if (!Number.isFinite(toolbarHeight) || toolbarHeight <= 0) {
+        return;
+      }
+      listCard.style.setProperty("--transaction-toolbar-sticky-height", `${toolbarHeight}px`);
+      listCard.style.setProperty("--surface-heading-sticky-height", `${toolbarHeight + 4}px`);
+    };
+    const scheduleStickyGeometry = () => {
+      if (frameId) {
+        window.cancelAnimationFrame(frameId);
+      }
+      frameId = window.requestAnimationFrame(() => {
+        frameId = 0;
+        applyStickyGeometry();
+      });
+    };
+
+    applyStickyGeometry();
+
+    const resizeObserver =
+      typeof window.ResizeObserver === "function" ? new window.ResizeObserver(scheduleStickyGeometry) : null;
+    resizeObserver?.observe(toolbar);
+    window.addEventListener("resize", scheduleStickyGeometry);
+
+    return () => {
+      if (frameId) {
+        window.cancelAnimationFrame(frameId);
+      }
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", scheduleStickyGeometry);
+    };
+  }, [
+    tab,
+    showTransactionFilterPanel,
+    selectedTransactionSummary.count,
+    selectedTransactionSummary.amount,
+    transactionHistoryInitialized,
+    transactionHistoryAnchorDate,
+    transactionHistoryToday,
+    transactionSortSummary,
+    isTransactionFilterActive,
+  ]);
+
   useEffect(() => {
     if (!isCompactViewport || tab !== "transactions") {
       setTransactionsMobileStickyActive(false);
@@ -3320,6 +3377,30 @@ function App() {
         next.add(transactionId);
       }
       return next;
+    });
+  }
+
+  function selectTransactionRows(transactionIds) {
+    setTransactionRowsSelected(transactionIds, true);
+  }
+
+  function setTransactionRowsSelected(transactionIds, selected) {
+    setSelectedTransactionIds((prev) => {
+      const next = new Set(prev);
+      let changed = false;
+      for (const transactionId of transactionIds) {
+        if (!transactionId) {
+          continue;
+        }
+        if (selected && !next.has(transactionId)) {
+          next.add(transactionId);
+          changed = true;
+        } else if (!selected && next.has(transactionId)) {
+          next.delete(transactionId);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
     });
   }
 
@@ -3952,6 +4033,7 @@ function App() {
       [
         "header.topbar",
         ".transaction-list-card > .transaction-sticky-toolbar",
+        ".transactions-desktop-ledger-head",
         ".transactions-mobile-ledger-head",
       ].reduce((bottom, selector) => {
         const box = document.querySelector(selector)?.getBoundingClientRect();
@@ -8786,7 +8868,11 @@ function App() {
       {tab === "transactions" && (
         <section className="grid-1 transaction-page-section">
           <article ref={transactionListCardRef} className="card table-card surface-list-card transaction-list-card">
-            <div className="transaction-sticky-toolbar" data-testid="transaction-sticky-toolbar">
+            <div
+              ref={transactionStickyToolbarRef}
+              className="transaction-sticky-toolbar"
+              data-testid="transaction-sticky-toolbar"
+            >
               <div ref={transactionListHeadingRef} className="surface-list-heading">
                 <div className="work-surface-title">
                   <span className="surface-eyebrow">작업 원장</span>
@@ -8806,7 +8892,32 @@ function App() {
                 <span className={`surface-chip${isTransactionFilterActive ? " surface-chip-strong" : " surface-chip-muted"}`}>
                   필터 {isTransactionFilterActive ? "적용됨" : "기본"}
                 </span>
-                <span className="surface-chip">선택 {selectedTransactionSummary.count}건</span>
+                <span
+                  className="transaction-selection-summary"
+                  data-testid="transaction-selection-summary"
+                  data-selection-active={selectedTransactionSummary.count > 0 ? "true" : "false"}
+                >
+                  <span className="transaction-selection-status" role="status" aria-live="polite" aria-atomic="true">
+                    <span
+                      className={`surface-chip${
+                        selectedTransactionSummary.count > 0 ? " surface-chip-strong" : " surface-chip-muted"
+                      }`}
+                    >
+                      선택 {selectedTransactionSummary.count}건
+                    </span>
+                    <span className="surface-chip transaction-selection-amount">
+                      선택 합계 {fmtKrw(selectedTransactionSummary.amount)}
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    className="secondary transaction-selection-clear"
+                    disabled={selectedTransactionSummary.count === 0}
+                    onClick={() => setSelectedTransactionIds(new Set())}
+                  >
+                    선택 해제
+                  </button>
+                </span>
               </div>
               <div className="table-header-group">
                 <div className="month-stepper-inline">
@@ -8932,20 +9043,6 @@ function App() {
                 </div>
               )}
             </div>
-            {selectedTransactionSummary.count > 0 && (
-              <div className="message" role="status">
-                <span>
-                  선택 {selectedTransactionSummary.count}건 · 선택 합계 {fmtKrw(selectedTransactionSummary.amount)}
-                </span>
-                <button
-                  type="button"
-                  className="message-close secondary"
-                  onClick={() => setSelectedTransactionIds(new Set())}
-                >
-                  선택 해제
-                </button>
-              </div>
-            )}
             {(transactionHistoryLoading.initial ||
               transactionHistoryLoading.older ||
               transactionHistoryLoading.newer ||
@@ -8975,6 +9072,8 @@ function App() {
               historyLoadingNewer={transactionHistoryLoading.newer}
               selectedTransactionIds={selectedTransactionIds}
               toggleTransactionSelection={toggleTransactionSelection}
+              selectTransactionRows={selectTransactionRows}
+              setTransactionRowsSelected={setTransactionRowsSelected}
               txInlineEdit={txInlineEdit}
               ownerOptionsWithFallback={ownerOptionsWithFallback}
               ownerSelectValue={ownerSelectValue}
