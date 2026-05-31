@@ -206,6 +206,47 @@ test("single holding portfolio donut renders a seamless 100 percent ring", async
   await capture(page, "holdings-single-slice-donut-ring");
 });
 
+test("mobile holding summary reopen keeps portfolio labels in viewport", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("holding-summary-reopen")}@example.com`;
+  const displayName = unique("holding-summary-reopen-owner");
+  const holdingName = unique("holding-summary-reopen");
+
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await createBasicHolding(page, { name: holdingName, category: "현금성", marketValue: "360000" });
+  await openTab(page, "자산");
+
+  const holdingSummaryCard = page.locator("details.holding-summary-card").first();
+  const holdingSummary = holdingSummaryCard.locator("summary").first();
+  await expect(holdingSummaryCard).toBeVisible();
+  if (!(await holdingSummaryCard.evaluate((element) => element.hasAttribute("open")))) {
+    await holdingSummary.click();
+  }
+
+  const holdingSummarySelect = holdingSummaryCard.getByLabel("자산 요약 보기 기준");
+  await expect(holdingSummarySelect).toBeVisible();
+  await holdingSummarySelect.selectOption("type");
+  await expect(holdingSummaryCard.getByTestId("portfolio-donut-slice-label")).toHaveCount(1);
+
+  await holdingSummary.click();
+  await expect(holdingSummaryCard).not.toHaveAttribute("open", "");
+  await holdingSummary.evaluate((summary) => {
+    const summaryTop = window.scrollY + summary.getBoundingClientRect().top;
+    window.scrollTo({ top: Math.max(0, summaryTop - window.innerHeight + 68), behavior: "auto" });
+  });
+  await page.waitForTimeout(50);
+  await holdingSummary.click();
+  await expect(holdingSummaryCard).toHaveAttribute("open", "");
+  await expectPortfolioLabelsClearOfBottomNav(
+    page,
+    holdingSummaryCard,
+    "mobile reopened holding portfolio chart",
+  );
+  await capture(page, "holdings-summary-reopen-viewport");
+});
+
 test("desktop holding ledger controls keep usable hit targets", async ({ page }) => {
   test.setTimeout(120_000);
 

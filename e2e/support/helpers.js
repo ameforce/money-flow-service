@@ -488,28 +488,46 @@ export async function expectNoOrphanTextLine(locator, label) {
 }
 
 export async function expectPortfolioLabelsClearOfBottomNav(page, card, label) {
-  const metrics = await card.getByTestId("portfolio-donut-slice-label").evaluateAll((nodes) => {
-    const nav = document.querySelector("nav.topbar-tabs");
-    const navBox = nav?.getBoundingClientRect();
-    const navStyle = nav ? getComputedStyle(nav) : null;
-    const fixedBottomNav = Boolean(
-      navBox &&
-        navStyle?.position === "fixed" &&
-        window.innerWidth <= 820 &&
-        navBox.bottom >= window.innerHeight - 32 &&
-        navBox.top > window.innerHeight * 0.5,
-    );
-    return nodes.map((node) => {
-      const box = node.getBoundingClientRect();
-      return {
-        text: node.textContent?.replace(/\s+/g, " ").trim(),
-        bottom: box.bottom,
-        fixedBottomNav,
-        navTop: fixedBottomNav ? navBox.top : window.innerHeight,
-        viewportBottom: window.innerHeight,
-      };
+  let metrics = [];
+  const readMetrics = () =>
+    card.getByTestId("portfolio-donut-slice-label").evaluateAll((nodes) => {
+      const nav = document.querySelector("nav.topbar-tabs");
+      const navBox = nav?.getBoundingClientRect();
+      const navStyle = nav ? getComputedStyle(nav) : null;
+      const fixedBottomNav = Boolean(
+        navBox &&
+          navStyle?.position === "fixed" &&
+          window.innerWidth <= 820 &&
+          navBox.bottom >= window.innerHeight - 32 &&
+          navBox.top > window.innerHeight * 0.5,
+      );
+      return nodes.map((node) => {
+        const box = node.getBoundingClientRect();
+        return {
+          text: node.textContent?.replace(/\s+/g, " ").trim(),
+          bottom: box.bottom,
+          fixedBottomNav,
+          navTop: fixedBottomNav ? navBox.top : window.innerHeight,
+          viewportBottom: window.innerHeight,
+        };
+      });
     });
-  });
+
+  await expect
+    .poll(
+      async () => {
+        metrics = await readMetrics();
+        return (
+          metrics.length > 0 &&
+          metrics.every(
+            (item) => item.bottom <= item.viewportBottom && (!item.fixedBottomNav || item.bottom <= item.navTop - 4),
+          )
+        );
+      },
+      { message: `${label} slice labels should settle inside the viewport`, timeout: 3_000 },
+    )
+    .toBe(true);
+  metrics = await readMetrics();
   expect(metrics.length, `${label} should expose visible slice labels`).toBeGreaterThan(0);
   for (const item of metrics) {
     expect(item.bottom, `${label} ${item.text} should stay within the viewport`).toBeLessThanOrEqual(
