@@ -151,6 +151,7 @@ def test_upload_limit_probe_requires_authenticated_app_response() -> None:
     assert "debug_verification_token" not in deploy_stage
     assert "/api/v1/auth/verify-email" not in deploy_stage
     assert "x-debug-token-opt-in" not in deploy_stage
+    assert 'probe_email="jenkins-upload-probe-${BUILD_NUMBER:-manual}@example.com"' in deploy_stage
     assert 'tmp_probe_cookies="$(mktemp)"' in deploy_stage
     assert '-c "$tmp_probe_cookies"' in deploy_stage
     assert '-b "$tmp_probe_cookies"' in deploy_stage
@@ -164,8 +165,9 @@ def test_post_deploy_smoke_runs_representative_browser_flows() -> None:
     source = _jenkinsfile_source()
     post_deploy_stage = source[source.index("stage('Post-Deploy E2E Smoke')") :]
 
-    assert "e2e/specs/deeplink.spec.js" in post_deploy_stage
-    assert "e2e/specs/transactions.spec.js" in post_deploy_stage
-    assert "e2e/specs/holdings.spec.js" in post_deploy_stage
-    assert "e2e/specs/import.spec.js" in post_deploy_stage
+    assert "e2e/specs/post-deploy-smoke.spec.js" in post_deploy_stage
+    assert 'E2E_POST_DEPLOY_EMAIL="jenkins-upload-probe-${BUILD_NUMBER:-manual}@example.com"' in post_deploy_stage
+    assert 'E2E_POST_DEPLOY_PASSWORD="UploadProbe123!"' in post_deploy_stage
+    assert "debug_verification_token" not in post_deploy_stage
+    assert "x-debug-token-opt-in" not in post_deploy_stage
     assert "--project=desktop-chromium" in post_deploy_stage
