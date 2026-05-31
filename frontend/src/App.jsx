@@ -3043,17 +3043,18 @@ function App() {
     );
   }
 
-  function keepTransactionQuickFieldVisible(element) {
+  function keepTransactionQuickFieldVisible(element, options = {}) {
     if (!isTransactionQuickRestorableField(element) || typeof window === "undefined") {
       return;
     }
+    const behavior = options.behavior || "smooth";
     clearTransactionQuickFocusScrollTimers();
     const run = () => {
       if (!isTransactionQuickRestorableField(element)) {
         return;
       }
       element.scrollIntoView?.({
-        behavior: "smooth",
+        behavior,
         block: "center",
         inline: "nearest",
       });
@@ -3069,9 +3070,9 @@ function App() {
       const lowerGuard = visibleBottom - Math.max(96, Math.round(window.innerHeight * 0.18));
       const upperGuard = visibleTop + 72;
       if (rect.bottom > lowerGuard) {
-        sheet.scrollBy?.({ top: rect.bottom - lowerGuard + 18, behavior: "smooth" });
+        sheet.scrollBy?.({ top: rect.bottom - lowerGuard + 18, behavior });
       } else if (rect.top < upperGuard) {
-        sheet.scrollBy?.({ top: rect.top - upperGuard - 18, behavior: "smooth" });
+        sheet.scrollBy?.({ top: rect.top - upperGuard - 18, behavior });
       }
     };
 
@@ -3088,6 +3089,18 @@ function App() {
   function handleTransactionQuickFieldFocus(element) {
     rememberTransactionQuickField(element);
     keepTransactionQuickFieldVisible(element);
+  }
+
+  function handleTransactionQuickDetailsToggle(event) {
+    const details = event.currentTarget;
+    if (!details?.open) {
+      return;
+    }
+    const firstField = details.querySelector(MOBILE_FORM_FIELD_SELECTOR);
+    if (firstField instanceof HTMLElement) {
+      rememberTransactionQuickField(firstField);
+      keepTransactionQuickFieldVisible(firstField, { behavior: "auto" });
+    }
   }
 
   function rememberActiveTransactionQuickField() {
@@ -7538,7 +7551,7 @@ function App() {
           </p>
         )}
 
-        <details className="transaction-quick-details">
+        <details className="transaction-quick-details" onToggle={handleTransactionQuickDetailsToggle}>
           <summary>전체 카테고리</summary>
           <div className="transaction-quick-detail-grid">
             <label>
@@ -7579,7 +7592,7 @@ function App() {
           </div>
         </details>
 
-        <details className="transaction-quick-details">
+        <details className="transaction-quick-details" onToggle={handleTransactionQuickDetailsToggle}>
           <summary>추가 입력</summary>
           <div className="transaction-quick-detail-grid">
             <label className="date-field">
