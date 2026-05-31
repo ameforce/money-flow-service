@@ -1175,7 +1175,7 @@ if [ ! -x "$PYTHON_BIN" ]; then
   PYTHON_BIN="$(command -v python3 || command -v python)"
 fi
 dd if=/dev/zero of="$tmp_probe_file" bs=1M count=2 >/dev/null 2>&1
-probe_email="jenkins-upload-probe-${BUILD_NUMBER:-manual}-$(date +%s)@example.com"
+probe_email="jenkins-upload-probe-${BUILD_NUMBER:-manual}@example.com"
 probe_password="UploadProbe123!"
 run_ssh "seed-upload-probe-user" "set -euo pipefail; cd '$REMOTE_DEPLOY_PATH'; docker compose -p '$COMPOSE_PROJECT' -f '$COMPOSE_FILE' --env-file '$ENV_FILE_PATH' run --rm -v '$REMOTE_DEPLOY_PATH/scripts/deploy/seed_upload_probe_user.py:/tmp/seed_upload_probe_user.py:ro' app env PYTHONPATH=backend python /tmp/seed_upload_probe_user.py --email '$probe_email' --password '$probe_password' --display-name 'Upload Probe'"
 probe_login_payload="$("$PYTHON_BIN" - "$probe_email" "$probe_password" <<'PY'
@@ -1353,8 +1353,11 @@ if [ -n "$missing_libs" ]; then
 fi
 
 echo "[deploy-e2e] target=$E2E_BASE_URL api_base=$E2E_API_BASE_URL origin=$E2E_API_REQUEST_ORIGIN"
-echo "[deploy-e2e] command: npx playwright test e2e/specs/deeplink.spec.js e2e/specs/transactions.spec.js e2e/specs/holdings.spec.js e2e/specs/import.spec.js --project=desktop-chromium --workers=1"
-npx playwright test e2e/specs/deeplink.spec.js e2e/specs/transactions.spec.js e2e/specs/holdings.spec.js e2e/specs/import.spec.js --project=desktop-chromium --workers=1
+export E2E_POST_DEPLOY_EMAIL="jenkins-upload-probe-${BUILD_NUMBER:-manual}@example.com"
+export E2E_POST_DEPLOY_PASSWORD="UploadProbe123!"
+echo "[deploy-e2e] seeded account=$E2E_POST_DEPLOY_EMAIL"
+echo "[deploy-e2e] command: npx playwright test e2e/specs/post-deploy-smoke.spec.js --project=desktop-chromium --workers=1"
+npx playwright test e2e/specs/post-deploy-smoke.spec.js --project=desktop-chromium --workers=1
 echo "[deploy-e2e] post-deploy Playwright smoke completed"
             '''
           }
