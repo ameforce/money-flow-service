@@ -17,6 +17,11 @@ import {
   unique,
 } from "../support/helpers";
 
+function previousMonthMiddleIso() {
+  const [year, month] = currentE2EHistoryDateIso().split("-").map((part) => Number(part));
+  return new Date(Date.UTC(year, month - 2, 15)).toISOString().slice(0, 10);
+}
+
 async function expectDonutTextNotClipped(labelLocator) {
   const metrics = await labelLocator.evaluateAll((nodes) =>
     nodes.map((node) => {
@@ -743,10 +748,7 @@ test("dashboard flow: onboarding, portfolio coherence, summary visibility", asyn
   const incomeMemo = unique("dashboard-income");
   const previousMonthMemo = unique("dashboard-prev-month");
   const currentListIso = currentE2EHistoryDateIso();
-  const previousMonthDate = new Date();
-  previousMonthDate.setMonth(previousMonthDate.getMonth() - 1);
-  previousMonthDate.setDate(15);
-  const previousMonthIso = previousMonthDate.toISOString().slice(0, 10);
+  const previousMonthIso = previousMonthMiddleIso();
 
   await registerAndVerify(page, { email, displayName });
   await page.setViewportSize({ width: 1366, height: 960 });
