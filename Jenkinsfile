@@ -974,7 +974,7 @@ if [ "$ENV_FILE_PATH" = '.env.dev' ]; then
     grep -v -E '^(ENV|POSTGRES_DB|CORS_ORIGINS|FRONTEND_BASE_URL|DATABASE_URL|AUTH_DEBUG_RETURN_VERIFY_TOKEN|AUTH_EMAIL_VERIFICATION_REQUIRED)=' "$ENV_FILE_PATH" > "$ENV_FILE_PATH.tmp" || true
     mv "$ENV_FILE_PATH.tmp" "$ENV_FILE_PATH"
   fi
-  printf '\nENV=dev\nPOSTGRES_DB=moneyflow_dev\nCORS_ORIGINS=https://dev.moneyflow.enmsoftware.com\nFRONTEND_BASE_URL=https://dev.moneyflow.enmsoftware.com\nDATABASE_URL=\nAUTH_DEBUG_RETURN_VERIFY_TOKEN=true\nAUTH_EMAIL_VERIFICATION_REQUIRED=true\n' >> "$ENV_FILE_PATH"
+  printf '\nENV=dev\nPOSTGRES_DB=moneyflow_dev\nCORS_ORIGINS=https://dev.moneyflow.enmsoftware.com\nFRONTEND_BASE_URL=https://dev.moneyflow.enmsoftware.com\nDATABASE_URL=\nAUTH_DEBUG_RETURN_VERIFY_TOKEN=false\nAUTH_EMAIL_VERIFICATION_REQUIRED=true\n' >> "$ENV_FILE_PATH"
 
   # Jenkins dev env credentials may predate strict SMTP enforcement.
   # Keep deployment fail-closed while preserving server-local SMTP relay settings.
@@ -1164,11 +1164,10 @@ assert_frontend_asset_version "$PUBLIC_BASE_URL" "$APP_VERSION"
 
 tmp_probe_file="$(mktemp)"
 tmp_probe_body="$(mktemp)"
-tmp_probe_register="$(mktemp)"
-tmp_probe_verify="$(mktemp)"
+tmp_probe_login="$(mktemp)"
 tmp_probe_cookies="$(mktemp)"
 cleanup_probe() {
-  rm -f "$tmp_probe_file" "$tmp_probe_body" "$tmp_probe_register" "$tmp_probe_verify" "$tmp_probe_cookies"
+  rm -f "$tmp_probe_file" "$tmp_probe_body" "$tmp_probe_login" "$tmp_probe_cookies"
 }
 trap 'cleanup_probe; rm -rf "$DEPLOY_TMP_KEY_DIR"' EXIT
 PYTHON_BIN="${PWD}/.venv/bin/python"
@@ -1178,59 +1177,26 @@ fi
 dd if=/dev/zero of="$tmp_probe_file" bs=1M count=2 >/dev/null 2>&1
 probe_email="jenkins-upload-probe-${BUILD_NUMBER:-manual}-$(date +%s)@example.com"
 probe_password="UploadProbe123!"
-probe_register_payload="$("$PYTHON_BIN" - "$probe_email" "$probe_password" <<'PY'
+run_ssh "seed-upload-probe-user" "set -euo pipefail; cd '$REMOTE_DEPLOY_PATH'; docker compose -p '$COMPOSE_PROJECT' -f '$COMPOSE_FILE' --env-file '$ENV_FILE_PATH' run --rm app env PYTHONPATH=backend python scripts/deploy/seed_upload_probe_user.py --email '$probe_email' --password '$probe_password' --display-name 'Upload Probe'"
+probe_login_payload="$("$PYTHON_BIN" - "$probe_email" "$probe_password" <<'PY'
 import json
 import sys
 
 email, password = sys.argv[1], sys.argv[2]
-print(json.dumps({"email": email, "password": password, "display_name": "Upload Probe"}))
+print(json.dumps({"email": email, "password": password, "remember_me": False}))
 PY
 )"
-register_url="${PUBLIC_BASE_URL%/}/api/v1/auth/register"
-register_status="$(curl -sS -o "$tmp_probe_register" -w '%{http_code}' \
+login_url="${PUBLIC_BASE_URL%/}/api/v1/auth/login"
+login_status="$(curl -sS -o "$tmp_probe_login" -w '%{http_code}' \
   -c "$tmp_probe_cookies" \
   -b "$tmp_probe_cookies" \
   -H 'content-type: application/json' \
-  -H 'x-debug-token-opt-in: true' \
-  -d "$probe_register_payload" \
-  "$register_url" || true)"
-if [ "$register_status" != "201" ]; then
-  echo "[deploy] upload-limit probe setup failed during register: HTTP $register_status"
-  sed -n '1,40p' "$tmp_probe_register" || true
-  exit 1
-fi
-probe_verify_token="$("$PYTHON_BIN" - "$tmp_probe_register" <<'PY'
-import json
-import sys
-
-with open(sys.argv[1], encoding="utf-8") as handle:
-    payload = json.load(handle)
-print(str(payload.get("debug_verification_token") or ""))
-PY
-)"
-if [ -z "$probe_verify_token" ]; then
-  echo "[deploy] upload-limit probe setup failed: debug verification token missing for dev deploy"
-  sed -n '1,40p' "$tmp_probe_register" || true
-  exit 1
-fi
-probe_verify_payload="$("$PYTHON_BIN" - "$probe_verify_token" "$probe_password" <<'PY'
-import json
-import sys
-
-token, password = sys.argv[1], sys.argv[2]
-print(json.dumps({"token": token, "password": password, "display_name": "Upload Probe"}))
-PY
-)"
-verify_url="${PUBLIC_BASE_URL%/}/api/v1/auth/verify-email"
-verify_status="$(curl -sS -o "$tmp_probe_verify" -w '%{http_code}' \
-  -c "$tmp_probe_cookies" \
-  -b "$tmp_probe_cookies" \
-  -H 'content-type: application/json' \
-  -d "$probe_verify_payload" \
-  "$verify_url" || true)"
-if [ "$verify_status" != "200" ]; then
-  echo "[deploy] upload-limit probe setup failed during verify-email: HTTP $verify_status"
-  sed -n '1,40p' "$tmp_probe_verify" || true
+  -H "Origin: ${PUBLIC_BASE_URL%/}" \
+  -d "$probe_login_payload" \
+  "$login_url" || true)"
+if [ "$login_status" != "200" ]; then
+  echo "[deploy] upload-limit probe setup failed during login: HTTP $login_status"
+  sed -n '1,40p' "$tmp_probe_login" || true
   exit 1
 fi
 probe_csrf_cookie_name="mf_csrf_token"
