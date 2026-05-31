@@ -141,6 +141,7 @@ const TRANSACTION_HISTORY_SENTINEL_ROOT_MARGIN = "360px 0px";
 const IMPORT_MISMATCH_PREVIEW_LIMIT = 20;
 const IMPORT_ISSUE_PREVIEW_LIMIT = 20;
 const MOBILE_BREAKPOINT_PX = 820;
+const HOLDING_SUMMARY_SCROLL_OFFSET_PX = 96;
 const SOCKET_STATUS_LABELS = {
   connected: "연결됨",
   disconnected: "연결 끊김",
@@ -3247,11 +3248,51 @@ function App() {
     }
     summaryCard.open = true;
     setHoldingSummaryOpen(true);
-    const targetTop = window.scrollY + summaryCard.getBoundingClientRect().top - 96;
+    scrollHoldingSummaryIntoViewport(summaryCard);
+  }
+
+  function scrollHoldingSummaryIntoViewport(summaryCard) {
+    if (!summaryCard || typeof window === "undefined") {
+      return;
+    }
+    const targetTop = window.scrollY + summaryCard.getBoundingClientRect().top - HOLDING_SUMMARY_SCROLL_OFFSET_PX;
     window.scrollTo({
       top: Math.max(targetTop, 0),
       behavior: "auto",
     });
+  }
+
+  function isCurrentCompactViewport() {
+    return typeof window !== "undefined" && window.innerWidth <= MOBILE_BREAKPOINT_PX;
+  }
+
+  function keepHoldingSummaryOpenContentVisible(summaryCard) {
+    if (!isCurrentCompactViewport() || !summaryCard?.open || typeof window === "undefined") {
+      return;
+    }
+    const alignSummary = () => {
+      if (summaryCard.isConnected && summaryCard.open) {
+        scrollHoldingSummaryIntoViewport(summaryCard);
+      }
+    };
+    alignSummary();
+    window.requestAnimationFrame(alignSummary);
+    window.setTimeout(alignSummary, 120);
+  }
+
+  function handleHoldingSummaryToggle(event) {
+    const summaryCard = event.currentTarget;
+    setHoldingSummaryOpen(summaryCard.open);
+    if (summaryCard.open) {
+      keepHoldingSummaryOpenContentVisible(summaryCard);
+    }
+  }
+
+  function handleHoldingSummarySummaryClick(event) {
+    const summaryCard = event.currentTarget.parentElement;
+    if (isCurrentCompactViewport() && summaryCard && !summaryCard.open) {
+      scrollHoldingSummaryIntoViewport(summaryCard);
+    }
   }
 
   function toggleTransactionCategoryManager(forceOpen) {
@@ -9521,11 +9562,9 @@ function App() {
             ref={holdingSummaryCardRef}
             className="card compact-support-card holding-summary-card surface-support-card"
             open={holdingSummaryOpen}
-            onToggle={(event) => {
-              setHoldingSummaryOpen(event.currentTarget.open);
-            }}
+            onToggle={handleHoldingSummaryToggle}
           >
-            <summary>
+            <summary onClick={handleHoldingSummarySummaryClick}>
               <span>자산 포트폴리오 차트 {holdingSummaryOpen ? "접기" : "열기"}</span>
             </summary>
             <div className="compact-support-grid">
