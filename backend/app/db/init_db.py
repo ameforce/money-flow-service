@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 
+from sqlalchemy import inspect
 from sqlalchemy import text
 
 from app.db.base import Base
@@ -11,6 +12,18 @@ from app.services.profile import DEFAULT_HOLDING_SETTINGS, DEFAULT_TRANSACTION_R
 
 
 _SCHEMA_BOOTSTRAPPED_URLS: set[str] = set()
+
+
+def _is_schema_bootstrap_cache_valid() -> bool:
+    if engine.dialect.name != "sqlite":
+        return True
+    if not hasattr(engine, "connect"):
+        return True
+    try:
+        inspector = inspect(engine)
+        return inspector.has_table("users") and inspector.has_table("register_throttle")
+    except Exception:
+        return False
 
 
 def _sqlite_column_names(conn, table_name: str) -> set[str]:
@@ -96,7 +109,7 @@ def _repair_legacy_sqlite_schema() -> None:
 
 def create_schema() -> None:
     url_key = str(engine.url)
-    if url_key in _SCHEMA_BOOTSTRAPPED_URLS:
+    if url_key in _SCHEMA_BOOTSTRAPPED_URLS and _is_schema_bootstrap_cache_valid():
         return
     _repair_legacy_sqlite_schema()
     Base.metadata.create_all(bind=engine)

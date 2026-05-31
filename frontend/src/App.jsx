@@ -18,6 +18,11 @@ import { extractVisibleInitial, resolveSemanticColor, withAlpha } from "./compon
 import { getWorkSurfaceMobilePriority } from "./components/worksurface/fieldPriority";
 import "./App.css";
 import packageJson from "../package.json";
+import {
+  normalizeFileArray,
+  patchTossRowWithInference,
+  recomputeTossDuplicateRows,
+} from "./tossImportUtils.js";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, ArcElement, Tooltip, Legend, Filler);
 
@@ -118,6 +123,11 @@ const IMPORT_MODE_LABELS = {
   dry_run: "미리 검증",
   apply: "적용",
 };
+const IMPORT_SOURCE_MODES = [
+  { value: "workbook", label: "XLSX" },
+  { value: "toss", label: "토스 이미지" },
+];
+const TOSS_IMAGE_ACCEPT = ".png,.jpg,.jpeg,.webp";
 const AUTO_PRICE_REFRESH_INTERVAL_MS = 20_000;
 const AUTO_PRICE_REFRESH_COOLDOWN_MS = 30_000;
 const PRICE_REFRESH_POLL_INTERVAL_MS = 1_000;
@@ -744,6 +754,20 @@ function normalizeNullableText(value) {
 
 function stripGrouping(value) {
   return String(value ?? "").replace(/,/g, "").trim();
+}
+
+function decimalPayload(value) {
+  const normalized = stripGrouping(value);
+  return normalized || null;
+}
+
+function signedAmountPayload(row, amountText) {
+  const fallback = decimalPayload(row?.signed_amount);
+  const magnitude = String(amountText || fallback || "").replace(/^[+-]/, "");
+  if (!magnitude) {
+    return fallback;
+  }
+  return row?.flow_type === "income" ? magnitude : `-${magnitude}`;
 }
 
 function sanitizeDecimalInput(value) {
@@ -1764,6 +1788,9 @@ function App() {
   const [priceStatus, setPriceStatus] = useState(null);
   const [importReport, setImportReport] = useState(null);
   const [migrationReport, setMigrationReport] = useState(null);
+  const [importMode, setImportMode] = useState("workbook");
+  const [tossPreview, setTossPreview] = useState(null);
+  const [tossApplyReport, setTossApplyReport] = useState(null);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [dashboardLoading, setDashboardLoading] = useState(false);
@@ -1771,9 +1798,11 @@ function App() {
   const [importLoadingMode, setImportLoadingMode] = useState("");
   const [migrationLoadingMode, setMigrationLoadingMode] = useState("");
   const [migrationExporting, setMigrationExporting] = useState(false);
+  const migrationPackageInputRef = useRef(null);
+  const [tossLoadingMode, setTossLoadingMode] = useState("");
   const [priceRefreshPolling, setPriceRefreshPolling] = useState(false);
   const importFileInputRef = useRef(null);
-  const migrationPackageInputRef = useRef(null);
+  const tossFileInputRef = useRef(null);
   const dashboardRequestCountRef = useRef(0);
   const wsTicketMethodRef = useRef("POST");
   const wsRefreshTimerRef = useRef(null);
@@ -1841,6 +1870,7 @@ function App() {
 
   const [importFile, setImportFile] = useState(null);
   const [migrationPackageFile, setMigrationPackageFile] = useState(null);
+  const [tossFiles, setTossFiles] = useState([]);
   const [isDragOver, setIsDragOver] = useState(false);
   const txDateInputRef = useRef(null);
   const txAmountInputRef = useRef(null);
@@ -2532,6 +2562,10 @@ function App() {
     () => (migrationReport?.issues || []).slice(0, IMPORT_ISSUE_PREVIEW_LIMIT),
     [migrationReport]
   );
+  const tossRows = tossPreview?.rows || [];
+  const tossExcludedCandidates = tossPreview?.excluded_candidates || [];
+  const tossIncludedCount = tossRows.filter((row) => row.included).length;
+  const tossDuplicateCount = tossRows.filter((row) => row.duplicate_group_id).length;
 
   useEffect(() => {
     setProfileForm(createProfileForm(user));
@@ -5730,6 +5764,138 @@ function App() {
     }
   }
 
+  function updateTossPreviewRow(rowId, patch) {
+    setTossPreview((prev) => {
+      if (!prev) {
+        return prev;
+      }
+      return {
+        ...prev,
+        rows: recomputeTossDuplicateRows(
+          (prev.rows || []).map((row) =>
+            String(row.row_id) === String(rowId) ? patchTossRowWithInference(row, patch, categories) : row
+          )
+        ),
+      };
+    });
+  }
+
+  function prepareTossRowsForApply(rows) {
+    return rows.map((row) => {
+      const amount = decimalPayload(row.amount);
+      return {
+        ...row,
+        amount,
+        signed_amount: signedAmountPayload(row, amount),
+        balance: decimalPayload(row.balance),
+        category_id: String(row.category_id || "").trim() || null,
+        detail: String(row.detail || "").trim(),
+        item_name: String(row.item_name || "").trim(),
+      };
+    });
+  }
+
+  function setTossImportFiles(files) {
+    setTossFiles(normalizeFileArray(files));
+    setTossPreview(null);
+    setTossApplyReport(null);
+  }
+
+  async function doTossPreview() {
+    if (!canEditRecords) {
+      setMessage(uiGuideMessage("현재 권한으로는 데이터를 가져올 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
+      return;
+    }
+    if (tossFiles.length === 0) {
+      setMessage("토스 스크린샷 이미지를 먼저 업로드해 주세요.");
+      return;
+    }
+    setTossLoadingMode("preview");
+    setLoading(true);
+    setImportReport(null);
+    setTossApplyReport(null);
+    setMessage("토스 스크린샷을 로컬 OCR로 읽고 있습니다.");
+    try {
+      const formData = new FormData();
+      for (const file of tossFiles) {
+        formData.append("files", file);
+      }
+      const preview = await api(
+        `${API_PREFIX}/imports/toss-screenshots/preview`,
+        {
+          method: "POST",
+          body: formData,
+        },
+        token
+      );
+      setTossPreview(preview);
+      const parsedRows = Number(preview?.summary?.parsed_rows || 0);
+      const excludedRows = Number(preview?.summary?.excluded_candidates || 0);
+      setMessage(`토스 거래 ${fmt(parsedRows)}건을 검토 표에 올렸습니다. 제외 후보 ${fmt(excludedRows)}건`);
+    } catch (error) {
+      setMessage(formatImportError(error, "toss_preview"));
+    } finally {
+      setTossLoadingMode("");
+      setLoading(false);
+    }
+  }
+
+  async function doTossApply() {
+    if (!canEditRecords) {
+      setMessage(uiGuideMessage("현재 권한으로는 데이터를 가져올 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
+      return;
+    }
+    if (!tossPreview || tossRows.length === 0) {
+      setMessage("먼저 토스 스크린샷 미리보기를 생성해 주세요.");
+      return;
+    }
+    if (tossIncludedCount === 0) {
+      setMessage("적용할 행이 없습니다. 필요한 행을 포함으로 바꾼 뒤 다시 시도해 주세요.");
+      return;
+    }
+    setTossLoadingMode("apply");
+    setLoading(true);
+    setMessage("검토 표에 포함된 토스 거래를 적용 중입니다.");
+    try {
+      const result = await api(
+        `${API_PREFIX}/imports/toss-screenshots/apply`,
+        {
+          method: "POST",
+          body: JSON.stringify({ rows: prepareTossRowsForApply(tossRows) }),
+        },
+        token
+      );
+      setTossApplyReport(result);
+      if (Number(result?.applied_transactions || 0) > 0) {
+        await refreshData(false);
+      }
+      setMessage(
+        `토스 거래 적용 완료: 추가 ${fmt(result?.applied_transactions || 0)}건, 제외/중복 ${fmt(result?.skipped_transactions || 0)}건`
+      );
+    } catch (error) {
+      setMessage(formatImportError(error, "toss_apply"));
+    } finally {
+      setTossLoadingMode("");
+      setLoading(false);
+    }
+  }
+
+  function startCategoryDraftFromTossRecommendation(row) {
+    const recommendation = row?.category_recommendation;
+    if (!recommendation) {
+      return;
+    }
+    setCategoryDraft({
+      flow_type: row.flow_type || "expense",
+      major: recommendation.suggested_major || "",
+      minor: recommendation.suggested_minor || "",
+    });
+    setCategoryDraftMajorSelect("__custom__");
+    setCategoryDraftMinorSelect("__custom__");
+    setTab("settings");
+    setMessage("추천 카테고리 초안을 채웠습니다. 저장 후 가져오기 탭에서 해당 행에 선택할 수 있습니다.");
+  }
+
   async function refreshPriceNow() {
     setLoading(true);
     try {
@@ -6454,12 +6620,17 @@ function App() {
     setPortfolio(null);
     setPriceStatus(null);
     setImportReport(null);
+    setImportMode("workbook");
     setImportFile(null);
     setImportLoadingMode("");
     setMigrationReport(null);
     setMigrationPackageFile(null);
     setMigrationLoadingMode("");
     setMigrationExporting(false);
+    setTossFiles([]);
+    setTossPreview(null);
+    setTossApplyReport(null);
+    setTossLoadingMode("");
     setMessage(logoutWarning);
     setPriceRefreshPolling(false);
     setDashboardLoading(false);
@@ -7131,6 +7302,7 @@ function App() {
   const canEditRecords = canEditHouseholdData;
   const canManageHousehold = householdRole === "owner" || householdRole === "co_owner";
   const canAssignOwner = householdRole === "owner";
+  const importBusy = Boolean(importLoadingMode || tossLoadingMode || migrationLoadingMode || migrationExporting);
   const memberRoleOptions = canAssignOwner
     ? COLLAB_ROLE_OPTIONS
     : COLLAB_ROLE_OPTIONS.filter((item) => item.value !== "owner");
@@ -10461,16 +10633,39 @@ function App() {
               <section className="import-mode-panel import-excel-panel">
                 <div className="secondary-table-heading import-report-heading">
                   <div className="work-surface-title">
-                    <span className="surface-eyebrow">엑셀 데이터</span>
-                    <h3 id="excel-import-heading">엑셀 파일 업로드</h3>
+                    <span className="surface-eyebrow">원본 데이터</span>
+                    <h3 id="excel-import-heading">데이터 파일 업로드</h3>
                   </div>
-                  <p className="table-summary">{importFile ? "파일 선택됨" : "파일 대기"}</p>
+                  <p className="table-summary">
+                    {importMode === "toss"
+                      ? (tossFiles.length > 0 ? `이미지 ${fmt(tossFiles.length)}개 선택됨` : "이미지 대기")
+                      : (importFile ? "파일 선택됨" : "파일 대기")}
+                  </p>
                 </div>
+                <div className="import-mode-switch" role="tablist" aria-label="가져오기 형식">
+                  {IMPORT_SOURCE_MODES.map((mode) => (
+                    <button
+                      key={mode.value}
+                      type="button"
+                      className={importMode === mode.value ? "active" : "secondary"}
+                      onClick={() => {
+                        setImportMode(mode.value);
+                        setIsDragOver(false);
+                      }}
+                      disabled={importBusy}
+                    >
+                      {mode.label}
+                    </button>
+                  ))}
+                </div>
+
+                {importMode === "workbook" && (
+                  <>
                 <div
                   className={`file-drop-area ${isDragOver ? "drag-over" : ""}`}
                   onDragOver={(e) => {
                     e.preventDefault();
-                    if (!importLoadingMode && canEditRecords) setIsDragOver(true);
+                    if (!importBusy && canEditRecords) setIsDragOver(true);
                   }}
                   onDragLeave={(e) => {
                     e.preventDefault();
@@ -10479,12 +10674,12 @@ function App() {
                   onDrop={(e) => {
                     e.preventDefault();
                     setIsDragOver(false);
-                    if (!importLoadingMode && canEditRecords && e.dataTransfer.files?.[0]) {
+                    if (!importBusy && canEditRecords && e.dataTransfer.files?.[0]) {
                       setImportFile(e.dataTransfer.files[0]);
                     }
                   }}
                   onClick={() => {
-                    if (!importLoadingMode && canEditRecords) importFileInputRef.current?.click();
+                    if (!importBusy && canEditRecords) importFileInputRef.current?.click();
                   }}
                 >
                   <input
@@ -10494,7 +10689,7 @@ function App() {
                     onChange={(e) => setImportFile(e.target.files?.[0] || null)}
                     style={{ display: "none" }}
                     aria-label="엑셀 파일 업로드"
-                    disabled={Boolean(importLoadingMode) || !canEditRecords}
+                    disabled={importBusy || !canEditRecords}
                   />
                   {importFile ? (
                     <div className="upload-file-name">선택된 파일: {importFile.name}</div>
@@ -10503,10 +10698,10 @@ function App() {
                   )}
                 </div>
                 <div className="inline import-action-row">
-                  <button type="button" disabled={Boolean(importLoadingMode) || !canEditRecords} onClick={() => doImport("dry_run")}>
+                  <button type="button" disabled={importBusy || !canEditRecords} onClick={() => doImport("dry_run")}>
                     {importLoadingMode === "dry_run" ? "미리 검증 중..." : IMPORT_MODE_LABELS.dry_run}
                   </button>
-                  <button type="button" disabled={Boolean(importLoadingMode) || !canEditRecords} onClick={() => doImport("apply")}>
+                  <button type="button" disabled={importBusy || !canEditRecords} onClick={() => doImport("apply")}>
                     {importLoadingMode === "apply" ? "적용 중..." : IMPORT_MODE_LABELS.apply}
                   </button>
                 </div>
@@ -10516,65 +10711,294 @@ function App() {
                 {importReport && (
                   <section className="import-report">
                     <div className="secondary-table-heading import-report-heading">
-                  <div className="work-surface-title">
-                    <span className="surface-eyebrow">검증 리포트</span>
-                    <h3>가져오기 결과</h3>
-                  </div>
-                  <p className="table-summary">
-                    거래 {fmt(importReport.transaction_rows)}행 · 보유 {fmt(importReport.holding_rows)}행
-                  </p>
-                </div>
-                <div className="import-summary-grid">
-                  <div className="import-summary-item"><strong>파일</strong><span>{importReport.workbook_path}</span></div>
-                  <div className="import-summary-item"><strong>시트 수</strong><span>{fmt(importReport.sheets)}</span></div>
-                  <div className="import-summary-item"><strong>거래 행</strong><span>{fmt(importReport.transaction_rows)}</span></div>
-                  <div className="import-summary-item"><strong>보유 행</strong><span>{fmt(importReport.holding_rows)}</span></div>
-                  <div className="import-summary-item"><strong>적용된 거래</strong><span>{fmt(importReport.applied_transactions)}</span></div>
-                  <div className="import-summary-item"><strong>적용된 보유(추가/수정)</strong><span>{fmt(importReport.applied_holdings_added)} / {fmt(importReport.applied_holdings_updated)}</span></div>
-                </div>
-                <div className="import-list-grid">
-                  <section>
-                    <h3>수식 불일치 셀 ({fmt(importReport.monthly_formula_mismatch_count)})</h3>
-                    {importMismatchPreview.length === 0 ? (
-                      <p className="table-summary">불일치가 없습니다.</p>
-                    ) : (
-                      <ul className="compact-list">
-                        {importMismatchPreview.map((cell) => (
-                          <li key={cell}>{cell}</li>
-                        ))}
-                      </ul>
-                    )}
-                    {(importReport.detected_mismatch_cells || []).length > importMismatchPreview.length && (
+                      <div className="work-surface-title">
+                        <span className="surface-eyebrow">검증 리포트</span>
+                        <h3>가져오기 결과</h3>
+                      </div>
                       <p className="table-summary">
-                        +{(importReport.detected_mismatch_cells || []).length - importMismatchPreview.length}건 더 있음
+                        거래 {fmt(importReport.transaction_rows)}행 · 보유 {fmt(importReport.holding_rows)}행
                       </p>
-                    )}
+                    </div>
+                    <div className="import-summary-grid">
+                      <div className="import-summary-item"><strong>파일</strong><span>{importReport.workbook_path}</span></div>
+                      <div className="import-summary-item"><strong>시트 수</strong><span>{fmt(importReport.sheets)}</span></div>
+                      <div className="import-summary-item"><strong>거래 행</strong><span>{fmt(importReport.transaction_rows)}</span></div>
+                      <div className="import-summary-item"><strong>보유 행</strong><span>{fmt(importReport.holding_rows)}</span></div>
+                      <div className="import-summary-item"><strong>적용된 거래</strong><span>{fmt(importReport.applied_transactions)}</span></div>
+                      <div className="import-summary-item"><strong>적용된 보유(추가/수정)</strong><span>{fmt(importReport.applied_holdings_added)} / {fmt(importReport.applied_holdings_updated)}</span></div>
+                    </div>
+                    <div className="import-list-grid">
+                      <section>
+                        <h3>수식 불일치 셀 ({fmt(importReport.monthly_formula_mismatch_count)})</h3>
+                        {importMismatchPreview.length === 0 ? (
+                          <p className="table-summary">불일치가 없습니다.</p>
+                        ) : (
+                          <ul className="compact-list">
+                            {importMismatchPreview.map((cell) => (
+                              <li key={cell}>{cell}</li>
+                            ))}
+                          </ul>
+                        )}
+                        {(importReport.detected_mismatch_cells || []).length > importMismatchPreview.length && (
+                          <p className="table-summary">
+                            +{(importReport.detected_mismatch_cells || []).length - importMismatchPreview.length}건 더 있음
+                          </p>
+                        )}
+                      </section>
+                      <section>
+                        <h3>이슈 ({fmt((importReport.issues || []).length)})</h3>
+                        {importIssuePreview.length === 0 ? (
+                          <p className="table-summary">검출된 이슈가 없습니다.</p>
+                        ) : (
+                          <ul className="compact-list">
+                            {importIssuePreview.map((issue, index) => (
+                              <li key={`${issue.code}-${issue.sheet || "none"}-${issue.row || 0}-${index}`}>
+                                [{issue.severity}] {issue.message}
+                                {issue.sheet ? ` (${issue.sheet}` : ""}
+                                {issue.row ? `:${issue.row}` : ""}
+                                {issue.sheet ? ")" : ""}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                        {(importReport.issues || []).length > importIssuePreview.length && (
+                          <p className="table-summary">+{(importReport.issues || []).length - importIssuePreview.length}건 더 있음</p>
+                        )}
+                      </section>
+                    </div>
+                    <details className="report-raw">
+                      <summary>원본 JSON 보기</summary>
+                      <pre className="report">{JSON.stringify(importReport, null, 2)}</pre>
+                    </details>
                   </section>
-                  <section>
-                    <h3>이슈 ({fmt((importReport.issues || []).length)})</h3>
-                    {importIssuePreview.length === 0 ? (
-                      <p className="table-summary">검출된 이슈가 없습니다.</p>
-                    ) : (
-                      <ul className="compact-list">
-                        {importIssuePreview.map((issue, index) => (
-                          <li key={`${issue.code}-${issue.sheet || "none"}-${issue.row || 0}-${index}`}>
-                            [{issue.severity}] {issue.message}
-                            {issue.sheet ? ` (${issue.sheet}` : ""}
-                            {issue.row ? `:${issue.row}` : ""}
-                            {issue.sheet ? ")" : ""}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                    {(importReport.issues || []).length > importIssuePreview.length && (
-                      <p className="table-summary">+{(importReport.issues || []).length - importIssuePreview.length}건 더 있음</p>
-                    )}
-                  </section>
+                )}
+              </>
+            )}
+
+            {importMode === "toss" && (
+              <section className="toss-import-panel">
+                <div
+                  className={`file-drop-area toss-drop-area ${isDragOver ? "drag-over" : ""}`}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    if (!importBusy && canEditRecords) setIsDragOver(true);
+                  }}
+                  onDragLeave={(e) => {
+                    e.preventDefault();
+                    setIsDragOver(false);
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setIsDragOver(false);
+                    if (!importBusy && canEditRecords && e.dataTransfer.files?.length) {
+                      setTossImportFiles(e.dataTransfer.files);
+                    }
+                  }}
+                  onClick={() => {
+                    if (!importBusy && canEditRecords) tossFileInputRef.current?.click();
+                  }}
+                >
+                  <input
+                    ref={tossFileInputRef}
+                    type="file"
+                    accept={TOSS_IMAGE_ACCEPT}
+                    multiple
+                    onChange={(e) => setTossImportFiles(e.target.files)}
+                    style={{ display: "none" }}
+                    aria-label="토스 스크린샷 업로드"
+                    disabled={importBusy || !canEditRecords}
+                  />
+                  {tossFiles.length > 0 ? (
+                    <ul className="upload-file-list">
+                      {tossFiles.map((file) => (
+                        <li key={`${file.name}-${file.size}`}>{file.name}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <div className="upload-placeholder">토스 거래내역 이미지를 이곳에 드래그 앤 드롭 하거나 클릭하여 업로드하세요.</div>
+                  )}
                 </div>
-                <details className="report-raw">
-                  <summary>원본 JSON 보기</summary>
-                  <pre className="report">{JSON.stringify(importReport, null, 2)}</pre>
-                </details>
+                <div className="inline import-actions">
+                  <button type="button" disabled={importBusy || !canEditRecords} onClick={() => doTossPreview()}>
+                    {tossLoadingMode === "preview" ? "추출 중..." : "검토 표 만들기"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={importBusy || !canEditRecords || !tossPreview || tossIncludedCount === 0}
+                    onClick={() => doTossApply()}
+                  >
+                    {tossLoadingMode === "apply" ? "적용 중..." : "포함 행 적용"}
+                  </button>
+                </div>
+                {tossLoadingMode && (
+                  <div className="import-progress">토스 이미지를 처리 중입니다.</div>
+                )}
+                {tossPreview && (
+                  <section className="import-report toss-review">
+                    <div className="import-summary-grid">
+                      <div className="import-summary-item"><strong>이미지</strong><span>{fmt(tossPreview.summary?.image_count)}</span></div>
+                      <div className="import-summary-item"><strong>검토 행</strong><span>{fmt(tossRows.length)}</span></div>
+                      <div className="import-summary-item"><strong>포함 행</strong><span>{fmt(tossIncludedCount)}</span></div>
+                      <div className="import-summary-item"><strong>중복 후보</strong><span>{fmt(tossDuplicateCount)}</span></div>
+                      <div className="import-summary-item"><strong>제외된 후보</strong><span>{fmt(tossExcludedCandidates.length)}</span></div>
+                    </div>
+                    <div className="toss-review-table-wrap">
+                      <table className="toss-review-table">
+                        <thead>
+                          <tr>
+                            <th>포함</th>
+                            <th>일자</th>
+                            <th>시간</th>
+                            <th>항목명</th>
+                            <th>금액</th>
+                            <th>잔액</th>
+                            <th>유형</th>
+                            <th>카테고리</th>
+                            <th>상태</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {tossRows.length === 0 && (
+                            <tr>
+                              <td colSpan={9} className="empty-state">검토할 행이 없습니다.</td>
+                            </tr>
+                          )}
+                          {tossRows.map((row) => {
+                            const recommendation = row.category_recommendation;
+                            const selectedCategory = categoryById.get(String(row.category_id || ""));
+                            const rowCategories = categories.filter((item) => item.flow_type === row.flow_type);
+                            return (
+                              <tr key={row.row_id} className={!row.included ? "toss-row-excluded" : ""}>
+                                <td data-label="포함">
+                                  <input
+                                    type="checkbox"
+                                    checked={Boolean(row.included)}
+                                    onChange={(e) => updateTossPreviewRow(row.row_id, { included: e.target.checked })}
+                                    disabled={importBusy || !canEditRecords}
+                                  />
+                                </td>
+                                <td data-label="일자">
+                                  <input
+                                    type="date"
+                                    value={row.occurred_on || ""}
+                                    onChange={(e) => updateTossPreviewRow(row.row_id, { occurred_on: e.target.value })}
+                                    disabled={importBusy || !canEditRecords}
+                                  />
+                                </td>
+                                <td data-label="시간">
+                                  <input
+                                    value={row.time || ""}
+                                    onChange={(e) => updateTossPreviewRow(row.row_id, { time: e.target.value })}
+                                    disabled={importBusy || !canEditRecords}
+                                  />
+                                </td>
+                                <td data-label="항목명">
+                                  <input
+                                    value={row.item_name || ""}
+                                    onChange={(e) => updateTossPreviewRow(row.row_id, { item_name: e.target.value })}
+                                    disabled={importBusy || !canEditRecords}
+                                  />
+                                  <input
+                                    className="toss-detail-input"
+                                    value={row.detail || ""}
+                                    onChange={(e) => updateTossPreviewRow(row.row_id, { detail: e.target.value })}
+                                    disabled={importBusy || !canEditRecords}
+                                    placeholder="상세"
+                                  />
+                                </td>
+                                <td data-label="금액">
+                                  <input
+                                    inputMode="decimal"
+                                    value={row.amount ?? ""}
+                                    onChange={(e) => updateTossPreviewRow(row.row_id, { amount: e.target.value })}
+                                    disabled={importBusy || !canEditRecords}
+                                  />
+                                </td>
+                                <td data-label="잔액">
+                                  <input
+                                    inputMode="decimal"
+                                    value={row.balance ?? ""}
+                                    onChange={(e) => updateTossPreviewRow(row.row_id, { balance: e.target.value })}
+                                    disabled={importBusy || !canEditRecords}
+                                  />
+                                </td>
+                                <td data-label="유형">
+                                  <select
+                                    value={row.flow_type || "expense"}
+                                    onChange={(e) => updateTossPreviewRow(row.row_id, { flow_type: e.target.value, category_id: "" })}
+                                    disabled={importBusy || !canEditRecords}
+                                  >
+                                    {FLOW_TYPE_OPTIONS.map((option) => (
+                                      <option key={option.value} value={option.value}>{option.label}</option>
+                                    ))}
+                                  </select>
+                                </td>
+                                <td data-label="카테고리" className="toss-category-cell">
+                                  <select
+                                    value={row.category_id || ""}
+                                    onChange={(e) => updateTossPreviewRow(row.row_id, { category_id: e.target.value })}
+                                    disabled={importBusy || !canEditRecords}
+                                  >
+                                    <option value="">미분류/검토 필요</option>
+                                    {rowCategories.map((category) => (
+                                      <option key={category.id} value={category.id}>{toCategoryPairLabel(category)}</option>
+                                    ))}
+                                  </select>
+                                  {selectedCategory ? (
+                                    <span className="toss-category-hint">선택: {toCategoryPairLabel(selectedCategory)}</span>
+                                  ) : recommendation ? (
+                                    <div className="toss-category-recommendation">
+                                      <span>추천 카테고리: {recommendation.suggested_major} / {recommendation.suggested_minor}</span>
+                                      <button
+                                        type="button"
+                                        className="secondary"
+                                        onClick={() => startCategoryDraftFromTossRecommendation(row)}
+                                        disabled={importBusy || !canEditRecords}
+                                      >
+                                        생성 초안
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <span className="toss-category-hint">미분류/검토 필요</span>
+                                  )}
+                                </td>
+                                <td data-label="상태">
+                                  {row.duplicate_group_id ? (
+                                    <span className="status-pill status-pill-pending">중복 후보</span>
+                                  ) : row.included ? (
+                                    <span className="status-pill status-pill-accepted">적용 예정</span>
+                                  ) : (
+                                    <span className="status-pill status-pill-revoked">적용 제외</span>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                    {tossExcludedCandidates.length > 0 && (
+                      <section className="toss-excluded-panel">
+                        <h3>제외된 후보 / 인식 불가</h3>
+                        <ul className="compact-list">
+                          {tossExcludedCandidates.map((candidate, index) => (
+                            <li key={`${candidate.source_image_index}-${candidate.item_name}-${index}`}>
+                              <strong>{candidate.item_name || "인식 불가"}</strong>
+                              <span> {candidate.exclusion_reason}</span>
+                              {candidate.raw_text ? <pre>{candidate.raw_text}</pre> : null}
+                            </li>
+                          ))}
+                        </ul>
+                      </section>
+                    )}
+                    {tossApplyReport && (
+                      <div className="import-summary-grid">
+                        <div className="import-summary-item"><strong>추가된 거래</strong><span>{fmt(tossApplyReport.applied_transactions)}</span></div>
+                        <div className="import-summary-item"><strong>건너뛴 행</strong><span>{fmt(tossApplyReport.skipped_transactions)}</span></div>
+                      </div>
+                    )}
+                  </section>
+                )}
               </section>
             )}
               </section>

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
+import hashlib
+import hmac
 import io
 import logging
 import os
@@ -10,20 +12,40 @@ from pathlib import Path
 from typing import Literal
 import zipfile
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_editor_household
+from app.api.deps import get_current_user, require_editor_household
 from app.core.config import settings
 from app.core.errors import app_error
-from app.db.models import ImportExecutionLock
+from app.db.models import Category, FlowType, ImportExecutionLock, Transaction, User
 from app.db.session import SessionLocal, get_db
-from app.schemas import ImportReport, ImportRequest, MigrationPackageReport
+from app.schemas import (
+    ImportReport,
+    ImportRequest,
+    MigrationPackageReport,
+    TossCategoryRecommendationRead,
+    TossExcludedCandidate as TossExcludedCandidateSchema,
+    TossImportRow as TossImportRowSchema,
+    TossImportSummary,
+    TossScreenshotApplyRequest,
+    TossScreenshotApplyResponse,
+    TossScreenshotPreviewResponse,
+)
+from app.services import toss_screenshot_importer
 from app.services.migration_package import MigrationPackageService
+from app.services.owner_links import resolve_owner_fields
 from app.services.runtime import importer
+from app.services.runtime import hub
+from app.services.toss_screenshot_importer import (
+    TossCategoryOption,
+    TossOcrError,
+    TossOcrUnavailableError,
+    TossParsedRow,
+)
 
 
 router = APIRouter(prefix="/imports", tags=["imports"])
@@ -495,6 +517,423 @@ def _copy_upload_with_limit(file: UploadFile, destination: Path) -> None:
                     context={"max_bytes": max_bytes},
                 )
             output.write(chunk)
+
+
+def _toss_allowed_extensions() -> set[str]:
+    return {
+        item.strip().lower()
+        for item in str(settings.toss_import_allowed_extensions or "").split(",")
+        if item.strip()
+    }
+
+
+def _validate_toss_image_file(file: UploadFile) -> str:
+    file_name = str(file.filename or "").strip()
+    suffix = Path(file_name).suffix.lower()
+    if suffix not in _toss_allowed_extensions():
+        raise app_error(
+            status_code=400,
+            code="TOSS_IMPORT_IMAGE_EXTENSION_INVALID",
+            message="지원하지 않는 이미지 형식입니다.",
+            action="png, jpg, jpeg, webp 이미지로 다시 시도해 주세요.",
+        )
+    return suffix
+
+
+def _copy_toss_upload_with_limit(file: UploadFile, destination: Path) -> None:
+    max_bytes = int(settings.toss_import_max_image_bytes)
+    written = 0
+    chunk_size = 1024 * 1024
+    with destination.open("wb") as output:
+        while True:
+            chunk = file.file.read(chunk_size)
+            if not chunk:
+                break
+            written += len(chunk)
+            if written > max_bytes:
+                raise app_error(
+                    status_code=413,
+                    code="TOSS_IMPORT_IMAGE_TOO_LARGE",
+                    message="업로드 가능한 이미지 크기를 초과했습니다.",
+                    action="이미지 크기를 줄여 다시 시도해 주세요.",
+                    context={"max_bytes": max_bytes},
+                )
+            output.write(chunk)
+
+
+def _load_toss_category_options(db: Session, household_id: str) -> list[TossCategoryOption]:
+    categories = db.scalars(select(Category).where(Category.household_id == household_id)).all()
+    return [
+        TossCategoryOption(
+            id=str(category.id),
+            flow_type=category.flow_type,
+            major=str(category.major or ""),
+            minor=str(category.minor or ""),
+        )
+        for category in categories
+    ]
+
+
+def _to_toss_recommendation_schema(recommendation) -> TossCategoryRecommendationRead | None:
+    if recommendation is None:
+        return None
+    return TossCategoryRecommendationRead(
+        suggested_major=recommendation.suggested_major,
+        suggested_minor=recommendation.suggested_minor,
+        reason=recommendation.reason,
+        create_allowed=False,
+    )
+
+
+def _to_toss_row_schema(
+    row: TossParsedRow,
+    *,
+    source_image_name: str | None,
+    source_image_index: int,
+    row_index: int,
+) -> TossImportRowSchema:
+    source_ref = _toss_source_ref_from_parsed_row(
+        row,
+        source_image_index=source_image_index,
+        row_index=row_index,
+    )
+    return TossImportRowSchema(
+        row_id=f"{row.row_id}-{source_image_index}-{row_index}",
+        source_ref=source_ref,
+        source_ref_signature=_sign_toss_source_ref(source_ref),
+        source_image_name=source_image_name,
+        source_image_index=source_image_index,
+        occurred_on=row.occurred_on,
+        time=row.time,
+        item_name=row.item_name,
+        detail=row.detail,
+        amount=row.amount,
+        signed_amount=row.signed_amount,
+        balance=row.balance,
+        flow_type=row.flow_type,
+        category_id=row.category_id,
+        category_recommendation=_to_toss_recommendation_schema(row.category_recommendation),
+        included=row.included,
+        duplicate_group_id=row.duplicate_group_id,
+        exclusion_reason=row.exclusion_reason,
+    )
+
+
+def _to_toss_excluded_schema(
+    candidate,
+    *,
+    source_image_name: str | None,
+    source_image_index: int,
+) -> TossExcludedCandidateSchema:
+    return TossExcludedCandidateSchema(
+        source_image_name=source_image_name,
+        source_image_index=source_image_index,
+        item_name=str(candidate.item_name or ""),
+        raw_text=str(candidate.raw_text or ""),
+        exclusion_reason=str(candidate.exclusion_reason or "unrecognized"),
+    )
+
+
+def _toss_duplicate_candidate_count(rows: list[TossImportRowSchema]) -> int:
+    return sum(1 for row in rows if row.duplicate_group_id)
+
+
+def _mark_toss_duplicate_candidates(rows: list[TossImportRowSchema]) -> None:
+    grouped: dict[str, list[TossImportRowSchema]] = {}
+    for row in rows:
+        key = "|".join(
+            [
+                row.occurred_on.isoformat(),
+                row.time,
+                " ".join(row.item_name.strip().lower().split()),
+                str(row.signed_amount),
+                str(row.balance or ""),
+            ]
+        )
+        grouped.setdefault(key, []).append(row)
+
+    duplicate_index = 0
+    for duplicate_rows in grouped.values():
+        if len(duplicate_rows) <= 1:
+            continue
+        duplicate_index += 1
+        duplicate_group_id = f"dup-{duplicate_index}"
+        for row in duplicate_rows:
+            row.duplicate_group_id = duplicate_group_id
+            row.included = False
+            row.exclusion_reason = "duplicate_candidate"
+
+
+def _sign_toss_source_ref(source_ref: str) -> str:
+    return hmac.new(settings.secret_key.encode("utf-8"), source_ref.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def _toss_source_ref_from_parsed_row(
+    row: TossParsedRow,
+    *,
+    source_image_index: int,
+    row_index: int,
+) -> str:
+    payload = f"{row.row_id}|{source_image_index}|{row_index}"
+    digest = hashlib.sha1(payload.encode("utf-8")).hexdigest()
+    return f"toss:{digest}"
+
+
+def _verified_toss_source_ref(row: TossImportRowSchema) -> str:
+    source_ref = str(row.source_ref or "").strip()
+    expected_signature = _sign_toss_source_ref(source_ref)
+    if not hmac.compare_digest(str(row.source_ref_signature or ""), expected_signature):
+        raise app_error(
+            status_code=400,
+            code="TOSS_IMPORT_SOURCE_REF_INVALID",
+            message="토스 가져오기 행의 원본 식별자가 유효하지 않습니다.",
+            action="검토 표를 다시 생성한 뒤 적용해 주세요.",
+        )
+    return source_ref
+
+
+def _ensure_toss_category_matches(
+    db: Session,
+    *,
+    household_id: str,
+    category_id: str | None,
+    flow_type: FlowType,
+) -> None:
+    if not category_id:
+        return
+    category = db.get(Category, category_id)
+    if category is None or str(category.household_id) != str(household_id):
+        raise app_error(
+            status_code=400,
+            code="CATEGORY_INVALID",
+            message="유효하지 않은 category_id 입니다.",
+            action="가계 내 카테고리 ID를 확인해 주세요.",
+        )
+    if category.flow_type != flow_type:
+        raise app_error(
+            status_code=400,
+            code="TRANSACTION_CATEGORY_FLOW_TYPE_MISMATCH",
+            message="거래 유형과 카테고리 유형이 일치하지 않습니다.",
+            action="동일한 유형의 카테고리를 선택해 주세요.",
+        )
+
+
+def _toss_source_ref(row: TossImportRowSchema) -> str:
+    return _verified_toss_source_ref(row)
+
+
+def _toss_transaction_memo(row: TossImportRowSchema) -> str:
+    parts = [row.time, row.item_name]
+    if row.detail:
+        parts.append(row.detail)
+    return " | ".join(part.strip() for part in parts if part.strip())
+
+
+@router.post("/toss-screenshots/preview", response_model=TossScreenshotPreviewResponse)
+def preview_toss_screenshots(
+    files: list[UploadFile] = File(...),
+    ctx=Depends(require_editor_household),
+    db: Session = Depends(get_db),
+) -> TossScreenshotPreviewResponse:
+    household, _ = ctx
+    if not files:
+        raise app_error(
+            status_code=400,
+            code="TOSS_IMPORT_IMAGE_REQUIRED",
+            message="가져올 이미지가 없습니다.",
+            action="토스 거래내역 스크린샷을 선택해 주세요.",
+        )
+    if len(files) > int(settings.toss_import_max_images):
+        raise app_error(
+            status_code=413,
+            code="TOSS_IMPORT_TOO_MANY_IMAGES",
+            message="한 번에 업로드 가능한 이미지 수를 초과했습니다.",
+            action="이미지를 나누어 다시 시도해 주세요.",
+            context={"max_images": settings.toss_import_max_images},
+        )
+
+    category_options = _load_toss_category_options(db, str(household.id))
+    rows: list[TossImportRowSchema] = []
+    excluded_candidates: list[TossExcludedCandidateSchema] = []
+    temp_paths: list[Path] = []
+    temp_dir_context = tempfile.TemporaryDirectory(prefix="money-flow-toss-")
+    temp_dir = Path(temp_dir_context.name)
+    try:
+        for image_index, file in enumerate(files):
+            suffix = _validate_toss_image_file(file)
+            source_image_name = str(file.filename or "").strip() or None
+            with tempfile.NamedTemporaryFile(
+                mode="wb",
+                suffix=suffix,
+                prefix="toss-upload-",
+                dir=temp_dir,
+                delete=False,
+            ) as temp_file:
+                temp_path = Path(temp_file.name)
+            temp_paths.append(temp_path)
+            _copy_toss_upload_with_limit(file, temp_path)
+            try:
+                text = toss_screenshot_importer.extract_text_from_image(
+                    temp_path,
+                    executable=settings.toss_import_ocr_executable,
+                    language=settings.toss_import_ocr_language,
+                    timeout_seconds=settings.toss_import_ocr_timeout_seconds,
+                )
+            except TossOcrUnavailableError as error:
+                raise app_error(
+                    status_code=503,
+                    code="TOSS_OCR_UNAVAILABLE",
+                    message="로컬 OCR 실행 파일을 찾을 수 없습니다.",
+                    action="Tesseract OCR을 로컬에 설치하거나 실행 파일 경로를 설정해 주세요.",
+                ) from error
+            except TossOcrError as error:
+                raise app_error(
+                    status_code=400,
+                    code="TOSS_OCR_FAILED",
+                    message="이미지에서 거래내역 텍스트를 추출하지 못했습니다.",
+                    action="토스 거래내역 화면이 선명하게 보이도록 다시 캡처해 주세요.",
+                ) from error
+
+            parsed = toss_screenshot_importer.parse_toss_ocr_text(
+                text,
+                categories=category_options,
+                base_year=date.today().year,
+            )
+            rows.extend(
+                _to_toss_row_schema(
+                    row,
+                    source_image_name=source_image_name,
+                    source_image_index=image_index,
+                    row_index=row_index,
+                )
+                for row_index, row in enumerate(parsed.rows)
+            )
+            excluded_candidates.extend(
+                _to_toss_excluded_schema(
+                    candidate,
+                    source_image_name=source_image_name,
+                    source_image_index=image_index,
+                )
+                for candidate in parsed.excluded_candidates
+            )
+
+        _mark_toss_duplicate_candidates(rows)
+        return TossScreenshotPreviewResponse(
+            rows=rows,
+            excluded_candidates=excluded_candidates,
+            summary=TossImportSummary(
+                image_count=len(files),
+                parsed_rows=len(rows),
+                excluded_candidates=len(excluded_candidates),
+                duplicate_candidates=_toss_duplicate_candidate_count(rows),
+            ),
+            issues=[],
+        )
+    finally:
+        for file in files:
+            file.file.close()
+        for temp_path in temp_paths:
+            if temp_path.exists():
+                temp_path.unlink()
+        temp_dir_context.cleanup()
+
+
+@router.post("/toss-screenshots/apply", response_model=TossScreenshotApplyResponse)
+def apply_toss_screenshots(
+    payload: TossScreenshotApplyRequest,
+    background_tasks: BackgroundTasks,
+    ctx=Depends(require_editor_household),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> TossScreenshotApplyResponse:
+    household, _ = ctx
+    applied = 0
+    skipped = 0
+    created_transactions: list[Transaction] = []
+    seen_source_refs: set[str] = set()
+
+    for row in payload.rows:
+        if not row.included:
+            skipped += 1
+            continue
+
+        source_ref = _toss_source_ref(row)
+        if source_ref in seen_source_refs:
+            skipped += 1
+            continue
+        existing_transaction_id = db.scalar(
+            select(Transaction.id).where(
+                Transaction.household_id == household.id,
+                Transaction.source_ref == source_ref,
+            )
+        )
+        if existing_transaction_id is not None:
+            skipped += 1
+            continue
+
+        _ensure_toss_category_matches(
+            db,
+            household_id=str(household.id),
+            category_id=row.category_id,
+            flow_type=row.flow_type,
+        )
+        owner_user_id, owner_name = resolve_owner_fields(
+            db,
+            household_id=str(household.id),
+            owner_user_id=None,
+            owner_name=None,
+            invalid_code="TRANSACTION_OWNER_INVALID",
+            invalid_message="거래자는 현재 가계 구성원만 선택할 수 있습니다.",
+            invalid_action="가계 구성원 목록에서 거래자를 다시 선택해 주세요.",
+        )
+        transaction = Transaction(
+            household_id=household.id,
+            category_id=row.category_id,
+            occurred_on=row.occurred_on,
+            flow_type=row.flow_type,
+            amount=row.amount,
+            currency="KRW",
+            memo=_toss_transaction_memo(row),
+            owner_user_id=owner_user_id,
+            owner_name=owner_name,
+            source_ref=source_ref,
+            created_by_user_id=user.id,
+        )
+        db.add(transaction)
+        created_transactions.append(transaction)
+        seen_source_refs.add(source_ref)
+        applied += 1
+
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise app_error(
+            status_code=409,
+            code="TOSS_IMPORT_SOURCE_REF_CONFLICT",
+            message="이미 적용된 토스 거래내역이 포함되어 있습니다.",
+            action="미리보기를 다시 생성한 뒤 중복 후보를 제외해 주세요.",
+        )
+
+    created_transaction_ids: list[str] = []
+    for transaction in created_transactions:
+        db.refresh(transaction)
+        created_transaction_ids.append(str(transaction.id))
+        background_tasks.add_task(
+            hub.broadcast,
+            household.id,
+            {
+                "event": "transaction.created",
+                "entity_id": transaction.id,
+                "version": transaction.version,
+            },
+        )
+    return TossScreenshotApplyResponse(
+        applied_transactions=applied,
+        skipped_transactions=skipped,
+        created_transaction_ids=created_transaction_ids,
+        issues=[],
+    )
 
 
 @router.post("/workbook", response_model=ImportReport)

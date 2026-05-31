@@ -672,6 +672,80 @@ class MigrationPackageReport(BaseModel):
     issues: list[ImportIssue] = Field(default_factory=list)
 
 
+class TossCategoryRecommendationRead(BaseModel):
+    suggested_major: str = Field(min_length=1, max_length=120)
+    suggested_minor: str = Field(min_length=1, max_length=120)
+    reason: str = Field(min_length=1, max_length=120)
+    create_allowed: bool = False
+
+
+class TossImportRow(BaseModel):
+    row_id: str = Field(min_length=1, max_length=120)
+    source_ref: str = Field(min_length=1, max_length=120)
+    source_ref_signature: str = Field(min_length=64, max_length=64)
+    source_image_name: str | None = Field(default=None, max_length=255)
+    source_image_index: int = Field(default=0, ge=0)
+    occurred_on: date
+    time: str = Field(pattern=r"^(?:[01]\d|2[0-3]):[0-5]\d$")
+    item_name: str = Field(min_length=1, max_length=200)
+    detail: str = Field(default="", max_length=500)
+    amount: Decimal = Field(gt=0)
+    signed_amount: Decimal
+    balance: Decimal
+    flow_type: FlowType
+    category_id: str | None = Field(default=None, max_length=36)
+    category_recommendation: TossCategoryRecommendationRead | None = None
+    included: bool = True
+    duplicate_group_id: str | None = Field(default=None, max_length=80)
+    exclusion_reason: str | None = Field(default=None, max_length=120)
+
+    @field_validator("category_id")
+    @classmethod
+    def normalize_toss_category_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
+
+    @field_validator("item_name", "detail")
+    @classmethod
+    def normalize_toss_text(cls, value: str) -> str:
+        return str(value or "").strip()
+
+
+class TossExcludedCandidate(BaseModel):
+    source_image_name: str | None = Field(default=None, max_length=255)
+    source_image_index: int = Field(default=0, ge=0)
+    item_name: str = Field(default="", max_length=200)
+    raw_text: str = Field(default="", max_length=1000)
+    exclusion_reason: str = Field(min_length=1, max_length=120)
+
+
+class TossImportSummary(BaseModel):
+    image_count: int = Field(ge=0)
+    parsed_rows: int = Field(ge=0)
+    excluded_candidates: int = Field(ge=0)
+    duplicate_candidates: int = Field(ge=0)
+
+
+class TossScreenshotPreviewResponse(BaseModel):
+    rows: list[TossImportRow]
+    excluded_candidates: list[TossExcludedCandidate]
+    summary: TossImportSummary
+    issues: list[ImportIssue] = Field(default_factory=list)
+
+
+class TossScreenshotApplyRequest(BaseModel):
+    rows: list[TossImportRow]
+
+
+class TossScreenshotApplyResponse(BaseModel):
+    applied_transactions: int
+    skipped_transactions: int
+    created_transaction_ids: list[str]
+    issues: list[ImportIssue] = Field(default_factory=list)
+
+
 class PriceStatus(BaseModel):
     household_id: str
     cache_seconds: int

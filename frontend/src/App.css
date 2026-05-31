@@ -383,6 +383,16 @@
   color: #355177;
 }
 
+.upload-file-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: 0.2rem;
+  color: #355177;
+  font-size: 0.86rem;
+  text-align: left;
+}
+
 .file-drop-area {
   border: 2px dashed #b6cff6;
   border-radius: 18px;
@@ -427,6 +437,99 @@
 .import-action-row {
   justify-content: flex-end;
   margin-top: 0;
+}
+
+.import-mode-switch,
+.import-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.8rem;
+}
+
+.import-mode-switch button.active {
+  background: #123d73;
+  color: #fff;
+  border-color: #123d73;
+}
+
+.toss-import-panel,
+.toss-review {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.toss-drop-area {
+  background: #f8fbf9;
+  border-color: #b8dbc9;
+}
+
+.toss-review-table-wrap {
+  overflow-x: auto;
+}
+
+.toss-review-table {
+  min-width: 1080px;
+}
+
+.toss-review-table input,
+.toss-review-table select {
+  min-width: 0;
+  width: 100%;
+}
+
+.toss-review-table th:first-child,
+.toss-review-table td:first-child {
+  width: 54px;
+  text-align: center;
+}
+
+.toss-row-excluded {
+  background: #f7f8fa;
+  color: #697488;
+}
+
+.toss-detail-input {
+  margin-top: 0.3rem;
+}
+
+.toss-category-cell {
+  min-width: 230px;
+}
+
+.toss-category-hint,
+.toss-category-recommendation {
+  margin-top: 0.3rem;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  font-size: 0.78rem;
+  color: #51637d;
+}
+
+.toss-category-recommendation button {
+  padding: 0.25rem 0.45rem;
+  font-size: 0.76rem;
+}
+
+.toss-excluded-panel {
+  border: 1px solid #d8e4f5;
+  border-radius: 8px;
+  padding: 0.65rem;
+  background: #fbfcff;
+}
+
+.toss-excluded-panel h3 {
+  margin: 0 0 0.45rem;
+  font-size: 0.92rem;
+}
+
+.toss-excluded-panel pre {
+  margin: 0.25rem 0 0;
+  white-space: pre-wrap;
+  color: #536176;
+  font-size: 0.76rem;
 }
 
 .app-shell {
