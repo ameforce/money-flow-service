@@ -130,12 +130,13 @@ def test_predeploy_recovery_skip_is_dev_only() -> None:
     assert "current dev health is not ready" in predeploy_stage
 
 
-def test_dev_deploy_exposes_debug_token_only_for_dev_probe() -> None:
+def test_dev_deploy_keeps_debug_tokens_disabled_in_strict_dev() -> None:
     compose = (ROOT / "docker-compose.dev.deploy.yml").read_text(encoding="utf-8")
     source = _jenkinsfile_source()
 
-    assert "AUTH_DEBUG_RETURN_VERIFY_TOKEN: ${AUTH_DEBUG_RETURN_VERIFY_TOKEN:-true}" in compose
-    assert "AUTH_DEBUG_RETURN_VERIFY_TOKEN=true" in source
+    assert "AUTH_DEBUG_RETURN_VERIFY_TOKEN: ${AUTH_DEBUG_RETURN_VERIFY_TOKEN:-false}" in compose
+    assert "AUTH_DEBUG_RETURN_VERIFY_TOKEN=false" in source
+    assert "AUTH_DEBUG_RETURN_VERIFY_TOKEN=true" not in source
 
 
 def test_upload_limit_probe_requires_authenticated_app_response() -> None:
@@ -143,6 +144,12 @@ def test_upload_limit_probe_requires_authenticated_app_response() -> None:
     deploy_stage = source[source.index("stage('Deploy Execute')") :]
 
     assert "UPLOAD_LIMIT_PROBE_OK_APP_REACHED" in deploy_stage
+    assert "scripts/deploy/seed_upload_probe_user.py" in deploy_stage
+    assert "seed-upload-probe-user" in deploy_stage
+    assert "/api/v1/auth/login" in deploy_stage
+    assert "debug_verification_token" not in deploy_stage
+    assert "/api/v1/auth/verify-email" not in deploy_stage
+    assert "x-debug-token-opt-in" not in deploy_stage
     assert 'tmp_probe_cookies="$(mktemp)"' in deploy_stage
     assert '-c "$tmp_probe_cookies"' in deploy_stage
     assert '-b "$tmp_probe_cookies"' in deploy_stage
