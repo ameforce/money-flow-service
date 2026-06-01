@@ -2836,6 +2836,67 @@ test("transaction FAB and sticky toolbar stay reachable after ledger scroll", as
   expect(Math.abs(mobileScrollAfterSheet - mobileScrollBeforeSheet)).toBeLessThanOrEqual(16);
 });
 
+test("issue 211: transaction add opens a visible sheet from a scrolled list", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("tx-add-visible")}@example.com`;
+  const displayName = unique("tx-add-visible-name");
+  const memoPrefix = unique("tx-add-visible-row");
+
+  await registerAndVerify(page, { email, displayName });
+  for (let index = 0; index < 32; index += 1) {
+    await createTransactionViaApi(page, {
+      memo: `${memoPrefix}-${String(index).padStart(2, "0")}`,
+      amount: String(9000 + index),
+      ownerName: displayName,
+      sourceRef: `${memoPrefix}-source-${index}`,
+    });
+  }
+
+  await page.setViewportSize({ width: 1366, height: 960 });
+  await openTab(page, "거래");
+  await page.waitForLoadState("networkidle");
+  await expect(page.locator("tr.transaction-row", { hasText: `${memoPrefix}-00` }).first()).toBeVisible();
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  await page.waitForTimeout(250);
+
+  const scrollBeforeSheet = await page.evaluate(() => window.scrollY);
+  const transactionFab = page.getByTestId("transactions-fab");
+  await expect(transactionFab).toBeVisible();
+  await expect(transactionFab).toBeEnabled();
+  await capture(page, "issue-211-scrolled-list-before-add");
+
+  await transactionFab.click();
+  const transactionSheet = page.getByTestId("transaction-entry-sheet");
+  await expect(page.getByRole("dialog", { name: "거래 추가 레이어" })).toBeVisible();
+  await expect(labeledField(transactionSheet, "금액", "input")).toBeVisible();
+  const sheetMetrics = await transactionSheet.evaluate((sheet) => {
+    const backdrop = sheet.closest(".transaction-entry-sheet-backdrop");
+    const sheetBox = sheet.getBoundingClientRect();
+    const backdropStyle = backdrop ? getComputedStyle(backdrop) : null;
+    return {
+      backdropPosition: backdropStyle?.position || "",
+      backdropZIndex: Number.parseInt(backdropStyle?.zIndex || "0", 10),
+      sheetTop: sheetBox.top,
+      sheetBottom: sheetBox.bottom,
+      viewportHeight: window.innerHeight,
+      viewportWidth: window.innerWidth,
+    };
+  });
+  expect(sheetMetrics.backdropPosition, JSON.stringify(sheetMetrics)).toBe("fixed");
+  expect(sheetMetrics.backdropZIndex, JSON.stringify(sheetMetrics)).toBeGreaterThan(50);
+  expect(sheetMetrics.sheetTop, JSON.stringify(sheetMetrics)).toBeGreaterThanOrEqual(0);
+  expect(sheetMetrics.sheetBottom, JSON.stringify(sheetMetrics)).toBeLessThanOrEqual(sheetMetrics.viewportHeight);
+  const scrollAfterSheet = await page.evaluate(() => window.scrollY);
+  expect(Math.abs(scrollAfterSheet - scrollBeforeSheet)).toBeLessThanOrEqual(16);
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "issue-211-transaction-add-sheet-visible");
+
+  await page.keyboard.press("Escape");
+  await expect(transactionSheet).toBeHidden();
+  await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute("data-testid") || "")).toBe("transactions-fab");
+});
+
 test("transactions flow: create, inline edit, delete, responsive", async ({ page }) => {
   test.setTimeout(240_000);
 
