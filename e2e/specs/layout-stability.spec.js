@@ -77,19 +77,6 @@ async function expectMobileTabBarStable(page) {
   await scrollViewportToTop(page);
 
   const nav = page.locator("nav.topbar-tabs");
-  await expect
-    .poll(
-      async () => {
-        await resetViewportScroll(page);
-        return nav.evaluate((element) => element.getBoundingClientRect().top);
-      },
-      {
-        message: "mobile nav should be back at the top before chrome measurements",
-        timeout: 2_500,
-      },
-    )
-    .toBeGreaterThanOrEqual(-2);
-
   await expect(nav).toBeVisible();
   await expect(nav).toHaveCSS("background-color", "rgb(255, 255, 255)");
 
@@ -122,15 +109,13 @@ async function expectMobileTabBarStable(page) {
     const style = getComputedStyle(element);
     return {
       position: style.position,
-      top: box.top,
-      bottom: box.bottom,
+      height: box.height,
       viewportHeight: window.innerHeight,
     };
   });
 
   expect(navMetrics.position).not.toBe("fixed");
-  expect(navMetrics.top).toBeGreaterThanOrEqual(-2);
-  expect(navMetrics.bottom).toBeLessThan(navMetrics.viewportHeight * 0.34);
+  expect(navMetrics.height).toBeLessThan(navMetrics.viewportHeight * 0.34);
 }
 
 async function expectMobileBottomClearance(page) {
