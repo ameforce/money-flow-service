@@ -98,6 +98,48 @@ async function expectMobileHoldingNameReadable(row, expectedName) {
   expect(metrics.rowScrollWidth - metrics.rowClientWidth).toBeLessThanOrEqual(1);
 }
 
+test("holding entry defaults owner and keeps it for repeated assets", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("holding-owner-default")}@example.com`;
+  const displayName = "댕";
+  await registerAndVerify(page, { email, displayName });
+  const currentUser = await page.evaluate(async () => {
+    const response = await fetch("/api/v1/auth/me", { credentials: "include" });
+    return response.json();
+  });
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openTab(page, "자산");
+  const holdingCard = page.locator("article.card", {
+    has: page.getByRole("heading", { name: "자산 입력" }),
+  });
+  await holdingCard.getByRole("button", { name: "자산 추가" }).click();
+  const holdingForm = holdingCard.locator("form.holdings-form-grid").first();
+  const ownerSelect = labeledField(holdingForm, "보유자", "select");
+  await expect(ownerSelect).toHaveValue(currentUser.id);
+  await expect(ownerSelect.locator("option:checked")).toContainText(displayName);
+
+  const ownerQuickSelect = holdingForm.getByTestId("holding-owner-quick-select");
+  await expect(ownerQuickSelect).toBeVisible();
+  const currentUserChip = ownerQuickSelect.getByRole("button", { name: `${displayName} 보유자 선택` });
+  await expect(currentUserChip).toBeVisible();
+  await expect(currentUserChip).toHaveAttribute("aria-pressed", "true");
+
+  const firstHoldingName = unique("issue-201-holding-first");
+  await labeledField(holdingForm, "자산명", "textarea").fill(firstHoldingName);
+  await labeledField(holdingForm, "평가금액", "input").fill("123456");
+  await capture(page, "issue-201-holding-owner-quick-select");
+  await holdingForm.getByRole("button", { name: "자산 등록" }).click();
+  await expect(page.locator("tr", { hasText: firstHoldingName }).first()).toBeVisible({ timeout: 20_000 });
+
+  await holdingCard.getByRole("button", { name: "자산 추가" }).click();
+  const repeatedOwnerSelect = labeledField(holdingForm, "보유자", "select");
+  await expect(repeatedOwnerSelect).toHaveValue(currentUser.id);
+  await expect(repeatedOwnerSelect.locator("option:checked")).toContainText(displayName);
+  await capture(page, "issue-201-holding-owner-repeated");
+});
+
 async function expectSingleSliceDonutHasNoRadialSeam(chartCard, label) {
   const metrics = await chartCard.locator(".compact-chart-wrap canvas").first().evaluate((canvas) => {
     const context = canvas.getContext("2d", { willReadFrequently: true });

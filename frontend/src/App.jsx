@@ -1902,6 +1902,7 @@ function App() {
   const [txRepeatFocusRequest, setTxRepeatFocusRequest] = useState(0);
   const [txQuickOwnerTouched, setTxQuickOwnerTouched] = useState(false);
   const [showHoldingForm, setShowHoldingForm] = useState(false);
+  const [holdingOwnerTouched, setHoldingOwnerTouched] = useState(false);
   const [holdingSummaryOpen, setHoldingSummaryOpen] = useState(true);
   const [tab, setTab] = useState(() => getInitialTabId());
   const [isCompactViewport, setIsCompactViewport] = useState(
@@ -2790,6 +2791,26 @@ function App() {
 
     return ownerMemberOptions.length === 1 ? ownerMemberOptions[0] : null;
   }, [currentUserId, ownerMemberOptions, txForm.owner_name, txForm.owner_user_id, txQuickOwnerTouched]);
+  const holdingOwnerSuggestion = useMemo(() => {
+    if (holdingOwnerTouched) {
+      return null;
+    }
+    if (holdingForm.owner_user_id || holdingForm.owner_name) {
+      return null;
+    }
+    if (ownerMemberOptions.length === 0) {
+      return null;
+    }
+
+    const currentOwnerOption = currentUserId
+      ? ownerMemberOptions.find((option) => option.value === currentUserId)
+      : null;
+    if (currentOwnerOption) {
+      return currentOwnerOption;
+    }
+
+    return ownerMemberOptions.length === 1 ? ownerMemberOptions[0] : null;
+  }, [currentUserId, holdingForm.owner_name, holdingForm.owner_user_id, holdingOwnerTouched, ownerMemberOptions]);
   useEffect(() => {
     setOwnerRemapTargets((prev) => {
       const next = {};
@@ -3301,7 +3322,6 @@ function App() {
 
   useEffect(() => {
     if (
-      !isCompactViewport ||
       !showTransactionForm ||
       txEntrySheetStep !== "form" ||
       txQuickOwnerTouched ||
@@ -3323,13 +3343,41 @@ function App() {
       };
     });
   }, [
-    isCompactViewport,
     showTransactionForm,
     transactionQuickOwnerSuggestion,
     txEntrySheetStep,
     txForm.owner_name,
     txForm.owner_user_id,
     txQuickOwnerTouched,
+  ]);
+
+  useEffect(() => {
+    if (
+      !showHoldingForm ||
+      holdingOwnerTouched ||
+      !holdingOwnerSuggestion ||
+      holdingForm.owner_user_id ||
+      holdingForm.owner_name
+    ) {
+      return;
+    }
+
+    setHoldingForm((prev) => {
+      if (prev.owner_user_id || prev.owner_name) {
+        return prev;
+      }
+      return {
+        ...prev,
+        owner_user_id: holdingOwnerSuggestion.value,
+        owner_name: holdingOwnerSuggestion.displayName || "",
+      };
+    });
+  }, [
+    holdingForm.owner_name,
+    holdingForm.owner_user_id,
+    holdingOwnerSuggestion,
+    holdingOwnerTouched,
+    showHoldingForm,
   ]);
 
   useEffect(() => {
@@ -5986,6 +6034,53 @@ function App() {
     );
   }
 
+  function applyTransactionOwnerOption(option) {
+    setTxQuickOwnerTouched(true);
+    setTxForm((prev) => ({
+      ...prev,
+      owner_user_id: option.value,
+      owner_name: option.displayName || "",
+    }));
+  }
+
+  function applyHoldingOwnerOption(option) {
+    setHoldingOwnerTouched(true);
+    setHoldingForm((prev) => ({
+      ...prev,
+      owner_user_id: option.value,
+      owner_name: option.displayName || "",
+    }));
+  }
+
+  function renderOwnerQuickSelect({ ownerLabel, testId, selectedValue = "", disabled = false, onSelect }) {
+    if (ownerMemberOptions.length === 0) {
+      return null;
+    }
+    const normalizedSelectedValue = String(selectedValue || "").trim();
+    return (
+      <div className="owner-quick-select" data-testid={testId} role="group" aria-label={`${ownerLabel} 빠른 선택`}>
+        {ownerMemberOptions.map((option) => {
+          const displayName = option.displayName || option.label;
+          const selected = option.value === normalizedSelectedValue;
+          return (
+            <button
+              key={option.value}
+              type="button"
+              className={`owner-quick-chip${selected ? " selected" : ""}`}
+              aria-label={`${displayName} ${ownerLabel} 선택`}
+              aria-pressed={selected ? "true" : "false"}
+              title={option.email ? `${displayName} (${option.email})` : displayName}
+              onClick={() => onSelect?.(option)}
+              disabled={disabled}
+            >
+              <span className="owner-quick-chip-name">{displayName}</span>
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
+
   async function submitHolding(event) {
     event.preventDefault();
     if (!canEditRecords) {
@@ -6012,7 +6107,15 @@ function App() {
         },
         token
       );
-      setHoldingForm(createHoldingForm(holdingForm.asset_type, holdingForm.type_key, holdingFormType?.label));
+      const nextForm = {
+        ...createHoldingForm(holdingForm.asset_type, holdingForm.type_key, holdingFormType?.label),
+        owner_user_id: holdingForm.owner_user_id,
+        owner_name: holdingForm.owner_name,
+      };
+      setHoldingForm(nextForm);
+      setHoldingOwnerTouched(
+        holdingOwnerTouched || Boolean(nextForm.owner_user_id || nextForm.owner_name)
+      );
       closeHoldingEntrySheet();
       await refreshData(false);
       setMessage(uiGuideMessage("자산을 저장했습니다.", "목록에서 반영 결과를 확인해 주세요."));
@@ -7575,6 +7678,7 @@ function App() {
     closeTxInlineEdit();
     setTxForm(createTransactionForm());
     setHoldingForm(createHoldingForm("cash"));
+    setHoldingOwnerTouched(false);
     setHoldingInlineEdit(null);
     setShowTransactionForm(false);
     setShowHoldingForm(false);
@@ -8579,6 +8683,13 @@ function App() {
                 ))}
               </select>
             </label>
+            {renderOwnerQuickSelect({
+              ownerLabel: "거래자",
+              testId: "transaction-owner-quick-select",
+              selectedValue: txForm.owner_user_id,
+              disabled: transactionFormDisabled,
+              onSelect: applyTransactionOwnerOption,
+            })}
             {renderLegacyOwnerRemapHelper({
               ownerUserId: txForm.owner_user_id,
               ownerName: txForm.owner_name,
@@ -8737,9 +8848,16 @@ function App() {
             <option key={option.value} value={option.value}>
               {option.label}
             </option>
-          ))}
-        </select>
+            ))}
+          </select>
       </label>
+      {renderOwnerQuickSelect({
+        ownerLabel: "거래자",
+        testId: "transaction-owner-quick-select",
+        selectedValue: txForm.owner_user_id,
+        disabled: transactionFormDisabled,
+        onSelect: applyTransactionOwnerOption,
+      })}
       {renderLegacyOwnerRemapHelper({
         ownerUserId: txForm.owner_user_id,
         ownerName: txForm.owner_name,
@@ -10279,12 +10397,13 @@ function App() {
                   <select
                     value={ownerSelectValue(holdingForm.owner_user_id, holdingForm.owner_name)}
                     disabled={!canEditRecords}
-                    onChange={(event) =>
+                    onChange={(event) => {
+                      setHoldingOwnerTouched(true);
                       setHoldingForm({
                         ...holdingForm,
                         ...ownerSelectionFromValue(event.target.value, holdingFormOwnerOptions),
-                      })
-                    }
+                      });
+                    }}
                   >
                     <option value="">(선택 안함)</option>
                     {holdingFormOwnerOptions.map((option) => (
@@ -10294,16 +10413,25 @@ function App() {
                     ))}
                   </select>
                 </label>
+                {renderOwnerQuickSelect({
+                  ownerLabel: "보유자",
+                  testId: "holding-owner-quick-select",
+                  selectedValue: holdingForm.owner_user_id,
+                  disabled: !canEditRecords,
+                  onSelect: applyHoldingOwnerOption,
+                })}
                 {renderLegacyOwnerRemapHelper({
                   ownerUserId: holdingForm.owner_user_id,
                   ownerName: holdingForm.owner_name,
                   disabled: !canEditRecords,
-                  onApply: (target) =>
+                  onApply: (target) => {
+                    setHoldingOwnerTouched(true);
                     setHoldingForm((prev) => ({
                       ...prev,
                       owner_user_id: target.value,
                       owner_name: target.displayName,
-                    })),
+                    }));
+                  },
                 })}
                 <label>
                   계좌
@@ -10388,7 +10516,10 @@ function App() {
                     type="button"
                     className="secondary"
                     disabled={!canEditRecords}
-                    onClick={() => setHoldingForm(createHoldingForm(holdingForm.asset_type, holdingForm.type_key, holdingFormType?.label))}
+                    onClick={() => {
+                      setHoldingOwnerTouched(false);
+                      setHoldingForm(createHoldingForm(holdingForm.asset_type, holdingForm.type_key, holdingFormType?.label));
+                    }}
                   >
                     초기화
                   </button>

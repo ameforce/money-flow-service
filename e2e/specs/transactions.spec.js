@@ -1903,6 +1903,30 @@ test("mobile quick entry defaults owner to current user over recent other member
   await capture(page, "transactions-quick-entry-current-owner");
 });
 
+test("desktop transaction entry defaults owner and exposes quick member selection", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("tx-owner-default-desktop")}@example.com`;
+  const displayName = "댕";
+  await registerAndVerify(page, { email, displayName });
+  const currentUser = await page.evaluate(async () => {
+    const response = await fetch("/api/v1/auth/me", { credentials: "include" });
+    return response.json();
+  });
+
+  const transactionSheet = await openTransactionEntrySheet(page, { width: 1440, height: 900 });
+  const ownerSelect = labeledField(transactionSheet, "거래자", "select");
+  await expect(ownerSelect).toHaveValue(currentUser.id);
+  await expect(ownerSelect.locator("option:checked")).toContainText(displayName);
+
+  const ownerQuickSelect = transactionSheet.getByTestId("transaction-owner-quick-select");
+  await expect(ownerQuickSelect).toBeVisible();
+  const currentUserChip = ownerQuickSelect.getByRole("button", { name: `${displayName} 거래자 선택` });
+  await expect(currentUserChip).toBeVisible();
+  await expect(currentUserChip).toHaveAttribute("aria-pressed", "true");
+  await capture(page, "issue-201-transaction-owner-quick-select");
+});
+
 test("mobile quick entry keeps owner override and filters ordered category chips", async ({ page }) => {
   test.setTimeout(180_000);
 
