@@ -35,8 +35,21 @@ const AUTH_LAYOUT_PROFILES = [
   { name: "mobile-standard-signup", width: 390, height: 844, font: "Noto Sans KR", mobile: true },
 ];
 
+async function resetViewportScroll(page) {
+  await page.evaluate(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    for (const element of [document.scrollingElement, document.documentElement, document.body]) {
+      if (!element) {
+        continue;
+      }
+      element.scrollTop = 0;
+      element.scrollLeft = 0;
+    }
+  });
+}
+
 async function scrollViewportToTop(page) {
-  await page.evaluate(() => window.scrollTo({ top: 0, left: 0, behavior: "auto" }));
+  await resetViewportScroll(page);
   await expect
     .poll(() => page.evaluate(() => Math.max(window.scrollY, document.documentElement.scrollTop, document.body.scrollTop)), {
       message: "viewport should settle at the top before measuring chrome",
@@ -64,6 +77,19 @@ async function expectMobileTabBarStable(page) {
   await scrollViewportToTop(page);
 
   const nav = page.locator("nav.topbar-tabs");
+  await expect
+    .poll(
+      async () => {
+        await resetViewportScroll(page);
+        return nav.evaluate((element) => element.getBoundingClientRect().top);
+      },
+      {
+        message: "mobile nav should be back at the top before chrome measurements",
+        timeout: 2_500,
+      },
+    )
+    .toBeGreaterThanOrEqual(-2);
+
   await expect(nav).toBeVisible();
   await expect(nav).toHaveCSS("background-color", "rgb(255, 255, 255)");
 
