@@ -18,6 +18,7 @@ import {
   labeledField,
   openTab,
   registerAndVerify,
+  selectFirstNonEmptyOption,
   unique,
 } from "../support/helpers";
 
@@ -843,6 +844,44 @@ async function openMobileTransactionQuickEntry(page) {
   return transactionSheet;
 }
 
+async function openTransactionEntrySheet(page, viewport = { width: 1440, height: 900 }) {
+  await page.setViewportSize(viewport);
+  await openTab(page, "거래");
+  await page.waitForLoadState("networkidle");
+  const transactionFab = page.getByTestId("transactions-fab");
+  const transactionSheet = page.getByTestId("transaction-entry-sheet");
+  await expect(transactionFab).toBeVisible();
+  await expect(transactionFab).toBeEnabled();
+  await transactionFab.click();
+  await expect(transactionSheet).toBeVisible();
+  return transactionSheet;
+}
+
+async function openTransactionQuickDetails(transactionSheet, summaryText) {
+  const details = transactionSheet.locator("details.transaction-quick-details", { hasText: summaryText }).first();
+  await expect(details.locator("summary")).toBeVisible();
+  const isOpen = await details.evaluate((element) => element.open);
+  if (!isOpen) {
+    await details.locator("summary").click();
+  }
+  await expect(details).toHaveJSProperty("open", true);
+  return details;
+}
+
+async function selectTransactionFormCategory(container, category) {
+  const majorSelect = labeledField(container, "카테고리 그룹", "select");
+  await expect(majorSelect).toBeVisible();
+  await majorSelect.selectOption(category.major);
+  const categorySelect = container
+    .locator("label")
+    .filter({ hasText: /^\s*카테고리\s*\(/ })
+    .locator("select")
+    .first();
+  await expect(categorySelect).toBeEnabled();
+  await categorySelect.selectOption(String(category.id));
+  return { majorSelect, categorySelect };
+}
+
 async function expectMobileQuickEntryDefaults(page, transactionSheet) {
   const today = currentE2EHistoryDateIso();
   const dateInput = labeledField(transactionSheet, "일자", "input");
@@ -1041,6 +1080,114 @@ test("mobile quick entry creates an expense through amount-first chip path", asy
 
   const createdRow = page.locator("tr.transaction-row", { hasText: memo }).first();
   await expect(createdRow).toBeVisible({ timeout: 20_000 });
+});
+
+test("desktop transaction entry keeps repeat context after save", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("tx-repeat-desktop")}@example.com`;
+  const displayName = unique("tx-repeat-desktop-name");
+  const category = await (async () => {
+    await registerAndVerify(page, { email, displayName });
+    return createCategoryViaApi(page, {
+      major: unique("반복입력"),
+      minor: unique("영수증"),
+    });
+  })();
+  await page.reload();
+  await page.waitForLoadState("networkidle");
+  const firstMemo = unique("tx-repeat-desktop-first");
+  const secondMemo = unique("tx-repeat-desktop-second");
+  const occurredOn = currentE2EHistoryDateIso(-2);
+
+  const transactionSheet = await openTransactionEntrySheet(page, { width: 1440, height: 900 });
+  const amountInput = labeledField(transactionSheet, "금액", "input");
+  const memoInput = labeledField(transactionSheet, "메모", "input");
+  const dateInput = labeledField(transactionSheet, "일자", "input");
+  const typeSelect = labeledField(transactionSheet, "유형", "select");
+  const ownerSelect = labeledField(transactionSheet, "거래자", "select");
+
+  await dateInput.fill(occurredOn);
+  await typeSelect.selectOption("expense");
+  const { majorSelect, categorySelect } = await selectTransactionFormCategory(transactionSheet, category);
+  await selectFirstNonEmptyOption(ownerSelect);
+  const ownerValue = await ownerSelect.inputValue();
+  await amountInput.fill("12345");
+  await memoInput.fill(firstMemo);
+  await capture(page, "transactions-repeat-desktop-before-save");
+
+  await transactionSheet.getByRole("button", { name: "거래 등록" }).click();
+  await expect(page.locator("tr.transaction-row", { hasText: firstMemo }).first()).toBeVisible({ timeout: 20_000 });
+
+  await expect(transactionSheet).toBeVisible();
+  await expect(amountInput).toHaveValue("");
+  await expect(memoInput).toHaveValue("");
+  await expect(dateInput).toHaveValue(occurredOn);
+  await expect(typeSelect).toHaveValue("expense");
+  await expect(majorSelect).toHaveValue(category.major);
+  await expect(categorySelect).toHaveValue(String(category.id));
+  await expect(ownerSelect).toHaveValue(ownerValue);
+  await expect(amountInput).toBeFocused();
+  await capture(page, "transactions-repeat-desktop-context-preserved");
+
+  await amountInput.fill("23456");
+  await memoInput.fill(secondMemo);
+  await transactionSheet.getByRole("button", { name: "거래 등록" }).click();
+  await expect(page.locator("tr.transaction-row", { hasText: secondMemo }).first()).toBeVisible({ timeout: 20_000 });
+});
+
+test("mobile quick entry keeps repeat context and returns focus to amount", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("tx-repeat-mobile")}@example.com`;
+  const displayName = unique("tx-repeat-mobile-name");
+  await registerAndVerify(page, { email, displayName });
+  const category = await createCategoryViaApi(page, {
+    major: unique("반복모바일"),
+    minor: unique("영수증"),
+  });
+  await page.reload();
+  await page.waitForLoadState("networkidle");
+  const firstMemo = unique("tx-repeat-mobile-first");
+  const secondMemo = unique("tx-repeat-mobile-second");
+  const occurredOn = currentE2EHistoryDateIso(-1);
+
+  const transactionSheet = await openMobileTransactionQuickEntry(page);
+  const quickAmount = page.getByTestId("transaction-quick-amount");
+  const memoInput = labeledField(transactionSheet, "메모", "input");
+
+  await openTransactionQuickDetails(transactionSheet, "추가 입력");
+  const dateInput = labeledField(transactionSheet, "일자", "input");
+  const typeSelect = labeledField(transactionSheet, "유형", "select");
+  const ownerSelect = labeledField(transactionSheet, "거래자", "select");
+  await dateInput.fill(occurredOn);
+  await typeSelect.selectOption("expense");
+  await selectFirstNonEmptyOption(ownerSelect);
+  const ownerValue = await ownerSelect.inputValue();
+  await openTransactionQuickDetails(transactionSheet, "전체 카테고리");
+  const { majorSelect, categorySelect } = await selectTransactionFormCategory(transactionSheet, category);
+  await quickAmount.fill("12345");
+  await memoInput.fill(firstMemo);
+  await capture(page, "transactions-repeat-mobile-before-save");
+
+  await page.getByTestId("transaction-quick-save").click();
+  await expect(page.locator("tr.transaction-row", { hasText: firstMemo }).first()).toBeVisible({ timeout: 20_000 });
+
+  await expect(transactionSheet).toBeVisible();
+  await expect(quickAmount).toHaveValue("");
+  await expect(memoInput).toHaveValue("");
+  await expect(dateInput).toHaveValue(occurredOn);
+  await expect(typeSelect).toHaveValue("expense");
+  await expect(majorSelect).toHaveValue(category.major);
+  await expect(categorySelect).toHaveValue(String(category.id));
+  await expect(ownerSelect).toHaveValue(ownerValue);
+  await expect(quickAmount).toBeFocused();
+  await capture(page, "transactions-repeat-mobile-context-preserved");
+
+  await quickAmount.fill("23456");
+  await memoInput.fill(secondMemo);
+  await page.getByTestId("transaction-quick-save").click();
+  await expect(page.locator("tr.transaction-row", { hasText: secondMemo }).first()).toBeVisible({ timeout: 20_000 });
 });
 
 test("mobile quick entry rejects decimal KRW amount immediately", async ({ page }) => {

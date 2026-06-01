@@ -995,6 +995,9 @@ export async function createBasicTransaction(
     await expect(txToggleButton).toContainText("거래 추가", { timeout: 20_000 });
     await expect(txToggleButton).toBeEnabled();
   } else {
+    if (await transactionSheet.isVisible().catch(() => false)) {
+      await page.getByTestId("transaction-entry-sheet-close").click();
+    }
     await expect(transactionSheet).toBeHidden({ timeout: 20_000 });
   }
   return row;
