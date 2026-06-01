@@ -23,6 +23,36 @@ async function dismissVisibleMessage(page) {
   }
 }
 
+test("collaboration invite empty email uses Korean inline validation", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("issue-215-invite-validation")}@example.com`;
+  await registerAndVerify(page, { email, displayName: unique("issue-215-owner") });
+  await page.setViewportSize({ width: 390, height: 844 });
+
+  await openTab(page, "협업");
+  const collaborationCard = page.locator("article.card", {
+    has: page.getByRole("heading", { name: "가계 협업 관리" }),
+  });
+  await collaborationCard.scrollIntoViewIfNeeded();
+  const inviteEmailInput = labeledField(collaborationCard, "초대할 이메일", "input");
+  await expect(inviteEmailInput).toBeVisible();
+  await inviteEmailInput.fill("");
+  await capture(page, "issue-215-invite-email-empty-entry");
+
+  await collaborationCard.getByRole("button", { name: "초대 발송" }).click();
+
+  const inlineError = collaborationCard.locator("#collaboration-invite-email-error");
+  await expect(inlineError).toBeVisible();
+  await expect(inlineError).toHaveText("초대할 이메일을 입력해 주세요.");
+  await expect(inviteEmailInput).toBeFocused();
+  await expect(inviteEmailInput).toHaveAttribute("aria-invalid", "true");
+  await expect(inviteEmailInput).toHaveAttribute("aria-describedby", "collaboration-invite-email-error");
+  const validationMessage = await inviteEmailInput.evaluate((element) => element.validationMessage);
+  expect(validationMessage).toBe("초대할 이메일을 입력해 주세요.");
+  await capture(page, "issue-215-invite-email-korean-inline-error");
+});
+
 test("localized form validation replaces native bubbles and mobile messages wrap", async ({ page }) => {
   test.setTimeout(180_000);
 
@@ -76,11 +106,11 @@ test("localized form validation replaces native bubbles and mobile messages wrap
   const collaborationCard = page.locator("article.card", { has: page.getByRole("heading", { name: "가계 협업 관리" }) });
   await collaborationCard.scrollIntoViewIfNeeded();
   await collaborationCard.getByRole("button", { name: "초대 발송" }).click();
-  await expectMessageFullyVisible(page, "초대 이메일을 입력해 주세요.");
+  await expectMessageFullyVisible(page, "초대할 이메일을 입력해 주세요.");
   await dismissVisibleMessage(page);
 
   await labeledField(collaborationCard, "초대할 이메일", "input").fill("not-an-email");
   await collaborationCard.getByRole("button", { name: "초대 발송" }).click();
-  await expectMessageFullyVisible(page, "올바른 초대 이메일 주소를 입력해 주세요.");
+  await expectMessageFullyVisible(page, "올바른 초대할 이메일 주소를 입력해 주세요.");
   await capture(page, "validation-ui-mobile-message");
 });

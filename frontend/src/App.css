@@ -2347,6 +2347,18 @@ label {
   overflow-wrap: anywhere;
 }
 
+.field-error {
+  color: var(--mf-color-red-500);
+  font-weight: 700;
+}
+
+input[aria-invalid="true"],
+select[aria-invalid="true"],
+textarea[aria-invalid="true"] {
+  border-color: var(--mf-color-red-500);
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.14);
+}
+
 input,
 select,
 button,
