@@ -630,6 +630,21 @@ class ImportIssue(BaseModel):
     detail: dict[str, Any] | None = None
 
 
+class ImportAppliedTransactionRef(BaseModel):
+    id: str
+    occurred_on: date
+    memo: str
+    source_ref: str | None = None
+
+
+class ImportAppliedHoldingRef(BaseModel):
+    id: str
+    name: str
+    category: str | None = None
+    source_ref: str | None = None
+    action: Literal["added", "updated"]
+
+
 class ImportReport(BaseModel):
     workbook_path: str
     sheets: int
@@ -646,6 +661,8 @@ class ImportReport(BaseModel):
     applied_holdings_added: int
     applied_holdings_updated: int
     skipped_transactions: int
+    applied_transaction_refs: list[ImportAppliedTransactionRef] = Field(default_factory=list)
+    applied_holding_refs: list[ImportAppliedHoldingRef] = Field(default_factory=list)
     issues: list[ImportIssue]
 
 

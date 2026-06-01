@@ -278,14 +278,22 @@ test("import flow: workbook dry-run and apply", async ({ page }, testInfo) => {
   await expectNoHorizontalOverflow(page, 12);
   await capture(page, "import-mobile-apply-result");
 
-  await page.getByRole("button", { name: "거래", exact: true }).click();
-  await page.getByLabel("연도", { exact: true }).fill("2026");
-  await page.getByLabel("월", { exact: true }).fill("3");
-  await page.getByLabel("월", { exact: true }).press("Enter");
-  await expect(page.locator("tr.transaction-row", { hasText: importTxMemo }).first()).toBeVisible();
+  const postApplyActions = workbookReport.locator(".import-post-apply-actions");
+  await expect(postApplyActions.getByRole("button", { name: "가져온 거래 보기", exact: true })).toBeVisible();
+  await expect(postApplyActions.getByRole("button", { name: "가져온 자산 보기", exact: true })).toBeVisible();
+  await expect(postApplyActions.getByRole("button", { name: "수정 시작", exact: true })).toBeVisible();
 
-  await page.getByRole("button", { name: "자산", exact: true }).click();
-  await expect(page.locator("tr", { hasText: importHoldingName }).first()).toBeVisible();
+  await postApplyActions.getByRole("button", { name: "가져온 거래 보기", exact: true }).click();
+  const importedTransactionRow = page.locator("tr.transaction-row.transaction-row-imported", { hasText: importTxMemo }).first();
+  await expect(importedTransactionRow).toBeVisible();
+  await expect(importedTransactionRow).toHaveAttribute("data-import-highlight", "true");
+
+  await page.getByRole("button", { name: "데이터 가져오기", exact: true }).click();
+  await postApplyActions.getByRole("button", { name: "가져온 자산 보기", exact: true }).click();
+  const importedHoldingRow = page.locator("tr.holding-row.holding-row-imported", { hasText: importHoldingName }).first();
+  await expect(importedHoldingRow).toBeVisible();
+  await expect(importedHoldingRow).toHaveAttribute("data-import-highlight", "true");
+
   await capture(page, "import-apply-result");
 });
 

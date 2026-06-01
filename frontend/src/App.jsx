@@ -724,6 +724,48 @@ function formatImportReportCsv(rows) {
   return [header.join(","), ...body].join("\n");
 }
 
+function normalizeImportAppliedTransactionRefs(report) {
+  return (Array.isArray(report?.applied_transaction_refs) ? report.applied_transaction_refs : [])
+    .map((item) => ({
+      id: String(item?.id || "").trim(),
+      occurred_on: String(item?.occurred_on || "").trim(),
+      memo: String(item?.memo || "").trim(),
+      source_ref: String(item?.source_ref || "").trim(),
+    }))
+    .filter((item) => item.id);
+}
+
+function normalizeImportAppliedHoldingRefs(report) {
+  return (Array.isArray(report?.applied_holding_refs) ? report.applied_holding_refs : [])
+    .map((item) => ({
+      id: String(item?.id || "").trim(),
+      name: String(item?.name || "").trim(),
+      category: String(item?.category || "").trim(),
+      source_ref: String(item?.source_ref || "").trim(),
+      action: String(item?.action || "").trim(),
+    }))
+    .filter((item) => item.id);
+}
+
+function getImportRefMonth(ref) {
+  const key = String(ref?.occurred_on || "").slice(0, 7);
+  return parseYearMonthKey(key);
+}
+
+function scrollToDataRow(attributeName, value) {
+  const targetValue = String(value || "").trim();
+  if (!targetValue || typeof window === "undefined" || typeof document === "undefined") {
+    return;
+  }
+  window.requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
+      const rows = Array.from(document.querySelectorAll(`[${attributeName}]`));
+      const row = rows.find((item) => item.getAttribute(attributeName) === targetValue);
+      row?.scrollIntoView?.({ block: "center", inline: "nearest", behavior: "smooth" });
+    });
+  });
+}
+
 function todayIso() {
   const now = new Date();
   const month = String(now.getMonth() + 1).padStart(2, "0");
@@ -1932,6 +1974,10 @@ function App() {
   const [holdings, setHoldings] = useState([]);
   const [priceStatus, setPriceStatus] = useState(null);
   const [importReport, setImportReport] = useState(null);
+  const [recentImportTransactionIds, setRecentImportTransactionIds] = useState(() => new Set());
+  const [recentImportHoldingIds, setRecentImportHoldingIds] = useState(() => new Set());
+  const [pendingImportEditTransactionId, setPendingImportEditTransactionId] = useState("");
+  const [pendingImportEditHoldingId, setPendingImportEditHoldingId] = useState("");
   const [migrationReport, setMigrationReport] = useState(null);
   const [importReportSearch, setImportReportSearch] = useState("");
   const [importReportSeverityFilter, setImportReportSeverityFilter] = useState("all");
@@ -2360,6 +2406,43 @@ function App() {
     [holdingTypeOptions]
   );
   const holdingById = useMemo(() => new Map(holdings.map((item) => [item.id, item])), [holdings]);
+  useEffect(() => {
+    if (!pendingImportEditTransactionId || tab !== "transactions") {
+      return;
+    }
+    const item = transactionById.get(pendingImportEditTransactionId);
+    if (!item) {
+      return;
+    }
+    setTxInlineEdit({
+      id: item.id,
+      version: item.version,
+      occurred_on: item.occurred_on,
+      flow_type: item.flow_type,
+      amount: normalizeDecimalInputValue(item.amount),
+      category_id: item.category_id || "",
+      category_major: categoryById.get(String(item.category_id || ""))?.major || "",
+      memo: item.memo || "",
+      owner_user_id: item.owner_user_id || "",
+      owner_name: item.owner_name || "",
+    });
+    setExpandedTransactionRows((prev) => new Set(prev).add(item.id));
+    setPendingImportEditTransactionId("");
+    scrollToDataRow("data-transaction-id", item.id);
+  }, [categoryById, pendingImportEditTransactionId, tab, transactionById]);
+  useEffect(() => {
+    if (!pendingImportEditHoldingId || tab !== "holdings") {
+      return;
+    }
+    const row = holdingById.get(pendingImportEditHoldingId);
+    if (!row) {
+      return;
+    }
+    setHoldingInlineEdit(createHoldingInlineEditForm(row));
+    setExpandedHoldingRows((prev) => new Set(prev).add(row.id));
+    setPendingImportEditHoldingId("");
+    scrollToDataRow("data-holding-id", row.id);
+  }, [holdingById, pendingImportEditHoldingId, tab]);
   const holdingUpdatedAtById = useMemo(
     () => new Map(holdings.map((item) => [item.id, item.updated_at])),
     [holdings]
@@ -2798,6 +2881,15 @@ function App() {
     [importReport]
   );
   const importReportRows = useMemo(() => normalizeImportReportRows(importReport), [importReport]);
+  const importAppliedTransactionRefs = useMemo(
+    () => normalizeImportAppliedTransactionRefs(importReport),
+    [importReport]
+  );
+  const importAppliedHoldingRefs = useMemo(
+    () => normalizeImportAppliedHoldingRefs(importReport),
+    [importReport]
+  );
+  const hasImportPostApplyTargets = importAppliedTransactionRefs.length > 0 || importAppliedHoldingRefs.length > 0;
   const importReportSeverityOptions = useMemo(
     () =>
       Array.from(new Set(importReportRows.map((row) => row.severity)))
@@ -4058,6 +4150,10 @@ function App() {
     setRecentInviteIds([]);
     receivedInviteIdsRef.current = new Set();
     setImportReport(null);
+    setRecentImportTransactionIds(new Set());
+    setRecentImportHoldingIds(new Set());
+    setPendingImportEditTransactionId("");
+    setPendingImportEditHoldingId("");
     setMigrationReport(null);
     setMigrationPackageFile(null);
     setMigrationLoadingMode("");
@@ -6227,6 +6323,55 @@ function App() {
     setMessage("정리 표 CSV를 다운로드했습니다.");
   }
 
+  async function showImportedTransactions({ startEdit = false } = {}) {
+    if (importAppliedTransactionRefs.length === 0) {
+      setMessage("가져온 거래가 없습니다.");
+      return;
+    }
+    const ids = importAppliedTransactionRefs.map((item) => item.id);
+    const firstRef = importAppliedTransactionRefs[0];
+    const targetMonth = getImportRefMonth(firstRef) || yearMonthRef.current;
+    setRecentImportTransactionIds(new Set(ids));
+    setRecentImportHoldingIds(new Set());
+    clearTxListFilter();
+    setFilterMode("month");
+    filterModeRef.current = "month";
+    setYearMonth(targetMonth);
+    yearMonthRef.current = targetMonth;
+    if (startEdit) {
+      setPendingImportEditTransactionId(firstRef.id);
+    }
+    setTab("transactions");
+    await refreshDataWithUiFeedback({ filterMode: "month", yearMonth: targetMonth });
+    scrollToDataRow("data-transaction-id", firstRef.id);
+  }
+
+  function showImportedHoldings({ startEdit = false } = {}) {
+    if (importAppliedHoldingRefs.length === 0) {
+      setMessage("가져온 자산이 없습니다.");
+      return;
+    }
+    const ids = importAppliedHoldingRefs.map((item) => item.id);
+    const firstRef = importAppliedHoldingRefs[0];
+    setRecentImportHoldingIds(new Set(ids));
+    setRecentImportTransactionIds(new Set());
+    setHoldingListTab("all");
+    setHoldingTypeFilter("all");
+    if (startEdit) {
+      setPendingImportEditHoldingId(firstRef.id);
+    }
+    setTab("holdings");
+    scrollToDataRow("data-holding-id", firstRef.id);
+  }
+
+  async function startImportedCorrection() {
+    if (importAppliedTransactionRefs.length > 0) {
+      await showImportedTransactions({ startEdit: true });
+      return;
+    }
+    showImportedHoldings({ startEdit: true });
+  }
+
   async function doImport(mode) {
     if (!canEditRecords) {
       setMessage(uiGuideMessage("현재 권한으로는 데이터를 가져올 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
@@ -6253,8 +6398,15 @@ function App() {
       );
       setImportReport(report);
       if (mode === "apply") {
+        setRecentImportTransactionIds(new Set(normalizeImportAppliedTransactionRefs(report).map((item) => item.id)));
+        setRecentImportHoldingIds(new Set(normalizeImportAppliedHoldingRefs(report).map((item) => item.id)));
         await loadAuthContext(token);
         await refreshData(false);
+      } else {
+        setRecentImportTransactionIds(new Set());
+        setRecentImportHoldingIds(new Set());
+        setPendingImportEditTransactionId("");
+        setPendingImportEditHoldingId("");
       }
       setMessage(`${IMPORT_MODE_LABELS[mode] || mode} 완료`);
     } catch (error) {
@@ -6850,6 +7002,7 @@ function App() {
     const ownerInitial = extractVisibleInitial(item.owner_name);
     const holdingCompactMeta = item.category || typeLabel || "-";
     const isExpanded = expandedHoldingRows.has(item.holding_id);
+    const isRecentlyImported = recentImportHoldingIds.has(item.holding_id);
     const holdingMobilePriority = (fieldKey) => getWorkSurfaceMobilePriority("holdings", fieldKey);
     const handleHoldingEditToggle = () => {
       if (!canEditRecords) {
@@ -6867,7 +7020,9 @@ function App() {
     return (
       <Fragment key={rowKey}>
         <tr
-          className={`holding-row ${isEditing ? "holding-row-editing" : ""} ${isExpanded ? "mobile-row-expanded" : ""}`}
+          className={`holding-row ${isEditing ? "holding-row-editing" : ""} ${isExpanded ? "mobile-row-expanded" : ""} ${isRecentlyImported ? "holding-row-imported" : ""}`}
+          data-holding-id={item.holding_id}
+          data-import-highlight={isRecentlyImported ? "true" : undefined}
           style={rowColor ? {
             "--holding-row-cue": rowColor,
             "--holding-row-wash-strong": withAlpha(rowColor, holdingColorMode === "none" ? 0.22 : 0.3),
@@ -7224,6 +7379,10 @@ function App() {
     setPortfolio(null);
     setPriceStatus(null);
     setImportReport(null);
+    setRecentImportTransactionIds(new Set());
+    setRecentImportHoldingIds(new Set());
+    setPendingImportEditTransactionId("");
+    setPendingImportEditHoldingId("");
     setImportMode("workbook");
     setImportFile(null);
     setImportLoadingMode("");
@@ -9601,6 +9760,7 @@ function App() {
               historyLoadingOlder={transactionHistoryLoading.older}
               historyLoadingNewer={transactionHistoryLoading.newer}
               selectedTransactionIds={selectedTransactionIds}
+              recentImportTransactionIds={recentImportTransactionIds}
               toggleTransactionSelection={toggleTransactionSelection}
               selectTransactionRows={selectTransactionRows}
               setTransactionRowsSelected={setTransactionRowsSelected}
@@ -11503,6 +11663,38 @@ function App() {
                       <div className="import-summary-item"><strong>적용된 거래</strong><span>{fmt(importReport.applied_transactions)}</span></div>
                       <div className="import-summary-item"><strong>적용된 보유(추가/수정)</strong><span>{fmt(importReport.applied_holdings_added)} / {fmt(importReport.applied_holdings_updated)}</span></div>
                     </div>
+                    {hasImportPostApplyTargets && (
+                      <section className="import-post-apply-actions" aria-label="가져오기 적용 후 이동">
+                        <div className="import-post-apply-copy">
+                          <strong>적용한 항목 바로가기</strong>
+                          <span>
+                            거래 {fmt(importAppliedTransactionRefs.length)}건 · 자산 {fmt(importAppliedHoldingRefs.length)}건을
+                            목록에서 바로 확인하고 수정할 수 있습니다.
+                          </span>
+                        </div>
+                        <div className="import-post-apply-buttons">
+                          <button
+                            type="button"
+                            className="secondary-btn"
+                            disabled={importAppliedTransactionRefs.length === 0}
+                            onClick={() => showImportedTransactions()}
+                          >
+                            가져온 거래 보기
+                          </button>
+                          <button
+                            type="button"
+                            className="secondary-btn"
+                            disabled={importAppliedHoldingRefs.length === 0}
+                            onClick={() => showImportedHoldings()}
+                          >
+                            가져온 자산 보기
+                          </button>
+                          <button type="button" className="primary" onClick={() => startImportedCorrection()}>
+                            수정 시작
+                          </button>
+                        </div>
+                      </section>
+                    )}
                     <div className="import-list-grid">
                       <section>
                         <h3>수식 불일치 셀 ({fmt(importReport.monthly_formula_mismatch_count)})</h3>

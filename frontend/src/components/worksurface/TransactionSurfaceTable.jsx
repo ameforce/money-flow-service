@@ -53,6 +53,7 @@ export function TransactionSurfaceTable({
   historyLoadingOlder = false,
   historyLoadingNewer = false,
   selectedTransactionIds,
+  recentImportTransactionIds = new Set(),
   toggleTransactionSelection,
   selectTransactionRows,
   setTransactionRowsSelected,
@@ -673,6 +674,7 @@ export function TransactionSurfaceTable({
             const hasConfiguredCategoryColor = Boolean(String(configuredCategoryColor || "").trim());
             const rowAccent = hasConfiguredCategoryColor ? categoryColor : flowAccent;
             const isExpanded = expandedTransactionRows.has(item.id);
+            const isRecentlyImported = recentImportTransactionIds.has(item.id);
             const previousItem = index > 0 ? sortedTransactions[index - 1] : null;
             const shouldRenderDateHeader =
               historyMode && String(previousItem?.occurred_on || "") !== String(item.occurred_on || "");
@@ -714,9 +716,10 @@ export function TransactionSurfaceTable({
                   </tr>
                 )}
                 <tr
-                  className={`transaction-row transaction-row-${item.flow_type} ${isEditing ? "transaction-row-editing" : ""} ${isExpanded ? "mobile-row-expanded" : ""}`}
+                  className={`transaction-row transaction-row-${item.flow_type} ${isEditing ? "transaction-row-editing" : ""} ${isExpanded ? "mobile-row-expanded" : ""} ${isRecentlyImported ? "transaction-row-imported" : ""}`}
                   data-row-expanded={isExpanded ? "true" : "false"}
                   data-row-selected={selectedTransactionIds.has(item.id) ? "true" : "false"}
+                  data-import-highlight={isRecentlyImported ? "true" : undefined}
                   data-transaction-id={item.id}
                   data-transaction-date={item.occurred_on}
                   aria-selected={selectedTransactionIds.has(item.id) ? "true" : "false"}
