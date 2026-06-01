@@ -7,6 +7,7 @@ import {
   assertResponsiveShell,
   capture,
   createImportWorkbook,
+  createTransactionViaApi,
   expectKeyboardReachableInOrder,
   expectNoHorizontalOverflow,
   expectWithinViewport,
@@ -167,6 +168,62 @@ test("import flow: large report exposes full table filters and CSV export", asyn
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toMatch(/^import-report-issues-.*\.csv$/);
   await capture(page, "issue-204-import-report-workbench");
+});
+
+test("import flow: legacy owner values can be explained and bulk remapped", async ({ page }) => {
+  const email = `${unique("import-owner-remap-user")}@example.com`;
+  const displayName = unique("import-owner-remap-name");
+  const legacyOwner = unique("legacy-owner");
+  const firstMemo = unique("legacy-owner-first");
+  const secondMemo = unique("legacy-owner-second");
+
+  await registerAndVerify(page, { email, displayName });
+  await createTransactionViaApi(page, { memo: firstMemo, amount: "11111", ownerName: legacyOwner });
+  await createTransactionViaApi(page, { memo: secondMemo, amount: "22222", ownerName: legacyOwner });
+  await page.reload();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await assertResponsiveShell(page);
+  await page.getByRole("button", { name: "데이터 가져오기", exact: true }).click();
+
+  const cleanup = page.locator(".owner-remap-cleanup");
+  await expect(cleanup.getByRole("heading", { name: "기존 소유자 정리" })).toBeVisible();
+  await expect(cleanup).toContainText("기존 값은 현재 가계 구성원과 연결되지 않은 과거/가져오기 소유자명입니다.");
+  const legacyRow = cleanup.locator(".owner-remap-row", { hasText: legacyOwner });
+  await expect(legacyRow).toContainText("거래 2건");
+  await expect(legacyRow.getByLabel(`${legacyOwner} 매핑 대상`)).toContainText(displayName);
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "issue-202-legacy-owner-remap-mobile-ready");
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(cleanup.getByRole("heading", { name: "기존 소유자 정리" })).toBeVisible();
+  await capture(page, "issue-202-legacy-owner-remap-ready");
+
+  await legacyRow.getByRole("button", { name: "현재 구성원으로 매핑" }).click();
+  await expect(page.getByText(new RegExp(`${legacyOwner} 2건.*${displayName}`))).toBeVisible();
+  await expect(cleanup.locator(".owner-remap-row", { hasText: legacyOwner })).toHaveCount(0);
+  await capture(page, "issue-202-legacy-owner-remap-applied");
+
+  const remappedRows = await page.evaluate(
+    async ({ firstMemo, secondMemo }) => {
+      const activeHouseholdKey = "money-flow-active-household-id";
+      const householdHeaderName = "x-household-id";
+      const householdId = String(localStorage.getItem(activeHouseholdKey) || "").trim();
+      const headers = householdId ? { [householdHeaderName]: householdId } : {};
+      const response = await fetch("/api/v1/transactions?limit=1000", { credentials: "include", headers });
+      const rows = await response.json();
+      return rows
+        .filter((item) => [firstMemo, secondMemo].includes(String(item.memo || "")))
+        .map((item) => ({
+          memo: item.memo,
+          owner_name: item.owner_name,
+          owner_user_id: item.owner_user_id,
+        }));
+    },
+    { firstMemo, secondMemo }
+  );
+
+  expect(remappedRows).toHaveLength(2);
+  expect(remappedRows.every((item) => item.owner_name === displayName && item.owner_user_id)).toBe(true);
 });
 
 test("import flow: workbook dry-run and apply", async ({ page }, testInfo) => {

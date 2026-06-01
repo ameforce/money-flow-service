@@ -3962,6 +3962,88 @@ thead {
   color: #203147;
 }
 
+.owner-remap-cleanup {
+  display: grid;
+  gap: 0.7rem;
+  min-width: 0;
+  border: 1px solid #d2dfef;
+  border-radius: 8px;
+  padding: 0.85rem;
+  background: #f8fbff;
+}
+
+.owner-remap-heading {
+  align-items: start;
+}
+
+.owner-remap-list {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.owner-remap-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(190px, 0.85fr) auto;
+  gap: 0.65rem;
+  align-items: end;
+  min-width: 0;
+  border-top: 1px solid #d8e4f5;
+  padding-top: 0.65rem;
+}
+
+.owner-remap-summary {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.owner-remap-summary strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: #172033;
+}
+
+.owner-remap-summary span {
+  color: #53687f;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.owner-remap-row label {
+  display: grid;
+  gap: 0.25rem;
+  color: #355177;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.owner-remap-row select {
+  min-width: 0;
+  min-height: 2.35rem;
+  border: 1px solid #cbd7e8;
+  border-radius: 8px;
+  padding: 0.46rem 0.58rem;
+  background: #ffffff;
+  color: #172033;
+  font: inherit;
+}
+
+.owner-legacy-helper {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+  color: #53687f;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.inline-owner-remap-btn {
+  min-height: 2rem;
+  padding: 0.32rem 0.55rem;
+  white-space: nowrap;
+}
+
 .import-report-workbench {
   display: grid;
   gap: 0.75rem;
@@ -5808,6 +5890,19 @@ thead {
   .import-action-row button {
     flex: 1 1 auto;
     width: 100%;
+  }
+
+  .owner-remap-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .owner-remap-row button,
+  .inline-owner-remap-btn {
+    width: 100%;
+  }
+
+  .owner-legacy-helper {
+    align-items: stretch;
   }
 
   .import-report-toolbar {
