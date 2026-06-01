@@ -2207,6 +2207,7 @@ function App() {
   const txDateInputRef = useRef(null);
   const txAmountInputRef = useRef(null);
   const txQuickMemoInputRef = useRef(null);
+  const txMemoInputRef = useRef(null);
   const txQuickFormRef = useRef(null);
   const txQuickLastFocusedFieldRef = useRef(null);
   const txQuickFocusScrollTimersRef = useRef([]);
@@ -3785,9 +3786,9 @@ function App() {
     txQuickFormRef.current?.requestSubmit?.();
   }
 
-  function applyTransactionCategory(categoryId) {
+  function applyTransactionCategory(categoryId, categoryOverride = null) {
     const normalizedCategoryId = String(categoryId || "").trim();
-    const category = categoryById.get(normalizedCategoryId);
+    const category = categoryOverride || categoryById.get(normalizedCategoryId);
     setTxForm((prev) => ({ ...prev, category_id: normalizedCategoryId }));
     setTxCategoryMajor(category ? String(category.major || "") : "");
   }
@@ -3795,6 +3796,34 @@ function App() {
   function selectTransactionQuickCategory(categoryId) {
     applyTransactionCategory(categoryId);
     restoreTransactionQuickFocus();
+  }
+
+  function focusTransactionAfterCategoryCreate() {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.setTimeout(() => {
+      const hasAmount = String(txForm.amount || "").trim();
+      const target = isCompactViewport
+        ? txQuickMemoInputRef.current || txAmountInputRef.current
+        : hasAmount
+          ? txMemoInputRef.current || txAmountInputRef.current
+          : txAmountInputRef.current || txMemoInputRef.current;
+      target?.focus?.({ preventScroll: false });
+    }, 0);
+  }
+
+  function focusTxInlineAfterCategoryCreate() {
+    if (typeof window === "undefined" || typeof document === "undefined") {
+      return;
+    }
+    window.setTimeout(() => {
+      const editorRow = document.querySelector("tr.transaction-inline-editor-row");
+      const target =
+        editorRow?.querySelector('input[aria-label="메모"]') ||
+        editorRow?.querySelector('input[aria-label="금액"]');
+      target?.focus?.({ preventScroll: false });
+    }, 0);
   }
 
   function openHoldingEntrySheet() {
@@ -5310,6 +5339,16 @@ function App() {
     return "";
   }
 
+  function validateInlineCategoryCreateDraft(draft) {
+    if (!String(draft?.major || "").trim()) {
+      return "새 대분류를 입력해 주세요.";
+    }
+    if (!String(draft?.minor || "").trim()) {
+      return "첫 중분류를 입력해 주세요.";
+    }
+    return "";
+  }
+
   function validateHoldingForm(form, { tracked, showAverageCost }) {
     const nameMessage = validateRequiredText(form.name, "자산명을 입력해 주세요.");
     if (nameMessage) {
@@ -6373,6 +6412,93 @@ function App() {
       setMessage(uiGuideMessage("카테고리를 추가했습니다.", "거래 입력 폼 옵션에도 즉시 반영되었습니다."));
     } catch (error) {
       setMessage(formatApiError(error, "category_create"));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function createAndApplyTransactionCategory(draft) {
+    const validationMessage = validateInlineCategoryCreateDraft(draft);
+    if (validationMessage) {
+      setMessage(validationMessage);
+      return false;
+    }
+    const flowType = String(txForm.flow_type || "expense").trim() || "expense";
+    setLoading(true);
+    setMessage("");
+    try {
+      const createdCategory = await api(
+        `${API_PREFIX}/categories`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            flow_type: flowType,
+            major: String(draft.major || "").trim(),
+            minor: String(draft.minor || "").trim(),
+          }),
+        },
+        token
+      );
+      const createdId = String(createdCategory?.id || "").trim();
+      setCategoryQuickSelectedId(createdId);
+      await loadAuthContext(token);
+      applyTransactionCategory(createdId, createdCategory);
+      setMessage(uiGuideMessage("카테고리를 추가했습니다.", "새 카테고리를 현재 거래 초안에 바로 적용했습니다."));
+      focusTransactionAfterCategoryCreate();
+      return createdCategory;
+    } catch (error) {
+      setMessage(formatApiError(error, "category_create"));
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function createAndApplyTxInlineCategory(draft) {
+    if (!txInlineEdit) {
+      setMessage("수정 중인 거래가 없습니다.");
+      return false;
+    }
+    const validationMessage = validateInlineCategoryCreateDraft(draft);
+    if (validationMessage) {
+      setMessage(validationMessage);
+      return false;
+    }
+    const editId = txInlineEdit.id;
+    const flowType = String(txInlineEdit.flow_type || "expense").trim() || "expense";
+    setLoading(true);
+    setMessage("");
+    try {
+      const createdCategory = await api(
+        `${API_PREFIX}/categories`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            flow_type: flowType,
+            major: String(draft.major || "").trim(),
+            minor: String(draft.minor || "").trim(),
+          }),
+        },
+        token
+      );
+      const createdId = String(createdCategory?.id || "").trim();
+      setCategoryQuickSelectedId(createdId);
+      await loadAuthContext(token);
+      setTxInlineEdit((prev) =>
+        prev && prev.id === editId
+          ? {
+              ...prev,
+              category_id: createdId,
+              category_major: String(createdCategory?.major || draft.major || "").trim(),
+          }
+          : prev
+      );
+      setMessage(uiGuideMessage("카테고리를 추가했습니다.", "새 카테고리를 수정 중인 거래에 바로 적용했습니다."));
+      focusTxInlineAfterCategoryCreate();
+      return createdCategory;
+    } catch (error) {
+      setMessage(formatApiError(error, "category_create"));
+      return false;
     } finally {
       setLoading(false);
     }
@@ -8566,7 +8692,10 @@ function App() {
           quickOptions={transactionQuickCategoryChips}
           selectedCategoryId={selectedCategoryId}
           disabled={transactionFormDisabled}
+          allowCreate={canEditHouseholdData}
+          createDisabled={!canEditHouseholdData}
           onSelect={selectTransactionQuickCategory}
+          onCreate={createAndApplyTransactionCategory}
           title="추천 카테고리"
           selectedEmptyText={selectedCategoryLabel}
           searchPlaceholder="카테고리 검색"
@@ -8810,7 +8939,10 @@ function App() {
         quickOptions={transactionQuickCategoryChips}
         selectedCategoryId={txForm.category_id}
         disabled={transactionFormDisabled}
+        allowCreate={canEditHouseholdData}
+        createDisabled={!canEditHouseholdData}
         onSelect={applyTransactionCategory}
+        onCreate={createAndApplyTransactionCategory}
         title="카테고리 빠른 선택"
         rootClassName="transaction-category-picker-desktop"
         toCategoryMajorLabel={toCategoryMajorLabel}
@@ -8854,6 +8986,7 @@ function App() {
       <label>
         메모
         <input
+          ref={txMemoInputRef}
           enterKeyHint="next"
           value={txForm.memo}
           onChange={(e) => setTxForm((prev) => ({ ...prev, memo: e.target.value }))}
@@ -10093,6 +10226,7 @@ function App() {
               txInlineCategoryMajorOptions={txInlineCategoryMajorOptions}
               txInlineCategoryMinorOptions={txInlineCategoryMinorOptions}
               setTxInlineEdit={setTxInlineEdit}
+              createTxInlineCategory={createAndApplyTxInlineCategory}
               categoryById={categoryById}
               renderCategoryCell={renderCategoryCell}
               FLOW_TYPE_LABELS={FLOW_TYPE_LABELS}
@@ -10106,6 +10240,7 @@ function App() {
               expandedTransactionRows={expandedTransactionRows}
               toggleExpandedTransactionRow={toggleExpandedTransactionRow}
               canEditRecords={canEditRecords}
+              canEditHouseholdData={canEditHouseholdData}
               loading={loading}
               closeTxInlineEdit={closeTxInlineEdit}
               removeTx={removeTx}
