@@ -1534,6 +1534,45 @@ function toCategoryPairLabel(category) {
   return `${toCategoryMajorLabel(category.major)} / ${toCategoryMinorLabel(category.minor)}`;
 }
 
+function normalizeCategoryFlowType(value) {
+  return String(value || "expense").trim() || "expense";
+}
+
+function findCompatibleCategoryForFlow(categories, sourceCategory, flowType) {
+  if (!sourceCategory) {
+    return null;
+  }
+  const targetFlowType = normalizeCategoryFlowType(flowType);
+  const sourceMajor = normalizeCategoryText(sourceCategory.major);
+  const sourceMinor = normalizeCategoryText(sourceCategory.minor);
+  if (!sourceMajor || !sourceMinor) {
+    return null;
+  }
+  return (
+    (categories || []).find((candidate) => {
+      if (normalizeCategoryFlowType(candidate?.flow_type) !== targetFlowType) {
+        return false;
+      }
+      return (
+        normalizeCategoryText(candidate?.major) === sourceMajor &&
+        normalizeCategoryText(candidate?.minor) === sourceMinor
+      );
+    }) || null
+  );
+}
+
+function buildCategoryRestoreSnapshot(category) {
+  if (!category?.id) {
+    return null;
+  }
+  return {
+    flow_type: normalizeCategoryFlowType(category.flow_type),
+    category_id: String(category.id || ""),
+    category_major: String(category.major || ""),
+    label: toCategoryPairLabel(category),
+  };
+}
+
 function buildTransactionCategoryQuickChips({ categoryOptions, categoryById, flowType, transactionItems }) {
   const normalizedFlowType = String(flowType || "expense").trim() || "expense";
   const usageByCategoryId = new Map();
@@ -2168,6 +2207,7 @@ function App() {
 
   const [txForm, setTxForm] = useState(() => createTransactionForm());
   const [txCategoryMajor, setTxCategoryMajor] = useState("");
+  const [txCategoryRestore, setTxCategoryRestore] = useState(null);
   const [txListFilter, setTxListFilter] = useState({
     keyword: "",
     flow_type: "all",
@@ -3585,6 +3625,7 @@ function App() {
   function resetTransactionDraft() {
     setTxForm(createTransactionForm(normalizeIsoDateKey(transactionHistoryToday, todayIso())));
     setTxCategoryMajor("");
+    setTxCategoryRestore(null);
     setShowTransactionQuickResume(false);
     setTxQuickOwnerTouched(false);
     if (isCompactViewport && showTransactionForm) {
@@ -3791,11 +3832,88 @@ function App() {
     const category = categoryOverride || categoryById.get(normalizedCategoryId);
     setTxForm((prev) => ({ ...prev, category_id: normalizedCategoryId }));
     setTxCategoryMajor(category ? String(category.major || "") : "");
+    setTxCategoryRestore(null);
   }
 
   function selectTransactionQuickCategory(categoryId) {
     applyTransactionCategory(categoryId);
     restoreTransactionQuickFocus();
+  }
+
+  function changeTransactionFlowType(nextFlowType) {
+    const normalizedFlowType = normalizeCategoryFlowType(nextFlowType);
+    if (normalizedFlowType === txForm.flow_type) {
+      return;
+    }
+    const selectedCategory = categoryById.get(String(txForm.category_id || ""));
+    const compatibleCategory = findCompatibleCategoryForFlow(categories, selectedCategory, normalizedFlowType);
+    setTxForm((prev) => ({
+      ...prev,
+      flow_type: normalizedFlowType,
+      category_id: compatibleCategory ? String(compatibleCategory.id || "") : "",
+    }));
+    setTxCategoryMajor(compatibleCategory ? String(compatibleCategory.major || "") : "");
+    if (compatibleCategory) {
+      setTxCategoryRestore(null);
+      setMessage(
+        uiGuideMessage(
+          "유형에 맞는 카테고리를 유지했습니다.",
+          `${toCategoryPairLabel(compatibleCategory)} 카테고리로 이어서 입력합니다.`
+        )
+      );
+      return;
+    }
+    const restoreSnapshot = buildCategoryRestoreSnapshot(selectedCategory);
+    setTxCategoryRestore(restoreSnapshot);
+    if (restoreSnapshot) {
+      setMessage(
+        uiGuideMessage(
+          "카테고리 선택을 비웠습니다.",
+          "선택한 유형에 같은 카테고리가 없어 필요하면 이전 카테고리를 복구하세요."
+        )
+      );
+    }
+  }
+
+  function restoreTransactionCategorySelection() {
+    if (!txCategoryRestore) {
+      return;
+    }
+    setTxForm((prev) => ({
+      ...prev,
+      flow_type: txCategoryRestore.flow_type,
+      category_id: txCategoryRestore.category_id,
+    }));
+    setTxCategoryMajor(txCategoryRestore.category_major);
+    setTxCategoryRestore(null);
+    setMessage(
+      uiGuideMessage(
+        "이전 카테고리를 복구했습니다.",
+        `${FLOW_TYPE_LABELS[txCategoryRestore.flow_type] || txCategoryRestore.flow_type} · ${txCategoryRestore.label}`
+      )
+    );
+  }
+
+  function renderTransactionCategoryRestoreNotice() {
+    if (!txCategoryRestore) {
+      return null;
+    }
+    return (
+      <div className="tx-category-restore-notice" data-testid="transaction-category-restore-notice" role="status">
+        <span>
+          <strong>카테고리 선택을 비웠습니다.</strong>
+          <small>이전 선택: {txCategoryRestore.label}</small>
+        </span>
+        <button
+          type="button"
+          className="secondary"
+          data-testid="transaction-category-restore-button"
+          onClick={restoreTransactionCategorySelection}
+        >
+          이전 카테고리 복구
+        </button>
+      </div>
+    );
   }
 
   function focusTransactionAfterCategoryCreate() {
@@ -4313,6 +4431,7 @@ function App() {
       return;
     }
     setTxCategoryMajor("");
+    setTxCategoryRestore(null);
     setTxForm((prev) => ({ ...prev, category_id: "" }));
     closeTxInlineEdit();
     setHoldingInlineEdit(null);
@@ -5911,6 +6030,7 @@ function App() {
         token
       );
       setTxForm(repeatForm);
+      setTxCategoryRestore(null);
       setShowTransactionEntryBanner(false);
       setTxEntrySheetStep("form");
       setShowTransactionQuickResume(false);
@@ -8738,6 +8858,7 @@ function App() {
                 disabled={transactionFormDisabled}
                 onChange={(e) => {
                   setTxCategoryMajor(e.target.value);
+                  setTxCategoryRestore(null);
                   setTxForm((prev) => ({ ...prev, category_id: "" }));
                 }}
               >
@@ -8755,7 +8876,10 @@ function App() {
                 enterKeyHint="next"
                 value={txForm.category_id}
                 disabled={transactionFormDisabled || !txCategoryMajor}
-                onChange={(e) => setTxForm((prev) => ({ ...prev, category_id: e.target.value }))}
+                onChange={(e) => {
+                  setTxCategoryRestore(null);
+                  setTxForm((prev) => ({ ...prev, category_id: e.target.value }));
+                }}
               >
                 <option value="">(선택 안함)</option>
                 {categoryMinorOptions.map((item) => (
@@ -8798,10 +8922,7 @@ function App() {
                 enterKeyHint="next"
                 value={txForm.flow_type}
                 disabled={transactionFormDisabled}
-                onChange={(e) => {
-                  setTxForm((prev) => ({ ...prev, flow_type: e.target.value, category_id: "" }));
-                  setTxCategoryMajor("");
-                }}
+                onChange={(e) => changeTransactionFlowType(e.target.value)}
               >
                 {FLOW_TYPE_OPTIONS.map((item) => (
                   <option key={item.value} value={item.value}>
@@ -8810,6 +8931,7 @@ function App() {
                 ))}
               </select>
             </label>
+            {renderTransactionCategoryRestoreNotice()}
             <label>
               거래자
               <select
@@ -8909,10 +9031,7 @@ function App() {
           enterKeyHint="next"
           value={txForm.flow_type}
           disabled={transactionFormDisabled}
-          onChange={(e) => {
-            setTxForm((prev) => ({ ...prev, flow_type: e.target.value, category_id: "" }));
-            setTxCategoryMajor("");
-          }}
+          onChange={(e) => changeTransactionFlowType(e.target.value)}
         >
           {FLOW_TYPE_OPTIONS.map((item) => (
             <option key={item.value} value={item.value}>
@@ -8921,6 +9040,7 @@ function App() {
           ))}
         </select>
       </label>
+      {renderTransactionCategoryRestoreNotice()}
       <label>
         금액
         <input
@@ -8956,6 +9076,7 @@ function App() {
           disabled={transactionFormDisabled}
           onChange={(e) => {
             setTxCategoryMajor(e.target.value);
+            setTxCategoryRestore(null);
             setTxForm((prev) => ({ ...prev, category_id: "" }));
           }}
         >
@@ -8973,7 +9094,10 @@ function App() {
           enterKeyHint="next"
           value={txForm.category_id}
           disabled={transactionFormDisabled || !txCategoryMajor}
-          onChange={(e) => setTxForm((prev) => ({ ...prev, category_id: e.target.value }))}
+          onChange={(e) => {
+            setTxCategoryRestore(null);
+            setTxForm((prev) => ({ ...prev, category_id: e.target.value }));
+          }}
         >
           <option value="">(선택 안함)</option>
           {categoryMinorOptions.map((item) => (
