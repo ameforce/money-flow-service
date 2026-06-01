@@ -13,6 +13,7 @@ import {
 import { Doughnut, Line } from "react-chartjs-2";
 import { IsoDateInput } from "./components/IsoDateInput";
 import { HoldingSurfaceTable } from "./components/worksurface/HoldingSurfaceTable";
+import { TransactionCategoryQuickPicker } from "./components/worksurface/TransactionCategoryQuickPicker";
 import { TransactionSurfaceTable } from "./components/worksurface/TransactionSurfaceTable";
 import { extractVisibleInitial, resolveSemanticColor, withAlpha } from "./components/worksurface/colorSemantics";
 import { getWorkSurfaceMobilePriority } from "./components/worksurface/fieldPriority";
@@ -1533,6 +1534,90 @@ function toCategoryPairLabel(category) {
   return `${toCategoryMajorLabel(category.major)} / ${toCategoryMinorLabel(category.minor)}`;
 }
 
+function buildTransactionCategoryQuickChips({ categoryOptions, categoryById, flowType, transactionItems }) {
+  const normalizedFlowType = String(flowType || "expense").trim() || "expense";
+  const usageByCategoryId = new Map();
+  const toComparableTime = (item) => {
+    const explicitTime = Date.parse(String(item?.updated_at || item?.created_at || ""));
+    if (Number.isFinite(explicitTime)) {
+      return explicitTime;
+    }
+    const dateKey = normalizeIsoDateKey(item?.occurred_on, "");
+    const dateTime = Date.parse(dateKey);
+    return Number.isFinite(dateTime) ? dateTime : 0;
+  };
+
+  for (const item of transactionItems || []) {
+    if (String(item?.flow_type || "").trim() !== normalizedFlowType) {
+      continue;
+    }
+    const categoryId = String(item?.category_id || "").trim();
+    const category = categoryById.get(categoryId);
+    if (!category || String(category.flow_type || "").trim() !== normalizedFlowType) {
+      continue;
+    }
+    const occurredOn = normalizeIsoDateKey(item?.occurred_on, "");
+    const latestTime = toComparableTime(item);
+    const prev = usageByCategoryId.get(categoryId) || { category, count: 0, latestTime: 0, latestDate: "" };
+    prev.count += 1;
+    if (!prev.latestDate || (occurredOn && occurredOn > prev.latestDate)) {
+      prev.latestDate = occurredOn;
+      prev.latestTime = latestTime;
+    } else if (occurredOn && occurredOn === prev.latestDate) {
+      prev.latestTime = Math.max(prev.latestTime, latestTime);
+    } else if (!occurredOn) {
+      prev.latestTime = Math.max(prev.latestTime, latestTime);
+    }
+    usageByCategoryId.set(categoryId, prev);
+  }
+
+  const recentChips = Array.from(usageByCategoryId.entries())
+    .map(([id, info]) => ({
+      id,
+      label: toCategoryPairLabel(info.category),
+      count: info.count,
+      latestTime: info.latestTime,
+      latestDate: info.latestDate,
+    }))
+    .sort((left, right) => {
+      if (left.latestDate !== right.latestDate) {
+        return right.latestDate.localeCompare(left.latestDate);
+      }
+      if (left.latestTime !== right.latestTime) {
+        return right.latestTime - left.latestTime;
+      }
+      if (left.count !== right.count) {
+        return right.count - left.count;
+      }
+      const labelOrder = left.label.localeCompare(right.label, "ko");
+      return labelOrder || left.id.localeCompare(right.id);
+    });
+
+  if (recentChips.length > 0) {
+    return recentChips.slice(0, 6);
+  }
+
+  return [...(categoryOptions || [])]
+    .filter((category) => String(category?.id || "").trim())
+    .sort((left, right) => {
+      const leftOrder = Number(left?.display_order ?? left?.sort_order ?? 0);
+      const rightOrder = Number(right?.display_order ?? right?.sort_order ?? 0);
+      if (Number.isFinite(leftOrder) && Number.isFinite(rightOrder) && leftOrder !== rightOrder) {
+        return leftOrder - rightOrder;
+      }
+      const labelOrder = toCategoryPairLabel(left).localeCompare(toCategoryPairLabel(right), "ko");
+      return labelOrder || String(left?.id || "").localeCompare(String(right?.id || ""));
+    })
+    .slice(0, 6)
+    .map((category) => ({
+      id: String(category.id || ""),
+      label: toCategoryPairLabel(category),
+      count: 0,
+      latestTime: 0,
+      latestDate: "",
+    }));
+}
+
 function onboardingSeenKey(userId, householdId) {
   const normalizedUserId = String(userId || "").trim();
   const normalizedHouseholdId = String(householdId || "").trim();
@@ -1850,6 +1935,10 @@ function isFocusableFormField(control) {
   );
 }
 
+function isSequentialEnterField(control) {
+  return Boolean(isFocusableFormField(control) && control.getAttribute("data-skip-enter-flow") !== "true");
+}
+
 function App() {
   const [token, setToken] = useState("");
   const [authReady, setAuthReady] = useState(false);
@@ -1959,9 +2048,9 @@ function App() {
       if (!form) {
         return;
       }
-      const fields = Array.from(form.querySelectorAll(MOBILE_FORM_FIELD_SELECTOR)).filter(isFocusableFormField);
+      const fields = Array.from(form.querySelectorAll(MOBILE_FORM_FIELD_SELECTOR)).filter(isSequentialEnterField);
       const currentIndex = fields.indexOf(target);
-      const nextField = fields.slice(currentIndex + 1).find(isFocusableFormField);
+      const nextField = fields.slice(currentIndex + 1).find(isSequentialEnterField);
       if (!nextField) {
         return;
       }
@@ -2306,89 +2395,26 @@ function App() {
         .sort((left, right) => Number(right.amount) - Number(left.amount)),
     }));
   }, [categoryById, sortedTransactions]);
-  const transactionQuickCategoryChips = useMemo(() => {
-    const flowType = String(txForm.flow_type || "expense").trim() || "expense";
-    const usageByCategoryId = new Map();
-    const toComparableTime = (item) => {
-      const explicitTime = Date.parse(String(item?.updated_at || item?.created_at || ""));
-      if (Number.isFinite(explicitTime)) {
-        return explicitTime;
-      }
-      const dateKey = normalizeIsoDateKey(item?.occurred_on, "");
-      const dateTime = Date.parse(dateKey);
-      return Number.isFinite(dateTime) ? dateTime : 0;
-    };
-
-    for (const item of transactionLedgerItems) {
-      if (String(item?.flow_type || "").trim() !== flowType) {
-        continue;
-      }
-      const categoryId = String(item?.category_id || "").trim();
-      const category = categoryById.get(categoryId);
-      if (!category || String(category.flow_type || "").trim() !== flowType) {
-        continue;
-      }
-      const occurredOn = normalizeIsoDateKey(item?.occurred_on, "");
-      const latestTime = toComparableTime(item);
-      const prev = usageByCategoryId.get(categoryId) || { category, count: 0, latestTime: 0, latestDate: "" };
-      prev.count += 1;
-      if (!prev.latestDate || (occurredOn && occurredOn > prev.latestDate)) {
-        prev.latestDate = occurredOn;
-        prev.latestTime = latestTime;
-      } else if (occurredOn && occurredOn === prev.latestDate) {
-        prev.latestTime = Math.max(prev.latestTime, latestTime);
-      } else if (!occurredOn) {
-        prev.latestTime = Math.max(prev.latestTime, latestTime);
-      }
-      usageByCategoryId.set(categoryId, prev);
-    }
-
-    const recentChips = Array.from(usageByCategoryId.entries())
-      .map(([id, info]) => ({
-        id,
-        label: toCategoryPairLabel(info.category),
-        count: info.count,
-        latestTime: info.latestTime,
-        latestDate: info.latestDate,
-      }))
-      .sort((left, right) => {
-        if (left.latestDate !== right.latestDate) {
-          return right.latestDate.localeCompare(left.latestDate);
-        }
-        if (left.latestTime !== right.latestTime) {
-          return right.latestTime - left.latestTime;
-        }
-        if (left.count !== right.count) {
-          return right.count - left.count;
-        }
-        const labelOrder = left.label.localeCompare(right.label, "ko");
-        return labelOrder || left.id.localeCompare(right.id);
-      });
-
-    if (recentChips.length > 0) {
-      return recentChips.slice(0, 6);
-    }
-
-    return [...categoryOptions]
-      .filter((category) => String(category?.id || "").trim())
-      .sort((left, right) => {
-        const leftOrder = Number(left?.display_order ?? left?.sort_order ?? 0);
-        const rightOrder = Number(right?.display_order ?? right?.sort_order ?? 0);
-        if (Number.isFinite(leftOrder) && Number.isFinite(rightOrder) && leftOrder !== rightOrder) {
-          return leftOrder - rightOrder;
-        }
-        const labelOrder = toCategoryPairLabel(left).localeCompare(toCategoryPairLabel(right), "ko");
-        return labelOrder || String(left?.id || "").localeCompare(String(right?.id || ""));
-      })
-      .slice(0, 6)
-      .map((category) => ({
-        id: String(category.id || ""),
-        label: toCategoryPairLabel(category),
-        count: 0,
-        latestTime: 0,
-        latestDate: "",
-      }));
-  }, [categoryById, categoryOptions, transactionLedgerItems, txForm.flow_type]);
+  const transactionQuickCategoryChips = useMemo(
+    () =>
+      buildTransactionCategoryQuickChips({
+        categoryOptions,
+        categoryById,
+        flowType: txForm.flow_type,
+        transactionItems: transactionLedgerItems,
+      }),
+    [categoryById, categoryOptions, transactionLedgerItems, txForm.flow_type]
+  );
+  const txInlineCategoryQuickChips = useMemo(
+    () =>
+      buildTransactionCategoryQuickChips({
+        categoryOptions: txInlineCategoryOptions,
+        categoryById,
+        flowType: txInlineEdit?.flow_type,
+        transactionItems: transactionLedgerItems,
+      }),
+    [categoryById, transactionLedgerItems, txInlineCategoryOptions, txInlineEdit?.flow_type]
+  );
   const selectedTransactionSummary = useMemo(() => {
     let count = 0;
     let amount = 0;
@@ -3659,7 +3685,7 @@ function App() {
     if (!quickForm) {
       return [];
     }
-    return Array.from(quickForm.querySelectorAll(MOBILE_FORM_FIELD_SELECTOR)).filter(isFocusableFormField);
+    return Array.from(quickForm.querySelectorAll(MOBILE_FORM_FIELD_SELECTOR)).filter(isSequentialEnterField);
   }
 
   function getTransactionQuickFocusTarget() {
@@ -3759,11 +3785,15 @@ function App() {
     txQuickFormRef.current?.requestSubmit?.();
   }
 
-  function selectTransactionQuickCategory(categoryId) {
+  function applyTransactionCategory(categoryId) {
     const normalizedCategoryId = String(categoryId || "").trim();
     const category = categoryById.get(normalizedCategoryId);
     setTxForm((prev) => ({ ...prev, category_id: normalizedCategoryId }));
     setTxCategoryMajor(category ? String(category.major || "") : "");
+  }
+
+  function selectTransactionQuickCategory(categoryId) {
+    applyTransactionCategory(categoryId);
     restoreTransactionQuickFocus();
   }
 
@@ -8531,35 +8561,23 @@ function App() {
           </button>
         )}
 
-        <section className="transaction-quick-category-panel" aria-label="추천 카테고리">
-          <div className="transaction-quick-section-title">
-            <span>추천 카테고리</span>
-            <small>{selectedCategoryLabel}</small>
-          </div>
-          <div className="transaction-quick-category-chips">
-            {transactionQuickCategoryChips.length > 0 ? (
-              transactionQuickCategoryChips.map((chip) => {
-                const isSelected = selectedCategoryId === chip.id;
-                return (
-                  <button
-                    key={chip.id}
-                    type="button"
-                    className={`transaction-quick-category-chip${isSelected ? " selected" : ""}`}
-                    data-testid="transaction-quick-category-chip"
-                    aria-pressed={isSelected}
-                    onClick={() => selectTransactionQuickCategory(chip.id)}
-                    disabled={transactionFormDisabled}
-                  >
-                    <span>{chip.label}</span>
-                    {chip.count > 0 && <small>최근 {chip.count}회</small>}
-                  </button>
-                );
-              })
-            ) : (
-              <p className="table-summary">아직 사용할 수 있는 카테고리가 없습니다. 카테고리 관리에서 먼저 만들어 주세요.</p>
-            )}
-          </div>
-        </section>
+        <TransactionCategoryQuickPicker
+          categories={categoryOptions}
+          quickOptions={transactionQuickCategoryChips}
+          selectedCategoryId={selectedCategoryId}
+          disabled={transactionFormDisabled}
+          onSelect={selectTransactionQuickCategory}
+          title="추천 카테고리"
+          selectedEmptyText={selectedCategoryLabel}
+          searchPlaceholder="카테고리 검색"
+          rootClassName="transaction-quick-category-panel"
+          titleClassName="transaction-quick-section-title"
+          optionsClassName="transaction-quick-category-chips"
+          optionClassName="transaction-quick-category-chip"
+          optionTestId="transaction-quick-category-chip"
+          toCategoryMajorLabel={toCategoryMajorLabel}
+          toCategoryMinorLabel={toCategoryMinorLabel}
+        />
 
         <label className="transaction-quick-memo-field">
           메모
@@ -8787,6 +8805,17 @@ function App() {
           required
         />
       </label>
+      <TransactionCategoryQuickPicker
+        categories={categoryOptions}
+        quickOptions={transactionQuickCategoryChips}
+        selectedCategoryId={txForm.category_id}
+        disabled={transactionFormDisabled}
+        onSelect={applyTransactionCategory}
+        title="카테고리 빠른 선택"
+        rootClassName="transaction-category-picker-desktop"
+        toCategoryMajorLabel={toCategoryMajorLabel}
+        toCategoryMinorLabel={toCategoryMinorLabel}
+      />
       <label>
         카테고리 그룹
         <select
@@ -10059,6 +10088,8 @@ function App() {
               ownerOptionsWithFallback={ownerOptionsWithFallback}
               ownerSelectValue={ownerSelectValue}
               txInlineCategoryMajor={txInlineCategoryMajor}
+              txInlineCategoryOptions={txInlineCategoryOptions}
+              txInlineCategoryQuickChips={txInlineCategoryQuickChips}
               txInlineCategoryMajorOptions={txInlineCategoryMajorOptions}
               txInlineCategoryMinorOptions={txInlineCategoryMinorOptions}
               setTxInlineEdit={setTxInlineEdit}
