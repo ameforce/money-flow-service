@@ -4998,11 +4998,15 @@ function App() {
   }
 
   async function resendVerification() {
+    const email = String(verifyForm.email || authForm.email || "").trim();
+    if (!email) {
+      setMessage(uiGuideMessage("이메일을 입력해 주세요.", "인증 메일을 받을 이메일 주소를 입력한 뒤 재전송해 주세요."));
+      return;
+    }
     setLoading(true);
     setMessage("");
     try {
       await loadClientConfig();
-      const email = String(verifyForm.email || authForm.email || "").trim();
       const payload = await api(`${API_PREFIX}/auth/resend-verification`, {
         method: "POST",
         body: JSON.stringify({ email }),
@@ -8145,7 +8149,8 @@ function App() {
     const resendLimit = Math.max(0, Number(verificationMeta.resendLimit || 0));
     const resendUsedCount = Math.max(0, Number(verificationMeta.resendUsedCount || 0));
     const resendRemainingCount = resendLimit > 0 ? Math.max(0, resendLimit - resendUsedCount) : null;
-    const resendDisabled = loading || resendRemainingSeconds > 0 || resendRemainingCount === 0;
+    const resendEmailReady = Boolean(String(verifyForm.email || authForm.email || "").trim());
+    const resendDisabled = loading || !resendEmailReady || resendRemainingSeconds > 0 || resendRemainingCount === 0;
     const resendWaitText = resendRemainingSeconds > 0 ? `${formatDurationKo(resendRemainingSeconds)} 후 가능` : "지금 가능";
     const requiresVerificationPasswordSetup = authMode === "verify" && Boolean(verifyForm.requires_password_setup);
     const verifyTokenText = String(verifyForm.token || "").trim();
@@ -8155,6 +8160,7 @@ function App() {
     const verificationSubmitReady =
       authMode !== "verify" || requiresVerificationPasswordSetup || Boolean(verifyTokenText || verificationCodeReady);
     const verifySubmitHelperId = "auth-verify-submit-helper";
+    const resendEmailHelperId = "auth-resend-email-helper";
     const authDescription =
       authMode === "verify"
         ? hasPendingInviteToken
@@ -8290,6 +8296,11 @@ function App() {
                       onChange={(e) => setVerifyForm({ ...verifyForm, email: e.target.value })}
                     />
                   </label>
+                  {!resendEmailReady && (
+                    <p id={resendEmailHelperId} className="field-helper auth-submit-helper">
+                      이메일을 입력하면 인증 메일 재전송이 가능합니다.
+                    </p>
+                  )}
                   <label>
                     6자리 인증번호
                     <input
@@ -8401,7 +8412,13 @@ function App() {
                     : "이메일 인증 완료"}
           </button>
           {authMode === "verify" && !requiresVerificationPasswordSetup && (
-            <button type="button" className="secondary" onClick={() => resendVerification().catch(() => undefined)} disabled={resendDisabled}>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => resendVerification().catch(() => undefined)}
+              disabled={resendDisabled}
+              aria-describedby={!resendEmailReady ? resendEmailHelperId : undefined}
+            >
               {resendRemainingCount === 0
                 ? "재전송 횟수 소진"
                 : resendRemainingSeconds > 0

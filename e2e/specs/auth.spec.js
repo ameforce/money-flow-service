@@ -231,6 +231,46 @@ test("auth verification submit waits for a link token or 6-digit code", async ({
   await capture(page, "auth-verify-submit-waits-for-code");
 });
 
+test("auth verification resend requires email before submitting", async ({ page }) => {
+  let resendRequests = 0;
+  await page.route("**/api/v1/auth/resend-verification", async (route) => {
+    resendRequests += 1;
+    const payload = route.request().postDataJSON();
+    await route.fulfill({
+      status: 201,
+      contentType: "application/json",
+      body: JSON.stringify({
+        status: "verification_required",
+        email: payload.email,
+        verification_expires_in_seconds: 600,
+        verification_resend_limit: 3,
+        verification_resend_window_seconds: 300,
+        verification_resend_cooldown_seconds: 60,
+      }),
+    });
+  });
+
+  await page.goto("/#verify_token=bad-token-clean-resend");
+  await expect(page.locator("form.auth-card-verify")).toBeVisible();
+  const emailInput = page.getByLabel("이메일", { exact: true });
+  const resendButton = page.getByRole("button", { name: "인증 메일 재전송" });
+
+  await expect(emailInput).toHaveValue("");
+  await expect(page.getByText("이메일을 입력하면 인증 메일 재전송이 가능합니다.")).toBeVisible();
+  await expect(resendButton).toBeDisabled();
+  expect(resendRequests).toBe(0);
+  await capture(page, "issue-208-resend-email-required");
+
+  await emailInput.fill(`${unique("issue-208-resend")}@example.com`);
+  await expect(resendButton).toBeEnabled();
+  await capture(page, "issue-208-resend-email-ready");
+  await resendButton.click();
+
+  await expect.poll(() => resendRequests).toBe(1);
+  await expect(page.getByText("요청 값이 올바르지 않습니다.")).toHaveCount(0);
+  await capture(page, "issue-208-resend-email-submitted");
+});
+
 test("auth login shows origin guidance for CSRF origin rejection", async ({ page }) => {
   await page.route("**/api/v1/auth/login", async (route) => {
     await route.fulfill({
