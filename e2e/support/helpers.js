@@ -1152,6 +1152,25 @@ export async function createBasicHolding(page, {
   return row;
 }
 
+function resolveWorkbookPythonCommand() {
+  const venvPython = process.platform === "win32"
+    ? path.resolve(".venv", "Scripts", "python.exe")
+    : path.resolve(".venv", "bin", "python");
+  const explicitPython = process.env.E2E_WORKBOOK_PYTHON || process.env.E2E_PYTHON;
+  const candidates = [explicitPython, venvPython].filter(Boolean);
+  for (const candidate of candidates) {
+    if (candidate === explicitPython || fs.existsSync(candidate)) {
+      return { command: candidate, args: ["-c"] };
+    }
+  }
+  try {
+    execFileSync("uv", ["--version"], { stdio: "ignore" });
+    return { command: "uv", args: ["run", "python", "-c"] };
+  } catch {
+    return { command: process.platform === "win32" ? "python" : "python3", args: ["-c"] };
+  }
+}
+
 export function createImportWorkbook(workbookPath, { txMemo, holdingName, categoryMinor }) {
   const script = `
 from datetime import date
@@ -1186,7 +1205,8 @@ cash_ws["H7"] = 123456
 wb.save(path)
 `
     .trim();
-  execFileSync("uv", ["run", "python", "-c", script, workbookPath, txMemo, holdingName, categoryMinor], {
+  const python = resolveWorkbookPythonCommand();
+  execFileSync(python.command, [...python.args, script, workbookPath, txMemo, holdingName, categoryMinor], {
     stdio: "pipe",
   });
 }
