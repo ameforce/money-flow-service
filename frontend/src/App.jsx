@@ -1926,6 +1926,17 @@ function App() {
     setMessage("");
   }
 
+  function switchPublicAuthMode(nextMode) {
+    setAuthMode(nextMode);
+    setMessage("");
+    setAuthForm((prev) => ({
+      ...prev,
+      password: "",
+      password_confirm: "",
+      ...(nextMode === "login" ? { display_name: "" } : {}),
+    }));
+  }
+
   useEffect(() => {
     const normalizedMessage = String(message || "").trim();
     if (!normalizedMessage) {
@@ -8386,21 +8397,21 @@ function App() {
             {authMode === "login" ? (
               <>
                 <span>처음이신가요?</span>
-                <button type="button" className="text-button" onClick={() => { setAuthMode("register"); setMessage(""); }}>
+                <button type="button" className="text-button" onClick={() => switchPublicAuthMode("register")}>
                   회원가입
                 </button>
               </>
             ) : authMode === "register" ? (
               <>
                 <span>이미 계정이 있나요?</span>
-                <button type="button" className="text-button" onClick={() => { setAuthMode("login"); setMessage(""); }}>
+                <button type="button" className="text-button" onClick={() => switchPublicAuthMode("login")}>
                   로그인으로 돌아가기
                 </button>
               </>
             ) : (
               <>
                 <span>인증 링크가 없나요?</span>
-                <button type="button" className="text-button" onClick={() => { setAuthMode("login"); setMessage(""); }}>
+                <button type="button" className="text-button" onClick={() => switchPublicAuthMode("login")}>
                   로그인으로 돌아가기
                 </button>
               </>
