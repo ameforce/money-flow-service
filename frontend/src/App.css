@@ -3094,6 +3094,18 @@ button.danger:active:not(:disabled) {
   color: #355177;
 }
 
+.filter-pending-status {
+  margin: 0;
+  padding: 0.22rem 0.48rem;
+  border: 1px solid #f2c94c;
+  border-radius: 6px;
+  background: #fff7d6;
+  color: #725400;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
 .compact-support-card,
 .compact-inline-details {
   padding: 0.9rem 1rem;

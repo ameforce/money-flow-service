@@ -35,6 +35,18 @@ function yearMonthFromIso(value) {
   return { year, month };
 }
 
+function isMonthlyTransactionsResponse(response, targetYearMonth) {
+  if (response.request().method() !== "GET") {
+    return false;
+  }
+  const url = new URL(response.url());
+  return (
+    url.pathname.endsWith("/api/v1/transactions") &&
+    url.searchParams.get("year") === String(targetYearMonth.year) &&
+    url.searchParams.get("month") === String(targetYearMonth.month)
+  );
+}
+
 async function expectQuickCategoryLayoutStable(page, expectedHint = "추천 카테고리를 탭하면 바로 연결됩니다.") {
   const metrics = await page.locator(".transaction-quick-category-panel").evaluate((panel) => {
     const hint = panel.querySelector(".transaction-quick-section-title small");
@@ -1686,6 +1698,58 @@ test("mobile transaction month stepper keeps usable touch targets", async ({ pag
   expectTransactionMonthTouchTargets(layout, "320px transaction month stepper");
   await expectNoHorizontalOverflow(page, 12);
   await capture(page, "transactions-mobile-month-touch-targets");
+});
+
+test("issue 197: transaction month direct input clearly marks unapplied changes until Enter", async ({ page }) => {
+  test.setTimeout(150_000);
+
+  const email = `${unique("tx-month-apply")}@example.com`;
+  const displayName = unique("tx-month-apply-name");
+  const currentMemo = unique("tx-month-apply-current");
+  const previousMemo = unique("tx-month-apply-previous");
+  const currentDate = currentE2EHistoryDateIso();
+  const previousDate = currentE2EHistoryDateIso(-35);
+  const previousMonth = yearMonthFromIso(previousDate);
+
+  await registerAndVerify(page, { email, displayName });
+  await createTransactionViaApi(page, { memo: currentMemo, amount: "12000", occurredOn: currentDate });
+  await createTransactionViaApi(page, { memo: previousMemo, amount: "34000", occurredOn: previousDate });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openTab(page, "거래");
+
+  const listCard = page.locator(".transaction-list-card").first();
+  await expect(listCard).toBeVisible();
+  await expect(page.locator("tr.transaction-row", { hasText: currentMemo }).first()).toBeVisible({ timeout: 20_000 });
+  await page.waitForLoadState("networkidle");
+
+  const previousMonthRequests = [];
+  page.on("response", (response) => {
+    if (isMonthlyTransactionsResponse(response, previousMonth)) {
+      previousMonthRequests.push(response.url());
+    }
+  });
+
+  await listCard.getByLabel("연도").fill(String(previousMonth.year));
+  await listCard.getByLabel("월").fill(String(previousMonth.month));
+  const pendingStatus = page.getByTestId("transaction-month-pending-status");
+  await expect(pendingStatus).toBeVisible();
+  await expect(pendingStatus).toContainText("변경됨");
+  await expect(pendingStatus).toContainText("Enter");
+  await expect(page.locator("tr.transaction-row", { hasText: currentMemo }).first()).toBeVisible();
+  await page.waitForTimeout(500);
+  expect(previousMonthRequests, "direct month edits should not reload monthly transactions before Enter").toHaveLength(0);
+  await capture(page, "issue-197-month-input-unapplied");
+  await expect(pendingStatus).toBeVisible();
+
+  const appliedResponse = page.waitForResponse(
+    (response) => isMonthlyTransactionsResponse(response, previousMonth),
+    { timeout: 20_000 }
+  );
+  await listCard.getByLabel("월").press("Enter");
+  await appliedResponse;
+  await expect(pendingStatus).toHaveCount(0);
+  await expect(page.locator("tr.transaction-row", { hasText: previousMemo }).first()).toBeVisible({ timeout: 20_000 });
+  await capture(page, "issue-197-month-input-applied");
 });
 
 test("mobile transaction category flow summaries wrap long leading labels", async ({ page }) => {
