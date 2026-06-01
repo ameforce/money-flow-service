@@ -2,6 +2,11 @@ import { expect, test } from "@playwright/test";
 
 import { TEST_PASSWORD, capture, openTab, registerAndVerify, unique } from "../support/helpers";
 
+const PENDING_INVITE_NEUTRAL_TITLE = "초대 토큰을 감지했습니다.";
+const PENDING_INVITE_UNVALIDATED_COPY =
+  "아직 초대 유효성은 확인되지 않았습니다. 로그인 또는 회원가입 후 협업 탭에서 초대를 확인하고 수락해 주세요.";
+const PENDING_INVITE_CONFIRMED_TITLE = "가계부 초대 링크를 확인했습니다.";
+
 test("auth deep-link token policy: query token rejected", async ({ page }) => {
   test.setTimeout(60_000);
 
@@ -75,12 +80,15 @@ test("household invite deep-link token is surfaced before login", async ({ page 
 
   await page.goto("/#invite_token=invite-hash-token");
   await capture(page, "deeplink-invite-token-entry");
-  await expect(page.getByText("가계부 초대 링크를 확인했습니다.", { exact: true })).toBeVisible();
+  await expect(page.getByText(PENDING_INVITE_NEUTRAL_TITLE, { exact: true })).toBeVisible();
+  await expect(page.getByText(PENDING_INVITE_UNVALIDATED_COPY, { exact: true })).toBeVisible();
+  await expect(page.getByText(PENDING_INVITE_CONFIRMED_TITLE, { exact: true })).toHaveCount(0);
   const inviteTokenInput = page.getByLabel("감지된 초대 토큰");
   await expect(inviteTokenInput).toBeVisible();
   await expect(inviteTokenInput).toHaveValue("invite-hash-token");
   await expect(inviteTokenInput).toHaveAttribute("readonly", "");
   await expect.poll(() => page.url()).not.toContain("invite_token=invite-hash-token");
+  await capture(page, "issue-207-invite-token-neutral-copy");
   await capture(page, "deeplink-invite-token-result");
 });
 
@@ -93,7 +101,9 @@ test("household invite hash link refreshes after rejected query token in same ta
   await expect.poll(() => page.url()).not.toContain("verify_token=query-token");
 
   await page.goto("/#invite_token=invite-hash-token");
-  await expect(page.getByText("가계부 초대 링크를 확인했습니다.", { exact: true })).toBeVisible();
+  await expect(page.getByText(PENDING_INVITE_NEUTRAL_TITLE, { exact: true })).toBeVisible();
+  await expect(page.getByText(PENDING_INVITE_UNVALIDATED_COPY, { exact: true })).toBeVisible();
+  await expect(page.getByText(PENDING_INVITE_CONFIRMED_TITLE, { exact: true })).toHaveCount(0);
   await expect(page.getByText("보안을 위해 URL query 토큰은 지원하지 않습니다.")).toHaveCount(0);
   const inviteTokenInput = page.getByLabel("감지된 초대 토큰");
   await expect(inviteTokenInput).toBeVisible();
