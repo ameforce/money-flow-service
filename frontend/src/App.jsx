@@ -7498,6 +7498,15 @@ function App() {
   const packageMissingFile = !migrationPackageFile;
   const packageActionsDisabled =
     Boolean(migrationLoadingMode) || migrationExporting || !canEditRecords || packageMissingFile;
+  const workbookUploadPlaceholder = isCompactViewport
+    ? "탭해서 엑셀 파일을 선택하세요. 파일 앱 또는 기기 저장소에서 업로드할 수 있습니다."
+    : "엑셀 파일을 이곳에 드래그 앤 드롭 하거나 클릭하여 업로드하세요.";
+  const tossUploadPlaceholder = isCompactViewport
+    ? "탭해서 토스 거래내역 이미지를 선택하세요. 사진 앱 또는 기기 저장소에서 업로드할 수 있습니다."
+    : "토스 거래내역 이미지를 이곳에 드래그 앤 드롭 하거나 클릭하여 업로드하세요.";
+  const migrationPackageUploadPlaceholder = isCompactViewport
+    ? "탭해서 추출한 패키지(.zip)를 선택하세요. 파일 앱 또는 기기 저장소에서 업로드할 수 있습니다."
+    : "추출한 패키지(.zip) 파일을 클릭하여 업로드하세요.";
   const memberRoleOptions = canAssignOwner
     ? COLLAB_ROLE_OPTIONS
     : COLLAB_ROLE_OPTIONS.filter((item) => item.value !== "owner");
@@ -10938,7 +10947,7 @@ function App() {
                   {importFile ? (
                     <div className="upload-file-name">선택된 파일: {importFile.name}</div>
                   ) : (
-                    <div className="upload-placeholder">엑셀 파일을 이곳에 드래그 앤 드롭 하거나 클릭하여 업로드하세요.</div>
+                    <div className="upload-placeholder">{workbookUploadPlaceholder}</div>
                   )}
                 </div>
                 {workbookMissingFile && (
@@ -11074,7 +11083,7 @@ function App() {
                       ))}
                     </ul>
                   ) : (
-                    <div className="upload-placeholder">토스 거래내역 이미지를 이곳에 드래그 앤 드롭 하거나 클릭하여 업로드하세요.</div>
+                    <div className="upload-placeholder">{tossUploadPlaceholder}</div>
                   )}
                 </div>
                 <div className="inline import-actions">
@@ -11301,7 +11310,7 @@ function App() {
                 {migrationPackageFile ? (
                   <div className="upload-file-name">선택된 패키지: {migrationPackageFile.name}</div>
                 ) : (
-                  <div className="upload-placeholder">추출한 패키지(.zip) 파일을 클릭하여 업로드하세요.</div>
+                  <div className="upload-placeholder">{migrationPackageUploadPlaceholder}</div>
                 )}
               </div>
               {packageMissingFile && (
