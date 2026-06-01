@@ -140,6 +140,26 @@ const TRANSACTION_HISTORY_AUTO_FILL_THRESHOLD = 12;
 const TRANSACTION_HISTORY_SENTINEL_ROOT_MARGIN = "360px 0px";
 const IMPORT_MISMATCH_PREVIEW_LIMIT = 20;
 const IMPORT_ISSUE_PREVIEW_LIMIT = 20;
+const IMPORT_REPORT_SORT_OPTIONS = [
+  { value: "row_asc", label: "행 오름차순" },
+  { value: "row_desc", label: "행 내림차순" },
+  { value: "severity", label: "심각도순" },
+  { value: "type", label: "유형순" },
+];
+const IMPORT_REPORT_SEVERITY_LABELS = {
+  error: "오류",
+  warning: "경고",
+  warn: "경고",
+  info: "안내",
+  informational: "안내",
+};
+const IMPORT_REPORT_SEVERITY_RANK = {
+  error: 0,
+  warning: 1,
+  warn: 1,
+  info: 2,
+  informational: 2,
+};
 const MOBILE_BREAKPOINT_PX = 820;
 const HOLDING_SUMMARY_SCROLL_OFFSET_PX = 96;
 const SOCKET_STATUS_LABELS = {
@@ -596,6 +616,112 @@ function fmtDate(value) {
     month: "2-digit",
     day: "2-digit",
   });
+}
+
+function normalizeImportReportSeverity(value, fallback = "info") {
+  const normalized = String(value || "").trim().toLowerCase();
+  return normalized || fallback;
+}
+
+function formatImportReportSeverity(value) {
+  const normalized = normalizeImportReportSeverity(value);
+  return IMPORT_REPORT_SEVERITY_LABELS[normalized] || normalized.toUpperCase();
+}
+
+function parseImportMismatchCell(value) {
+  const text = String(value || "").trim();
+  const parts = text.split("!");
+  const rawCell = parts.pop() || text;
+  const sheet = parts.join("!").replace(/^'|'$/g, "");
+  const rowMatch = rawCell.match(/(\d+)/);
+  return {
+    sheet,
+    row: rowMatch ? Number(rowMatch[1]) : null,
+    target: text,
+  };
+}
+
+function normalizeImportReportRows(report) {
+  const mismatchRows = (report?.detected_mismatch_cells || []).map((cell, index) => {
+    const parsed = parseImportMismatchCell(cell);
+    return {
+      id: `mismatch-${index}`,
+      source: "formula_mismatch",
+      type: "formula_mismatch",
+      typeLabel: "수식 불일치",
+      severity: "warning",
+      severityLabel: "경고",
+      sheet: parsed.sheet,
+      row: parsed.row,
+      target: parsed.target,
+      message: "월별 수식과 계산값이 일치하지 않습니다.",
+    };
+  });
+  const issueRows = (report?.issues || []).map((issue, index) => {
+    const type = String(issue.code || "issue").trim() || "issue";
+    const sheet = String(issue.sheet || "").trim();
+    const row = Number(issue.row || 0) || null;
+    return {
+      id: `issue-${index}`,
+      source: "issue",
+      type,
+      typeLabel: type,
+      severity: normalizeImportReportSeverity(issue.severity, "error"),
+      severityLabel: formatImportReportSeverity(issue.severity || "error"),
+      sheet,
+      row,
+      target: sheet && row ? `${sheet}:${row}` : sheet || (row ? `행 ${row}` : "-"),
+      message: String(issue.message || "").trim() || "가져오기 이슈",
+    };
+  });
+  return [...mismatchRows, ...issueRows].map((row) => ({
+    ...row,
+    searchText: [row.type, row.typeLabel, row.severity, row.severityLabel, row.sheet, row.row, row.target, row.message]
+      .filter((item) => item !== null && item !== undefined)
+      .join(" ")
+      .toLowerCase(),
+  }));
+}
+
+function compareImportReportRowNumber(left, right, direction = "asc") {
+  const leftRow = Number.isFinite(left.row) ? left.row : Number.POSITIVE_INFINITY;
+  const rightRow = Number.isFinite(right.row) ? right.row : Number.POSITIVE_INFINITY;
+  const result = leftRow - rightRow || left.target.localeCompare(right.target, "ko");
+  return direction === "desc" ? -result : result;
+}
+
+function sortImportReportRows(rows, sortMode) {
+  const nextRows = [...rows];
+  if (sortMode === "row_desc") {
+    return nextRows.sort((left, right) => compareImportReportRowNumber(left, right, "desc"));
+  }
+  if (sortMode === "severity") {
+    return nextRows.sort((left, right) => {
+      const leftRank = IMPORT_REPORT_SEVERITY_RANK[left.severity] ?? 9;
+      const rightRank = IMPORT_REPORT_SEVERITY_RANK[right.severity] ?? 9;
+      return leftRank - rightRank || compareImportReportRowNumber(left, right);
+    });
+  }
+  if (sortMode === "type") {
+    return nextRows.sort((left, right) => {
+      const typeCompare = left.typeLabel.localeCompare(right.typeLabel, "ko");
+      return typeCompare || compareImportReportRowNumber(left, right);
+    });
+  }
+  return nextRows.sort((left, right) => compareImportReportRowNumber(left, right));
+}
+
+function csvEscape(value) {
+  const text = String(value ?? "");
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+function formatImportReportCsv(rows) {
+  const header = ["severity", "type", "sheet", "row", "target", "message"];
+  const body = rows.map((row) =>
+    [row.severityLabel, row.typeLabel, row.sheet, row.row || "", row.target, row.message].map(csvEscape).join(",")
+  );
+  return [header.join(","), ...body].join("\n");
 }
 
 function todayIso() {
@@ -1797,6 +1923,10 @@ function App() {
   const [priceStatus, setPriceStatus] = useState(null);
   const [importReport, setImportReport] = useState(null);
   const [migrationReport, setMigrationReport] = useState(null);
+  const [importReportSearch, setImportReportSearch] = useState("");
+  const [importReportSeverityFilter, setImportReportSeverityFilter] = useState("all");
+  const [importReportTypeFilter, setImportReportTypeFilter] = useState("all");
+  const [importReportSort, setImportReportSort] = useState("row_asc");
   const [importMode, setImportMode] = useState("workbook");
   const [tossPreview, setTossPreview] = useState(null);
   const [tossApplyReport, setTossApplyReport] = useState(null);
@@ -2581,6 +2711,32 @@ function App() {
     () => (importReport?.issues || []).slice(0, IMPORT_ISSUE_PREVIEW_LIMIT),
     [importReport]
   );
+  const importReportRows = useMemo(() => normalizeImportReportRows(importReport), [importReport]);
+  const importReportSeverityOptions = useMemo(
+    () =>
+      Array.from(new Set(importReportRows.map((row) => row.severity)))
+        .filter(Boolean)
+        .map((severity) => ({ value: severity, label: formatImportReportSeverity(severity) })),
+    [importReportRows]
+  );
+  const importReportTypeOptions = useMemo(
+    () =>
+      Array.from(new Map(importReportRows.map((row) => [row.type, row.typeLabel])).entries())
+        .map(([value, label]) => ({ value, label }))
+        .sort((left, right) => left.label.localeCompare(right.label, "ko")),
+    [importReportRows]
+  );
+  const importReportVisibleRows = useMemo(() => {
+    const query = importReportSearch.trim().toLowerCase();
+    const filteredRows = importReportRows.filter((row) => {
+      const matchesSearch = !query || row.searchText.includes(query);
+      const matchesSeverity = importReportSeverityFilter === "all" || row.severity === importReportSeverityFilter;
+      const matchesType = importReportTypeFilter === "all" || row.type === importReportTypeFilter;
+      return matchesSearch && matchesSeverity && matchesType;
+    });
+    return sortImportReportRows(filteredRows, importReportSort);
+  }, [importReportRows, importReportSearch, importReportSeverityFilter, importReportSort, importReportTypeFilter]);
+  const importReportCsv = useMemo(() => formatImportReportCsv(importReportVisibleRows), [importReportVisibleRows]);
   const migrationIssuePreview = useMemo(
     () => (migrationReport?.issues || []).slice(0, IMPORT_ISSUE_PREVIEW_LIMIT),
     [migrationReport]
@@ -2589,6 +2745,13 @@ function App() {
   const tossExcludedCandidates = tossPreview?.excluded_candidates || [];
   const tossIncludedCount = tossRows.filter((row) => row.included).length;
   const tossDuplicateCount = tossRows.filter((row) => row.duplicate_group_id).length;
+
+  useEffect(() => {
+    setImportReportSearch("");
+    setImportReportSeverityFilter("all");
+    setImportReportTypeFilter("all");
+    setImportReportSort("row_asc");
+  }, [importReport]);
 
   useEffect(() => {
     setProfileForm(createProfileForm(user));
@@ -5824,6 +5987,48 @@ function App() {
     setShowTransactionEntryBanner(true);
     setTab("transactions");
     openTransactionEntrySheet("form");
+  }
+
+  async function copyImportReportCsv() {
+    if (!importReportVisibleRows.length) {
+      setMessage("복사할 정리 표 행이 없습니다.");
+      return;
+    }
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(importReportCsv);
+      } else {
+        const textarea = document.createElement("textarea");
+        textarea.value = importReportCsv;
+        textarea.setAttribute("readonly", "");
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textarea);
+      }
+      setMessage("정리 표 CSV를 클립보드에 복사했습니다.");
+    } catch {
+      setMessage("브라우저 권한 때문에 CSV 복사에 실패했습니다. 다운로드를 사용하세요.");
+    }
+  }
+
+  function downloadImportReportCsv() {
+    if (!importReportVisibleRows.length) {
+      setMessage("내보낼 정리 표 행이 없습니다.");
+      return;
+    }
+    const blob = new Blob(["\uFEFF", importReportCsv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `import-report-issues-${todayIso()}.csv`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(url);
+    setMessage("정리 표 CSV를 다운로드했습니다.");
   }
 
   async function doImport(mode) {
@@ -11034,6 +11239,129 @@ function App() {
                         )}
                       </section>
                     </div>
+                    {importReportRows.length > 0 && (
+                      <section className="import-report-workbench" aria-labelledby="import-report-workbench-title">
+                        <div className="secondary-table-heading import-report-workbench-heading">
+                          <div className="work-surface-title">
+                            <span className="surface-eyebrow">정리 도구</span>
+                            <h3 id="import-report-workbench-title">문제 정리 표</h3>
+                          </div>
+                          <p className="table-summary">
+                            전체 {fmt(importReportRows.length)}건 · 표시 {fmt(importReportVisibleRows.length)}건
+                          </p>
+                        </div>
+                        <div className="import-report-toolbar">
+                          <label>
+                            <span>검색</span>
+                            <input
+                              type="search"
+                              aria-label="정리 표 검색"
+                              value={importReportSearch}
+                              onChange={(event) => setImportReportSearch(event.target.value)}
+                              placeholder="시트, 행, 유형, 메시지"
+                            />
+                          </label>
+                          <label>
+                            <span>심각도</span>
+                            <select
+                              aria-label="심각도 필터"
+                              value={importReportSeverityFilter}
+                              onChange={(event) => setImportReportSeverityFilter(event.target.value)}
+                            >
+                              <option value="all">전체</option>
+                              {importReportSeverityOptions.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            <span>유형</span>
+                            <select
+                              aria-label="유형 필터"
+                              value={importReportTypeFilter}
+                              onChange={(event) => setImportReportTypeFilter(event.target.value)}
+                            >
+                              <option value="all">전체</option>
+                              {importReportTypeOptions.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            <span>정렬</span>
+                            <select
+                              aria-label="정렬"
+                              value={importReportSort}
+                              onChange={(event) => setImportReportSort(event.target.value)}
+                            >
+                              {IMPORT_REPORT_SORT_OPTIONS.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <div className="import-report-actions">
+                            <button
+                              type="button"
+                              className="secondary-btn"
+                              disabled={importReportVisibleRows.length === 0}
+                              onClick={copyImportReportCsv}
+                            >
+                              CSV 복사
+                            </button>
+                            <button
+                              type="button"
+                              className="secondary-btn"
+                              disabled={importReportVisibleRows.length === 0}
+                              onClick={downloadImportReportCsv}
+                            >
+                              CSV 다운로드
+                            </button>
+                          </div>
+                        </div>
+                        <div className="import-report-table-scroll">
+                          <table className="import-report-table">
+                            <thead>
+                              <tr>
+                                <th scope="col">심각도</th>
+                                <th scope="col">유형</th>
+                                <th scope="col">시트</th>
+                                <th scope="col">행/셀</th>
+                                <th scope="col">메시지</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {importReportVisibleRows.length === 0 ? (
+                                <tr>
+                                  <td colSpan={5}>필터 조건에 맞는 항목이 없습니다.</td>
+                                </tr>
+                              ) : (
+                                importReportVisibleRows.map((row) => (
+                                  <tr key={row.id} id={`import-report-row-${row.id}`}>
+                                    <td>
+                                      <span className="import-report-severity" data-severity={row.severity}>
+                                        {row.severityLabel}
+                                      </span>
+                                    </td>
+                                    <td>{row.typeLabel}</td>
+                                    <td>{row.sheet || "-"}</td>
+                                    <td>
+                                      <a href={`#import-report-row-${row.id}`}>{row.target}</a>
+                                    </td>
+                                    <td>{row.message}</td>
+                                  </tr>
+                                ))
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </section>
+                    )}
                     <details className="report-raw">
                       <summary>원본 JSON 보기</summary>
                       <pre className="report">{JSON.stringify(importReport, null, 2)}</pre>

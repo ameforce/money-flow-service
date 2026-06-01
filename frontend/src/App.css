@@ -3962,6 +3962,135 @@ thead {
   color: #203147;
 }
 
+.import-report-workbench {
+  display: grid;
+  gap: 0.75rem;
+  min-width: 0;
+  border-top: 1px solid #d8e4f5;
+  padding-top: 0.8rem;
+}
+
+.import-report-workbench-heading {
+  align-items: end;
+}
+
+.import-report-toolbar {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.55rem;
+  align-items: end;
+}
+
+.import-report-toolbar label {
+  display: grid;
+  gap: 0.24rem;
+  min-width: 0;
+  color: #355177;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.import-report-toolbar input,
+.import-report-toolbar select {
+  min-width: 0;
+  min-height: 2.35rem;
+  border: 1px solid #cbd7e8;
+  border-radius: 10px;
+  padding: 0.46rem 0.58rem;
+  background: #ffffff;
+  color: #172033;
+  font: inherit;
+}
+
+.import-report-actions {
+  display: flex;
+  flex-wrap: wrap;
+  grid-column: 1 / -1;
+  gap: 0.45rem;
+  justify-content: flex-end;
+}
+
+.import-report-actions .secondary-btn {
+  min-height: 2.35rem;
+  white-space: nowrap;
+}
+
+.import-report-table-scroll {
+  width: 100%;
+  max-height: 360px;
+  overflow: auto;
+  border: 1px solid #d8e4f5;
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.import-report-table {
+  min-width: 760px;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.import-report-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: linear-gradient(180deg, #f4f8ff, #edf4ff);
+  box-shadow: 0 1px 0 #d8e4f5;
+}
+
+.import-report-table th,
+.import-report-table td {
+  padding: 0.44rem 0.5rem;
+  border-bottom: 1px solid #e4ecf7;
+  color: #203147;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  text-align: left;
+  vertical-align: top;
+}
+
+.import-report-table th {
+  color: #355177;
+  font-weight: 800;
+}
+
+.import-report-table tbody tr:hover {
+  background: #f8fbff;
+}
+
+.import-report-table a {
+  color: #1f5f9f;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.import-report-table a:hover {
+  text-decoration: underline;
+}
+
+.import-report-severity {
+  display: inline-flex;
+  min-height: 1.55rem;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.14rem 0.46rem;
+  background: #ecfdf5;
+  color: #047857;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.import-report-severity[data-severity="error"] {
+  background: #fff1f2;
+  color: #be123c;
+}
+
+.import-report-severity[data-severity="warning"],
+.import-report-severity[data-severity="warn"] {
+  background: #fffbeb;
+  color: #b45309;
+}
+
 .category-entry-toolbar {
   gap: 0.5rem;
 }
@@ -5679,6 +5808,22 @@ thead {
   .import-action-row button {
     flex: 1 1 auto;
     width: 100%;
+  }
+
+  .import-report-toolbar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .import-report-actions {
+    justify-content: stretch;
+  }
+
+  .import-report-actions .secondary-btn {
+    flex: 1 1 0;
+  }
+
+  .import-report-table {
+    min-width: 680px;
   }
 
   .collaboration-form-grid .form-actions,
