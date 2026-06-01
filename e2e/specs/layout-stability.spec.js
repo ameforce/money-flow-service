@@ -35,6 +35,16 @@ const AUTH_LAYOUT_PROFILES = [
   { name: "mobile-standard-signup", width: 390, height: 844, font: "Noto Sans KR", mobile: true },
 ];
 
+async function scrollViewportToTop(page) {
+  await page.evaluate(() => window.scrollTo({ top: 0, left: 0, behavior: "auto" }));
+  await expect
+    .poll(() => page.evaluate(() => Math.max(window.scrollY, document.documentElement.scrollTop, document.body.scrollTop)), {
+      message: "viewport should settle at the top before measuring chrome",
+      timeout: 1_500,
+    })
+    .toBeLessThanOrEqual(1);
+}
+
 async function applyFontProfile(page, fontFamily) {
   await page.addStyleTag({
     content: `
@@ -50,6 +60,8 @@ async function expectMobileTabBarStable(page) {
   if (!isMobile) {
     return;
   }
+
+  await scrollViewportToTop(page);
 
   const nav = page.locator("nav.topbar-tabs");
   await expect(nav).toBeVisible();
@@ -377,6 +389,34 @@ async function expectHoldingSectionRowsAligned(page) {
   expect(metrics.gapFromHeader).toBeGreaterThanOrEqual(-1);
   expect(metrics.titleCenterOffset).toBeLessThanOrEqual(2.5);
   expect(metrics.titleOverflow).toBeLessThanOrEqual(2);
+}
+
+async function expectLandscapeWorkspaceControlVisible(page, locator, label, { minVisibleHeight = 34 } = {}) {
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await expect(locator).toBeVisible();
+  const metrics = await locator.evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    const topbarBox = document.querySelector(".topbar")?.getBoundingClientRect();
+    const navBox = document.querySelector("nav.topbar-tabs")?.getBoundingClientRect();
+    const visibleTop = Math.max(0, box.top);
+    const visibleBottom = Math.min(window.innerHeight, box.bottom);
+    return {
+      viewportHeight: window.innerHeight,
+      topbarBottom: topbarBox?.bottom ?? 0,
+      navBottom: navBox?.bottom ?? 0,
+      sampleTop: box.top,
+      sampleBottom: box.bottom,
+      sampleHeight: box.height,
+      visibleHeight: Math.max(0, visibleBottom - visibleTop),
+    };
+  });
+
+  expect(metrics.navBottom, `${label} chrome should leave most of 568x320 for work: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(104);
+  expect(metrics.sampleTop, `${label} first work control should start inside first viewport: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(286);
+  expect(
+    metrics.visibleHeight,
+    `${label} first work control should be materially visible without scroll: ${JSON.stringify(metrics)}`,
+  ).toBeGreaterThanOrEqual(Math.min(minVisibleHeight, metrics.sampleHeight));
 }
 
 async function openSignupSurface(page, profile) {
@@ -742,6 +782,53 @@ test("mobile transaction sheet actions keep navigation reachable", async ({ page
   await expect(page.locator(".holding-list-card")).toBeVisible();
 });
 
+test("mobile landscape surfaces show first work controls without immediate scroll", async ({ page }) => {
+  const email = `${unique("landscape-workspace")}@example.com`;
+  const displayName = unique("landscape-workspace-user");
+  const holdingName = "랜드스케이프 첫 화면 검증 자산";
+
+  await page.setViewportSize({ width: 568, height: 320 });
+  await registerAndVerify(page, { email, displayName });
+  await applyFontProfile(page, "Malgun Gothic");
+  await createBasicHolding(page, { name: holdingName, category: "주식" });
+  const savedMessageClose = page.locator(".message .message-close").first();
+  if (await savedMessageClose.isVisible().catch(() => false)) {
+    await savedMessageClose.click();
+  }
+
+  const surfaces = [
+    {
+      tab: "자산",
+      locator: () => page.locator("tr.holding-row", { hasText: holdingName }).first(),
+      label: "holdings row",
+      minVisibleHeight: 38,
+    },
+    {
+      tab: "협업",
+      locator: () => page.locator("#collaboration-household-select"),
+      label: "collaboration household select",
+      minVisibleHeight: 34,
+    },
+    {
+      tab: "설정",
+      locator: () => page.getByRole("textbox", { name: "본명" }),
+      label: "settings profile name input",
+      minVisibleHeight: 34,
+    },
+  ];
+
+  for (const surface of surfaces) {
+    await test.step(surface.tab, async () => {
+      await openTab(page, surface.tab);
+      await expectNoHorizontalOverflow(page, 12);
+      await expectLandscapeWorkspaceControlVisible(page, surface.locator(), surface.label, {
+        minVisibleHeight: surface.minVisibleHeight,
+      });
+      await capture(page, `layout-landscape-workspace-${surface.tab}`);
+    });
+  }
+});
+
 test("layout stability matrix: pages remain clean across desktop, tablet, and mobile fonts", async ({ page }) => {
   test.setTimeout(180_000);
 
@@ -776,7 +863,7 @@ test("layout stability matrix: pages remain clean across desktop, tablet, and mo
       await sample.scrollIntoViewIfNeeded();
       await expectClearOfFixedBottomNav(sample);
       await expectMobileBottomClearance(page);
-      await page.evaluate(() => window.scrollTo(0, 0));
+      await scrollViewportToTop(page);
     }
   }
 
