@@ -4167,6 +4167,7 @@ thead {
 }
 
 tr.transaction-row-imported,
+tr.transaction-row-saved,
 tr.holding-row-imported {
   outline: 2px solid #2563eb;
   outline-offset: -2px;
