@@ -7053,6 +7053,11 @@ function App() {
     const isExpanded = expandedHoldingRows.has(item.holding_id);
     const isRecentlyImported = recentImportHoldingIds.has(item.holding_id);
     const holdingMobilePriority = (fieldKey) => getWorkSurfaceMobilePriority("holdings", fieldKey);
+    const holdingOrderScope = "전체 자산 순서";
+    const holdingMoveUpLabel = `${item.name} ${holdingOrderScope}에서 위로 이동`;
+    const holdingMoveDownLabel = `${item.name} ${holdingOrderScope}에서 아래로 이동`;
+    const holdingMoveUpTitle = `${item.name}을(를) ${holdingOrderScope} 기준으로 위로 이동합니다.`;
+    const holdingMoveDownTitle = `${item.name}을(를) ${holdingOrderScope} 기준으로 아래로 이동합니다.`;
     const handleHoldingEditToggle = () => {
       if (!canEditRecords) {
         return;
@@ -7131,10 +7136,24 @@ function App() {
           </td>
           <td data-label="동작" className="holding-col-actions" data-mobile-priority="action">
             <div className="inline">
-              <button type="button" className="secondary row-order-btn" disabled={!canEditRecords || loading} onClick={() => moveHoldingDisplayOrder(item, -1).catch(() => undefined)}>
+              <button
+                type="button"
+                className="secondary row-order-btn"
+                aria-label={holdingMoveUpLabel}
+                title={holdingMoveUpTitle}
+                disabled={!canEditRecords || loading}
+                onClick={() => moveHoldingDisplayOrder(item, -1).catch(() => undefined)}
+              >
                 ↑
               </button>
-              <button type="button" className="secondary row-order-btn" disabled={!canEditRecords || loading} onClick={() => moveHoldingDisplayOrder(item, 1).catch(() => undefined)}>
+              <button
+                type="button"
+                className="secondary row-order-btn"
+                aria-label={holdingMoveDownLabel}
+                title={holdingMoveDownTitle}
+                disabled={!canEditRecords || loading}
+                onClick={() => moveHoldingDisplayOrder(item, 1).catch(() => undefined)}
+              >
                 ↓
               </button>
               <button
@@ -7180,10 +7199,24 @@ function App() {
           >
             <td colSpan={11}>
               <div className="holding-mobile-expanded-actions">
-                <button type="button" className="secondary" disabled={!canEditRecords || loading} onClick={() => moveHoldingDisplayOrder(item, -1).catch(() => undefined)}>
+                <button
+                  type="button"
+                  className="secondary"
+                  aria-label={holdingMoveUpLabel}
+                  title={holdingMoveUpTitle}
+                  disabled={!canEditRecords || loading}
+                  onClick={() => moveHoldingDisplayOrder(item, -1).catch(() => undefined)}
+                >
                   위로
                 </button>
-                <button type="button" className="secondary" disabled={!canEditRecords || loading} onClick={() => moveHoldingDisplayOrder(item, 1).catch(() => undefined)}>
+                <button
+                  type="button"
+                  className="secondary"
+                  aria-label={holdingMoveDownLabel}
+                  title={holdingMoveDownTitle}
+                  disabled={!canEditRecords || loading}
+                  onClick={() => moveHoldingDisplayOrder(item, 1).catch(() => undefined)}
+                >
                   아래로
                 </button>
                 <button

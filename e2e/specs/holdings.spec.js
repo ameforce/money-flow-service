@@ -286,6 +286,8 @@ test("desktop holding ledger controls keep usable hit targets", async ({ page })
       const text = button.textContent?.trim() || "";
       return {
         text,
+        aria: button.getAttribute("aria-label") || "",
+        title: button.getAttribute("title") || "",
         width: box.width,
         height: box.height,
         disabled: button.disabled,
@@ -295,6 +297,16 @@ test("desktop holding ledger controls keep usable hit targets", async ({ page })
   expect(
     actionMetrics.every((button) => button.height >= 32 && button.width >= (["↑", "↓"].includes(button.text) ? 32 : 40)),
     `holding row action buttons should keep desktop hit targets: ${JSON.stringify(actionMetrics)}`,
+  ).toBe(true);
+  const moveActionMetrics = actionMetrics.filter((button) => ["↑", "↓"].includes(button.text));
+  expect(
+    moveActionMetrics.every(
+      (button) =>
+        button.aria.includes(holdingName) &&
+        button.aria.includes(button.text === "↑" ? "위로 이동" : "아래로 이동") &&
+        button.title.includes("전체 자산 순서"),
+    ),
+    `holding row move buttons should name the target asset and ordering scope: ${JSON.stringify(moveActionMetrics)}`,
   ).toBe(true);
   await expectNoHorizontalOverflow(page, 12);
   await capture(page, "holdings-desktop-hit-targets");
