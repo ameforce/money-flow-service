@@ -140,6 +140,51 @@ test("holding entry defaults owner and keeps it for repeated assets", async ({ p
   await capture(page, "issue-201-holding-owner-repeated");
 });
 
+test("issue 192: mobile holding entry asks before closing a dirty draft and preserves it", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("holding-draft-close")}@example.com`;
+  const displayName = unique("holding-draft-close-name");
+  const holdingName = unique("holding-draft-name");
+
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openTab(page, "자산");
+  await page.waitForLoadState("networkidle");
+
+  const holdingsFab = page.getByTestId("holdings-fab");
+  const holdingSheet = page.getByTestId("holding-entry-sheet");
+  await expect(holdingsFab).toBeVisible();
+  await holdingsFab.click();
+  await expect(holdingSheet).toBeVisible();
+
+  const nameInput = labeledField(holdingSheet, "자산명", "textarea");
+  const valueInput = labeledField(holdingSheet, "평가금액", "input");
+  await nameInput.fill(holdingName);
+  await valueInput.fill("7654321");
+
+  await page.getByTestId("holding-entry-sheet-close").click();
+  const closeDraftDialog = page.getByRole("alertdialog");
+  await expect(closeDraftDialog.getByRole("heading", { name: "자산 입력을 닫을까요?" })).toBeVisible();
+  await expect(closeDraftDialog).toContainText("작성 중인 자산 초안은 보존됩니다.");
+  await closeDraftDialog.getByRole("button", { name: "취소" }).click();
+  await expect(closeDraftDialog).toBeHidden();
+  await expect(holdingSheet).toBeVisible();
+  await expect(nameInput).toHaveValue(holdingName);
+  await expect(valueInput).toHaveValue("7,654,321");
+
+  await page.getByTestId("holding-entry-sheet-close").click();
+  await expect(closeDraftDialog.getByRole("heading", { name: "자산 입력을 닫을까요?" })).toBeVisible();
+  await closeDraftDialog.getByRole("button", { name: "입력 닫기" }).click();
+  await expect(holdingSheet).toBeHidden();
+
+  await holdingsFab.click();
+  await expect(holdingSheet).toBeVisible();
+  await expect(labeledField(holdingSheet, "자산명", "textarea")).toHaveValue(holdingName);
+  await expect(labeledField(holdingSheet, "평가금액", "input")).toHaveValue("7,654,321");
+  await capture(page, "issue-192-mobile-holding-draft-preserved");
+});
+
 async function expectSingleSliceDonutHasNoRadialSeam(chartCard, label) {
   const metrics = await chartCard.locator(".compact-chart-wrap canvas").first().evaluate((canvas) => {
     const context = canvas.getContext("2d", { willReadFrequently: true });
