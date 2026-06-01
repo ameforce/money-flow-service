@@ -282,7 +282,26 @@ export async function expectWithinViewport(locator, { allowance = 4, requireVert
 export async function expectClearOfFixedBottomNav(locator, { allowance = 4 } = {}) {
   await expect(locator).toBeVisible();
   const centerLocator = () =>
-    locator.evaluate((element) => element.scrollIntoView({ block: "center", inline: "nearest" }));
+    locator.evaluate((element) => {
+      const box = element.getBoundingClientRect();
+      const nav = document.querySelector("nav.topbar-tabs");
+      const navBox = nav?.getBoundingClientRect();
+      const navStyle = nav ? window.getComputedStyle(nav) : null;
+      const fixedBottomNav =
+        navBox &&
+        navStyle?.position === "fixed" &&
+        window.innerWidth <= 820 &&
+        navBox.top > 0 &&
+        navBox.bottom >= window.innerHeight - 32;
+      const visibleBottom = Math.min(fixedBottomNav ? navBox.top : window.innerHeight, window.innerHeight);
+      const availableHeight = Math.max(0, visibleBottom);
+      if (box.height > availableHeight) {
+        element.scrollIntoView({ block: "nearest", inline: "nearest" });
+        return;
+      }
+      const targetTop = Math.max(0, window.scrollY + box.top - (availableHeight - box.height) / 2);
+      window.scrollTo({ top: targetTop, left: window.scrollX, behavior: "auto" });
+    });
   const readMetrics = () =>
     locator.evaluate((element) => {
       const box = element.getBoundingClientRect();
@@ -316,19 +335,22 @@ export async function expectClearOfFixedBottomNav(locator, { allowance = 4 } = {
 
   await centerLocator();
   let metrics = await readMetrics();
+  let consecutiveClearReads = 0;
   await expect
     .poll(
       async () => {
         metrics = await readMetrics();
         if (!isClear(metrics)) {
+          consecutiveClearReads = 0;
           await centerLocator();
+          return false;
         }
-        return isClear(metrics);
+        consecutiveClearReads += 1;
+        return consecutiveClearReads >= 2;
       },
       { message: "locator should settle clear of the viewport chrome", timeout: 3_000 },
     )
     .toBe(true);
-  metrics = await readMetrics();
   const visibleBottom = Math.min(metrics.fixedNavTop, metrics.viewportBottom);
   if (metrics.height <= visibleBottom + allowance) {
     expect(metrics.top, "locator should not be above the viewport").toBeGreaterThanOrEqual(-allowance);

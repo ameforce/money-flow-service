@@ -83,6 +83,7 @@ export function TransactionSurfaceTable({
   mobileStickyActive,
   handleTxInlineEditKeyDown,
   handleGroupedDecimalInput,
+  handleTransactionAmountInput,
   ownerSelectionFromValue,
   renderLegacyOwnerRemapHelper,
   submitTxInlineEdit,
@@ -953,9 +954,11 @@ export function TransactionSurfaceTable({
                           aria-label="금액"
                           placeholder="금액"
                           type="text"
-                          inputMode="decimal"
+                          inputMode="numeric"
                           value={editForm.amount}
-                          onChange={(event) => handleGroupedDecimalInput(event, setTxInlineEdit, "amount")}
+                          onChange={(event) =>
+                            (handleTransactionAmountInput || handleGroupedDecimalInput)(event, setTxInlineEdit, "amount")
+                          }
                           disabled={!canEditRecords}
                           required
                         />

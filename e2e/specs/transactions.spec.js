@@ -1043,6 +1043,33 @@ test("mobile quick entry creates an expense through amount-first chip path", asy
   await expect(createdRow).toBeVisible({ timeout: 20_000 });
 });
 
+test("mobile quick entry rejects decimal KRW amount immediately", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("tx-quick-decimal")}@example.com`;
+  const displayName = unique("tx-quick-decimal-name");
+  const memo = unique("tx-quick-decimal-memo");
+
+  await registerAndVerify(page, { email, displayName });
+
+  const transactionSheet = await openMobileTransactionQuickEntry(page);
+  const quickAmount = page.getByTestId("transaction-quick-amount");
+  await expect(quickAmount).toBeVisible();
+  await expect(quickAmount).toHaveAttribute("inputmode", "numeric");
+  await quickAmount.click();
+  await quickAmount.fill("");
+  await quickAmount.pressSequentially("123.6");
+  await expect(quickAmount).toHaveValue("123.6");
+
+  const appMessage = page.locator(".message").first();
+  await expect(appMessage).toContainText("원화 금액은 소수 없이 정수로 입력해 주세요.");
+  await labeledField(transactionSheet, "메모", "input").fill(memo);
+  await page.getByTestId("transaction-quick-save").click();
+  await expect(appMessage).toContainText("원화 금액은 소수 없이 정수로 입력해 주세요.");
+  await expect(page.locator("tr.transaction-row", { hasText: memo })).toHaveCount(0);
+  await capture(page, "transactions-quick-decimal-rejected");
+});
+
 test("mobile quick entry selected category chip remains readable while hovered", async ({ page }) => {
   test.setTimeout(180_000);
 
@@ -2567,6 +2594,78 @@ test("transactions form keeps grouped number format", async ({ page }) => {
   await memoInput.fill("빠른 메모 입력");
   await expect(amountInput).toHaveValue("123,456,789");
   await expect(memoInput).toHaveValue("빠른 메모 입력");
+});
+
+test("transactions form rejects decimal KRW amount before rounding can occur", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("tx-decimal")}@example.com`;
+  const displayName = unique("tx-decimal-name");
+  const memo = unique("tx-decimal-memo");
+
+  await registerAndVerify(page, { email, displayName });
+
+  await openTab(page, "거래");
+  const transactionCard = page.locator("article.card", {
+    has: page.getByRole("heading", { name: "거래 입력" }),
+  });
+  const transactionFab = page.getByTestId("transactions-fab");
+  const transactionSheet = page.getByTestId("transaction-entry-sheet");
+  let transactionContainer = transactionCard;
+  const txToggleButton = transactionCard.getByRole("button", { name: /거래 추가|입력 닫기/ }).first();
+  const txToggleVisible = await txToggleButton.isVisible().catch(() => false);
+  if (txToggleVisible) {
+    const txToggleText = String((await txToggleButton.textContent()) || "");
+    if (txToggleText.includes("거래 추가")) {
+      await txToggleButton.click();
+    }
+  } else if (await transactionFab.isVisible().catch(() => false)) {
+    await transactionFab.click();
+    await expect(transactionSheet).toBeVisible();
+    transactionContainer = transactionSheet;
+  }
+
+  const amountInput = labeledField(transactionContainer, "금액", "input");
+  const memoInput = labeledField(transactionContainer, "메모", "input");
+  await amountInput.click();
+  await amountInput.fill("");
+  await amountInput.pressSequentially("123.6");
+  await expect(amountInput).toHaveValue("123.6");
+  const appMessage = page.locator(".message").first();
+  await expect(appMessage).toContainText("원화 금액은 소수 없이 정수로 입력해 주세요.");
+  await memoInput.fill(memo);
+  await transactionContainer.getByRole("button", { name: /저장|등록/ }).first().click();
+  await expect(appMessage).toContainText("원화 금액은 소수 없이 정수로 입력해 주세요.");
+  await expect(page.locator("tr.transaction-row", { hasText: memo })).toHaveCount(0);
+  await capture(page, "transactions-form-decimal-rejected");
+});
+
+test("transactions inline edit rejects decimal KRW amount before rounding can occur", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("tx-inline-decimal")}@example.com`;
+  const displayName = unique("tx-inline-decimal-name");
+  const memo = unique("tx-inline-decimal-memo");
+
+  await registerAndVerify(page, { email, displayName });
+  const createdRow = await createBasicTransaction(page, { memo, amount: "12000" });
+  await clickDesktopTransactionRowAction(createdRow, "수정");
+
+  const editorRow = page.locator("tr.transaction-inline-editor-row").first();
+  await expect(editorRow).toBeVisible();
+  const amountInput = editorRow.getByLabel("금액");
+  await expect(amountInput).toHaveAttribute("inputmode", "numeric");
+  await amountInput.click();
+  await amountInput.fill("");
+  await amountInput.pressSequentially("123.6");
+  await expect(amountInput).toHaveValue("123.6");
+
+  const appMessage = page.locator(".message").first();
+  await expect(appMessage).toContainText("원화 금액은 소수 없이 정수로 입력해 주세요.");
+  await editorRow.getByRole("button", { name: "저장" }).click();
+  await expect(appMessage).toContainText("원화 금액은 소수 없이 정수로 입력해 주세요.");
+  await expect(page.locator("tr.transaction-row", { hasText: "124원" })).toHaveCount(0);
+  await capture(page, "transactions-inline-decimal-rejected");
 });
 
 test("transactions history shows compact date groups with fixed chronological order", async ({ page }) => {

@@ -39,6 +39,7 @@ const DEFAULT_CSRF_COOKIE_NAME = "mf_csrf_token";
 const DEFAULT_CSRF_HEADER_NAME = "x-csrf-token";
 const DEFAULT_HOUSEHOLD_HEADER_NAME = "x-household-id";
 const DEBUG_TOKEN_OPT_IN_HEADER = "x-debug-token-opt-in";
+const KRW_TRANSACTION_INTEGER_AMOUNT_MESSAGE = "원화 금액은 소수 없이 정수로 입력해 주세요.";
 
 const DEBUG_TOKEN_OPT_IN =
   String(
@@ -981,6 +982,10 @@ function sanitizeDecimalInput(value) {
   const integerPart = text.slice(0, firstDot).replace(/\./g, "");
   const decimalPart = text.slice(firstDot + 1).replace(/\./g, "");
   return `${integerPart || "0"}.${decimalPart}`;
+}
+
+function hasDecimalSeparatorInput(value) {
+  return sanitizeDecimalInput(value).includes(".");
 }
 
 function formatGroupedDecimalInput(value) {
@@ -5102,6 +5107,25 @@ function App() {
     return "";
   }
 
+  function validateTransactionAmountInput(value) {
+    const decimalMessage = validateDecimalInput(value, "금액");
+    if (decimalMessage) {
+      return decimalMessage;
+    }
+    return hasDecimalSeparatorInput(value) ? KRW_TRANSACTION_INTEGER_AMOUNT_MESSAGE : "";
+  }
+
+  function handleTransactionAmountInput(event, setForm, field = "amount") {
+    const rawValue = String(event.currentTarget.value || "");
+    handleGroupedDecimalInput(event, setForm, field);
+    setMessage((prev) => {
+      if (hasDecimalSeparatorInput(rawValue)) {
+        return KRW_TRANSACTION_INTEGER_AMOUNT_MESSAGE;
+      }
+      return prev === KRW_TRANSACTION_INTEGER_AMOUNT_MESSAGE ? "" : prev;
+    });
+  }
+
   function validateLoginForm(form) {
     const emailMessage = validateAuthEmail(form.email);
     if (emailMessage) {
@@ -5147,7 +5171,7 @@ function App() {
     if (dateMessage) {
       return dateMessage;
     }
-    return validateDecimalInput(form.amount, "금액");
+    return validateTransactionAmountInput(form.amount);
   }
 
   function validateCategoryDraftForm() {
@@ -8329,12 +8353,12 @@ function App() {
             ref={txAmountInputRef}
             data-testid="transaction-quick-amount"
             type="text"
-            inputMode="decimal"
+            inputMode="numeric"
             enterKeyHint="next"
             autoComplete="off"
             placeholder="0"
             value={txForm.amount}
-            onChange={(event) => handleGroupedDecimalInput(event, setTxForm, "amount")}
+            onChange={(event) => handleTransactionAmountInput(event, setTxForm)}
             onKeyDown={handleTransactionQuickAmountKeyDown}
             disabled={transactionFormDisabled}
             required
@@ -8593,10 +8617,10 @@ function App() {
         금액
         <input
           type="text"
-          inputMode="decimal"
+          inputMode="numeric"
           enterKeyHint="next"
           value={txForm.amount}
-          onChange={(event) => handleGroupedDecimalInput(event, setTxForm, "amount")}
+          onChange={(event) => handleTransactionAmountInput(event, setTxForm)}
           disabled={transactionFormDisabled}
           required
         />
@@ -9888,6 +9912,7 @@ function App() {
               mobileStickyActive={transactionsMobileStickyActive}
               handleTxInlineEditKeyDown={handleTxInlineEditKeyDown}
               handleGroupedDecimalInput={handleGroupedDecimalInput}
+              handleTransactionAmountInput={handleTransactionAmountInput}
               ownerSelectionFromValue={ownerSelectionFromValue}
               renderLegacyOwnerRemapHelper={renderLegacyOwnerRemapHelper}
               submitTxInlineEdit={submitTxInlineEdit}
