@@ -3464,6 +3464,134 @@ test("issue 221: mobile transaction status chips keep clear action in viewport",
   await capture(page, "issue-221-mobile-status-chips-visible");
 });
 
+test("issue 222: mobile transaction add FAB does not cover bottom ledger rows", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("tx-fab-clearance")}@example.com`;
+  const displayName = unique("tx-fab-clearance-owner");
+  const memoPrefix = unique("tx-fab-clearance-row");
+  const category = await registerAndVerify(page, { email, displayName }).then(() =>
+    createCategoryViaApi(page, {
+      major: unique("FAB겹침"),
+      minor: unique("하단행"),
+    })
+  );
+
+  for (let index = 0; index < 18; index += 1) {
+    await createTransactionViaApi(page, {
+      memo: `${memoPrefix}-${String(index).padStart(2, "0")}`,
+      amount: String(1200 + index),
+      categoryId: category.id,
+      ownerName: displayName,
+    });
+  }
+
+  await page.reload();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openTab(page, "거래");
+  await page.waitForLoadState("networkidle");
+
+  const transactionFab = page.getByTestId("transactions-fab");
+  await expect(transactionFab).toBeVisible();
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  await page.waitForTimeout(300);
+
+  const metrics = await page.evaluate(() => {
+    const fab = document.querySelector("[data-testid='transactions-fab']");
+    const fabBox = fab?.getBoundingClientRect();
+    const intersects = (left, right, inset = 0) =>
+      Boolean(
+        left &&
+          right &&
+          left.left + inset < right.right &&
+          left.right - inset > right.left &&
+          left.top + inset < right.bottom &&
+          left.bottom - inset > right.top
+      );
+    const boxOf = (element) => {
+      if (!element) {
+        return null;
+      }
+      const box = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      const hidden = style.display === "none" || style.visibility === "hidden" || box.width <= 0 || box.height <= 0;
+      return {
+        text: element.textContent?.replace(/\s+/g, " ").trim() || element.getAttribute("aria-label") || "",
+        left: box.left,
+        right: box.right,
+        top: box.top,
+        bottom: box.bottom,
+        width: box.width,
+        height: box.height,
+        hidden,
+      };
+    };
+    const rows = Array.from(document.querySelectorAll("tr.transaction-row"))
+      .map((row) => {
+        const rowBox = row.getBoundingClientRect();
+        const targets = [
+          ".mobile-date-text",
+          ".transaction-flow-short",
+          ".transaction-mobile-category-cue",
+          ".transaction-memo-text",
+          ".transaction-owner-summary",
+          ".transaction-amount-text",
+        ]
+          .map((selector) => boxOf(row.querySelector(selector)))
+          .concat(Array.from(row.querySelectorAll(".transaction-col-actions button")).map((button) => boxOf(button)))
+          .filter((target) => target && !target.hidden);
+        return {
+          text: row.textContent?.replace(/\s+/g, " ").trim() || "",
+          row: {
+            left: rowBox.left,
+            right: rowBox.right,
+            top: rowBox.top,
+            bottom: rowBox.bottom,
+            width: rowBox.width,
+            height: rowBox.height,
+          },
+          targets,
+          coveredTargets: targets.filter((target) => intersects(target, fabBox, 1)),
+          rowIntersectsFab: intersects(rowBox, fabBox, 1),
+        };
+      })
+      .filter((row) => row.row.top < window.innerHeight && row.row.bottom > 0);
+    return {
+      scrollY: window.scrollY,
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+      fab: fabBox
+        ? {
+            left: fabBox.left,
+            right: fabBox.right,
+            top: fabBox.top,
+            bottom: fabBox.bottom,
+            width: fabBox.width,
+            height: fabBox.height,
+          }
+        : null,
+      visibleRows: rows.map((row) => ({
+        text: row.text,
+        row: row.row,
+        rowIntersectsFab: row.rowIntersectsFab,
+        coveredTargets: row.coveredTargets,
+      })),
+      coveredRows: rows.filter((row) => row.coveredTargets.length > 0),
+      visibleRowCount: rows.length,
+      lowestVisibleRowBottom: rows.reduce((maxBottom, row) => Math.max(maxBottom, row.row.bottom), 0),
+      bottomFabClearance: fabBox ? fabBox.top - rows.reduce((maxBottom, row) => Math.max(maxBottom, row.row.bottom), 0) : null,
+      pageOverflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    };
+  });
+
+  expect(metrics.fab, `transaction FAB should have geometry: ${JSON.stringify(metrics)}`).toBeTruthy();
+  expect(metrics.visibleRowCount, `test should exercise visible ledger rows: ${JSON.stringify(metrics)}`).toBeGreaterThan(0);
+  expect(metrics.bottomFabClearance, `bottom rows should stop above the fixed FAB safe zone: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(16);
+  expect(metrics.coveredRows, `FAB should not cover readable or tappable row content: ${JSON.stringify(metrics)}`).toEqual([]);
+  expect(metrics.pageOverflowX, `FAB clearance should not create horizontal overflow: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "issue-222-mobile-fab-bottom-row-clearance");
+});
+
 test("issue 228: mobile transaction filters use ledger headers without duplicate generic toggle", async ({ page }) => {
   test.setTimeout(120_000);
 
