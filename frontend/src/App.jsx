@@ -1403,6 +1403,39 @@ function resolveHoldingCategoryOnTypeChange(currentCategory, previousType, nextT
   return previousDefaults.has(normalizedCurrent) ? holdingDefaultCategory(nextType) : normalizedCurrent;
 }
 
+function holdingAverageCostSemantic(typeLike) {
+  const assetType = typeof typeLike === "string" ? typeLike : typeLike?.asset_type || "other";
+  const tracked = Boolean(
+    typeof typeLike === "object" && typeLike !== null && "tracked" in typeLike
+      ? typeLike.tracked
+      : isMarketTrackedAssetType(assetType)
+  );
+  const showAverageCost = Boolean(
+    typeof typeLike === "object" && typeLike !== null && "show_average_cost" in typeLike
+      ? typeLike.show_average_cost
+      : true
+  );
+  if (!showAverageCost) {
+    return "hidden";
+  }
+  return tracked ? "average-cost" : "valuation";
+}
+
+function nextAverageCostForHoldingTypeChange(previousValue, previousType, nextType) {
+  const nextSemantic = holdingAverageCostSemantic(nextType);
+  if (nextSemantic === "hidden") {
+    return "0";
+  }
+  return holdingAverageCostSemantic(previousType) === nextSemantic ? previousValue : "";
+}
+
+function shouldExplainHoldingValueReset(previousValue, previousType, nextType) {
+  return Boolean(
+    String(previousValue || "").trim() &&
+      holdingAverageCostSemantic(previousType) !== holdingAverageCostSemantic(nextType)
+  );
+}
+
 function createHoldingInlineEditForm(row) {
   return {
     id: row.id,
@@ -7842,15 +7875,27 @@ function App() {
                     onChange={(event) => {
                       const nextTypeKey = normalizeHoldingTypeKey(event.target.value || "");
                       const nextType = holdingTypeByKey.get(nextTypeKey) || holdingTypeOptions[0] || DEFAULT_HOLDING_TYPES[0];
+                      const previousType =
+                        holdingTypeByKey.get(normalizeHoldingTypeKey(editForm.type_key || editForm.asset_type || "")) ||
+                        editType;
+                      if (shouldExplainHoldingValueReset(editForm.average_cost, previousType, nextType)) {
+                        setMessage(
+                          uiGuideMessage(
+                            "자산 유형을 변경했습니다.",
+                            "평가금액과 평균단가의 의미가 달라 금액 입력값을 비웠습니다."
+                          )
+                        );
+                      }
                       setHoldingInlineEdit((prev) => ({
                         ...prev,
                         type_key: nextType.key,
                         asset_type: nextType.asset_type,
                         category: resolveHoldingCategoryOnTypeChange(
                           prev.category,
-                          holdingTypeByKey.get(normalizeHoldingTypeKey(prev.type_key || prev.asset_type || "")) || editType,
+                          previousType,
                           nextType
                         ),
+                        average_cost: nextAverageCostForHoldingTypeChange(prev.average_cost, previousType, nextType),
                       }));
                     }}
                   >
@@ -10892,18 +10937,29 @@ function App() {
                       setHoldingDraftTouched(true);
                       const nextTypeKey = normalizeHoldingTypeKey(event.target.value || "");
                       const nextType = holdingTypeByKey.get(nextTypeKey) || holdingTypeOptions[0] || DEFAULT_HOLDING_TYPES[0];
+                      const previousType =
+                        holdingTypeByKey.get(normalizeHoldingTypeKey(holdingForm.type_key || holdingForm.asset_type || "")) ||
+                        holdingFormType;
+                      if (shouldExplainHoldingValueReset(holdingForm.average_cost, previousType, nextType)) {
+                        setMessage(
+                          uiGuideMessage(
+                            "자산 유형을 변경했습니다.",
+                            "평가금액과 평균단가의 의미가 달라 금액 입력값을 비웠습니다."
+                          )
+                        );
+                      }
                       setHoldingForm((prev) => ({
                         ...createHoldingForm(nextType.asset_type || "other", nextType.key, nextType.label),
                         name: prev.name,
                         category: resolveHoldingCategoryOnTypeChange(
                           prev.category,
-                          holdingTypeByKey.get(normalizeHoldingTypeKey(prev.type_key || prev.asset_type || "")) || holdingFormType,
+                          previousType,
                           nextType
                         ),
                         owner_user_id: prev.owner_user_id,
                         owner_name: prev.owner_name,
                         account_name: prev.account_name,
-                        average_cost: prev.average_cost,
+                        average_cost: nextAverageCostForHoldingTypeChange(prev.average_cost, previousType, nextType),
                       }));
                     }}
                   >

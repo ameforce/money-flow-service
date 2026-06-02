@@ -893,6 +893,38 @@ test("holdings stock fields keep grouped decimals", async ({ page }) => {
   await expect(unitCostInput).toHaveValue("9,876,543.21");
 });
 
+test("issue 200: holding type switch clears semantically different value", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("issue-200-holding-type-switch")}@example.com`;
+  const displayName = unique("issue-200-holding-type-switch-name");
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 1366, height: 960 });
+  await openTab(page, "자산");
+
+  const holdingCard = page.locator("article.card", {
+    has: page.getByRole("heading", { name: "자산 입력" }),
+  });
+  const holdingToggleButton = holdingCard.getByRole("button", { name: /자산 추가|입력 닫기/ }).first();
+  await expect(holdingToggleButton).toContainText("자산 추가");
+  await holdingToggleButton.click();
+
+  const typeSelect = labeledField(holdingCard, "유형", "select");
+  await expect(typeSelect).toHaveValue("cash");
+  const valuationInput = labeledField(holdingCard, "평가금액", "input");
+  await valuationInput.fill("100000");
+  await expect(valuationInput).toHaveValue("100,000");
+  await capture(page, "issue-200-holding-cash-value-before-type-switch");
+
+  await typeSelect.selectOption("stock");
+
+  const averageCostInput = labeledField(holdingCard, "평균단가", "input");
+  await expect(averageCostInput).toBeVisible();
+  await capture(page, "issue-200-holding-average-cost-reset-after-type-switch");
+  await expect(averageCostInput).toHaveValue("");
+  await expect(page.getByText("금액 입력값을 비웠습니다.")).toBeVisible();
+});
+
 test("mobile holding entry sheet stays within the viewport", async ({ page }) => {
   test.setTimeout(120_000);
 
