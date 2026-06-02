@@ -3689,7 +3689,7 @@ table {
 
 .transactions-surface-table th:first-child,
 .transactions-surface-table .transaction-col-select {
-  width: 2.4rem;
+  width: 3rem;
 }
 
 .transactions-surface-table .transaction-col-date {
@@ -3742,7 +3742,7 @@ table {
   top: var(--transaction-column-head-top, calc(max(0.75rem, env(safe-area-inset-top)) + 10.75rem));
   z-index: 43;
   display: grid;
-  grid-template-columns: 2.4rem 6.6rem 4.6rem 7.2rem minmax(9rem, 1fr) 6.3rem 7.3rem 6.4rem 4.8rem;
+  grid-template-columns: 3rem 6.6rem 4.6rem 7.2rem minmax(9rem, 1fr) 6.3rem 7.3rem 6.4rem 4.8rem;
   align-items: stretch;
   width: 100%;
   min-width: 0;
@@ -3781,6 +3781,32 @@ table {
 .transaction-list-card .surface-ledger-desktop-head .transaction-col-actions,
 .transaction-list-card .surface-ledger-desktop-head .transaction-col-select {
   justify-content: center;
+}
+
+.transaction-list-card .surface-ledger-desktop-head .transaction-col-select,
+.transactions-surface-table .transaction-col-select {
+  padding: 0.21rem 0.3rem;
+}
+
+.transactions-surface-table .transaction-col-select {
+  max-width: none;
+  overflow: visible;
+  text-align: center;
+}
+
+.transaction-row td:first-child.transaction-col-select {
+  padding-left: 0.3rem;
+}
+
+.transaction-list-card .surface-ledger-desktop-head .transaction-col-select input[type="checkbox"],
+.transactions-surface-table .transaction-col-select input[type="checkbox"] {
+  width: 2rem;
+  min-width: 2rem;
+  height: 2rem;
+  min-height: 2rem;
+  margin: 0;
+  cursor: pointer;
+  accent-color: #2563eb;
 }
 
 .holdings-surface-table th,
