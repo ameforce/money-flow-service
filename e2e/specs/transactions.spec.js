@@ -3017,6 +3017,71 @@ test("issue 213: mobile transaction add inherits the visible month date context"
   await capture(page, "issue-213-mobile-add-date-in-visible-month-context");
 });
 
+test("issue 234: mobile transaction add first screen shows the saved context", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("tx-add-context-first-screen")}@example.com`;
+  const displayName = unique("tx-add-context-first-screen-name");
+
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 320, height: 568 });
+  const transactionSheet = await openMobileTransactionQuickEntry(page);
+  await expect(page.getByRole("dialog", { name: "거래 추가 레이어" })).toBeVisible();
+  await expect(page.getByTestId("transaction-quick-save")).toBeVisible();
+
+  const contextSummary = page.getByTestId("transaction-quick-context-summary");
+  await expect(contextSummary).toBeVisible();
+  const contextItems = [
+    ["transaction-quick-context-flow", "유형"],
+    ["transaction-quick-context-date", "일자"],
+    ["transaction-quick-context-owner", "거래자"],
+    ["transaction-quick-context-category", "카테고리"],
+  ];
+  for (const [testId, label] of contextItems) {
+    await expect(page.getByTestId(testId)).toContainText(label);
+  }
+
+  const metrics = await contextSummary.evaluate((summary) => {
+    const sheet = summary.closest("[data-testid='transaction-entry-sheet']");
+    const recommendation = sheet?.querySelector(".transaction-quick-category-panel");
+    const saveButton = sheet?.querySelector("[data-testid='transaction-quick-save']");
+    const summaryRect = summary.getBoundingClientRect();
+    const recommendationRect = recommendation?.getBoundingClientRect();
+    const saveRect = saveButton?.getBoundingClientRect();
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+    const itemRects = Array.from(summary.querySelectorAll(".transaction-quick-context-item")).map((item) => {
+      const rect = item.getBoundingClientRect();
+      return {
+        text: item.textContent?.replace(/\s+/g, " ").trim() || "",
+        top: rect.top,
+        bottom: rect.bottom,
+        width: rect.width,
+      };
+    });
+    return {
+      viewportHeight,
+      summaryTop: summaryRect.top,
+      summaryBottom: summaryRect.bottom,
+      recommendationTop: recommendationRect?.top || 0,
+      saveTop: saveRect?.top || 0,
+      saveBottom: saveRect?.bottom || 0,
+      itemRects,
+    };
+  });
+
+  expect(metrics.summaryTop, JSON.stringify(metrics)).toBeGreaterThanOrEqual(0);
+  expect(metrics.summaryBottom, JSON.stringify(metrics)).toBeLessThanOrEqual(metrics.viewportHeight);
+  expect(metrics.recommendationTop, "recommendation should remain below the context summary").toBeGreaterThan(
+    metrics.summaryBottom
+  );
+  expect(metrics.saveTop, JSON.stringify(metrics)).toBeLessThan(metrics.viewportHeight);
+  expect(metrics.itemRects.every((item) => item.bottom <= metrics.viewportHeight && item.width > 0), JSON.stringify(metrics)).toBe(
+    true
+  );
+  await expect(transactionSheet.locator("details.transaction-quick-details[open]")).toHaveCount(0);
+  await capture(page, "issue-234-mobile-add-context-first-screen");
+});
+
 test("transactions flow: create, inline edit, delete, responsive", async ({ page }) => {
   test.setTimeout(240_000);
 

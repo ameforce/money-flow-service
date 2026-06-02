@@ -2674,6 +2674,46 @@ button.danger:active:not(:disabled) {
   font-variant-numeric: tabular-nums;
 }
 
+.transaction-quick-context-strip {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.34rem;
+  min-width: 0;
+}
+
+.transaction-quick-context-item {
+  display: grid;
+  gap: 0.08rem;
+  min-width: 0;
+  min-height: 2.42rem;
+  padding: 0.38rem 0.48rem;
+  border: 1px solid #d8e2f0;
+  border-radius: 8px;
+  background: #f8fbff;
+}
+
+.transaction-quick-context-item span,
+.transaction-quick-context-item strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.transaction-quick-context-item span {
+  color: #5b718f;
+  font-size: 0.68rem;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.transaction-quick-context-item strong {
+  color: #16233a;
+  font-size: 0.82rem;
+  font-weight: 900;
+  line-height: 1.25;
+}
+
 .transaction-quick-section-title {
   display: flex;
   align-items: baseline;
