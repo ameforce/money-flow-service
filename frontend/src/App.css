@@ -8301,6 +8301,13 @@ tr.holding-row-imported {
     padding-block: 0.12rem;
   }
 
+  .holdings-surface-table tbody tr.holding-row:not(.mobile-row-expanded) .holding-col-name {
+    overflow: hidden;
+    overflow-wrap: normal;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   .holdings-surface-table tbody tr.holding-row.mobile-row-expanded {
     grid-template-areas:
       "name name actions"
