@@ -3082,6 +3082,71 @@ test("issue 234: mobile transaction add first screen shows the saved context", a
   await capture(page, "issue-234-mobile-add-context-first-screen");
 });
 
+test("issue 237: mobile transaction edit keeps completion controls in the first viewport", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("tx-mobile-edit-save-flow")}@example.com`;
+  const displayName = unique("tx-mobile-edit-save-flow-name");
+  const memo = unique("tx-mobile-edit-save-flow-memo");
+  const occurredOn = currentE2EHistoryDateIso();
+
+  await registerAndVerify(page, { email, displayName });
+  await createTransactionViaApi(page, {
+    memo,
+    amount: "23700",
+    occurredOn,
+    ownerName: displayName,
+  });
+  await page.reload();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openTab(page, "거래");
+  await page.waitForLoadState("networkidle");
+
+  const mobileRow = page.locator("tr.transaction-row", { hasText: memo }).first();
+  await expect(mobileRow).toBeVisible({ timeout: 20_000 });
+  await mobileRow.locator(".mobile-toggle-btn").first().click();
+  const expandedActionRow = mobileRow.locator(
+    "xpath=following-sibling::tr[1][contains(@class,'transaction-mobile-expanded-actions-row')]",
+  );
+  await expect(expandedActionRow).toBeVisible();
+  await expandedActionRow.getByRole("button", { name: "수정" }).click();
+
+  const editorRow = page.locator("tr.transaction-inline-editor-row").first();
+  await expect(editorRow).toBeVisible();
+  const actions = editorRow.locator(".tx-inline-editor-actions");
+  await expect(actions.getByRole("button", { name: "저장" })).toBeVisible();
+  await expect(actions.getByRole("button", { name: "취소" })).toBeVisible();
+
+  const metrics = await editorRow.evaluate((row) => {
+    const actionsElement = row.querySelector(".tx-inline-editor-actions");
+    const firstField = row.querySelector(".tx-inline-date-field");
+    const amountField = row.querySelector(".tx-inline-amount-field");
+    const actionsBox = actionsElement?.getBoundingClientRect();
+    const firstFieldBox = firstField?.getBoundingClientRect();
+    const amountFieldBox = amountField?.getBoundingClientRect();
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+    return {
+      viewportHeight,
+      actionsTop: actionsBox?.top ?? null,
+      actionsBottom: actionsBox?.bottom ?? null,
+      firstFieldTop: firstFieldBox?.top ?? null,
+      amountFieldBottom: amountFieldBox?.bottom ?? null,
+    };
+  });
+  expect(metrics.actionsTop, `edit actions should be measurable: ${JSON.stringify(metrics)}`).not.toBeNull();
+  expect(metrics.actionsTop, `edit actions should stay in the initial viewport: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(0);
+  expect(metrics.actionsBottom, `edit actions should stay in the initial viewport: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(
+    metrics.viewportHeight - 8,
+  );
+  expect(metrics.firstFieldTop, `first edit field should be measurable: ${JSON.stringify(metrics)}`).not.toBeNull();
+  expect(
+    metrics.actionsTop,
+    `completion controls should be presented before edit fields on mobile: ${JSON.stringify(metrics)}`,
+  ).toBeLessThanOrEqual(metrics.firstFieldTop + 1);
+  await expect(page.getByTestId("transactions-fab")).toHaveCount(0);
+  await capture(page, "issue-237-mobile-edit-save-flow-first-screen");
+});
+
 test("transactions flow: create, inline edit, delete, responsive", async ({ page }) => {
   test.setTimeout(240_000);
 

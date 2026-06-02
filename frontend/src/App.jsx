@@ -10614,17 +10614,19 @@ function App() {
               toCategoryMinorLabel={toCategoryMinorLabel}
             />
           </article>
-          <button
-            ref={transactionFabRef}
-            type="button"
-            className="transactions-fab transaction-add-fab"
-            data-testid="transactions-fab"
-            aria-label="거래 추가"
-            disabled={loading}
-            onClick={() => openTransactionEntrySheet("form")}
-          >
-            <span aria-hidden="true">＋</span>
-          </button>
+          {!txInlineEdit && (
+            <button
+              ref={transactionFabRef}
+              type="button"
+              className="transactions-fab transaction-add-fab"
+              data-testid="transactions-fab"
+              aria-label="거래 추가"
+              disabled={loading}
+              onClick={() => openTransactionEntrySheet("form")}
+            >
+              <span aria-hidden="true">＋</span>
+            </button>
+          )}
           <details
             ref={transactionSupportDetailsRef}
             className="card compact-support-card transaction-support-card surface-support-card"
