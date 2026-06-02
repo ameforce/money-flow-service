@@ -8308,6 +8308,21 @@ tr.holding-row-imported {
     white-space: nowrap;
   }
 
+  .holdings-surface-table tbody tr.holding-row:not(.mobile-row-expanded) .holding-name-text {
+    align-items: center;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+
+  .holdings-surface-table tbody tr.holding-row:not(.mobile-row-expanded) .holding-name-label {
+    display: block;
+    overflow: hidden;
+    overflow-wrap: normal;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    -webkit-line-clamp: unset;
+  }
+
   .holdings-surface-table tbody tr.holding-row.mobile-row-expanded {
     grid-template-areas:
       "name name actions"
