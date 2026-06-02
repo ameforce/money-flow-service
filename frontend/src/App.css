@@ -8297,6 +8297,10 @@ tr.holding-row-imported {
     row-gap: 0.08rem;
   }
 
+  .holdings-surface-table tbody tr.holding-row:not(.mobile-row-expanded) td {
+    padding-block: 0.12rem;
+  }
+
   .holdings-surface-table tbody tr.holding-row.mobile-row-expanded {
     grid-template-areas:
       "name name actions"
