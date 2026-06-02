@@ -854,13 +854,6 @@ export function TransactionSurfaceTable({
                     ) : (
                       <span className="transaction-owner-empty" title="거래자 미입력" aria-label="거래자 미입력">-</span>
                     )}
-                    <span
-                      className="transaction-owner-summary"
-                      title={ownerSummaryLabel}
-                      aria-label={`거래자 ${ownerSummaryLabel}`}
-                    >
-                      {ownerSummaryLabel}
-                    </span>
                   </td>
                   <td data-label="카테고리" className="transaction-col-category transaction-mobile-detail-cell" data-field-key="category" data-mobile-priority={transactionMobilePriority("category")}>
                     <span className="transaction-mobile-detail-label">카테고리</span>
@@ -870,6 +863,13 @@ export function TransactionSurfaceTable({
                     <span className="transaction-mobile-category-cue">{compactCategoryLabel}</span>
                     <span className="transaction-memo-text" title={item.memo || "-"} aria-label={`메모 ${item.memo || "-"}`}>
                       {item.memo || "-"}
+                    </span>
+                    <span
+                      className="transaction-owner-summary"
+                      title={ownerSummaryLabel}
+                      aria-label={`거래자 ${ownerSummaryLabel}`}
+                    >
+                      {ownerSummaryLabel}
                     </span>
                   </td>
                   <td data-label="금액" className="transaction-col-amount" data-field-key="amount" data-mobile-priority={transactionMobilePriority("amount")}>
