@@ -36,26 +36,60 @@ const AUTH_LAYOUT_PROFILES = [
 ];
 
 async function resetViewportScroll(page) {
-  await page.evaluate(() => {
-    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
-    for (const element of [document.scrollingElement, document.documentElement, document.body]) {
-      if (!element) {
-        continue;
+  await page.evaluate(async () => {
+    const html = document.documentElement;
+    const body = document.body;
+    const previousHtmlScrollBehavior = html.style.scrollBehavior;
+    const previousBodyScrollBehavior = body.style.scrollBehavior;
+    html.style.scrollBehavior = "auto";
+    body.style.scrollBehavior = "auto";
+
+    const roots = [document.scrollingElement, html, body].filter(Boolean);
+    const reset = () => {
+      document.activeElement?.blur?.();
+      window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+      for (const element of roots) {
+        element.scrollTop = 0;
+        element.scrollLeft = 0;
       }
-      element.scrollTop = 0;
-      element.scrollLeft = 0;
-    }
+    };
+
+    // Chrome can restore an anchor after layout settles, so reset on both sides of two frames.
+    reset();
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    reset();
+
+    html.style.scrollBehavior = previousHtmlScrollBehavior;
+    body.style.scrollBehavior = previousBodyScrollBehavior;
+  });
+}
+
+async function getViewportScrollTop(page) {
+  return page.evaluate(() => {
+    const positions = [window.scrollY, document.scrollingElement?.scrollTop ?? 0, document.documentElement.scrollTop, document.body.scrollTop];
+    return Math.max(...positions);
   });
 }
 
 async function scrollViewportToTop(page) {
-  await resetViewportScroll(page);
-  await expect
-    .poll(() => page.evaluate(() => Math.max(window.scrollY, document.documentElement.scrollTop, document.body.scrollTop)), {
-      message: "viewport should settle at the top before measuring chrome",
-      timeout: 1_500,
-    })
-    .toBeLessThanOrEqual(1);
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await resetViewportScroll(page);
+    const settled = await expect
+      .poll(() => getViewportScrollTop(page), {
+        message: "viewport should settle at the top before measuring chrome",
+        timeout: 1_500,
+      })
+      .toBeLessThanOrEqual(1)
+      .then(() => true)
+      .catch(() => false);
+
+    if (settled) {
+      return;
+    }
+  }
+
+  const scrollTop = await getViewportScrollTop(page);
+  expect(scrollTop, "viewport should settle at the top before measuring chrome").toBeLessThanOrEqual(1);
 }
 
 async function applyFontProfile(page, fontFamily) {
