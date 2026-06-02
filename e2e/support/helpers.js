@@ -878,10 +878,16 @@ export async function openTransactionEntryForm(page) {
     };
   }
 
+  const viewport = page.viewportSize();
+  const desktopTransactionAddAction = page.getByTestId("transactions-desktop-add-action");
   const transactionFab = page.getByTestId("transactions-fab");
-  await expect(transactionFab).toBeVisible();
-  await expect(transactionFab).toBeEnabled();
-  await transactionFab.click();
+  const transactionAddAction =
+    (viewport?.width ?? 0) > 820 && (await desktopTransactionAddAction.isVisible().catch(() => false))
+      ? desktopTransactionAddAction
+      : transactionFab;
+  await expect(transactionAddAction).toBeVisible();
+  await expect(transactionAddAction).toBeEnabled();
+  await transactionAddAction.click();
   await expect(transactionSheet).toBeVisible();
   await expect(transactionSheet.locator("form.transactions-form-grid, form.transaction-quick-form").first()).toBeVisible();
   return {

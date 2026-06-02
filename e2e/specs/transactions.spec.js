@@ -481,6 +481,49 @@ async function expectTransactionFabBottomRightReachable(page, label = "transacti
   expect(metrics.overlapsLedgerHead, `${label} should not cover the mobile ledger head: ${JSON.stringify(metrics)}`).toBe(false);
 }
 
+async function expectDesktopTransactionAddActionReachable(page, label = "desktop transaction add action") {
+  await expect(page.getByTestId("transactions-fab"), `${label} should not use a fixed FAB on desktop`).toHaveCount(0);
+  const action = page.getByTestId("transactions-desktop-add-action");
+  await expect(action, `${label} visible`).toBeVisible();
+  await expect(action, `${label} enabled`).toBeEnabled();
+  const metrics = await action.evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    const centerX = box.left + box.width / 2;
+    const centerY = box.top + box.height / 2;
+    const topElement = document.elementFromPoint(centerX, centerY);
+    const style = getComputedStyle(element);
+    return {
+      position: style.position,
+      display: style.display,
+      visibility: style.visibility,
+      box: {
+        left: box.left,
+        right: box.right,
+        top: box.top,
+        bottom: box.bottom,
+        width: box.width,
+        height: box.height,
+      },
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+      hitTargetIsAction: topElement === element || element.contains(topElement),
+    };
+  });
+  expect(metrics.display, `${label} should be displayed: ${JSON.stringify(metrics)}`).not.toBe("none");
+  expect(metrics.visibility, `${label} should be visible: ${JSON.stringify(metrics)}`).toBe("visible");
+  expect(metrics.position, `${label} should be docked in document flow: ${JSON.stringify(metrics)}`).not.toBe("fixed");
+  expect(metrics.box.height, `${label} should keep a desktop hit target: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(40);
+  expect(metrics.box.right, `${label} should stay inside viewport: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(
+    metrics.viewportWidth - 8
+  );
+  expect(metrics.box.top, `${label} should stay in viewport: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(0);
+  expect(metrics.box.bottom, `${label} should stay in viewport: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(
+    metrics.viewportHeight
+  );
+  expect(metrics.hitTargetIsAction, `${label} should be topmost at its center: ${JSON.stringify(metrics)}`).toBe(true);
+  return action;
+}
+
 async function expectDesktopTransactionMonthStepperSticky(page) {
   const viewport = page.viewportSize();
   if ((viewport?.width ?? 0) <= 820) {
@@ -860,11 +903,12 @@ async function openTransactionEntrySheet(page, viewport = { width: 1440, height:
   await page.setViewportSize(viewport);
   await openTab(page, "거래");
   await page.waitForLoadState("networkidle");
-  const transactionFab = page.getByTestId("transactions-fab");
+  const transactionAddAction =
+    (viewport?.width ?? 0) > 820 ? page.getByTestId("transactions-desktop-add-action") : page.getByTestId("transactions-fab");
   const transactionSheet = page.getByTestId("transaction-entry-sheet");
-  await expect(transactionFab).toBeVisible();
-  await expect(transactionFab).toBeEnabled();
-  await transactionFab.click();
+  await expect(transactionAddAction).toBeVisible();
+  await expect(transactionAddAction).toBeEnabled();
+  await transactionAddAction.click();
   await expect(transactionSheet).toBeVisible();
   return transactionSheet;
 }
@@ -2930,7 +2974,7 @@ test("transaction FAB and sticky toolbar stay reachable after ledger scroll", as
   expect(toolbarMetrics.box.bottom, `desktop toolbar should stay within viewport: ${JSON.stringify(toolbarMetrics)}`).toBeLessThan(
     toolbarMetrics.viewportHeight,
   );
-  await expectTransactionFabBottomRightReachable(page, "desktop transaction FAB after ledger scroll");
+  const desktopAddAction = await expectDesktopTransactionAddActionReachable(page, "desktop transaction add action after ledger scroll");
 
   await toolbar.getByRole("button", { name: "필터 열기" }).click();
   await expect(toolbar.locator(".tx-header-filters")).toBeVisible();
@@ -2939,12 +2983,12 @@ test("transaction FAB and sticky toolbar stay reachable after ledger scroll", as
   await expect(toolbar.locator(".tx-header-filters")).toBeHidden();
 
   const desktopScrollBeforeSheet = await page.evaluate(() => window.scrollY);
-  await page.getByTestId("transactions-fab").evaluate((element) => element.click());
+  await desktopAddAction.click();
   await expect(page.getByRole("dialog", { name: "거래 추가 레이어" })).toBeVisible();
   await expect(labeledField(page.getByTestId("transaction-entry-sheet"), "금액", "input")).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("transaction-entry-sheet")).toBeHidden();
-  await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute("data-testid") || "")).toBe("transactions-fab");
+  await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute("data-testid") || "")).toBe("transactions-desktop-add-action");
   const desktopScrollAfterSheet = await page.evaluate(() => window.scrollY);
   expect(Math.abs(desktopScrollAfterSheet - desktopScrollBeforeSheet)).toBeLessThanOrEqual(16);
 
@@ -2996,12 +3040,10 @@ test("issue 211: transaction add opens a visible sheet from a scrolled list", as
   await page.waitForTimeout(250);
 
   const scrollBeforeSheet = await page.evaluate(() => window.scrollY);
-  const transactionFab = page.getByTestId("transactions-fab");
-  await expect(transactionFab).toBeVisible();
-  await expect(transactionFab).toBeEnabled();
+  const transactionAddAction = await expectDesktopTransactionAddActionReachable(page, "issue 211 desktop transaction add action");
   await capture(page, "issue-211-scrolled-list-before-add");
 
-  await transactionFab.click();
+  await transactionAddAction.click();
   const transactionSheet = page.getByTestId("transaction-entry-sheet");
   await expect(page.getByRole("dialog", { name: "거래 추가 레이어" })).toBeVisible();
   await expect(labeledField(transactionSheet, "금액", "input")).toBeVisible();
@@ -3029,7 +3071,7 @@ test("issue 211: transaction add opens a visible sheet from a scrolled list", as
 
   await page.keyboard.press("Escape");
   await expect(transactionSheet).toBeHidden();
-  await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute("data-testid") || "")).toBe("transactions-fab");
+  await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute("data-testid") || "")).toBe("transactions-desktop-add-action");
 });
 
 test("issue 213: mobile transaction add inherits the visible month date context", async ({ page }) => {
@@ -3592,6 +3634,127 @@ test("issue 222: mobile transaction add FAB does not cover bottom ledger rows", 
   await capture(page, "issue-222-mobile-fab-bottom-row-clearance");
 });
 
+test("issue 223: desktop transaction add action does not cover bottom row actions", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("tx-desktop-fab-clearance")}@example.com`;
+  const displayName = unique("tx-desktop-fab-owner");
+  const memoPrefix = unique("tx-desktop-fab-row");
+  const category = await registerAndVerify(page, { email, displayName }).then(() =>
+    createCategoryViaApi(page, {
+      major: unique("DesktopFAB"),
+      minor: unique("동작열"),
+    })
+  );
+
+  for (let index = 0; index < 36; index += 1) {
+    await createTransactionViaApi(page, {
+      memo: `${memoPrefix}-${String(index).padStart(2, "0")}`,
+      amount: String(3200 + index),
+      categoryId: category.id,
+      ownerName: displayName,
+    });
+  }
+
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await openTab(page, "거래");
+  await page.waitForLoadState("networkidle");
+
+  await page.evaluate(() => {
+    const fab = document.querySelector("[data-testid='transactions-fab']");
+    const row = Array.from(document.querySelectorAll("tr.transaction-row"))[Math.min(28, document.querySelectorAll("tr.transaction-row").length - 1)];
+    const actionButton = row?.querySelector(".transaction-col-actions button");
+    const fabBox = fab?.getBoundingClientRect();
+    const actionBox = actionButton?.getBoundingClientRect();
+    if (!fabBox || !actionBox) {
+      window.scrollTo(0, document.documentElement.scrollHeight);
+      return;
+    }
+    const actionCenterY = actionBox.top + window.scrollY + actionBox.height / 2;
+    const fabCenterY = fabBox.top + fabBox.height / 2;
+    window.scrollTo(0, Math.max(0, actionCenterY - fabCenterY));
+  });
+  await page.waitForTimeout(300);
+
+  const metrics = await page.evaluate(() => {
+    const fixedFab = document.querySelector("[data-testid='transactions-fab']");
+    const desktopAdd = document.querySelector("[data-testid='transactions-desktop-add-action']");
+    const boxOf = (element) => {
+      if (!element) {
+        return null;
+      }
+      const box = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return {
+        text: element.textContent?.replace(/\s+/g, " ").trim() || element.getAttribute("aria-label") || "",
+        left: box.left,
+        right: box.right,
+        top: box.top,
+        bottom: box.bottom,
+        width: box.width,
+        height: box.height,
+        display: style.display,
+        position: style.position,
+        visibility: style.visibility,
+      };
+    };
+    const intersects = (left, right, inset = 0) =>
+      Boolean(
+        left &&
+          right &&
+          left.left + inset < right.right &&
+          left.right - inset > right.left &&
+          left.top + inset < right.bottom &&
+          left.bottom - inset > right.top
+      );
+    const fabBox = boxOf(fixedFab);
+    const actionTargets = Array.from(document.querySelectorAll("tr.transaction-row .transaction-col-actions button"))
+      .map((button) => {
+        const box = boxOf(button);
+        if (!box) {
+          return null;
+        }
+        const centerX = box.left + box.width / 2;
+        const centerY = box.top + box.height / 2;
+        const topElement = document.elementFromPoint(centerX, centerY);
+        return {
+          ...box,
+          centerX,
+          centerY,
+          centerCoveredByFab: Boolean(
+            fabBox &&
+              centerX >= fabBox.left &&
+              centerX <= fabBox.right &&
+              centerY >= fabBox.top &&
+              centerY <= fabBox.bottom
+          ),
+          hitVisible: Boolean(topElement && (topElement === button || button.contains(topElement))),
+        };
+      })
+      .filter((target) => target && target.top < window.innerHeight && target.bottom > 0);
+    return {
+      scrollY: window.scrollY,
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+      fixedFab: fabBox,
+      desktopAdd: boxOf(desktopAdd),
+      coveredActionTargets: actionTargets.filter((target) => intersects(target, fabBox, 1)),
+      centerCoveredActionTargets: actionTargets.filter((target) => target.centerCoveredByFab && !target.hitVisible),
+      visibleActionTargetCount: actionTargets.length,
+      pageOverflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    };
+  });
+
+  expect(metrics.visibleActionTargetCount, `test should exercise visible row action targets: ${JSON.stringify(metrics)}`).toBeGreaterThan(0);
+  expect(metrics.coveredActionTargets, `desktop add affordance should not cover row action boxes: ${JSON.stringify(metrics)}`).toEqual([]);
+  expect(metrics.centerCoveredActionTargets, `desktop row action centers should remain directly hittable: ${JSON.stringify(metrics)}`).toEqual([]);
+  expect(metrics.desktopAdd, `desktop add action should be docked in the toolbar: ${JSON.stringify(metrics)}`).toBeTruthy();
+  expect(metrics.desktopAdd.display, `desktop add action should be visible: ${JSON.stringify(metrics)}`).not.toBe("none");
+  expect(metrics.desktopAdd.visibility, `desktop add action should be visible: ${JSON.stringify(metrics)}`).toBe("visible");
+  expect(metrics.pageOverflowX, `desktop add clearance should not create horizontal overflow: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "issue-223-desktop-add-action-row-clearance");
+});
+
 test("issue 228: mobile transaction filters use ledger headers without duplicate generic toggle", async ({ page }) => {
   test.setTimeout(120_000);
 
@@ -3738,10 +3901,9 @@ test("transaction date controls use unambiguous ISO text fields", async ({ page 
   await openTab(page, "거래");
   await page.waitForLoadState("networkidle");
 
-  const desktopTransactionFab = page.getByTestId("transactions-fab");
   const desktopTransactionSheet = page.getByTestId("transaction-entry-sheet");
-  await expectTransactionFabBottomRightReachable(page, "desktop transaction FAB for ISO date entry");
-  await desktopTransactionFab.evaluate((element) => element.click());
+  const desktopTransactionAddAction = await expectDesktopTransactionAddActionReachable(page, "desktop transaction add action for ISO date entry");
+  await desktopTransactionAddAction.click();
   await expect(desktopTransactionSheet).toBeVisible();
   const desktopEntryDate = labeledField(desktopTransactionSheet, "일자", "input");
   await expectIsoDateInput(desktopEntryDate, "desktop transaction entry date");
@@ -4087,6 +4249,7 @@ test("transactions form keeps grouped number format", async ({ page }) => {
   const transactionCard = page.locator("article.card", {
     has: page.getByRole("heading", { name: "거래 입력" }),
   });
+  const desktopTransactionAddAction = page.getByTestId("transactions-desktop-add-action");
   const transactionFab = page.getByTestId("transactions-fab");
   const transactionSheet = page.getByTestId("transaction-entry-sheet");
   let transactionContainer = transactionCard;
@@ -4097,6 +4260,10 @@ test("transactions form keeps grouped number format", async ({ page }) => {
     if (txToggleText.includes("거래 추가")) {
       await txToggleButton.click();
     }
+  } else if (await desktopTransactionAddAction.isVisible().catch(() => false)) {
+    await desktopTransactionAddAction.click();
+    await expect(transactionSheet).toBeVisible();
+    transactionContainer = transactionSheet;
   } else if (await transactionFab.isVisible().catch(() => false)) {
     await transactionFab.click();
     await expect(transactionSheet).toBeVisible();
@@ -4124,6 +4291,7 @@ test("transactions form rejects decimal KRW amount before rounding can occur", a
   const transactionCard = page.locator("article.card", {
     has: page.getByRole("heading", { name: "거래 입력" }),
   });
+  const desktopTransactionAddAction = page.getByTestId("transactions-desktop-add-action");
   const transactionFab = page.getByTestId("transactions-fab");
   const transactionSheet = page.getByTestId("transaction-entry-sheet");
   let transactionContainer = transactionCard;
@@ -4134,6 +4302,10 @@ test("transactions form rejects decimal KRW amount before rounding can occur", a
     if (txToggleText.includes("거래 추가")) {
       await txToggleButton.click();
     }
+  } else if (await desktopTransactionAddAction.isVisible().catch(() => false)) {
+    await desktopTransactionAddAction.click();
+    await expect(transactionSheet).toBeVisible();
+    transactionContainer = transactionSheet;
   } else if (await transactionFab.isVisible().catch(() => false)) {
     await transactionFab.click();
     await expect(transactionSheet).toBeVisible();
@@ -4398,15 +4570,14 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   await expect(page.locator(".tx-header-filters").first()).toBeHidden();
 
   await expect(page.locator(".transaction-entry-card")).toHaveCount(0);
-  const desktopTransactionFab = page.getByTestId("transactions-fab");
   const desktopTransactionSheet = page.getByTestId("transaction-entry-sheet");
-  await expectTransactionFabBottomRightReachable(page, "desktop transaction FAB in list affordance flow");
-  await desktopTransactionFab.evaluate((element) => element.click());
+  const desktopTransactionAddAction = await expectDesktopTransactionAddActionReachable(page, "desktop transaction add action in list affordance flow");
+  await desktopTransactionAddAction.click();
   await expect(desktopTransactionSheet).toBeVisible();
   await expect(labeledField(desktopTransactionSheet, "금액", "input")).toBeVisible();
   await page.getByTestId("transaction-entry-sheet-close").click();
   await expect(desktopTransactionSheet).toBeHidden();
-  await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute("data-testid") || "")).toBe("transactions-fab");
+  await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute("data-testid") || "")).toBe("transactions-desktop-add-action");
 
   const createdRow = await createBasicTransaction(page, { memo, amount: "22222" });
   await expect(createdRow).toBeVisible();

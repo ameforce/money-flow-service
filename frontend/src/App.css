@@ -1487,6 +1487,20 @@
   margin-left: auto;
 }
 
+.transaction-desktop-add-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 2.55rem;
+  padding-inline: 0.85rem 0.95rem;
+  white-space: nowrap;
+}
+
+.transaction-desktop-add-action span[aria-hidden="true"] {
+  font-size: 1.12rem;
+  line-height: 1;
+}
+
 .surface-count-summary {
   margin: 0;
 }
