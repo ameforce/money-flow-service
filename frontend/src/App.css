@@ -4029,6 +4029,86 @@ table {
   white-space: nowrap;
 }
 
+@media (min-width: 821px) and (max-width: 1100px) {
+  .transactions-surface-table {
+    min-width: 0;
+  }
+
+  .transaction-list-card .surface-ledger-desktop-head {
+    grid-template-columns: 2.55rem 4.3rem 3.15rem 3.7rem minmax(3.9rem, 1fr) 4.75rem 3.6rem 4rem 6.35rem;
+  }
+
+  .transaction-list-card .surface-ledger-desktop-head .desktop-ledger-head-cell {
+    padding-inline: 0.26rem;
+    font-size: 0.72rem;
+  }
+
+  .transaction-list-card .surface-ledger-desktop-head .transaction-col-select,
+  .transactions-surface-table .transaction-col-select {
+    width: 2.55rem;
+    padding-inline: 0.2rem;
+  }
+
+  .transactions-surface-table .transaction-col-date {
+    width: 4.3rem;
+  }
+
+  .transactions-surface-table .transaction-col-type {
+    width: 3.15rem;
+  }
+
+  .transactions-surface-table .transaction-col-category {
+    width: 3.7rem;
+  }
+
+  .transactions-surface-table .transaction-col-memo {
+    width: 3.9rem;
+  }
+
+  .transactions-surface-table .transaction-col-amount {
+    width: 4.75rem;
+  }
+
+  .transactions-surface-table .transaction-col-owner {
+    width: 3.6rem;
+  }
+
+  .transactions-surface-table .transaction-col-updated {
+    width: 4rem;
+  }
+
+  .transactions-surface-table .transaction-col-actions {
+    width: 6.35rem;
+  }
+
+  .transactions-surface-table th,
+  .transactions-surface-table td {
+    padding-inline: 0.26rem;
+  }
+
+  .transactions-surface-table .transaction-col-actions .inline {
+    gap: 0.16rem;
+  }
+
+  .transactions-surface-table .transaction-col-actions button:not(.mobile-toggle-btn) {
+    min-width: 2.75rem;
+    padding-inline: 0.32rem;
+  }
+
+  .transactions-surface-table .transaction-col-date .desktop-date-text,
+  .transactions-surface-table .transaction-flow-full {
+    display: none;
+  }
+
+  .transactions-surface-table .transaction-col-date .mobile-date-text {
+    display: inline;
+  }
+
+  .transactions-surface-table .transaction-flow-short {
+    display: inline-flex;
+  }
+}
+
 .holdings-surface-table .holding-col-actions button {
   min-height: 2rem;
   min-width: auto;
