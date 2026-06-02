@@ -2213,6 +2213,19 @@ function App() {
   const activeDeepLinkFlowRef = useRef({ type: "", token: "" });
   const inviteEmailInputRef = useRef(null);
   const confirmResolveRef = useRef(null);
+
+  const transactionEntryTodayDate = useCallback(() => {
+    return normalizeIsoDateKey(transactionHistoryTodayRef.current || transactionHistoryToday, todayIso());
+  }, [transactionHistoryToday]);
+
+  const transactionEntryContextDate = useCallback(() => {
+    const todayDate = transactionEntryTodayDate();
+    return normalizeIsoDateKey(
+      transactionHistoryAnchorDateRef.current || transactionHistoryAnchorDate || todayDate,
+      todayDate
+    );
+  }, [transactionEntryTodayDate, transactionHistoryAnchorDate]);
+
   const [confirmDialog, setConfirmDialog] = useState({
     open: false,
     title: "",
@@ -2948,7 +2961,7 @@ function App() {
       String(txForm.category_id || "").trim() ||
       String(txCategoryMajor || "").trim() ||
       String(txForm.flow_type || "expense") !== "expense" ||
-      String(txForm.occurred_on || "") !== String(normalizeIsoDateKey(transactionHistoryToday, todayIso())) ||
+      String(txForm.occurred_on || "") !== String(transactionEntryContextDate()) ||
       (txQuickOwnerTouched && (txForm.owner_user_id || txForm.owner_name))
   );
   const isTransactionEntryDraftDirty = txDraftTouched && transactionDraftHasContent;
@@ -3292,20 +3305,19 @@ function App() {
   }, [household?.id, tab, token, transactionHistoryInitialized]);
 
   useEffect(() => {
-    const nextDefaultDate = normalizeIsoDateKey(transactionHistoryToday, todayIso());
+    const nextDefaultDate = transactionEntryContextDate();
     setTxForm((prev) => {
-      const localToday = todayIso();
-      const stillDefaultDraft =
+      const pristineDefaultDraft =
+        !txDraftTouched &&
         !prev.amount &&
         !prev.memo &&
-        !prev.category_id &&
-        (!prev.occurred_on || prev.occurred_on === localToday);
-      if (!stillDefaultDraft || prev.occurred_on === nextDefaultDate) {
+        !prev.category_id;
+      if (!pristineDefaultDraft || prev.occurred_on === nextDefaultDate) {
         return prev;
       }
       return { ...prev, occurred_on: nextDefaultDate };
     });
-  }, [transactionHistoryToday]);
+  }, [transactionEntryContextDate, txDraftTouched]);
 
   useEffect(() => {
     if (!token || !household?.id || tab !== "transactions" || !transactionHistoryInitialized) {
@@ -3736,7 +3748,7 @@ function App() {
   }, [showTransactionForm, closeTransactionEntrySheet]);
 
   function resetTransactionDraft() {
-    setTxForm(createTransactionForm(normalizeIsoDateKey(transactionHistoryToday, todayIso())));
+    setTxForm(createTransactionForm(transactionEntryContextDate()));
     setTxCategoryMajor("");
     setTxCategoryRestore(null);
     setTxDraftTouched(false);
@@ -9053,7 +9065,7 @@ function App() {
                   className="secondary today-btn"
                   onClick={() => {
                     setTxDraftTouched(true);
-                    setTxForm((prev) => ({ ...prev, occurred_on: normalizeIsoDateKey(transactionHistoryToday, todayIso()) }));
+                    setTxForm((prev) => ({ ...prev, occurred_on: transactionEntryTodayDate() }));
                   }}
                   disabled={transactionFormDisabled}
                 >
@@ -9170,7 +9182,7 @@ function App() {
             className="secondary today-btn"
             onClick={() => {
               setTxDraftTouched(true);
-              setTxForm((prev) => ({ ...prev, occurred_on: normalizeIsoDateKey(transactionHistoryToday, todayIso()) }));
+              setTxForm((prev) => ({ ...prev, occurred_on: transactionEntryTodayDate() }));
             }}
             disabled={transactionFormDisabled}
           >

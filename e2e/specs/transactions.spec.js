@@ -2897,6 +2897,46 @@ test("issue 211: transaction add opens a visible sheet from a scrolled list", as
   await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute("data-testid") || "")).toBe("transactions-fab");
 });
 
+test("issue 213: mobile transaction add inherits the visible month date context", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("tx-add-month-context")}@example.com`;
+  const displayName = unique("tx-add-month-context-name");
+  const monthContextDate = isoDaysFromToday(-75);
+  const { year, month } = yearMonthFromIso(monthContextDate);
+  const monthPrefix = `${year}-${String(month).padStart(2, "0")}`;
+  const monthMemo = unique("tx-add-month-context-row");
+
+  await registerAndVerify(page, { email, displayName });
+  await createTransactionViaApi(page, {
+    memo: monthMemo,
+    amount: "21300",
+    occurredOn: monthContextDate,
+    ownerName: displayName,
+    sourceRef: `${monthMemo}-source`,
+  });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openTab(page, "거래");
+  await jumpTransactionListToMonth(page, monthContextDate);
+  await expect(page.locator("tr.transaction-row", { hasText: monthMemo }).first()).toBeVisible({ timeout: 30_000 });
+  await expectTransactionMonthControls(page, monthContextDate, "issue 213 visible month context");
+  await capture(page, "issue-213-mobile-month-context-before-add");
+
+  const transactionFab = page.getByTestId("transactions-fab");
+  await expect(transactionFab).toBeVisible();
+  await transactionFab.click();
+  const transactionSheet = page.getByTestId("transaction-entry-sheet");
+  await expect(page.getByRole("dialog", { name: "거래 추가 레이어" })).toBeVisible();
+  await expect(transactionSheet).toContainText("현재 위치를 유지한 채 새 거래를 추가합니다.");
+
+  const details = await openTransactionQuickDetails(transactionSheet, "추가 입력");
+  const dateInput = labeledField(details, "일자", "input");
+  await expect(dateInput).toBeVisible();
+  await expect(dateInput).toHaveValue(new RegExp(`^${monthPrefix}-`));
+  await capture(page, "issue-213-mobile-add-date-in-visible-month-context");
+});
+
 test("transactions flow: create, inline edit, delete, responsive", async ({ page }) => {
   test.setTimeout(240_000);
 
