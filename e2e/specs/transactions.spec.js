@@ -3196,6 +3196,68 @@ test("issue 219: mobile inline transaction date edit uses numeric ISO assistance
   await capture(page, "issue-219-mobile-inline-date-numeric-iso-assistance");
 });
 
+test("issue 230: narrow mobile transaction date filters keep ISO placeholders readable", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("tx-mobile-date-filter-width")}@example.com`;
+  const displayName = unique("tx-mobile-date-filter-width-name");
+
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 320, height: 568 });
+  await openTab(page, "거래");
+  await page.waitForLoadState("networkidle");
+
+  await page
+    .locator(".transactions-mobile-ledger-head")
+    .first()
+    .getByRole("button", { name: "일자 필터 열기" })
+    .click();
+
+  const mobileFilterPanel = page.getByTestId("tx-ledger-filter-panel");
+  await expect(mobileFilterPanel).toContainText("일자 필터");
+  const startInput = mobileFilterPanel.getByLabel("시작일");
+  const endInput = mobileFilterPanel.getByLabel("종료일");
+  await expectIsoDateInput(startInput, "issue 230 narrow mobile start filter");
+  await expectIsoDateInput(endInput, "issue 230 narrow mobile end filter");
+
+  const metrics = await mobileFilterPanel.locator(".tx-ledger-filter-date-grid").evaluate((grid) => {
+    const fields = Array.from(grid.querySelectorAll(".tx-ledger-filter-field"));
+    const inputs = fields.map((field) => field.querySelector("input"));
+    const inputMetrics = inputs.map((input) => {
+      const style = window.getComputedStyle(input);
+      const canvas = document.createElement("canvas");
+      const context = canvas.getContext("2d");
+      if (context) {
+        context.font = style.font;
+      }
+      const placeholder = input.getAttribute("placeholder") || "";
+      const placeholderWidth = context ? context.measureText(placeholder).width : placeholder.length * 9;
+      const horizontalPadding = Number.parseFloat(style.paddingLeft || "0") + Number.parseFloat(style.paddingRight || "0");
+      return {
+        clientWidth: input.clientWidth,
+        requiredWidth: Math.ceil(placeholderWidth + horizontalPadding + 2),
+      };
+    });
+    const rects = fields.map((field) => field.getBoundingClientRect());
+
+    return {
+      columns: window.getComputedStyle(grid).gridTemplateColumns,
+      startBottom: rects[0]?.bottom || 0,
+      endTop: rects[1]?.top || 0,
+      inputs: inputMetrics,
+    };
+  });
+  expect(metrics.endTop, "end date filter should stack below start date filter at 320px").toBeGreaterThan(
+    metrics.startBottom,
+  );
+  for (const input of metrics.inputs) {
+    expect(input.clientWidth, "ISO placeholder should fit inside the narrow mobile date input").toBeGreaterThanOrEqual(
+      input.requiredWidth,
+    );
+  }
+  await capture(page, "issue-230-mobile-date-filter-placeholder-readable");
+});
+
 test("mobile transaction expanded row keeps details readable with filter panel open", async ({ page }) => {
   test.setTimeout(120_000);
 
