@@ -706,6 +706,7 @@ export function TransactionSurfaceTable({
             const flowLabel = FLOW_TYPE_LABELS[item.flow_type] || item.flow_type;
             const flowShortLabel = String(flowLabel || "").slice(0, 1) || "-";
             const ownerInitial = extractVisibleInitial(item.owner_name);
+            const ownerSummaryLabel = item.owner_name || "거래자 미입력";
             const flowAccent = rowColors[item.flow_type] || DEFAULT_TRANSACTION_ROW_COLORS[item.flow_type];
             const ownerColor = resolveSemanticColor(
               item.owner_name || flowLabel,
@@ -853,6 +854,13 @@ export function TransactionSurfaceTable({
                     ) : (
                       <span className="transaction-owner-empty" title="거래자 미입력" aria-label="거래자 미입력">-</span>
                     )}
+                    <span
+                      className="transaction-owner-summary"
+                      title={ownerSummaryLabel}
+                      aria-label={`거래자 ${ownerSummaryLabel}`}
+                    >
+                      {ownerSummaryLabel}
+                    </span>
                   </td>
                   <td data-label="카테고리" className="transaction-col-category transaction-mobile-detail-cell" data-field-key="category" data-mobile-priority={transactionMobilePriority("category")}>
                     <span className="transaction-mobile-detail-label">카테고리</span>
