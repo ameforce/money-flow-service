@@ -7457,11 +7457,12 @@ tr.holding-row-imported {
 
   .transaction-sticky-toolbar .surface-control-strip {
     display: flex;
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
     gap: 0.3rem;
-    overflow-x: auto;
-    padding-bottom: 0.04rem;
-    scrollbar-width: none;
+    row-gap: 0.28rem;
+    overflow-x: visible;
+    padding-bottom: 0;
+    scrollbar-width: auto;
   }
 
   .transaction-sticky-toolbar .surface-control-strip::-webkit-scrollbar {
@@ -7474,8 +7475,15 @@ tr.holding-row-imported {
 
   .transaction-sticky-toolbar .transaction-selection-summary,
   .transaction-sticky-toolbar .transaction-selection-status {
-    flex: 0 0 auto;
+    flex: 1 1 auto;
+    flex-wrap: wrap;
     gap: 0.24rem;
+    max-width: 100%;
+    white-space: normal;
+  }
+
+  .transaction-sticky-toolbar .transaction-selection-status {
+    flex: 0 1 auto;
   }
 
   .transaction-sticky-toolbar .transaction-selection-clear {
