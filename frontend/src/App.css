@@ -8245,10 +8245,10 @@ tr.holding-row-imported {
   .transactions-surface-table tbody tr.transaction-row .transaction-col-actions .mobile-toggle-btn {
     grid-area: toggle;
     align-self: center;
-    width: 2.5rem;
-    min-width: 2.5rem;
-    min-height: 2.5rem;
-    height: 2.5rem;
+    width: 2.75rem;
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+    height: 2.75rem;
     border-radius: 12px;
   }
 
@@ -8511,10 +8511,10 @@ tr.holding-row-imported {
 
   .transactions-surface-table .mobile-toggle-btn,
   .holdings-surface-table .mobile-toggle-btn {
-    width: 2.5rem;
-    min-width: 2.5rem;
-    min-height: 2.5rem;
-    height: 2.5rem;
+    width: 2.75rem;
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+    height: 2.75rem;
     padding: 0;
     border-radius: 14px;
     border-color: var(--transaction-row-border, var(--holding-row-border, rgba(151, 172, 201, 0.55)));
