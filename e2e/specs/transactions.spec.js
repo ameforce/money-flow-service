@@ -3464,6 +3464,44 @@ test("issue 221: mobile transaction status chips keep clear action in viewport",
   await capture(page, "issue-221-mobile-status-chips-visible");
 });
 
+test("issue 228: mobile transaction filters use ledger headers without duplicate generic toggle", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("tx-filter-affordance")}@example.com`;
+  const displayName = unique("tx-filter-affordance-owner");
+
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openTab(page, "거래");
+  await page.waitForLoadState("networkidle");
+
+  const toolbar = page.getByTestId("transaction-sticky-toolbar");
+  const genericFilterToggle = toolbar.getByRole("button", { name: "필터 열기", exact: true });
+  const mobileLedgerHead = page.locator(".transactions-mobile-ledger-head").first();
+  const memoFilterTrigger = mobileLedgerHead.getByRole("button", { name: "메모 필터 열기" });
+
+  await expect(mobileLedgerHead).toBeVisible();
+  await expect(genericFilterToggle).toHaveCount(0);
+  await expect(mobileLedgerHead.getByRole("button", { name: "일자 필터 열기" })).toBeVisible();
+  await expect(memoFilterTrigger).toBeVisible();
+  await expect(mobileLedgerHead.getByRole("button", { name: "금액 필터 열기" })).toBeVisible();
+  await expect(mobileLedgerHead.getByRole("button", { name: "유형 필터 열기" })).toBeVisible();
+  await capture(page, "issue-228-mobile-header-filter-primary");
+
+  await memoFilterTrigger.click();
+  const mobileFilterPanel = page.getByTestId("tx-ledger-filter-panel");
+  await expect(mobileFilterPanel).toContainText("메모 필터");
+  await expect(mobileFilterPanel.getByPlaceholder("메모 검색")).toBeVisible();
+  await expect(toolbar.getByRole("button", { name: "필터 닫기", exact: true })).toHaveCount(0);
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "issue-228-mobile-memo-filter-direct");
+
+  await mobileFilterPanel.getByRole("button", { name: "닫기" }).click();
+  await expect(mobileFilterPanel).toBeHidden();
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "issue-228-mobile-filter-closed");
+});
+
 test("transactions flow: create, inline edit, delete, responsive", async ({ page }) => {
   test.setTimeout(240_000);
 

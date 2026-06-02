@@ -10474,23 +10474,27 @@ function App() {
                   )}
                 </div>
               </div>
-              <div className="transaction-filter-actions" aria-label="거래 필터 빠른 조작">
-                <button
-                  type="button"
-                  className="secondary"
-                  aria-expanded={showTransactionFilterPanel ? "true" : "false"}
-                  aria-controls="transaction-filter-panel"
-                  onClick={() => setShowTransactionFilterPanel((prev) => !prev)}
-                >
-                  {showTransactionFilterPanel ? "필터 닫기" : "필터 열기"}
-                </button>
-                {isTransactionFilterActive && (
-                  <button type="button" className="secondary tx-header-filter-reset" onClick={clearTxListFilter}>
-                    필터 초기화
-                  </button>
-                )}
-                <span className="table-summary">현재 불러온 거래 목록 기준 필터입니다.</span>
-              </div>
+              {(!isCompactViewport || isTransactionFilterActive) && (
+                <div className="transaction-filter-actions" aria-label="거래 필터 빠른 조작">
+                  {!isCompactViewport && (
+                    <button
+                      type="button"
+                      className="secondary"
+                      aria-expanded={showTransactionFilterPanel ? "true" : "false"}
+                      aria-controls="transaction-filter-panel"
+                      onClick={() => setShowTransactionFilterPanel((prev) => !prev)}
+                    >
+                      {showTransactionFilterPanel ? "필터 닫기" : "필터 열기"}
+                    </button>
+                  )}
+                  {isTransactionFilterActive && (
+                    <button type="button" className="secondary tx-header-filter-reset" onClick={clearTxListFilter}>
+                      필터 초기화
+                    </button>
+                  )}
+                  {!isCompactViewport && <span className="table-summary">현재 불러온 거래 목록 기준 필터입니다.</span>}
+                </div>
+              )}
               {showTransactionFilterPanel && (
                 <div id="transaction-filter-panel" className="tx-header-filters" aria-label="거래 제목행 필터">
                   <label className="tx-header-filter tx-header-filter-search">
