@@ -35,10 +35,21 @@ async function readToggleMetrics(page, { selector, label }) {
       bottom: box.bottom,
       display: style.display,
       visibility: style.visibility,
+      centerInViewport: centerX >= 0 && centerX <= window.innerWidth && centerY >= 0 && centerY <= window.innerHeight,
       hitVisible: Boolean(topElement && (topElement === button || button.contains(topElement))),
       viewport: { width: window.innerWidth, height: window.innerHeight },
     };
   }, label);
+}
+
+async function centerRowForMeasurement(page, row) {
+  await row.evaluate((element) => element.scrollIntoView({ block: "center", inline: "nearest" }));
+  await page.waitForTimeout(150);
+}
+
+async function focusListForMeasurement(page, selector) {
+  await page.locator(selector).first().evaluate((element) => element.scrollIntoView({ block: "start", inline: "nearest" }));
+  await page.waitForTimeout(150);
 }
 
 test("issue 225: mobile transaction and holding detail toggles expose 44px hit targets", async ({ page }) => {
@@ -67,9 +78,10 @@ test("issue 225: mobile transaction and holding detail toggles expose 44px hit t
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
 
     await openTab(page, "거래");
+    await focusListForMeasurement(page, ".transaction-list-card");
     const transactionRow = page.locator("tr.transaction-row", { hasText: txMemo }).first();
     await expect(transactionRow).toBeVisible();
-    await transactionRow.scrollIntoViewIfNeeded();
+    await centerRowForMeasurement(page, transactionRow);
     const transactionToggle = transactionRow.locator(".mobile-toggle-btn").first();
     await expect(transactionToggle).toBeVisible();
     allMetrics.push(
@@ -81,9 +93,10 @@ test("issue 225: mobile transaction and holding detail toggles expose 44px hit t
     await expectNoHorizontalOverflow(page, 12);
 
     await openTab(page, "자산");
+    await focusListForMeasurement(page, ".holding-list-card");
     const holdingRow = page.locator("tr.holding-row", { hasText: holdingName }).first();
     await expect(holdingRow).toBeVisible();
-    await holdingRow.scrollIntoViewIfNeeded();
+    await centerRowForMeasurement(page, holdingRow);
     const holdingToggle = holdingRow.locator(".mobile-toggle-btn").first();
     await expect(holdingToggle).toBeVisible();
     allMetrics.push(
@@ -96,7 +109,7 @@ test("issue 225: mobile transaction and holding detail toggles expose 44px hit t
   }
 
   const undersizedTargets = allMetrics.filter((metric) => metric.width < 44 || metric.height < 44);
-  const blockedCenters = allMetrics.filter((metric) => !metric.hitVisible);
+  const blockedCenters = allMetrics.filter((metric) => !metric.centerInViewport || !metric.hitVisible);
   expect(undersizedTargets, `mobile row detail toggles should be at least 44x44px: ${JSON.stringify(allMetrics)}`).toEqual(
     []
   );
