@@ -2029,8 +2029,10 @@ function App() {
   const [showTransactionQuickResume, setShowTransactionQuickResume] = useState(false);
   const [txRepeatFocusRequest, setTxRepeatFocusRequest] = useState(0);
   const [txQuickOwnerTouched, setTxQuickOwnerTouched] = useState(false);
+  const [txDraftTouched, setTxDraftTouched] = useState(false);
   const [showHoldingForm, setShowHoldingForm] = useState(false);
   const [holdingOwnerTouched, setHoldingOwnerTouched] = useState(false);
+  const [holdingDraftTouched, setHoldingDraftTouched] = useState(false);
   const [holdingSummaryOpen, setHoldingSummaryOpen] = useState(true);
   const [tab, setTab] = useState(() => getInitialTabId());
   const [isCompactViewport, setIsCompactViewport] = useState(
@@ -2204,6 +2206,21 @@ function App() {
     action: "",
     confirmLabel: "확인",
   });
+  const requestConfirmDialog = useCallback(({ title, action, confirmLabel = "확인" }) => {
+    if (confirmResolveRef.current) {
+      confirmResolveRef.current(false);
+      confirmResolveRef.current = null;
+    }
+    return new Promise((resolve) => {
+      confirmResolveRef.current = resolve;
+      setConfirmDialog({
+        open: true,
+        title,
+        action,
+        confirmLabel,
+      });
+    });
+  }, []);
 
   const [txForm, setTxForm] = useState(() => createTransactionForm());
   const [txCategoryMajor, setTxCategoryMajor] = useState("");
@@ -2878,6 +2895,38 @@ function App() {
 
     return ownerMemberOptions.length === 1 ? ownerMemberOptions[0] : null;
   }, [currentUserId, holdingForm.owner_name, holdingForm.owner_user_id, holdingOwnerTouched, ownerMemberOptions]);
+  const transactionDraftHasContent = Boolean(
+    String(stripGrouping(txForm.amount) || "").trim() ||
+      String(txForm.memo || "").trim() ||
+      String(txForm.category_id || "").trim() ||
+      String(txCategoryMajor || "").trim() ||
+      String(txForm.flow_type || "expense") !== "expense" ||
+      String(txForm.occurred_on || "") !== String(normalizeIsoDateKey(transactionHistoryToday, todayIso())) ||
+      (txQuickOwnerTouched && (txForm.owner_user_id || txForm.owner_name))
+  );
+  const isTransactionEntryDraftDirty = txDraftTouched && transactionDraftHasContent;
+  const holdingDraftType =
+    holdingTypeByKey.get(normalizeHoldingTypeKey(holdingForm.type_key || holdingForm.asset_type || "")) ||
+    holdingTypeOptions[0] ||
+    DEFAULT_HOLDING_TYPES[0];
+  const holdingDraftDefault = createHoldingForm(
+    holdingDraftType?.asset_type || holdingForm.asset_type || "cash",
+    holdingDraftType?.key || holdingForm.type_key || "",
+    holdingDraftType?.label || ""
+  );
+  const holdingDraftHasContent = Boolean(
+    String(holdingForm.name || "").trim() ||
+      String(holdingForm.symbol || "").trim() ||
+      String(holdingForm.market_symbol || "").trim() ||
+      String(holdingForm.account_name || "").trim() ||
+      (holdingOwnerTouched && (holdingForm.owner_user_id || holdingForm.owner_name)) ||
+      String(holdingForm.category || "").trim() !== String(holdingDraftDefault.category || "").trim() ||
+      normalizeDecimalForCompare(holdingForm.quantity) !== normalizeDecimalForCompare(holdingDraftDefault.quantity) ||
+      normalizeDecimalForCompare(holdingForm.average_cost) !== normalizeDecimalForCompare(holdingDraftDefault.average_cost) ||
+      String(holdingForm.currency || "").trim().toUpperCase() !==
+        String(holdingDraftDefault.currency || "").trim().toUpperCase()
+  );
+  const isHoldingEntryDraftDirty = holdingDraftTouched && holdingDraftHasContent;
   useEffect(() => {
     setOwnerRemapTargets((prev) => {
       const next = {};
@@ -3595,7 +3644,17 @@ function App() {
     setShowTransactionForm(true);
   }
 
-  const closeTransactionEntrySheet = useCallback(() => {
+  const closeTransactionEntrySheet = useCallback(async ({ skipDraftGuard = false } = {}) => {
+    if (!skipDraftGuard && txEntrySheetStep === "form" && isTransactionEntryDraftDirty) {
+      const confirmed = await requestConfirmDialog({
+        title: "거래 입력을 닫을까요?",
+        action: "작성 중인 거래 초안은 보존됩니다. 닫으면 목록으로 돌아가고 다시 열어 이어서 입력할 수 있습니다.",
+        confirmLabel: "입력 닫기",
+      });
+      if (!confirmed) {
+        return false;
+      }
+    }
     const restoreScrollY = transactionSheetScrollYRef.current;
     setShowTransactionForm(false);
     setTxEntrySheetStep("form");
@@ -3605,7 +3664,8 @@ function App() {
       window.scrollTo({ top: restoreScrollY, behavior: "auto" });
       transactionFabRef.current?.focus?.({ preventScroll: true });
     }, 0);
-  }, [clearTransactionQuickFocusScrollTimers]);
+    return true;
+  }, [clearTransactionQuickFocusScrollTimers, isTransactionEntryDraftDirty, requestConfirmDialog, txEntrySheetStep]);
 
   useEffect(() => {
     if (!showTransactionForm) {
@@ -3626,6 +3686,7 @@ function App() {
     setTxForm(createTransactionForm(normalizeIsoDateKey(transactionHistoryToday, todayIso())));
     setTxCategoryMajor("");
     setTxCategoryRestore(null);
+    setTxDraftTouched(false);
     setShowTransactionQuickResume(false);
     setTxQuickOwnerTouched(false);
     if (isCompactViewport && showTransactionForm) {
@@ -3830,6 +3891,7 @@ function App() {
   function applyTransactionCategory(categoryId, categoryOverride = null) {
     const normalizedCategoryId = String(categoryId || "").trim();
     const category = categoryOverride || categoryById.get(normalizedCategoryId);
+    setTxDraftTouched(true);
     setTxForm((prev) => ({ ...prev, category_id: normalizedCategoryId }));
     setTxCategoryMajor(category ? String(category.major || "") : "");
     setTxCategoryRestore(null);
@@ -3845,6 +3907,7 @@ function App() {
     if (normalizedFlowType === txForm.flow_type) {
       return;
     }
+    setTxDraftTouched(true);
     const selectedCategory = categoryById.get(String(txForm.category_id || ""));
     const compatibleCategory = findCompatibleCategoryForFlow(categories, selectedCategory, normalizedFlowType);
     setTxForm((prev) => ({
@@ -3879,6 +3942,7 @@ function App() {
     if (!txCategoryRestore) {
       return;
     }
+    setTxDraftTouched(true);
     setTxForm((prev) => ({
       ...prev,
       flow_type: txCategoryRestore.flow_type,
@@ -3954,14 +4018,25 @@ function App() {
     setShowHoldingForm(true);
   }
 
-  function closeHoldingEntrySheet() {
+  async function closeHoldingEntrySheet({ skipDraftGuard = false } = {}) {
+    if (!skipDraftGuard && isHoldingEntryDraftDirty) {
+      const confirmed = await requestConfirmDialog({
+        title: "자산 입력을 닫을까요?",
+        action: "작성 중인 자산 초안은 보존됩니다. 닫으면 목록으로 돌아가고 다시 열어 이어서 입력할 수 있습니다.",
+        confirmLabel: "입력 닫기",
+      });
+      if (!confirmed) {
+        return false;
+      }
+    }
     setShowHoldingForm(false);
     if (!isCompactViewport || typeof window === "undefined") {
-      return;
+      return true;
     }
     window.setTimeout(() => {
       window.scrollTo({ top: holdingSheetScrollYRef.current, behavior: "auto" });
     }, 0);
+    return true;
   }
 
   function scrollToHoldingSummary() {
@@ -4211,22 +4286,6 @@ function App() {
     if (resolve) {
       resolve(confirmed);
     }
-  }
-
-  function requestConfirmDialog({ title, action, confirmLabel = "확인" }) {
-    if (confirmResolveRef.current) {
-      confirmResolveRef.current(false);
-      confirmResolveRef.current = null;
-    }
-    return new Promise((resolve) => {
-      confirmResolveRef.current = resolve;
-      setConfirmDialog({
-        open: true,
-        title,
-        action,
-        confirmLabel,
-      });
-    });
   }
 
   async function handleHouseholdInviteAccepted(acceptedPayload, nextToken = token) {
@@ -5400,6 +5459,16 @@ function App() {
     });
   }
 
+  function handleTransactionEntryAmountInput(event) {
+    setTxDraftTouched(true);
+    handleTransactionAmountInput(event, setTxForm);
+  }
+
+  function handleHoldingEntryDecimalInput(event, field) {
+    setHoldingDraftTouched(true);
+    handleGroupedDecimalInput(event, setHoldingForm, field);
+  }
+
   function validateLoginForm(form) {
     const emailMessage = validateAuthEmail(form.email);
     if (emailMessage) {
@@ -6031,6 +6100,7 @@ function App() {
       );
       setTxForm(repeatForm);
       setTxCategoryRestore(null);
+      setTxDraftTouched(false);
       setShowTransactionEntryBanner(false);
       setTxEntrySheetStep("form");
       setShowTransactionQuickResume(false);
@@ -6225,6 +6295,7 @@ function App() {
 
   function applyTransactionOwnerOption(option) {
     setTxQuickOwnerTouched(true);
+    setTxDraftTouched(true);
     setTxForm((prev) => ({
       ...prev,
       owner_user_id: option.value,
@@ -6234,6 +6305,7 @@ function App() {
 
   function applyHoldingOwnerOption(option) {
     setHoldingOwnerTouched(true);
+    setHoldingDraftTouched(true);
     setHoldingForm((prev) => ({
       ...prev,
       owner_user_id: option.value,
@@ -6302,10 +6374,11 @@ function App() {
         owner_name: holdingForm.owner_name,
       };
       setHoldingForm(nextForm);
+      setHoldingDraftTouched(false);
       setHoldingOwnerTouched(
         holdingOwnerTouched || Boolean(nextForm.owner_user_id || nextForm.owner_name)
       );
-      closeHoldingEntrySheet();
+      closeHoldingEntrySheet({ skipDraftGuard: true });
       await refreshData(false);
       setMessage(uiGuideMessage("자산을 저장했습니다.", "목록에서 반영 결과를 확인해 주세요."));
     } catch (error) {
@@ -7953,8 +8026,10 @@ function App() {
     setTxCategoryMajor("");
     closeTxInlineEdit();
     setTxForm(createTransactionForm());
+    setTxDraftTouched(false);
     setHoldingForm(createHoldingForm("cash"));
     setHoldingOwnerTouched(false);
+    setHoldingDraftTouched(false);
     setHoldingInlineEdit(null);
     setShowTransactionForm(false);
     setShowHoldingForm(false);
@@ -8788,7 +8863,7 @@ function App() {
             autoComplete="off"
             placeholder="0"
             value={txForm.amount}
-            onChange={(event) => handleTransactionAmountInput(event, setTxForm)}
+            onChange={handleTransactionEntryAmountInput}
             onKeyDown={handleTransactionQuickAmountKeyDown}
             disabled={transactionFormDisabled}
             required
@@ -8835,7 +8910,10 @@ function App() {
             enterKeyHint="done"
             value={txForm.memo}
             placeholder="선택 입력"
-            onChange={(e) => setTxForm((prev) => ({ ...prev, memo: e.target.value }))}
+            onChange={(e) => {
+              setTxDraftTouched(true);
+              setTxForm((prev) => ({ ...prev, memo: e.target.value }));
+            }}
             onKeyDown={handleTransactionQuickMemoKeyDown}
             disabled={transactionFormDisabled}
           />
@@ -8857,6 +8935,7 @@ function App() {
                 value={txCategoryMajor}
                 disabled={transactionFormDisabled}
                 onChange={(e) => {
+                  setTxDraftTouched(true);
                   setTxCategoryMajor(e.target.value);
                   setTxCategoryRestore(null);
                   setTxForm((prev) => ({ ...prev, category_id: "" }));
@@ -8877,6 +8956,7 @@ function App() {
                 value={txForm.category_id}
                 disabled={transactionFormDisabled || !txCategoryMajor}
                 onChange={(e) => {
+                  setTxDraftTouched(true);
                   setTxCategoryRestore(null);
                   setTxForm((prev) => ({ ...prev, category_id: e.target.value }));
                 }}
@@ -8902,14 +8982,20 @@ function App() {
                   ref={txDateInputRef}
                   enterKeyHint="next"
                   value={txForm.occurred_on}
-                  onValueChange={(value) => setTxForm((prev) => ({ ...prev, occurred_on: value }))}
+                  onValueChange={(value) => {
+                    setTxDraftTouched(true);
+                    setTxForm((prev) => ({ ...prev, occurred_on: value }));
+                  }}
                   disabled={transactionFormDisabled}
                   required
                 />
                 <button
                   type="button"
                   className="secondary today-btn"
-                  onClick={() => setTxForm((prev) => ({ ...prev, occurred_on: normalizeIsoDateKey(transactionHistoryToday, todayIso()) }))}
+                  onClick={() => {
+                    setTxDraftTouched(true);
+                    setTxForm((prev) => ({ ...prev, occurred_on: normalizeIsoDateKey(transactionHistoryToday, todayIso()) }));
+                  }}
                   disabled={transactionFormDisabled}
                 >
                   오늘
@@ -8941,6 +9027,7 @@ function App() {
                 onChange={(event) => {
                   const nextOwner = ownerSelectionFromValue(event.target.value, transactionOwnerOptions);
                   setTxQuickOwnerTouched(true);
+                  setTxDraftTouched(true);
                   setTxForm((prev) => ({ ...prev, ...nextOwner }));
                 }}
               >
@@ -8965,6 +9052,7 @@ function App() {
               disabled: transactionFormDisabled,
               onApply: (target) => {
                 setTxQuickOwnerTouched(true);
+                setTxDraftTouched(true);
                 setTxForm((prev) => ({
                   ...prev,
                   owner_user_id: target.value,
@@ -9011,14 +9099,20 @@ function App() {
             ref={txDateInputRef}
             enterKeyHint="next"
             value={txForm.occurred_on}
-            onValueChange={(value) => setTxForm((prev) => ({ ...prev, occurred_on: value }))}
+            onValueChange={(value) => {
+              setTxDraftTouched(true);
+              setTxForm((prev) => ({ ...prev, occurred_on: value }));
+            }}
             disabled={transactionFormDisabled}
             required
           />
           <button
             type="button"
             className="secondary today-btn"
-            onClick={() => setTxForm((prev) => ({ ...prev, occurred_on: normalizeIsoDateKey(transactionHistoryToday, todayIso()) }))}
+            onClick={() => {
+              setTxDraftTouched(true);
+              setTxForm((prev) => ({ ...prev, occurred_on: normalizeIsoDateKey(transactionHistoryToday, todayIso()) }));
+            }}
             disabled={transactionFormDisabled}
           >
             오늘
@@ -9049,7 +9143,7 @@ function App() {
           inputMode="numeric"
           enterKeyHint="next"
           value={txForm.amount}
-          onChange={(event) => handleTransactionAmountInput(event, setTxForm)}
+          onChange={handleTransactionEntryAmountInput}
           disabled={transactionFormDisabled}
           required
         />
@@ -9075,6 +9169,7 @@ function App() {
           value={txCategoryMajor}
           disabled={transactionFormDisabled}
           onChange={(e) => {
+            setTxDraftTouched(true);
             setTxCategoryMajor(e.target.value);
             setTxCategoryRestore(null);
             setTxForm((prev) => ({ ...prev, category_id: "" }));
@@ -9095,6 +9190,7 @@ function App() {
           value={txForm.category_id}
           disabled={transactionFormDisabled || !txCategoryMajor}
           onChange={(e) => {
+            setTxDraftTouched(true);
             setTxCategoryRestore(null);
             setTxForm((prev) => ({ ...prev, category_id: e.target.value }));
           }}
@@ -9113,7 +9209,10 @@ function App() {
           ref={txMemoInputRef}
           enterKeyHint="next"
           value={txForm.memo}
-          onChange={(e) => setTxForm((prev) => ({ ...prev, memo: e.target.value }))}
+          onChange={(e) => {
+            setTxDraftTouched(true);
+            setTxForm((prev) => ({ ...prev, memo: e.target.value }));
+          }}
           disabled={transactionFormDisabled}
         />
       </label>
@@ -9126,6 +9225,7 @@ function App() {
           onChange={(event) => {
             const nextOwner = ownerSelectionFromValue(event.target.value, transactionOwnerOptions);
             setTxQuickOwnerTouched(true);
+            setTxDraftTouched(true);
             setTxForm((prev) => ({ ...prev, ...nextOwner }));
           }}
         >
@@ -9150,6 +9250,7 @@ function App() {
         disabled: transactionFormDisabled,
         onApply: (target) => {
           setTxQuickOwnerTouched(true);
+          setTxDraftTouched(true);
           setTxForm((prev) => ({
             ...prev,
             owner_user_id: target.value,
@@ -10636,6 +10737,7 @@ function App() {
                     value={holdingForm.type_key}
                     disabled={!canEditRecords}
                     onChange={(event) => {
+                      setHoldingDraftTouched(true);
                       const nextTypeKey = normalizeHoldingTypeKey(event.target.value || "");
                       const nextType = holdingTypeByKey.get(nextTypeKey) || holdingTypeOptions[0] || DEFAULT_HOLDING_TYPES[0];
                       setHoldingForm((prev) => ({
@@ -10666,7 +10768,10 @@ function App() {
                     rows={2}
                     ref={holdingNameInputRef}
                     value={holdingForm.name}
-                    onChange={(event) => setHoldingForm({ ...holdingForm, name: event.target.value })}
+                    onChange={(event) => {
+                      setHoldingDraftTouched(true);
+                      setHoldingForm({ ...holdingForm, name: event.target.value });
+                    }}
                     disabled={!canEditRecords}
                     required
                   />
@@ -10678,7 +10783,10 @@ function App() {
                   카테고리
                   <input
                     value={holdingForm.category}
-                    onChange={(event) => setHoldingForm({ ...holdingForm, category: event.target.value })}
+                    onChange={(event) => {
+                      setHoldingDraftTouched(true);
+                      setHoldingForm({ ...holdingForm, category: event.target.value });
+                    }}
                     disabled={!canEditRecords}
                   />
                 </label>
@@ -10689,6 +10797,7 @@ function App() {
                     disabled={!canEditRecords}
                     onChange={(event) => {
                       setHoldingOwnerTouched(true);
+                      setHoldingDraftTouched(true);
                       setHoldingForm({
                         ...holdingForm,
                         ...ownerSelectionFromValue(event.target.value, holdingFormOwnerOptions),
@@ -10716,6 +10825,7 @@ function App() {
                   disabled: !canEditRecords,
                   onApply: (target) => {
                     setHoldingOwnerTouched(true);
+                    setHoldingDraftTouched(true);
                     setHoldingForm((prev) => ({
                       ...prev,
                       owner_user_id: target.value,
@@ -10727,7 +10837,10 @@ function App() {
                   계좌
                   <input
                     value={holdingForm.account_name}
-                    onChange={(event) => setHoldingForm({ ...holdingForm, account_name: event.target.value })}
+                    onChange={(event) => {
+                      setHoldingDraftTouched(true);
+                      setHoldingForm({ ...holdingForm, account_name: event.target.value });
+                    }}
                     disabled={!canEditRecords}
                   />
                 </label>
@@ -10737,7 +10850,10 @@ function App() {
                       심볼
                       <input
                         value={holdingForm.symbol}
-                        onChange={(event) => setHoldingForm({ ...holdingForm, symbol: event.target.value })}
+                        onChange={(event) => {
+                          setHoldingDraftTouched(true);
+                          setHoldingForm({ ...holdingForm, symbol: event.target.value });
+                        }}
                         disabled={!canEditRecords}
                         required
                       />
@@ -10746,7 +10862,10 @@ function App() {
                       시장심볼
                       <input
                         value={holdingForm.market_symbol}
-                        onChange={(event) => setHoldingForm({ ...holdingForm, market_symbol: event.target.value })}
+                        onChange={(event) => {
+                          setHoldingDraftTouched(true);
+                          setHoldingForm({ ...holdingForm, market_symbol: event.target.value });
+                        }}
                         disabled={!canEditRecords}
                       />
                     </label>
@@ -10756,7 +10875,7 @@ function App() {
                         type="text"
                         inputMode="decimal"
                         value={holdingForm.quantity}
-                        onChange={(event) => handleGroupedDecimalInput(event, setHoldingForm, "quantity")}
+                        onChange={(event) => handleHoldingEntryDecimalInput(event, "quantity")}
                         disabled={!canEditRecords}
                         required
                       />
@@ -10768,7 +10887,7 @@ function App() {
                           type="text"
                           inputMode="decimal"
                           value={holdingForm.average_cost}
-                          onChange={(event) => handleGroupedDecimalInput(event, setHoldingForm, "average_cost")}
+                          onChange={(event) => handleHoldingEntryDecimalInput(event, "average_cost")}
                           disabled={!canEditRecords}
                           required
                         />
@@ -10783,7 +10902,7 @@ function App() {
                         type="text"
                         inputMode="decimal"
                         value={holdingForm.average_cost}
-                        onChange={(event) => handleGroupedDecimalInput(event, setHoldingForm, "average_cost")}
+                        onChange={(event) => handleHoldingEntryDecimalInput(event, "average_cost")}
                         disabled={!canEditRecords}
                         required
                       />
@@ -10796,7 +10915,10 @@ function App() {
                   통화
                   <input
                     value={holdingForm.currency}
-                    onChange={(event) => setHoldingForm({ ...holdingForm, currency: event.target.value.toUpperCase() })}
+                    onChange={(event) => {
+                      setHoldingDraftTouched(true);
+                      setHoldingForm({ ...holdingForm, currency: event.target.value.toUpperCase() });
+                    }}
                     disabled={!canEditRecords}
                     required
                   />
@@ -10808,6 +10930,7 @@ function App() {
                     disabled={!canEditRecords}
                     onClick={() => {
                       setHoldingOwnerTouched(false);
+                      setHoldingDraftTouched(false);
                       setHoldingForm(createHoldingForm(holdingForm.asset_type, holdingForm.type_key, holdingFormType?.label));
                     }}
                   >

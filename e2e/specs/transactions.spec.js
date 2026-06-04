@@ -1975,7 +1975,7 @@ test("transaction ledger stays readable in landscape compact width", async ({ pa
   await capture(page, "transactions-landscape-compact-ledger");
 });
 
-test("mobile quick entry preserves a closed draft and clears it only through reset", async ({ page }) => {
+test("issue 192: mobile quick entry asks before closing a dirty draft and preserves it", async ({ page }) => {
   test.setTimeout(180_000);
 
   const email = `${unique("tx-quick-draft")}@example.com`;
@@ -2021,6 +2021,18 @@ test("mobile quick entry preserves a closed draft and clears it only through res
   }
 
   await page.getByTestId("transaction-entry-sheet-close").click();
+  const closeDraftDialog = page.getByRole("alertdialog");
+  await expect(closeDraftDialog.getByRole("heading", { name: "거래 입력을 닫을까요?" })).toBeVisible();
+  await expect(closeDraftDialog).toContainText("작성 중인 거래 초안은 보존됩니다.");
+  await closeDraftDialog.getByRole("button", { name: "취소" }).click();
+  await expect(closeDraftDialog).toBeHidden();
+  await expect(transactionSheet).toBeVisible();
+  await expect(page.getByTestId("transaction-quick-amount")).toHaveValue("11,223");
+  await expect(labeledField(transactionSheet, "메모", "input")).toHaveValue(draftMemo);
+
+  await page.getByTestId("transaction-entry-sheet-close").click();
+  await expect(closeDraftDialog.getByRole("heading", { name: "거래 입력을 닫을까요?" })).toBeVisible();
+  await closeDraftDialog.getByRole("button", { name: "입력 닫기" }).click();
   await expect(transactionSheet).toBeHidden();
 
   transactionSheet = await openMobileTransactionQuickEntry(page);
@@ -2812,6 +2824,9 @@ test("transaction date controls use unambiguous ISO text fields", async ({ page 
   await desktopEntryDate.fill("20260502");
   await expect(desktopEntryDate).toHaveValue("2026-05-02");
   await page.getByTestId("transaction-entry-sheet-close").click();
+  const closeDateDraftDialog = page.getByRole("alertdialog");
+  await expect(closeDateDraftDialog.getByRole("heading", { name: "거래 입력을 닫을까요?" })).toBeVisible();
+  await closeDateDraftDialog.getByRole("button", { name: "입력 닫기" }).click();
   await expect(desktopTransactionSheet).toBeHidden();
 
   const desktopFilterPanel = page.locator("#transaction-filter-panel");
