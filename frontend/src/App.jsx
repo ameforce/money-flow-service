@@ -8911,6 +8911,36 @@ function App() {
     const selectedCategoryLabel = selectedCategoryId
       ? toCategoryPairLabel(categoryById.get(selectedCategoryId))
       : "추천 카테고리를 탭하면 바로 연결됩니다.";
+    const selectedCategoryContextLabel = selectedCategoryId
+      ? toCategoryPairLabel(categoryById.get(selectedCategoryId))
+      : "미선택";
+    const selectedOwnerValue = ownerSelectValue(txForm.owner_user_id, txForm.owner_name);
+    const selectedOwnerOption = transactionOwnerOptions.find(
+      (option) => String(option.value || "") === selectedOwnerValue
+    );
+    const selectedOwnerLabel = selectedOwnerOption?.label || txForm.owner_name || "미선택";
+    const transactionQuickContextItems = [
+      {
+        key: "flow",
+        label: "유형",
+        value: FLOW_TYPE_LABELS[txForm.flow_type] || txForm.flow_type || "지출",
+      },
+      {
+        key: "date",
+        label: "일자",
+        value: txForm.occurred_on || transactionEntryContextDate(),
+      },
+      {
+        key: "owner",
+        label: "거래자",
+        value: selectedOwnerLabel,
+      },
+      {
+        key: "category",
+        label: "카테고리",
+        value: selectedCategoryContextLabel,
+      },
+    ];
 
     return (
       <form
@@ -8940,6 +8970,23 @@ function App() {
             required
           />
         </label>
+
+        <div
+          className="transaction-quick-context-strip"
+          data-testid="transaction-quick-context-summary"
+          aria-label="저장 컨텍스트 요약"
+        >
+          {transactionQuickContextItems.map((item) => (
+            <div
+              key={item.key}
+              className="transaction-quick-context-item"
+              data-testid={`transaction-quick-context-${item.key}`}
+            >
+              <span>{item.label}</span>
+              <strong title={item.value}>{item.value}</strong>
+            </div>
+          ))}
+        </div>
 
         {showTransactionQuickResume && (
           <button
