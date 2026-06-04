@@ -32,6 +32,11 @@ pipeline {
       defaultValue: false,
       description: 'true면 승인/미리보기만 수행하고 실제 배포는 실행하지 않음'
     )
+    booleanParam(
+      name: 'ALLOW_PROD_DEPLOY',
+      defaultValue: false,
+      description: '명시적으로 true일 때만 main/prod 배포 허용'
+    )
     string(
       name: 'DEPLOY_HOST',
       defaultValue: 'enmsoftware.com',
@@ -224,6 +229,9 @@ pipeline {
             deployBranch = 'main'
           }
           def isMainBranch = (deployBranch == 'main')
+          if (isMainBranch && params.RUN_DEPLOY && !params.DEPLOY_DRY_RUN && !params.ALLOW_PROD_DEPLOY) {
+            error('prod deploy is disabled unless ALLOW_PROD_DEPLOY=true. Current hotfix flow must deploy dev only.')
+          }
 
           env.DEPLOY_TARGET_BRANCH = deployBranch
           env.DEPLOY_TARGET_ENV = isMainBranch ? 'prod' : 'dev'
@@ -253,12 +261,9 @@ export PATH="$HOME/.local/bin:$PATH"
 if ! command -v uv >/dev/null 2>&1; then
   if command -v python3 >/dev/null 2>&1 && python3 -m pip --version >/dev/null 2>&1; then
     python3 -m pip install --user uv
-  elif command -v curl >/dev/null 2>&1; then
-    curl -LsSf https://astral.sh/uv/install.sh | sh
-  elif command -v wget >/dev/null 2>&1; then
-    wget -qO- https://astral.sh/uv/install.sh | sh
   else
-    echo "[skip] uv bootstrap requires pip, curl, or wget; skipping backend dependency sync."
+    echo "[error] uv is required on the Jenkins agent; preinstall uv or provide python3 pip for a user install."
+    exit 1
   fi
 fi
 
@@ -266,7 +271,8 @@ export PATH="$HOME/.local/bin:$PATH"
 if command -v uv >/dev/null 2>&1; then
   uv sync --extra dev
 else
-  echo "[skip] uv not available; skipping backend dependency sync."
+  echo "[error] uv is required on the Jenkins agent; dependency sync cannot be skipped."
+  exit 1
 fi
 
 . ./scripts/ci/ensure-node.sh
@@ -382,6 +388,7 @@ fi
               "TARGET_URL=${targetUrl}",
               "RETRY_COUNT=${retryCount}",
               "RETRY_INTERVAL=${retryInterval}",
+              "DEPLOY_TARGET_ENV=${env.DEPLOY_TARGET_ENV}",
               "E2E_BASE_URL=${targetUrl}",
               "E2E_API_BASE_URL=${apiBaseUrl}",
               "E2E_API_REQUEST_ORIGIN=${apiRequestOrigin}"
@@ -406,8 +413,11 @@ while true; do
 done
             ''')
               if (targetReadyStatus == 3) {
-                echo "[pre-deploy-e2e] live target is unavailable; skipping live-site smoke so Deploy Execute can restore ${targetUrl}. Post-deploy smoke remains blocking."
-                return
+                if (env.DEPLOY_TARGET_ENV == 'dev') {
+                  echo "[pre-deploy-e2e] dev recovery gate: current dev health is not ready after ${retryCount} retries; continuing only because deploy target is dev. Post-deploy smoke remains blocking."
+                  return
+                }
+                error("[pre-deploy-e2e] health check failed after ${retryCount} retries")
               }
               if (targetReadyStatus != 0) {
                 error("[pre-deploy-e2e] unexpected health-check status: ${targetReadyStatus}")
@@ -601,6 +611,7 @@ done
               "DOMAIN=${env.DEPLOY_DOMAIN_FOR_BRANCH}",
               "HEALTHCHECK_URL=${env.DEPLOY_HEALTHCHECK_URL_RESOLVED}",
               "ENV_FILE_PATH=${env.DEPLOY_ENV_FILE_NAME}",
+              "DEPLOY_TARGET_ENV=${env.DEPLOY_TARGET_ENV}",
               "APP_VERSION=${env.APP_VERSION}",
               "NGINX_CLIENT_MAX_BODY_SIZE=${nginxClientMaxBodySize}",
               "PUBLIC_BASE_URL=${env.POST_DEPLOY_E2E_URL_RESOLVED}",
@@ -1153,20 +1164,67 @@ assert_frontend_asset_version "$PUBLIC_BASE_URL" "$APP_VERSION"
 
 tmp_probe_file="$(mktemp)"
 tmp_probe_body="$(mktemp)"
+tmp_probe_login="$(mktemp)"
+tmp_probe_cookies="$(mktemp)"
 cleanup_probe() {
-  rm -f "$tmp_probe_file" "$tmp_probe_body"
+  rm -f "$tmp_probe_file" "$tmp_probe_body" "$tmp_probe_login" "$tmp_probe_cookies"
 }
 trap 'cleanup_probe; rm -rf "$DEPLOY_TMP_KEY_DIR"' EXIT
+PYTHON_BIN="${PWD}/.venv/bin/python"
+if [ ! -x "$PYTHON_BIN" ]; then
+  PYTHON_BIN="$(command -v python3 || command -v python)"
+fi
 dd if=/dev/zero of="$tmp_probe_file" bs=1M count=2 >/dev/null 2>&1
+probe_email="jenkins-upload-probe-${BUILD_NUMBER:-manual}@example.com"
+probe_password="UploadProbe123!"
+run_ssh "seed-upload-probe-user" "set -euo pipefail; cd '$REMOTE_DEPLOY_PATH'; docker compose -p '$COMPOSE_PROJECT' -f '$COMPOSE_FILE' --env-file '$ENV_FILE_PATH' run --rm -v '$REMOTE_DEPLOY_PATH/scripts/deploy/seed_upload_probe_user.py:/tmp/seed_upload_probe_user.py:ro' app env PYTHONPATH=backend python /tmp/seed_upload_probe_user.py --email '$probe_email' --password '$probe_password' --display-name 'Upload Probe'"
+probe_login_payload="$("$PYTHON_BIN" - "$probe_email" "$probe_password" <<'PY'
+import json
+import sys
+
+email, password = sys.argv[1], sys.argv[2]
+print(json.dumps({"email": email, "password": password, "remember_me": False}))
+PY
+)"
+login_url="${PUBLIC_BASE_URL%/}/api/v1/auth/login"
+login_status="$(curl -sS -o "$tmp_probe_login" -w '%{http_code}' \
+  -c "$tmp_probe_cookies" \
+  -b "$tmp_probe_cookies" \
+  -H 'content-type: application/json' \
+  -H "Origin: ${PUBLIC_BASE_URL%/}" \
+  -d "$probe_login_payload" \
+  "$login_url" || true)"
+if [ "$login_status" != "200" ]; then
+  echo "[deploy] upload-limit probe setup failed during login: HTTP $login_status"
+  sed -n '1,40p' "$tmp_probe_login" || true
+  exit 1
+fi
+probe_csrf_cookie_name="mf_csrf_token"
+probe_csrf_token="$(awk -v name="$probe_csrf_cookie_name" 'BEGIN { FS = "\t" } $6 == name { value = $7 } END { print value }' "$tmp_probe_cookies")"
+if [ -z "$probe_csrf_token" ]; then
+  echo "[deploy] upload-limit probe setup failed: csrf token missing"
+  sed -n '1,80p' "$tmp_probe_cookies" || true
+  exit 1
+fi
 probe_url="${PUBLIC_BASE_URL%/}/api/v1/imports/workbook/upload?mode=dry_run"
-probe_status="$(curl -sS -o "$tmp_probe_body" -w '%{http_code}' -X POST -F "file=@${tmp_probe_file};filename=upload-probe.xlsx;type=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" "$probe_url" || true)"
+probe_status="$(curl -sS -o "$tmp_probe_body" -w '%{http_code}' -X POST \
+  -b "$tmp_probe_cookies" \
+  -H "x-csrf-token: ${probe_csrf_token}" \
+  -H "Origin: ${PUBLIC_BASE_URL%/}" \
+  -F "file=@${tmp_probe_file};filename=upload-probe.xlsx;type=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" \
+  "$probe_url" || true)"
 case "$probe_status" in
-  400|401|403)
-    echo "[deploy] upload-limit probe passed with HTTP $probe_status"
+  400)
+    echo "[deploy] UPLOAD_LIMIT_PROBE_OK_APP_REACHED HTTP $probe_status"
     ;;
   413)
     echo "[deploy] upload-limit probe failed: public domain rejected multipart body with HTTP 413"
     sed -n '1,20p' "$tmp_probe_body" || true
+    exit 1
+    ;;
+  401|403)
+    echo "[deploy] upload-limit probe failed: authenticated request was rejected with HTTP $probe_status before upload handling"
+    sed -n '1,40p' "$tmp_probe_body" || true
     exit 1
     ;;
   *)
@@ -1236,7 +1294,8 @@ esac
             "RETRY_INTERVAL=${retryInterval}",
             "E2E_BASE_URL=${targetUrl}",
             "E2E_API_BASE_URL=${apiBaseUrl}",
-            "E2E_API_REQUEST_ORIGIN=${apiRequestOrigin}"
+            "E2E_API_REQUEST_ORIGIN=${apiRequestOrigin}",
+            "E2E_RUN_SCOPE=post-deploy-${env.DEPLOY_TARGET_ENV ?: 'deploy'}"
           ]) {
             sh '''
 set -eu
@@ -1294,8 +1353,11 @@ if [ -n "$missing_libs" ]; then
 fi
 
 echo "[deploy-e2e] target=$E2E_BASE_URL api_base=$E2E_API_BASE_URL origin=$E2E_API_REQUEST_ORIGIN"
-echo "[deploy-e2e] command: npx playwright test --grep 'auth deep-link token policy: query token rejected' e2e/specs/deeplink.spec.js --workers=1"
-npx playwright test --grep "auth deep-link token policy: query token rejected" e2e/specs/deeplink.spec.js --workers=1
+export E2E_POST_DEPLOY_EMAIL="jenkins-upload-probe-${BUILD_NUMBER:-manual}@example.com"
+export E2E_POST_DEPLOY_PASSWORD="UploadProbe123!"
+echo "[deploy-e2e] seeded account=$E2E_POST_DEPLOY_EMAIL"
+echo "[deploy-e2e] command: npx playwright test e2e/specs/post-deploy-smoke.spec.js --project=desktop-chromium --workers=1"
+npx playwright test e2e/specs/post-deploy-smoke.spec.js --project=desktop-chromium --workers=1
 echo "[deploy-e2e] post-deploy Playwright smoke completed"
             '''
           }

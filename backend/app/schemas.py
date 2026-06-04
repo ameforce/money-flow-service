@@ -263,6 +263,27 @@ class HouseholdSettingsPatch(BaseModel):
         return self
 
 
+class LegacyOwnerRemapRequest(BaseModel):
+    owner_name: str = Field(min_length=1, max_length=80)
+    target_owner_user_id: str = Field(min_length=1, max_length=36)
+
+    @field_validator("owner_name", "target_owner_user_id")
+    @classmethod
+    def normalize_required_text(cls, value: str) -> str:
+        text = str(value or "").strip()
+        if not text:
+            raise ValueError("blank value is not allowed")
+        return text
+
+
+class LegacyOwnerRemapResponse(BaseModel):
+    source_owner_name: str
+    target_owner_user_id: str
+    target_owner_name: str
+    remapped_transactions: int = Field(ge=0)
+    remapped_holdings: int = Field(ge=0)
+
+
 class CategoryRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -323,6 +344,14 @@ class CategoryRenameMajorRequest(BaseModel):
         return text
 
 
+def validate_krw_transaction_amount(value: Decimal | None) -> Decimal | None:
+    if value is None:
+        return None
+    if value != value.to_integral_value():
+        raise ValueError("KRW transaction amount must be an integer")
+    return value
+
+
 class CategoryUsageEntry(BaseModel):
     transaction_id: str
     occurred_on: date
@@ -348,6 +377,11 @@ class TransactionCreate(BaseModel):
     owner_user_id: str | None = Field(default=None, max_length=36)
     owner_name: str | None = Field(default=None, max_length=80)
     source_ref: str | None = Field(default=None, max_length=120)
+
+    @field_validator("amount")
+    @classmethod
+    def validate_transaction_amount(cls, value: Decimal) -> Decimal:
+        return validate_krw_transaction_amount(value) or value
 
     @field_validator("currency")
     @classmethod
@@ -386,6 +420,11 @@ class TransactionPatch(BaseModel):
     memo: str | None = Field(default=None, max_length=2000)
     owner_user_id: str | None = Field(default=None, max_length=36)
     owner_name: str | None = Field(default=None, max_length=80)
+
+    @field_validator("amount")
+    @classmethod
+    def validate_patch_transaction_amount(cls, value: Decimal | None) -> Decimal | None:
+        return validate_krw_transaction_amount(value)
 
     @field_validator("currency")
     @classmethod
@@ -630,6 +669,21 @@ class ImportIssue(BaseModel):
     detail: dict[str, Any] | None = None
 
 
+class ImportAppliedTransactionRef(BaseModel):
+    id: str
+    occurred_on: date
+    memo: str
+    source_ref: str | None = None
+
+
+class ImportAppliedHoldingRef(BaseModel):
+    id: str
+    name: str
+    category: str | None = None
+    source_ref: str | None = None
+    action: Literal["added", "updated"]
+
+
 class ImportReport(BaseModel):
     workbook_path: str
     sheets: int
@@ -646,6 +700,8 @@ class ImportReport(BaseModel):
     applied_holdings_added: int
     applied_holdings_updated: int
     skipped_transactions: int
+    applied_transaction_refs: list[ImportAppliedTransactionRef] = Field(default_factory=list)
+    applied_holding_refs: list[ImportAppliedHoldingRef] = Field(default_factory=list)
     issues: list[ImportIssue]
 
 
@@ -669,6 +725,80 @@ class MigrationPackageReport(BaseModel):
     applied_holdings: int
     owner_names_unmatched: int = 0
     owner_names_ambiguous: int = 0
+    issues: list[ImportIssue] = Field(default_factory=list)
+
+
+class TossCategoryRecommendationRead(BaseModel):
+    suggested_major: str = Field(min_length=1, max_length=120)
+    suggested_minor: str = Field(min_length=1, max_length=120)
+    reason: str = Field(min_length=1, max_length=120)
+    create_allowed: bool = False
+
+
+class TossImportRow(BaseModel):
+    row_id: str = Field(min_length=1, max_length=120)
+    source_ref: str = Field(min_length=1, max_length=120)
+    source_ref_signature: str = Field(min_length=64, max_length=64)
+    source_image_name: str | None = Field(default=None, max_length=255)
+    source_image_index: int = Field(default=0, ge=0)
+    occurred_on: date
+    time: str = Field(pattern=r"^(?:[01]\d|2[0-3]):[0-5]\d$")
+    item_name: str = Field(min_length=1, max_length=200)
+    detail: str = Field(default="", max_length=500)
+    amount: Decimal = Field(gt=0)
+    signed_amount: Decimal
+    balance: Decimal
+    flow_type: FlowType
+    category_id: str | None = Field(default=None, max_length=36)
+    category_recommendation: TossCategoryRecommendationRead | None = None
+    included: bool = True
+    duplicate_group_id: str | None = Field(default=None, max_length=80)
+    exclusion_reason: str | None = Field(default=None, max_length=120)
+
+    @field_validator("category_id")
+    @classmethod
+    def normalize_toss_category_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
+
+    @field_validator("item_name", "detail")
+    @classmethod
+    def normalize_toss_text(cls, value: str) -> str:
+        return str(value or "").strip()
+
+
+class TossExcludedCandidate(BaseModel):
+    source_image_name: str | None = Field(default=None, max_length=255)
+    source_image_index: int = Field(default=0, ge=0)
+    item_name: str = Field(default="", max_length=200)
+    raw_text: str = Field(default="", max_length=1000)
+    exclusion_reason: str = Field(min_length=1, max_length=120)
+
+
+class TossImportSummary(BaseModel):
+    image_count: int = Field(ge=0)
+    parsed_rows: int = Field(ge=0)
+    excluded_candidates: int = Field(ge=0)
+    duplicate_candidates: int = Field(ge=0)
+
+
+class TossScreenshotPreviewResponse(BaseModel):
+    rows: list[TossImportRow]
+    excluded_candidates: list[TossExcludedCandidate]
+    summary: TossImportSummary
+    issues: list[ImportIssue] = Field(default_factory=list)
+
+
+class TossScreenshotApplyRequest(BaseModel):
+    rows: list[TossImportRow]
+
+
+class TossScreenshotApplyResponse(BaseModel):
+    applied_transactions: int
+    skipped_transactions: int
+    created_transaction_ids: list[str]
     issues: list[ImportIssue] = Field(default_factory=list)
 
 
