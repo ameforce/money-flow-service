@@ -1439,6 +1439,72 @@ test("issue 195: inline transaction edit restores the original category after ty
   await capture(page, "issue-195-inline-original-category-restored");
 });
 
+test("issue 196: transaction save clears hiding filters and reveals the saved row", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("tx-save-filter")}@example.com`;
+  const displayName = unique("tx-save-filter-name");
+  const seedMemo = unique("tx-save-filter-seed");
+  const savedMemo = unique("tx-save-filter-saved");
+  const occurredOn = currentE2EHistoryDateIso();
+  const categoryPair = {
+    major: unique("저장필터분류"),
+    minor: unique("저장필터항목"),
+  };
+
+  await registerAndVerify(page, { email, displayName });
+  const incomeCategory = await createCategoryViaApi(page, {
+    ...categoryPair,
+    flowType: "income",
+  });
+  const expenseCategory = await createCategoryViaApi(page, categoryPair);
+  await createTransactionViaApi(page, {
+    memo: seedMemo,
+    amount: "12000",
+    flowType: "income",
+    categoryId: incomeCategory.id,
+    occurredOn,
+  });
+  await page.reload();
+  await page.waitForLoadState("networkidle");
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openTab(page, "거래");
+
+  const listCard = page.locator(".transaction-list-card").first();
+  await expect(listCard).toBeVisible();
+  await expect(page.locator("tr.transaction-row", { hasText: seedMemo }).first()).toBeVisible({ timeout: 20_000 });
+  await page.getByTestId("transaction-sticky-toolbar").getByRole("button", { name: "필터 열기" }).click();
+  await expect(listCard.locator(".tx-header-filters")).toBeVisible();
+  await listCard.locator(".tx-header-filter-search input").fill(seedMemo);
+  await listCard.locator(".tx-header-filter-type select").selectOption("income");
+  await expect(page.locator("tr.transaction-row", { hasText: seedMemo }).first()).toBeVisible();
+  await capture(page, "issue-196-active-filter-before-save");
+
+  const transactionSheet = await openTransactionEntrySheet(page, { width: 1440, height: 900 });
+  await labeledField(transactionSheet, "일자", "input").fill(occurredOn);
+  await labeledField(transactionSheet, "유형", "select").selectOption("expense");
+  await selectTransactionFormCategory(transactionSheet, expenseCategory);
+  await selectFirstNonEmptyOption(labeledField(transactionSheet, "거래자", "select"));
+  await labeledField(transactionSheet, "금액", "input").fill("34567");
+  await labeledField(transactionSheet, "메모", "input").fill(savedMemo);
+  await capture(page, "issue-196-save-with-hiding-filter");
+  await transactionSheet.getByRole("button", { name: "거래 등록" }).click();
+
+  const savedRow = page.locator("tr.transaction-row", { hasText: savedMemo }).first();
+  await expect(savedRow).toBeVisible({ timeout: 20_000 });
+  await expect(savedRow).toHaveAttribute("data-save-highlight", "true");
+  await expect(listCard.locator(".surface-control-strip")).toContainText("필터 기본");
+  await expect(listCard.locator(".tx-header-filter-search input")).toHaveValue("");
+  await expect(listCard.locator(".tx-header-filter-type select")).toHaveValue("all");
+  await capture(page, "issue-196-saved-row-visible-after-filter-clear");
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(savedRow).toBeVisible();
+  await expect(savedRow).toHaveAttribute("data-save-highlight", "true");
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "issue-196-mobile-saved-row-visible-after-filter-clear");
+});
+
 test("mobile quick entry keeps repeat context and returns focus to amount", async ({ page }) => {
   test.setTimeout(180_000);
 

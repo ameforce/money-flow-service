@@ -780,6 +780,15 @@ function currentMonth() {
   return { year: now.getFullYear(), month: now.getMonth() + 1 };
 }
 
+function yearMonthFromIsoDate(value, fallback = todayIso()) {
+  const normalized = normalizeIsoDateKey(value, fallback);
+  const [year, month] = normalized.split("-").map((part) => Number(part));
+  if (!Number.isFinite(year) || !Number.isFinite(month)) {
+    return currentMonth();
+  }
+  return { year, month };
+}
+
 function isoDateFromUtcDate(value) {
   const year = value.getUTCFullYear();
   const month = String(value.getUTCMonth() + 1).padStart(2, "0");
@@ -2152,6 +2161,7 @@ function App() {
   const [priceStatus, setPriceStatus] = useState(null);
   const [importReport, setImportReport] = useState(null);
   const [recentImportTransactionIds, setRecentImportTransactionIds] = useState(() => new Set());
+  const [recentSavedTransactionIds, setRecentSavedTransactionIds] = useState(() => new Set());
   const [recentImportHoldingIds, setRecentImportHoldingIds] = useState(() => new Set());
   const [pendingImportEditTransactionId, setPendingImportEditTransactionId] = useState("");
   const [pendingImportEditHoldingId, setPendingImportEditHoldingId] = useState("");
@@ -2510,6 +2520,40 @@ function App() {
       amount_max: "",
     });
   }
+
+  async function revealSavedTransactionInList(transaction, fallbackDate, options = {}) {
+    const savedId = String(transaction?.id || "").trim();
+    const savedDate = normalizeIsoDateKey(
+      transaction?.occurred_on || fallbackDate,
+      transactionHistoryTodayRef.current || transactionHistoryToday || todayIso()
+    );
+    const targetMonth = yearMonthFromIsoDate(savedDate, transactionHistoryTodayRef.current || transactionHistoryToday || todayIso());
+    const targetRange = yearMonthFullDateRange(targetMonth, transactionHistoryTodayRef.current || transactionHistoryToday || todayIso());
+
+    clearTxListFilter();
+    setRecentSavedTransactionIds(savedId ? new Set([savedId]) : new Set());
+    setRecentImportTransactionIds(new Set());
+    setRecentImportHoldingIds(new Set());
+    setFilterMode("month");
+    filterModeRef.current = "month";
+    yearMonthRef.current = targetMonth;
+    appliedYearMonthRef.current = targetMonth;
+    rangeRef.current = targetRange;
+    setMonthFilterPending(false);
+    setYearMonth(targetMonth);
+    setRange(targetRange);
+
+    await refreshData(false, token, { filterMode: "month", yearMonth: targetMonth });
+    if (transactionHistoryInitialized || tab === "transactions") {
+      await refreshTransactionHistoryAtAnchor(savedDate, {
+        alignToEnd: options.alignToEnd !== false,
+      });
+    }
+    if (savedId) {
+      scrollToDataRow("data-transaction-id", savedId);
+    }
+  }
+
   const transactionSortSummary = transactionHistoryInitialized
     ? "연속 내역순"
     : txSortDirection === "asc"
@@ -4524,6 +4568,7 @@ function App() {
     receivedInviteIdsRef.current = new Set();
     setImportReport(null);
     setRecentImportTransactionIds(new Set());
+    setRecentSavedTransactionIds(new Set());
     setRecentImportHoldingIds(new Set());
     setPendingImportEditTransactionId("");
     setPendingImportEditHoldingId("");
@@ -6098,12 +6143,13 @@ function App() {
     setLoading(true);
     setMessage("");
     try {
+      const keepQuickEntryOpen = isCompactViewport && showTransactionForm && txEntrySheetStep === "form";
       const payload = buildTransactionPayloadFromForm(txForm);
       const repeatForm = createRepeatTransactionForm(
         txForm,
         normalizeIsoDateKey(payload.occurred_on, transactionHistoryToday || todayIso())
       );
-      await api(
+      const createdTransaction = await api(
         `${API_PREFIX}/transactions`,
         {
           method: "POST",
@@ -6117,15 +6163,13 @@ function App() {
       setShowTransactionEntryBanner(false);
       setTxEntrySheetStep("form");
       setShowTransactionQuickResume(false);
-      await refreshData(false);
-      if (transactionHistoryInitialized || tab === "transactions") {
-        await refreshTransactionHistoryAtAnchor(
-          normalizeIsoDateKey(payload.occurred_on, transactionHistoryAnchorDate || transactionHistoryToday || todayIso()),
-          { alignToEnd: true }
-        );
-      }
+      await revealSavedTransactionInList(createdTransaction, payload.occurred_on, { alignToEnd: true });
       focusTransactionAmountForRepeatEntry();
-      setMessage(uiGuideMessage("거래를 등록했습니다.", "다음 거래 금액을 바로 입력할 수 있습니다."));
+      setMessage(
+        keepQuickEntryOpen
+          ? ""
+          : uiGuideMessage("거래를 등록했습니다.", "필터를 초기화하고 저장한 거래를 표시했습니다. 다음 거래 금액을 바로 입력할 수 있습니다.")
+      );
     } catch (error) {
       setMessage(formatApiError(error, "transaction_submit"));
     } finally {
@@ -6432,7 +6476,7 @@ function App() {
           })
         : null;
       const dirtyPatch = buildDirtyPatchFields(payload, originalPayload, TX_PATCH_COMPARATORS);
-      await api(
+      const updatedTransaction = await api(
         `${API_PREFIX}/transactions/${txInlineEdit.id}`,
         {
           method: "PATCH",
@@ -6444,17 +6488,12 @@ function App() {
         token
       );
       closeTxInlineEdit();
-      await refreshData(false);
-      if (transactionHistoryInitialized || tab === "transactions") {
-        await refreshTransactionHistoryAtAnchor(
-          normalizeIsoDateKey(
-            dirtyPatch.occurred_on || transactionHistoryAnchorDate || transactionHistoryToday,
-            transactionHistoryToday || todayIso()
-          ),
-          { alignToEnd: Boolean(dirtyPatch.occurred_on) }
-        );
-      }
-      setMessage(uiGuideMessage("거래를 수정했습니다.", "목록에서 변경 내용을 확인해 주세요."));
+      await revealSavedTransactionInList(
+        updatedTransaction,
+        dirtyPatch.occurred_on || txInlineEdit.occurred_on || transactionHistoryAnchorDate || transactionHistoryToday,
+        { alignToEnd: true }
+      );
+      setMessage(uiGuideMessage("거래를 수정했습니다.", "필터를 초기화하고 수정한 거래를 표시했습니다."));
     } catch (error) {
       setMessage(formatApiError(error, "transaction_submit"));
     } finally {
@@ -6920,6 +6959,7 @@ function App() {
     const firstRef = importAppliedTransactionRefs[0];
     const targetMonth = getImportRefMonth(firstRef) || yearMonthRef.current;
     setRecentImportTransactionIds(new Set(ids));
+    setRecentSavedTransactionIds(new Set());
     setRecentImportHoldingIds(new Set());
     clearTxListFilter();
     setFilterMode("month");
@@ -6943,6 +6983,7 @@ function App() {
     const firstRef = importAppliedHoldingRefs[0];
     setRecentImportHoldingIds(new Set(ids));
     setRecentImportTransactionIds(new Set());
+    setRecentSavedTransactionIds(new Set());
     setHoldingListTab("all");
     setHoldingTypeFilter("all");
     if (startEdit) {
@@ -6987,11 +7028,13 @@ function App() {
       setImportReport(report);
       if (mode === "apply") {
         setRecentImportTransactionIds(new Set(normalizeImportAppliedTransactionRefs(report).map((item) => item.id)));
+        setRecentSavedTransactionIds(new Set());
         setRecentImportHoldingIds(new Set(normalizeImportAppliedHoldingRefs(report).map((item) => item.id)));
         await loadAuthContext(token);
         await refreshData(false);
       } else {
         setRecentImportTransactionIds(new Set());
+        setRecentSavedTransactionIds(new Set());
         setRecentImportHoldingIds(new Set());
         setPendingImportEditTransactionId("");
         setPendingImportEditHoldingId("");
@@ -8001,6 +8044,7 @@ function App() {
     setPriceStatus(null);
     setImportReport(null);
     setRecentImportTransactionIds(new Set());
+    setRecentSavedTransactionIds(new Set());
     setRecentImportHoldingIds(new Set());
     setPendingImportEditTransactionId("");
     setPendingImportEditHoldingId("");
@@ -10466,6 +10510,7 @@ function App() {
               historyLoadingNewer={transactionHistoryLoading.newer}
               selectedTransactionIds={selectedTransactionIds}
               recentImportTransactionIds={recentImportTransactionIds}
+              recentSavedTransactionIds={recentSavedTransactionIds}
               toggleTransactionSelection={toggleTransactionSelection}
               selectTransactionRows={selectTransactionRows}
               setTransactionRowsSelected={setTransactionRowsSelected}
