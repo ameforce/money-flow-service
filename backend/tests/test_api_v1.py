@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import io
+import json
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
@@ -16,7 +18,7 @@ import zipfile
 
 from fastapi.testclient import TestClient as FastAPITestClient
 import jwt
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
 from pydantic import ValidationError
 import pytest
 from sqlalchemy import create_engine, delete, event, func, select, update
@@ -82,6 +84,7 @@ from app.db.models import (  # noqa: E402
     AssetType,
     Category,
     EmailVerificationToken,
+    EntityPatchLog,
     FlowType,
     FxRate,
     Holding,
@@ -5315,6 +5318,192 @@ def test_schema_upgrade_preserves_legacy_null_owner_rows(tmp_path: Path) -> None
         local_engine.dispose()
 
 
+def test_household_legacy_owner_remap_updates_transactions_and_holdings_atomically() -> None:
+    with TestClient(app) as client:
+        token = _auth(client, f"owner-remap-{uuid.uuid4().hex}@example.com", "Password1234", "OwnerRemap")
+        household_id = client.get("/api/v1/household/current", headers=_headers(token)).json()["household"]["id"]
+        member = client.get("/api/v1/household/members", headers=_headers(token)).json()[0]
+        target_user_id = member["user_id"]
+        target_owner_name = member["display_name"]
+
+        with SessionLocal() as db:
+            category = Category(
+                household_id=household_id,
+                flow_type=FlowType.expense,
+                major="식비",
+                minor="점심",
+            )
+            db.add(category)
+            db.flush()
+            transaction = Transaction(
+                household_id=household_id,
+                category_id=category.id,
+                flow_type=FlowType.expense,
+                occurred_on=date(2026, 4, 22),
+                amount=Decimal("12000"),
+                currency="KRW",
+                memo="legacy remap transaction",
+                owner_name="LegacyOwner",
+            )
+            other_transaction = Transaction(
+                household_id=household_id,
+                category_id=category.id,
+                flow_type=FlowType.expense,
+                occurred_on=date(2026, 4, 23),
+                amount=Decimal("13000"),
+                currency="KRW",
+                memo="other legacy transaction",
+                owner_name="OtherLegacyOwner",
+            )
+            holding = Holding(
+                household_id=household_id,
+                asset_type=AssetType.cash,
+                symbol="OWNER-REMAP-CASH",
+                market_symbol="OWNER-REMAP-CASH",
+                name="Owner Remap Cash",
+                category="현금성",
+                owner_name="LegacyOwner",
+                account_name="Legacy Account",
+                quantity=Decimal("1"),
+                average_cost=Decimal("12000"),
+                currency="KRW",
+            )
+            db.add_all([transaction, other_transaction, holding])
+            db.commit()
+            transaction_id = str(transaction.id)
+            other_transaction_id = str(other_transaction.id)
+            holding_id = str(holding.id)
+            transaction_version = int(transaction.version)
+            holding_version = int(holding.version)
+
+        response = client.post(
+            "/api/v1/household/legacy-owner-remap",
+            headers=_headers(token),
+            json={"owner_name": " LegacyOwner ", "target_owner_user_id": target_user_id},
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["source_owner_name"] == "LegacyOwner"
+        assert payload["target_owner_user_id"] == target_user_id
+        assert payload["target_owner_name"] == target_owner_name
+        assert payload["remapped_transactions"] == 1
+        assert payload["remapped_holdings"] == 1
+
+        with SessionLocal() as db:
+            remapped_transaction = db.get(Transaction, transaction_id)
+            untouched_transaction = db.get(Transaction, other_transaction_id)
+            remapped_holding = db.get(Holding, holding_id)
+            assert remapped_transaction is not None
+            assert untouched_transaction is not None
+            assert remapped_holding is not None
+            assert remapped_transaction.owner_user_id == target_user_id
+            assert remapped_transaction.owner_name == target_owner_name
+            assert remapped_transaction.version == transaction_version + 1
+            assert untouched_transaction.owner_user_id is None
+            assert untouched_transaction.owner_name == "OtherLegacyOwner"
+            assert remapped_holding.owner_user_id == target_user_id
+            assert remapped_holding.owner_name == target_owner_name
+            assert remapped_holding.version == holding_version + 1
+            logs = db.scalars(
+                select(EntityPatchLog)
+                .where(EntityPatchLog.entity_id.in_([transaction_id, holding_id]))
+                .order_by(EntityPatchLog.entity_type.asc())
+            ).all()
+            assert len(logs) == 2
+            assert {tuple(log.changed_fields or []) for log in logs} == {("owner_name", "owner_user_id")}
+
+
+def test_household_legacy_owner_remap_rolls_back_when_holding_conflicts() -> None:
+    with TestClient(app) as client:
+        token = _auth(client, f"owner-remap-conflict-{uuid.uuid4().hex}@example.com", "Password1234", "OwnerConflict")
+        household_id = client.get("/api/v1/household/current", headers=_headers(token)).json()["household"]["id"]
+        member = client.get("/api/v1/household/members", headers=_headers(token)).json()[0]
+        target_user_id = member["user_id"]
+        target_owner_name = member["display_name"]
+
+        with SessionLocal() as db:
+            category = Category(
+                household_id=household_id,
+                flow_type=FlowType.expense,
+                major="식비",
+                minor="점심",
+            )
+            db.add(category)
+            db.flush()
+            transaction = Transaction(
+                household_id=household_id,
+                category_id=category.id,
+                flow_type=FlowType.expense,
+                occurred_on=date(2026, 4, 24),
+                amount=Decimal("9000"),
+                currency="KRW",
+                memo="legacy remap rollback transaction",
+                owner_name="LegacyConflict",
+            )
+            legacy_holding = Holding(
+                household_id=household_id,
+                asset_type=AssetType.stock,
+                symbol="DUP-OWNER",
+                market_symbol="DUP-OWNER",
+                name="Duplicate Legacy",
+                category="주식",
+                owner_name="LegacyConflict",
+                account_name="Broker",
+                quantity=Decimal("1"),
+                average_cost=Decimal("100"),
+                currency="KRW",
+            )
+            target_holding = Holding(
+                household_id=household_id,
+                asset_type=AssetType.stock,
+                symbol="DUP-OWNER",
+                market_symbol="DUP-OWNER",
+                name="Duplicate Target",
+                category="주식",
+                owner_user_id=target_user_id,
+                owner_name=target_owner_name,
+                account_name="Broker",
+                quantity=Decimal("1"),
+                average_cost=Decimal("100"),
+                currency="KRW",
+            )
+            db.add_all([transaction, legacy_holding, target_holding])
+            db.commit()
+            transaction_id = str(transaction.id)
+            holding_id = str(legacy_holding.id)
+            transaction_version = int(transaction.version)
+            holding_version = int(legacy_holding.version)
+
+        response = client.post(
+            "/api/v1/household/legacy-owner-remap",
+            headers=_headers(token),
+            json={"owner_name": "LegacyConflict", "target_owner_user_id": target_user_id},
+        )
+
+        assert response.status_code == 409
+        assert response.json()["error"]["code"] == "LEGACY_OWNER_REMAP_CONFLICT"
+        with SessionLocal() as db:
+            transaction = db.get(Transaction, transaction_id)
+            holding = db.get(Holding, holding_id)
+            assert transaction is not None
+            assert holding is not None
+            assert transaction.owner_user_id is None
+            assert transaction.owner_name == "LegacyConflict"
+            assert transaction.version == transaction_version
+            assert holding.owner_user_id is None
+            assert holding.owner_name == "LegacyConflict"
+            assert holding.version == holding_version
+            assert (
+                db.scalar(
+                    select(func.count(EntityPatchLog.id)).where(
+                        EntityPatchLog.entity_id.in_([transaction_id, holding_id])
+                    )
+                )
+                == 0
+            )
+
+
 def test_schema_upgrade_reports_duplicate_nullable_holding_identities(tmp_path: Path) -> None:
     local_engine = create_engine(f"sqlite:///{(tmp_path / 'schema-duplicate.db').as_posix()}")
     Base.metadata.create_all(bind=local_engine)
@@ -5564,6 +5753,44 @@ def test_import_upload_dry_run_and_apply_repeat() -> None:
         apply_twice_payload = apply_twice.json()
         assert int(apply_twice_payload.get("applied_transactions") or 0) == 0
         assert int(apply_twice_payload.get("skipped_transactions") or 0) >= int(apply_twice_payload.get("transaction_rows") or 0)
+
+
+def test_import_upload_apply_skips_fractional_krw_transaction_amount(tmp_path: Path) -> None:
+    with TestClient(app) as client:
+        token = _auth(client, f"import-fractional-{uuid.uuid4().hex}@example.com", "Password1234", "ImportFractional")
+        workbook = Workbook()
+        ws = workbook.active
+        ws.title = "1"
+        ws.cell(row=10, column=2, value=date(2026, 6, 4))
+        ws.cell(row=10, column=3, value="식비")
+        ws.cell(row=10, column=4, value="점심")
+        ws.cell(row=10, column=5, value="fractional-import")
+        ws.cell(row=10, column=6, value="123.45")
+        workbook_path = tmp_path / "fractional-krw.xlsx"
+        workbook.save(workbook_path)
+        workbook.close()
+
+        with workbook_path.open("rb") as fp:
+            response = client.post(
+                "/api/v1/imports/workbook/upload?mode=apply",
+                headers=_headers(token),
+                files={
+                    "file": (
+                        "fractional-krw.xlsx",
+                        fp,
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    )
+                },
+            )
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        assert payload["transaction_rows"] == 0
+        assert payload["applied_transactions"] == 0
+        assert any(issue["code"] == "TX_AMOUNT_NON_INTEGER" for issue in payload["issues"])
+
+        listed = client.get("/api/v1/transactions", headers=_headers(token))
+        assert listed.status_code == 200
+        assert all(item["memo"] != "fractional-import" for item in listed.json())
 
 
 def test_import_upload_apply_row_shift_keeps_transaction_idempotency(tmp_path: Path) -> None:
@@ -7515,6 +7742,83 @@ def test_migration_package_apply_replaces_existing_household_data() -> None:
         target_settings = client.get("/api/v1/household/settings", headers=_headers(target_token))
         assert target_settings.status_code == 200
         assert target_settings.json()["base_currency"] == "USD"
+
+
+def test_migration_package_upload_rejects_fractional_krw_transaction_amount() -> None:
+    with TestClient(app) as client:
+        source_token = _auth(
+            client,
+            f"migration-fractional-source-{uuid.uuid4().hex}@example.com",
+            "Password1234",
+            "FractionalSource",
+        )
+        source_me = client.get("/api/v1/auth/me", headers=_headers(source_token))
+        assert source_me.status_code == 200
+        source_user_id = str(source_me.json()["id"])
+        source_household = client.get("/api/v1/household/current", headers=_headers(source_token))
+        assert source_household.status_code == 200
+        source_household_id = str(source_household.json()["household"]["id"])
+
+        with SessionLocal() as db:
+            category = Category(
+                household_id=source_household_id,
+                flow_type=FlowType.expense,
+                major="식비",
+                minor="점심",
+                sort_order=100,
+            )
+            db.add(category)
+            db.flush()
+            db.add(
+                Transaction(
+                    household_id=source_household_id,
+                    category_id=category.id,
+                    flow_type=FlowType.expense,
+                    occurred_on=date(2026, 5, 13),
+                    amount=Decimal("12000"),
+                    currency="KRW",
+                    memo="migration-fractional-source",
+                    owner_user_id=source_user_id,
+                    owner_name="FractionalSource",
+                    source_ref=f"migration-fractional-tx-{uuid.uuid4().hex}",
+                    version=1,
+                    created_by_user_id=source_user_id,
+                )
+            )
+            db.commit()
+
+        export_resp = client.get("/api/v1/imports/migration-package/export", headers=_headers(source_token))
+        assert export_resp.status_code == 200
+        with zipfile.ZipFile(io.BytesIO(export_resp.content), "r") as source_archive:
+            manifest = json.loads(source_archive.read("manifest.json").decode("utf-8"))
+            payload = json.loads(source_archive.read("payload.json").decode("utf-8"))
+        payload["transactions"][0]["amount"] = "12000.25"
+        payload_bytes = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
+        manifest["payload_sha256"] = hashlib.sha256(payload_bytes).hexdigest()
+        manifest["payload_size_bytes"] = len(payload_bytes)
+        manifest_bytes = json.dumps(manifest, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
+
+        mutated_package = io.BytesIO()
+        with zipfile.ZipFile(mutated_package, "w", zipfile.ZIP_DEFLATED) as target_archive:
+            target_archive.writestr("manifest.json", manifest_bytes)
+            target_archive.writestr("payload.json", payload_bytes)
+        mutated_package.seek(0)
+
+        target_token = _auth(
+            client,
+            f"migration-fractional-target-{uuid.uuid4().hex}@example.com",
+            "Password1234",
+            "FractionalTarget",
+        )
+        response = client.post(
+            "/api/v1/imports/migration-package/upload?mode=apply&replace_existing=true",
+            headers=_headers(target_token),
+            files={"file": ("fractional-transfer.zip", mutated_package.getvalue(), "application/zip")},
+        )
+        assert response.status_code == 400
+        payload = response.json()
+        assert payload["error"]["code"] == "MIGRATION_PACKAGE_INVALID"
+        assert "transactions.amount" in payload["error"]["message"]
 
 
 def test_migration_package_upload_rejects_invalid_archive() -> None:

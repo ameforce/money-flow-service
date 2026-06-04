@@ -26,7 +26,7 @@ from app.db.models import (
     Transaction,
     User,
 )
-from app.schemas import ImportIssue, MigrationPackageReport
+from app.schemas import ImportIssue, MigrationPackageReport, validate_krw_transaction_amount
 from app.services.profile import normalize_holding_settings, normalize_optional_text, normalize_transaction_row_colors
 
 _PACKAGE_KIND = "moneyflow-household-transfer"
@@ -93,6 +93,19 @@ def _parse_non_negative_decimal(value: str, *, field_name: str) -> Decimal:
             action="패키지를 다시 추출해 주세요.",
         )
     return parsed
+
+
+def _parse_positive_krw_transaction_amount(value: str, *, field_name: str) -> Decimal:
+    parsed = _parse_positive_decimal(value, field_name=field_name)
+    try:
+        return validate_krw_transaction_amount(parsed) or parsed
+    except ValueError as error:
+        raise app_error(
+            status_code=400,
+            code="MIGRATION_PACKAGE_INVALID",
+            message=f"패키지의 {field_name} 값은 원 단위 정수여야 합니다.",
+            action="패키지를 다시 추출해 주세요.",
+        ) from error
 
 
 class _PackageSource(BaseModel):
@@ -503,7 +516,7 @@ class MigrationPackageService:
                 )
                 continue
             seen_source_refs.add(source_ref)
-            amount = _parse_positive_decimal(row.amount, field_name="transactions.amount")
+            amount = _parse_positive_krw_transaction_amount(row.amount, field_name="transactions.amount")
             owner_name = normalize_optional_text(row.owner_name)
             owner_user_id = owner_lookup.get(_owner_key(owner_name)) if owner_name else None
             prepared_transactions.append(

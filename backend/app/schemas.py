@@ -263,6 +263,27 @@ class HouseholdSettingsPatch(BaseModel):
         return self
 
 
+class LegacyOwnerRemapRequest(BaseModel):
+    owner_name: str = Field(min_length=1, max_length=80)
+    target_owner_user_id: str = Field(min_length=1, max_length=36)
+
+    @field_validator("owner_name", "target_owner_user_id")
+    @classmethod
+    def normalize_required_text(cls, value: str) -> str:
+        text = str(value or "").strip()
+        if not text:
+            raise ValueError("blank value is not allowed")
+        return text
+
+
+class LegacyOwnerRemapResponse(BaseModel):
+    source_owner_name: str
+    target_owner_user_id: str
+    target_owner_name: str
+    remapped_transactions: int = Field(ge=0)
+    remapped_holdings: int = Field(ge=0)
+
+
 class CategoryRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

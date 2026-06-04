@@ -14,7 +14,13 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.db.models import AssetType, Category, FlowType, Holding, Household, HouseholdMember, Transaction, User
-from app.schemas import ImportAppliedHoldingRef, ImportAppliedTransactionRef, ImportIssue, ImportReport
+from app.schemas import (
+    ImportAppliedHoldingRef,
+    ImportAppliedTransactionRef,
+    ImportIssue,
+    ImportReport,
+    validate_krw_transaction_amount,
+)
 
 
 MONTH_SHEET = re.compile(r"^(?:[1-9]|1[0-2])$")
@@ -256,6 +262,20 @@ class WorkbookImporter:
                     )
                     continue
                 if occurred_on is None or not major or amount is None or amount <= 0:
+                    continue
+                try:
+                    amount = validate_krw_transaction_amount(amount) or amount
+                except ValueError:
+                    issues.append(
+                        ImportIssue(
+                            severity="warning",
+                            code="TX_AMOUNT_NON_INTEGER",
+                            message="KRW 거래 금액은 원 단위 정수여야 해 거래를 건너뜁니다.",
+                            sheet=ws.title,
+                            row=row_idx,
+                            detail={"amount": str(amount)},
+                        )
+                    )
                     continue
 
                 flow_type = self._guess_flow_type(major)

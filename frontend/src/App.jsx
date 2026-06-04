@@ -6328,46 +6328,30 @@ function App() {
     setLoading(true);
     setMessage("");
     try {
-      for (const item of row.transactions) {
-        await api(
-          `${API_PREFIX}/transactions/${item.id}`,
-          {
-            method: "PATCH",
-            body: JSON.stringify({
-              base_version: item.version,
-              owner_user_id: target.value,
-              owner_name: target.displayName,
-            }),
-          },
-          token
-        );
-      }
-      for (const item of row.holdings) {
-        await api(
-          `${API_PREFIX}/holdings/${item.id}`,
-          {
-            method: "PATCH",
-            body: JSON.stringify({
-              base_version: item.version,
-              owner_user_id: target.value,
-              owner_name: target.displayName,
-            }),
-          },
-          token
-        );
-      }
+      const remapResult = await api(
+        `${API_PREFIX}/household/legacy-owner-remap`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            owner_name: row.ownerName,
+            target_owner_user_id: target.value,
+          }),
+        },
+        token
+      );
       await refreshData(false);
       await loadOwnerCleanupTransactions(token);
-      if (row.transactions.length > 0 && (transactionHistoryInitialized || tab === "transactions")) {
+      if (Number(remapResult?.remapped_transactions || 0) > 0 && (transactionHistoryInitialized || tab === "transactions")) {
         await refreshTransactionHistoryAtAnchor(transactionHistoryAnchorDate || transactionHistoryToday || todayIso(), {
           alignToEnd: false,
         });
       }
-      const total = row.transactions.length + row.holdings.length;
+      const total = Number(remapResult?.remapped_transactions || 0) + Number(remapResult?.remapped_holdings || 0);
+      const targetDisplayName = remapResult?.target_owner_name || target.displayName;
       setMessage(
         uiGuideMessage(
           "기존 소유자를 현재 구성원으로 매핑했습니다.",
-          `${row.ownerName} ${fmt(total)}건을 ${target.displayName}으로 연결했습니다.`
+          `${remapResult?.source_owner_name || row.ownerName} ${fmt(total)}건을 ${targetDisplayName}으로 연결했습니다.`
         )
       );
     } catch (error) {
