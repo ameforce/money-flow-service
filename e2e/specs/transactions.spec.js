@@ -1505,6 +1505,38 @@ test("issue 196: transaction save clears hiding filters and reveals the saved ro
   await capture(page, "issue-196-mobile-saved-row-visible-after-filter-clear");
 });
 
+test("issue 212: mobile transaction quick amount requests a numeric keypad", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("tx-mobile-amount-keypad")}@example.com`;
+  const displayName = unique("tx-mobile-amount-keypad-name");
+
+  await registerAndVerify(page, { email, displayName });
+
+  const transactionSheet = await openMobileTransactionQuickEntry(page);
+  const quickAmount = page.getByTestId("transaction-quick-amount");
+  await expect(quickAmount).toBeVisible();
+  await expect(quickAmount).toBeFocused();
+  await expect(quickAmount, "quick entry amount keeps text formatting support").toHaveAttribute("type", "text");
+  await expect(quickAmount, "quick entry amount requests mobile numeric keypad").toHaveAttribute("inputmode", "numeric");
+  await expect(quickAmount, "quick entry amount advances to the next field").toHaveAttribute("enterkeyhint", "next");
+  const quickAttributes = await quickAmount.evaluate((input) => ({
+    type: input.getAttribute("type"),
+    inputMode: input.getAttribute("inputmode"),
+    pattern: input.getAttribute("pattern"),
+    placeholder: input.getAttribute("placeholder"),
+  }));
+  expect(quickAttributes).toEqual({
+    type: "text",
+    inputMode: "numeric",
+    pattern: null,
+    placeholder: "0",
+  });
+  await capture(page, "issue-212-mobile-quick-amount-numeric-keypad");
+
+  await expect(transactionSheet).toContainText("현재 위치를 유지한 채 새 거래를 추가합니다.");
+});
+
 test("mobile quick entry keeps repeat context and returns focus to amount", async ({ page }) => {
   test.setTimeout(180_000);
 
