@@ -8396,22 +8396,25 @@ tr.holding-row-imported {
   }
 
   .holdings-surface-table tbody tr.holding-row:not(.mobile-row-expanded) .holding-name-label {
-    display: -webkit-box;
+    display: block;
     overflow: hidden;
     overflow-wrap: normal;
-    text-overflow: clip;
-    white-space: normal;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     word-break: keep-all;
     hyphens: none;
     font-size: 0.82rem;
     line-height: 1.22;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
   }
 
   @media (max-width: 360px) {
     .holdings-surface-table tbody tr.holding-row:not(.mobile-row-expanded) .holding-name-label {
+      display: -webkit-box;
+      overflow-wrap: normal;
+      text-overflow: clip;
+      white-space: normal;
       -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
     }
   }
 
