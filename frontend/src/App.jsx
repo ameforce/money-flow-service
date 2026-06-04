@@ -7493,6 +7493,11 @@ function App() {
   const canManageHousehold = householdRole === "owner" || householdRole === "co_owner";
   const canAssignOwner = householdRole === "owner";
   const importBusy = Boolean(importLoadingMode || tossLoadingMode || migrationLoadingMode || migrationExporting);
+  const workbookMissingFile = !importFile;
+  const workbookActionsDisabled = importBusy || !canEditRecords || workbookMissingFile;
+  const packageMissingFile = !migrationPackageFile;
+  const packageActionsDisabled =
+    Boolean(migrationLoadingMode) || migrationExporting || !canEditRecords || packageMissingFile;
   const memberRoleOptions = canAssignOwner
     ? COLLAB_ROLE_OPTIONS
     : COLLAB_ROLE_OPTIONS.filter((item) => item.value !== "owner");
@@ -10936,11 +10941,26 @@ function App() {
                     <div className="upload-placeholder">엑셀 파일을 이곳에 드래그 앤 드롭 하거나 클릭하여 업로드하세요.</div>
                   )}
                 </div>
+                {workbookMissingFile && (
+                  <p id="excel-import-file-required" className="table-summary import-action-help">
+                    엑셀 파일을 선택하면 미리 검증과 적용을 사용할 수 있습니다.
+                  </p>
+                )}
                 <div className="inline import-action-row">
-                  <button type="button" disabled={importBusy || !canEditRecords} onClick={() => doImport("dry_run")}>
+                  <button
+                    type="button"
+                    disabled={workbookActionsDisabled}
+                    aria-describedby={workbookMissingFile ? "excel-import-file-required" : undefined}
+                    onClick={() => doImport("dry_run")}
+                  >
                     {importLoadingMode === "dry_run" ? "미리 검증 중..." : IMPORT_MODE_LABELS.dry_run}
                   </button>
-                  <button type="button" disabled={importBusy || !canEditRecords} onClick={() => doImport("apply")}>
+                  <button
+                    type="button"
+                    disabled={workbookActionsDisabled}
+                    aria-describedby={workbookMissingFile ? "excel-import-file-required" : undefined}
+                    onClick={() => doImport("apply")}
+                  >
                     {importLoadingMode === "apply" ? "적용 중..." : IMPORT_MODE_LABELS.apply}
                   </button>
                 </div>
@@ -11284,17 +11304,24 @@ function App() {
                   <div className="upload-placeholder">추출한 패키지(.zip) 파일을 클릭하여 업로드하세요.</div>
                 )}
               </div>
+              {packageMissingFile && (
+                <p id="package-import-file-required" className="table-summary import-action-help">
+                  패키지 파일(.zip)을 선택하면 미리 검증과 적용을 사용할 수 있습니다.
+                </p>
+              )}
               <div className="inline import-action-row">
                 <button
                   type="button"
-                  disabled={Boolean(migrationLoadingMode) || migrationExporting || !canEditRecords}
+                  disabled={packageActionsDisabled}
+                  aria-describedby={packageMissingFile ? "package-import-file-required" : undefined}
                   onClick={() => doMigrationImport("dry_run")}
                 >
                   {migrationLoadingMode === "dry_run" ? "미리 검증 중..." : "패키지 미리 검증"}
                 </button>
                 <button
                   type="button"
-                  disabled={Boolean(migrationLoadingMode) || migrationExporting || !canEditRecords}
+                  disabled={packageActionsDisabled}
+                  aria-describedby={packageMissingFile ? "package-import-file-required" : undefined}
                   onClick={() => doMigrationImport("apply")}
                 >
                   {migrationLoadingMode === "apply" ? "적용 중..." : "패키지 적용"}

@@ -24,6 +24,41 @@ function signedTossSource(sourceRef) {
   };
 }
 
+test("import flow: no-file actions stay disabled with helper text", async ({ page }) => {
+  const email = `${unique("import-empty-user")}@example.com`;
+  const displayName = unique("import-empty-name");
+
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await assertResponsiveShell(page);
+  await page.getByRole("button", { name: "데이터 가져오기", exact: true }).click();
+
+  const excelPanel = page.locator(".import-excel-panel");
+  const excelDryRunButton = excelPanel.getByRole("button", { name: "미리 검증", exact: true });
+  const excelApplyButton = excelPanel.getByRole("button", { name: "적용", exact: true });
+  const excelFileRequiredHelp = excelPanel.locator("#excel-import-file-required");
+
+  await expect(excelPanel.getByText("파일 대기")).toBeVisible();
+  await expect(excelDryRunButton).toBeDisabled();
+  await expect(excelApplyButton).toBeDisabled();
+  await expect(excelDryRunButton).toHaveAttribute("aria-describedby", "excel-import-file-required");
+  await expect(excelApplyButton).toHaveAttribute("aria-describedby", "excel-import-file-required");
+  await expect(excelFileRequiredHelp).toHaveText("엑셀 파일을 선택하면 미리 검증과 적용을 사용할 수 있습니다.");
+  await capture(page, "issue-217-excel-actions-disabled-without-file");
+
+  const packagePanel = page.locator(".import-package-panel");
+  const packageDryRunButton = packagePanel.getByRole("button", { name: "패키지 미리 검증", exact: true });
+  const packageApplyButton = packagePanel.getByRole("button", { name: "패키지 적용", exact: true });
+  const packageFileRequiredHelp = packagePanel.locator("#package-import-file-required");
+
+  await expect(packageDryRunButton).toBeDisabled();
+  await expect(packageApplyButton).toBeDisabled();
+  await expect(packageDryRunButton).toHaveAttribute("aria-describedby", "package-import-file-required");
+  await expect(packageApplyButton).toHaveAttribute("aria-describedby", "package-import-file-required");
+  await expect(packageFileRequiredHelp).toHaveText("패키지 파일(.zip)을 선택하면 미리 검증과 적용을 사용할 수 있습니다.");
+  await capture(page, "issue-217-package-actions-disabled-without-file");
+});
+
 test("import flow: workbook dry-run and apply", async ({ page }, testInfo) => {
   test.setTimeout(240_000);
 
@@ -54,11 +89,13 @@ test("import flow: workbook dry-run and apply", async ({ page }, testInfo) => {
   const workbookReport = page.locator("section.import-report", { hasText: "검증 리포트" });
   await expect(fileInput).toBeEnabled();
   await expectWithinViewport(fileDropArea);
-  await expectWithinViewport(dryRunButton);
-  await expectKeyboardReachableInOrder(page, [dryRunButton, applyButton], { maxTabsPerLocator: 40 });
 
   await fileInput.setInputFiles(importWorkbookPath);
   await expect(page.getByText(path.basename(importWorkbookPath))).toBeVisible();
+  await expect(dryRunButton).toBeEnabled();
+  await expect(applyButton).toBeEnabled();
+  await expectWithinViewport(dryRunButton);
+  await expectKeyboardReachableInOrder(page, [dryRunButton, applyButton], { maxTabsPerLocator: 40 });
 
   await dryRunButton.click();
   await expect(page.getByText("미리 검증 완료")).toBeVisible();
@@ -115,9 +152,9 @@ test("import flow: migration package export and upload", async ({ page }, testIn
   const dryRunButton = page.getByRole("button", { name: "패키지 미리 검증", exact: true });
   const applyButton = page.getByRole("button", { name: "패키지 적용", exact: true });
   await dryRunButton.scrollIntoViewIfNeeded();
-  await expect(dryRunButton).toBeVisible();
+  await expect(dryRunButton).toBeEnabled();
   await applyButton.scrollIntoViewIfNeeded();
-  await expect(applyButton).toBeVisible();
+  await expect(applyButton).toBeEnabled();
   await dryRunButton.click();
   await expect(page.getByText("미리 검증 완료")).toBeVisible();
   await expect(migrationReport).toContainText(path.basename(migrationPackagePath));
