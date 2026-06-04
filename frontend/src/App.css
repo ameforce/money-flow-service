@@ -4081,6 +4081,7 @@ tr.holding-row-imported {
   flex-wrap: wrap;
   gap: 0.45rem;
   align-items: center;
+  grid-column: 1 / -1;
   color: #53687f;
   font-size: 0.78rem;
   font-weight: 700;
@@ -4089,6 +4090,50 @@ tr.holding-row-imported {
 .inline-owner-remap-btn {
   min-height: 2rem;
   padding: 0.32rem 0.55rem;
+  white-space: nowrap;
+}
+
+.owner-quick-select {
+  display: flex;
+  flex-wrap: wrap;
+  grid-column: 1 / -1;
+  gap: 0.42rem;
+  align-items: center;
+  min-width: 0;
+}
+
+.owner-quick-chip {
+  min-width: 0;
+  min-height: 2.2rem;
+  border: 1px solid #c9d7ea;
+  border-radius: 999px;
+  padding: 0.42rem 0.72rem;
+  background: #ffffff;
+  color: #274364;
+  font-size: 0.82rem;
+  font-weight: 800;
+  line-height: 1.1;
+  box-shadow: 0 6px 14px -14px rgba(15, 23, 42, 0.42);
+}
+
+.owner-quick-chip:hover:not(:disabled),
+.owner-quick-chip:focus-visible {
+  border-color: #2f7d74;
+  color: #155b53;
+}
+
+.owner-quick-chip.selected {
+  border-color: #256f66;
+  background: #e8f7f4;
+  color: #124d47;
+}
+
+.owner-quick-chip-name {
+  display: block;
+  min-width: 0;
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
