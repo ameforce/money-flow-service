@@ -1436,6 +1436,10 @@ function shouldExplainHoldingValueReset(previousValue, previousType, nextType) {
   );
 }
 
+function holdingValuationInputMode(currency) {
+  return String(currency || "KRW").trim().toUpperCase() === "KRW" ? "numeric" : "decimal";
+}
+
 function createHoldingInlineEditForm(row) {
   return {
     id: row.id,
@@ -8020,7 +8024,7 @@ function App() {
                       평가금액
                       <input
                         type="text"
-                        inputMode="decimal"
+                        inputMode={holdingValuationInputMode(editForm.currency)}
                         value={editForm.average_cost}
                         onChange={(event) => handleGroupedDecimalInput(event, setHoldingInlineEdit, "average_cost")}
                         disabled={!canEditRecords}
@@ -11041,17 +11045,6 @@ function App() {
                     }));
                   },
                 })}
-                <label>
-                  계좌
-                  <input
-                    value={holdingForm.account_name}
-                    onChange={(event) => {
-                      setHoldingDraftTouched(true);
-                      setHoldingForm({ ...holdingForm, account_name: event.target.value });
-                    }}
-                    disabled={!canEditRecords}
-                  />
-                </label>
                 {holdingFormTracked ? (
                   <>
                     <label>
@@ -11108,7 +11101,7 @@ function App() {
                       평가금액
                       <input
                         type="text"
-                        inputMode="decimal"
+                        inputMode={holdingValuationInputMode(holdingForm.currency)}
                         value={holdingForm.average_cost}
                         onChange={(event) => handleHoldingEntryDecimalInput(event, "average_cost")}
                         disabled={!canEditRecords}
@@ -11119,6 +11112,17 @@ function App() {
                     <div className="settings-preview">선택한 유형은 평균단가/손익 입력이 필요하지 않습니다.</div>
                   )
                 )}
+                <label>
+                  계좌
+                  <input
+                    value={holdingForm.account_name}
+                    onChange={(event) => {
+                      setHoldingDraftTouched(true);
+                      setHoldingForm({ ...holdingForm, account_name: event.target.value });
+                    }}
+                    disabled={!canEditRecords}
+                  />
+                </label>
                 <label>
                   통화
                   <input

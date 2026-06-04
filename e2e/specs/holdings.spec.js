@@ -925,6 +925,39 @@ test("issue 200: holding type switch clears semantically different value", async
   await expect(page.getByText("금액 입력값을 비웠습니다.")).toBeVisible();
 });
 
+test("issue 218: mobile holding valuation is numeric and reachable before optional account", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("issue-218-mobile-holding-keypad")}@example.com`;
+  const displayName = unique("issue-218-mobile-holding-keypad-name");
+
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openTab(page, "자산");
+  await page.waitForLoadState("networkidle");
+
+  await page.getByTestId("holdings-fab").click();
+  const holdingSheet = page.getByTestId("holding-entry-sheet");
+  await expect(holdingSheet).toBeVisible();
+
+  const valuationInput = labeledField(holdingSheet, "평가금액", "input");
+  const accountInput = labeledField(holdingSheet, "계좌", "input");
+  await expect(valuationInput).toBeVisible();
+  await expect(accountInput).toBeVisible();
+  await capture(page, "issue-218-mobile-holding-valuation-keypad");
+
+  const [valuationBox, accountBox] = await Promise.all([valuationInput.boundingBox(), accountInput.boundingBox()]);
+  expect(valuationBox?.y ?? Number.POSITIVE_INFINITY, "평가금액 input top should be inside first mobile viewport").toBeLessThan(
+    844,
+  );
+  expect(
+    valuationBox?.y ?? Number.POSITIVE_INFINITY,
+    "평가금액 should be reachable before optional 계좌",
+  ).toBeLessThan(accountBox?.y ?? Number.POSITIVE_INFINITY);
+  await expect(valuationInput).toHaveAttribute("type", "text");
+  await expect(valuationInput).toHaveAttribute("inputmode", "numeric");
+});
+
 test("mobile holding entry sheet stays within the viewport", async ({ page }) => {
   test.setTimeout(120_000);
 
