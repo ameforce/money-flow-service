@@ -3202,6 +3202,102 @@ test("issue 237: mobile transaction edit keeps completion controls in the first 
   await capture(page, "issue-237-mobile-edit-save-flow-first-screen");
 });
 
+test("issue 198: mobile collapsed transaction row keeps key details and actions visible", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("tx-mobile-row-action")}@example.com`;
+  const displayName = unique("tx-mobile-row-action-name");
+  const memo = unique("tx-mobile-row-action-memo");
+  const category = await registerAndVerify(page, { email, displayName }).then(() =>
+    createCategoryViaApi(page, {
+      major: unique("행요약"),
+      minor: unique("즉시수정"),
+    })
+  );
+
+  await createTransactionViaApi(page, {
+    memo,
+    amount: "19800",
+    categoryId: category.id,
+    ownerName: displayName,
+  });
+  await page.reload();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openTab(page, "거래");
+  await page.waitForLoadState("networkidle");
+
+  const mobileRow = page.locator("tr.transaction-row", { hasText: memo }).first();
+  await expect(mobileRow).toBeVisible({ timeout: 20_000 });
+  await expect(mobileRow).not.toHaveClass(/mobile-row-expanded/);
+
+  const metrics = await mobileRow.evaluate((row, expectedOwner) => {
+    const visible = (selector) => {
+      const element = row.querySelector(selector);
+      if (!element) {
+        return null;
+      }
+      const box = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return {
+        text: element.textContent?.replace(/\s+/g, " ").trim() || "",
+        ariaLabel: element.getAttribute("aria-label") || "",
+        display: style.display,
+        visibility: style.visibility,
+        width: box.width,
+        height: box.height,
+        hidden: style.display === "none" || style.visibility === "hidden" || box.width <= 0 || box.height <= 0,
+      };
+    };
+    const rowBox = row.getBoundingClientRect();
+    const actions = Array.from(row.querySelectorAll(".transaction-col-actions button")).map((button) => {
+      const box = button.getBoundingClientRect();
+      const style = getComputedStyle(button);
+      return {
+        text: button.textContent?.replace(/\s+/g, " ").trim() || button.getAttribute("aria-label") || "",
+        ariaLabel: button.getAttribute("aria-label") || "",
+        display: style.display,
+        visibility: style.visibility,
+        width: box.width,
+        height: box.height,
+        hidden: style.display === "none" || style.visibility === "hidden" || box.width <= 0 || box.height <= 0,
+      };
+    });
+    return {
+      row: {
+        width: rowBox.width,
+        height: rowBox.height,
+        expanded: row.getAttribute("data-row-expanded"),
+      },
+      category: visible(".transaction-mobile-category-cue"),
+      memo: visible(".transaction-memo-text"),
+      owner: visible(".transaction-owner-summary"),
+      actions,
+      pageOverflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      expectedOwner,
+    };
+  }, displayName);
+
+  expect(metrics.row.expanded, `row should stay collapsed: ${JSON.stringify(metrics)}`).toBe("false");
+  expect(metrics.category?.hidden, `collapsed category summary should be visible: ${JSON.stringify(metrics)}`).toBe(false);
+  expect(metrics.category?.text || "", `collapsed category summary should name the category: ${JSON.stringify(metrics)}`).toContain(
+    "즉시수정",
+  );
+  expect(metrics.memo?.hidden, `collapsed memo should stay visible: ${JSON.stringify(metrics)}`).toBe(false);
+  expect(metrics.memo?.text || "", `collapsed memo should keep the memo text: ${JSON.stringify(metrics)}`).toBe(memo);
+  expect(metrics.owner?.hidden, `collapsed owner summary should be visible: ${JSON.stringify(metrics)}`).toBe(false);
+  expect(metrics.owner?.text || "", `collapsed owner summary should use the full owner label: ${JSON.stringify(metrics)}`).toBe(displayName);
+  for (const label of ["수정", "삭제", "거래 세부 보기"]) {
+    const button = metrics.actions.find((action) => action.text === label || action.ariaLabel === label);
+    expect(button, `${label} action should exist in the collapsed row: ${JSON.stringify(metrics)}`).toBeTruthy();
+    expect(button?.hidden, `${label} action should be directly visible in the collapsed row: ${JSON.stringify(metrics)}`).toBe(false);
+    expect(button?.height ?? 0, `${label} action should keep a touchable height: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(32);
+  }
+  expect(metrics.row.height, `collapsed row should stay compact enough for scanning: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(96);
+  expect(metrics.pageOverflowX, `collapsed row should not cause horizontal overflow: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "issue-198-mobile-row-key-details-actions");
+});
+
 test("transactions flow: create, inline edit, delete, responsive", async ({ page }) => {
   test.setTimeout(240_000);
 
@@ -4192,9 +4288,9 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   await expect(mobileRow).toBeVisible();
   await expect(mobileRow).not.toHaveClass(/mobile-row-expanded/);
   await expect(mobileRow.getByText(memo, { exact: true })).toBeVisible();
-  await expectCompactLedgerRow(mobileRow, 56);
+  await expectCompactLedgerRow(mobileRow, 96);
   await expectSingleLineText(mobileRow.locator(".transaction-memo-text").first());
-  await expect(mobileRow.locator(".transaction-mobile-category-cue").first()).toBeHidden();
+  await expect(mobileRow.locator(".transaction-mobile-category-cue").first()).toBeVisible();
   const collapsedRowMetrics = await page.locator("tr.transaction-row").evaluateAll((rows) =>
     rows.slice(0, 8).map((row) => {
       const box = row.getBoundingClientRect();
@@ -4202,13 +4298,15 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
     })
   );
   expect(
-    collapsedRowMetrics.every((row) => row.expanded !== "true" && row.height <= 56),
-    `mobile ledger rows should stay Excel-like one-line rows: ${JSON.stringify(collapsedRowMetrics)}`
+    collapsedRowMetrics.every((row) => row.expanded !== "true" && row.height <= 96),
+    `mobile ledger rows should stay compact while showing key details and actions: ${JSON.stringify(collapsedRowMetrics)}`
   ).toBe(true);
   await expectBackgroundNotPlainWhite(mobileRow);
   await expectTransparentBackground(mobileRow.locator(".transaction-col-memo").first());
   await expect(mobileRow.locator(".transaction-owner-chip").first()).toHaveText(displayName.slice(0, 1));
   await expect(mobileRow.locator(".transaction-owner-chip").first()).toBeVisible();
+  await expect(mobileRow.locator(".transaction-owner-summary").first()).toHaveText(displayName);
+  await expect(mobileRow.locator(".transaction-owner-summary").first()).toBeVisible();
   await expect(mobileRow.locator(".transaction-flow-short").first()).toBeVisible();
   const mobileOwnerlessRow = page.locator("tr.transaction-row", { hasText: ownerlessMemo }).first();
   await expect(mobileOwnerlessRow).toBeVisible();
@@ -4412,7 +4510,7 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   for (const cell of expandedDetailMetrics.detailCells) {
     expect(cell.hasVerticalOverflow, `${cell.className} should not clip detail text`).toBe(false);
   }
-  await expect(mobileRow.locator(".transaction-col-actions .row-delete-btn")).toBeHidden();
+  await expect(mobileRow.locator(".transaction-col-actions .row-delete-btn")).toBeVisible();
   await mobileRow.locator("td").last().getByRole("button", { name: "거래 세부 접기" }).click();
   await expect(mobileRow).not.toHaveClass(/mobile-row-expanded/);
   const compactFlowSummaryLines = page.getByTestId("tx-flow-summary-line");
