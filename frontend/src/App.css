@@ -8383,13 +8383,14 @@ tr.holding-row-imported {
 
   .holdings-surface-table tbody tr.holding-row:not(.mobile-row-expanded) .holding-col-name {
     overflow: visible;
-    overflow-wrap: anywhere;
+    overflow-wrap: normal;
     text-overflow: clip;
     white-space: normal;
+    word-break: keep-all;
   }
 
   .holdings-surface-table tbody tr.holding-row:not(.mobile-row-expanded) .holding-name-text {
-    align-items: flex-start;
+    align-items: center;
     overflow: visible;
     white-space: normal;
   }
@@ -8397,12 +8398,21 @@ tr.holding-row-imported {
   .holdings-surface-table tbody tr.holding-row:not(.mobile-row-expanded) .holding-name-label {
     display: -webkit-box;
     overflow: hidden;
-    overflow-wrap: anywhere;
+    overflow-wrap: normal;
     text-overflow: clip;
     white-space: normal;
-    line-height: 1.35;
+    word-break: keep-all;
+    hyphens: none;
+    font-size: 0.82rem;
+    line-height: 1.22;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
+  }
+
+  @media (max-width: 360px) {
+    .holdings-surface-table tbody tr.holding-row:not(.mobile-row-expanded) .holding-name-label {
+      -webkit-line-clamp: 3;
+    }
   }
 
   .holdings-surface-table tbody tr.holding-row.mobile-row-expanded {
