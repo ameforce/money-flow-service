@@ -1136,6 +1136,96 @@ test("desktop transaction entry keeps repeat context after save", async ({ page 
   await expect(page.locator("tr.transaction-row", { hasText: secondMemo }).first()).toBeVisible({ timeout: 20_000 });
 });
 
+test("issue 193: desktop transaction entry searches category in one step", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("tx-cat-entry")}@example.com`;
+  const displayName = unique("tx-cat-entry-name");
+  const targetCategory = {
+    major: unique("빠른분류"),
+    minor: unique("검색항목"),
+  };
+
+  await registerAndVerify(page, { email, displayName });
+  const category = await createCategoryViaApi(page, targetCategory);
+  await page.reload();
+  await page.waitForLoadState("networkidle");
+
+  const transactionSheet = await openTransactionEntrySheet(page, { width: 1440, height: 900 });
+  const picker = transactionSheet.getByTestId("transaction-category-quick-picker");
+  await expect(picker).toBeVisible();
+
+  const searchInput = picker.getByTestId("transaction-category-search");
+  await expect(searchInput).toBeVisible();
+  await searchInput.fill(targetCategory.minor);
+
+  const option = picker.getByTestId("transaction-category-option").filter({ hasText: targetCategory.minor }).first();
+  await expect(option).toBeVisible();
+  await option.click();
+
+  await expect(labeledField(transactionSheet, "카테고리 그룹", "select")).toHaveValue(targetCategory.major);
+  const categorySelect = transactionSheet
+    .locator("label")
+    .filter({ hasText: /^\s*카테고리\s*\(/ })
+    .locator("select")
+    .first();
+  await expect(categorySelect).toHaveValue(String(category.id));
+  await capture(page, "issue-193-desktop-category-one-step-entry");
+});
+
+test("issue 193: inline transaction edit searches category in one step", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("tx-cat-inline")}@example.com`;
+  const displayName = unique("tx-cat-inline-name");
+  const memo = unique("tx-cat-inline-memo");
+  const sourceCategory = {
+    major: unique("기존분류"),
+    minor: unique("기존항목"),
+  };
+  const targetCategory = {
+    major: unique("수정분류"),
+    minor: unique("수정항목"),
+  };
+
+  await registerAndVerify(page, { email, displayName });
+  const [source, target] = await Promise.all([
+    createCategoryViaApi(page, sourceCategory),
+    createCategoryViaApi(page, targetCategory),
+  ]);
+  await createTransactionViaApi(page, {
+    memo,
+    amount: "12000",
+    categoryId: source.id,
+    occurredOn: currentE2EHistoryDateIso(),
+  });
+  await page.reload();
+  await page.waitForLoadState("networkidle");
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openTab(page, "거래");
+
+  const row = page.locator("tr.transaction-row", { hasText: memo }).first();
+  await expect(row).toBeVisible({ timeout: 20_000 });
+  await clickDesktopTransactionRowAction(row, "수정");
+  const editorRow = page.locator("tr.transaction-inline-editor-row").first();
+  await expect(editorRow).toBeVisible();
+
+  const picker = editorRow.getByTestId("transaction-category-quick-picker");
+  await expect(picker).toBeVisible();
+
+  const searchInput = picker.getByTestId("transaction-category-search");
+  await expect(searchInput).toBeVisible();
+  await searchInput.fill(targetCategory.minor);
+
+  const option = picker.getByTestId("transaction-category-option").filter({ hasText: targetCategory.minor }).first();
+  await expect(option).toBeVisible();
+  await option.click();
+
+  await expect(editorRow.getByLabel("카테고리 그룹", { exact: true })).toHaveValue(targetCategory.major);
+  await expect(editorRow.getByLabel("카테고리", { exact: true })).toHaveValue(String(target.id));
+  await capture(page, "issue-193-inline-category-one-step-edit");
+});
+
 test("mobile quick entry keeps repeat context and returns focus to amount", async ({ page }) => {
   test.setTimeout(180_000);
 

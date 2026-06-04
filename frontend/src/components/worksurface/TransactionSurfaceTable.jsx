@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 
 import { IsoDateInput } from "../IsoDateInput";
+import { TransactionCategoryQuickPicker } from "./TransactionCategoryQuickPicker";
 import { extractVisibleInitial, resolveSemanticColor, withAlpha } from "./colorSemantics";
 import { TRANSACTION_SURFACE_FIELDS, getWorkSurfaceMobilePriority } from "./fieldPriority";
 
@@ -61,6 +62,8 @@ export function TransactionSurfaceTable({
   ownerOptionsWithFallback,
   ownerSelectValue,
   txInlineCategoryMajor,
+  txInlineCategoryOptions = [],
+  txInlineCategoryQuickChips = [],
   txInlineCategoryMajorOptions,
   txInlineCategoryMinorOptions,
   setTxInlineEdit,
@@ -899,6 +902,23 @@ export function TransactionSurfaceTable({
                         </select>
                       </label>
                       <div className="tx-inline-category-section" aria-label="카테고리 선택">
+                        <TransactionCategoryQuickPicker
+                          categories={txInlineCategoryOptions}
+                          quickOptions={txInlineCategoryQuickChips}
+                          selectedCategoryId={editForm.category_id}
+                          disabled={!canEditRecords}
+                          onSelect={(categoryId, category) =>
+                            setTxInlineEdit({
+                              ...editForm,
+                              category_id: categoryId,
+                              category_major: category ? String(category.major || "") : "",
+                            })
+                          }
+                          title="카테고리 빠른 선택"
+                          rootClassName="transaction-category-picker-inline"
+                          toCategoryMajorLabel={toCategoryMajorLabel}
+                          toCategoryMinorLabel={toCategoryMinorLabel}
+                        />
                         <label className="tx-inline-major-field">
                           <span className="tx-inline-field-label">카테고리 그룹</span>
                           <select
