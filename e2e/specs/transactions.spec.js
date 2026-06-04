@@ -3298,6 +3298,108 @@ test("issue 198: mobile collapsed transaction row keeps key details and actions 
   await capture(page, "issue-198-mobile-row-key-details-actions");
 });
 
+test("issue 220: mobile collapsed transaction row scans as one ledger line", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("tx-one-line-row")}@example.com`;
+  const displayName = unique("tx-one-line-owner");
+  const memo = unique("tx-one-line-memo");
+  const category = await registerAndVerify(page, { email, displayName }).then(() =>
+    createCategoryViaApi(page, {
+      major: unique("한줄요약"),
+      minor: unique("스캔"),
+    })
+  );
+
+  await createTransactionViaApi(page, {
+    memo,
+    amount: "22000",
+    categoryId: category.id,
+    ownerName: displayName,
+  });
+  await page.reload();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openTab(page, "거래");
+  await page.waitForLoadState("networkidle");
+
+  const mobileRow = page.locator("tr.transaction-row", { hasText: memo }).first();
+  await expect(mobileRow).toBeVisible({ timeout: 20_000 });
+  await expect(mobileRow).not.toHaveClass(/mobile-row-expanded/);
+
+  const metrics = await mobileRow.evaluate((row) => {
+    const read = (selector) => {
+      const element = row.querySelector(selector);
+      if (!element) {
+        return null;
+      }
+      const box = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      const hidden = style.display === "none" || style.visibility === "hidden" || box.width <= 0 || box.height <= 0;
+      return {
+        text: element.textContent?.replace(/\s+/g, " ").trim() || element.getAttribute("aria-label") || "",
+        ariaLabel: element.getAttribute("aria-label") || "",
+        top: box.top,
+        bottom: box.bottom,
+        center: box.top + box.height / 2,
+        width: box.width,
+        height: box.height,
+        hidden,
+      };
+    };
+    const rowBox = row.getBoundingClientRect();
+    const buttons = Array.from(row.querySelectorAll(".transaction-col-actions button")).map((button) => {
+      const box = button.getBoundingClientRect();
+      const style = getComputedStyle(button);
+      return {
+        text: button.textContent?.replace(/\s+/g, " ").trim() || button.getAttribute("aria-label") || "",
+        ariaLabel: button.getAttribute("aria-label") || "",
+        top: box.top,
+        bottom: box.bottom,
+        center: box.top + box.height / 2,
+        width: box.width,
+        height: box.height,
+        hidden: style.display === "none" || style.visibility === "hidden" || box.width <= 0 || box.height <= 0,
+      };
+    });
+    const lineItems = [
+      read(".mobile-date-text"),
+      read(".transaction-flow-short"),
+      read(".transaction-mobile-category-cue"),
+      read(".transaction-memo-text"),
+      read(".transaction-owner-summary"),
+      read(".transaction-amount-text"),
+      ...buttons,
+    ].filter((item) => item && !item.hidden);
+    const centers = lineItems.map((item) => item.center);
+    const centerBandCount = new Set(lineItems.map((item) => Math.round(item.center / 4) * 4)).size;
+    return {
+      row: {
+        height: rowBox.height,
+        expanded: row.getAttribute("data-row-expanded"),
+      },
+      lineItems,
+      buttons,
+      centerBandCount,
+      centerSpread: Math.max(...centers) - Math.min(...centers),
+      pageOverflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    };
+  });
+
+  expect(metrics.row.expanded, `row should stay collapsed: ${JSON.stringify(metrics)}`).toBe("false");
+  expect(metrics.row.height, `collapsed row should fit a one-line ledger scan: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(58);
+  expect(metrics.centerBandCount, `collapsed row should not split visible content into stacked center lines: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(2);
+  expect(metrics.centerSpread, `date/type/memo/amount/actions should share one scan line: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(12);
+  for (const label of ["수정", "삭제", "거래 세부 보기"]) {
+    const button = metrics.buttons.find((action) => action.text === label || action.ariaLabel === label);
+    expect(button, `${label} action should remain direct in the one-line row: ${JSON.stringify(metrics)}`).toBeTruthy();
+    expect(button?.hidden, `${label} action should remain visible in the one-line row: ${JSON.stringify(metrics)}`).toBe(false);
+    expect(button?.height ?? 0, `${label} action should keep a touchable height: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(32);
+  }
+  expect(metrics.pageOverflowX, `one-line row should not cause horizontal overflow: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "issue-220-mobile-row-one-line-summary");
+});
+
 test("transactions flow: create, inline edit, delete, responsive", async ({ page }) => {
   test.setTimeout(240_000);
 
