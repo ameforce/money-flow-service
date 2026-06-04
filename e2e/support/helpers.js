@@ -1093,6 +1093,105 @@ export async function createTransactionViaApi(
   return result.payload;
 }
 
+export async function createHoldingViaApi(
+  page,
+  {
+    name,
+    category = "현금성",
+    assetType = "cash",
+    typeKey = assetType,
+    symbol = "MFS",
+    marketSymbol = symbol,
+    accountName = "검증계좌",
+    quantity = "1",
+    averageCost = "300000",
+    currency = "KRW",
+    ownerName = "",
+  }
+) {
+  const result = await page.evaluate(
+    async ({
+      accountName,
+      activeHouseholdKey,
+      assetType,
+      averageCost,
+      category,
+      csrfCookieName,
+      csrfHeaderName,
+      currency,
+      householdHeaderName,
+      marketSymbol,
+      name,
+      ownerName,
+      quantity,
+      symbol,
+      typeKey,
+    }) => {
+      const cookieValue = (cookieName) => {
+        const prefix = `${cookieName}=`;
+        return String(document.cookie || "")
+          .split(";")
+          .map((item) => item.trim())
+          .find((item) => item.startsWith(prefix))
+          ?.slice(prefix.length) || "";
+      };
+      const householdId = String(localStorage.getItem(activeHouseholdKey) || "").trim();
+      const headers = {
+        "Content-Type": "application/json",
+        [csrfHeaderName]: decodeURIComponent(cookieValue(csrfCookieName)),
+      };
+      if (householdId) {
+        headers[householdHeaderName] = householdId;
+      }
+      const response = await fetch("/api/v1/holdings", {
+        method: "POST",
+        credentials: "include",
+        headers,
+        body: JSON.stringify({
+          asset_type: assetType,
+          type_key: typeKey || assetType,
+          symbol,
+          market_symbol: marketSymbol || symbol,
+          name,
+          category,
+          owner_name: ownerName || null,
+          account_name: accountName || null,
+          quantity,
+          average_cost: averageCost,
+          currency,
+        }),
+      });
+      const text = await response.text();
+      let payload = null;
+      try {
+        payload = text ? JSON.parse(text) : null;
+      } catch {
+        payload = null;
+      }
+      return { ok: response.ok, status: response.status, payload, text };
+    },
+    {
+      accountName,
+      activeHouseholdKey: ACTIVE_HOUSEHOLD_KEY,
+      assetType,
+      averageCost,
+      category,
+      csrfCookieName: DEFAULT_CSRF_COOKIE_NAME,
+      csrfHeaderName: DEFAULT_CSRF_HEADER_NAME,
+      currency,
+      householdHeaderName: DEFAULT_HOUSEHOLD_HEADER_NAME,
+      marketSymbol,
+      name,
+      ownerName,
+      quantity,
+      symbol,
+      typeKey,
+    }
+  );
+  expect(result.ok, `holding api create failed: ${result.status} ${result.text}`).toBe(true);
+  return result.payload;
+}
+
 export async function createBasicHolding(page, {
   name,
   category = "현금성",

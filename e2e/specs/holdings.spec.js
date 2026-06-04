@@ -4,6 +4,7 @@ import {
   assertResponsiveShell,
   capture,
   createBasicHolding,
+  createHoldingViaApi,
   expectBackgroundNotPlainWhite,
   expectCompactHeader,
   expectCompactLedgerRow,
@@ -397,6 +398,136 @@ test("desktop holding ledger controls keep usable hit targets", async ({ page })
   ).toBe(true);
   await expectNoHorizontalOverflow(page, 12);
   await capture(page, "holdings-desktop-hit-targets");
+});
+
+test("issue 226: 1024px holding right-side columns and actions stay discoverable", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("holding-1024-actions")}@example.com`;
+  const displayName = unique("holding-1024-actions-owner");
+  const holdingPrefix = unique("holding-1024-actions-row");
+  const categories = [
+    unique("현금성-1024"),
+    unique("투자-1024"),
+    unique("장기-1024"),
+  ];
+
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 1024, height: 768 });
+
+  for (let index = 0; index < 6; index += 1) {
+    await createHoldingViaApi(page, {
+      name: `${holdingPrefix}-${String(index).padStart(2, "0")}`,
+      category: categories[index % categories.length],
+      assetType: "stock",
+      typeKey: "stock",
+      symbol: `H226${String(index).padStart(2, "0")}`,
+      marketSymbol: `H226${String(index).padStart(2, "0")}`,
+      ownerName: displayName,
+      quantity: String(index + 1),
+      averageCost: String(300000 + index * 10000),
+    });
+  }
+
+  await page.reload();
+  await openTab(page, "자산");
+  await page.waitForLoadState("networkidle");
+  const targetRow = page.locator("tr.holding-row", { hasText: holdingPrefix }).first();
+  await expect(targetRow).toBeVisible({ timeout: 20_000 });
+  await page.locator(".holding-list-card").first().evaluate((element) => element.scrollIntoView({ block: "start" }));
+  await targetRow.evaluate((element) => element.scrollIntoView({ block: "center", inline: "nearest" }));
+  await page.locator(".holdings-surface-scroll").first().evaluate((element) => {
+    element.scrollLeft = 0;
+  });
+  await page.waitForTimeout(150);
+
+  const metrics = await page.evaluate((rowNamePrefix) => {
+    const boxOf = (element) => {
+      if (!element) {
+        return null;
+      }
+      const box = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      const centerX = box.left + box.width / 2;
+      const centerY = box.top + box.height / 2;
+      const topElement = document.elementFromPoint(centerX, centerY);
+      return {
+        text: element.textContent?.replace(/\s+/g, " ").trim() || element.getAttribute("aria-label") || "",
+        left: box.left,
+        right: box.right,
+        top: box.top,
+        bottom: box.bottom,
+        width: box.width,
+        height: box.height,
+        display: style.display,
+        visibility: style.visibility,
+        hitVisible: Boolean(topElement && (topElement === element || element.contains(topElement))),
+      };
+    };
+    const viewportWidth = window.innerWidth;
+    const scroller = document.querySelector(".holdings-surface-scroll");
+    const table = document.querySelector(".holdings-surface-table");
+    const updatedHeader = document.querySelector(".holdings-surface-table thead .holding-col-updated");
+    const actionHeader = document.querySelector(".holdings-surface-table thead .holding-col-actions");
+    const target = Array.from(document.querySelectorAll("tr.holding-row")).find((row) =>
+      row.textContent?.includes(rowNamePrefix)
+    );
+    const actionCell = target?.querySelector(".holding-col-actions");
+    const actionButtons = Array.from(actionCell?.querySelectorAll("button:not(.mobile-toggle-btn)") || [])
+      .map((button) => boxOf(button))
+      .filter((targetBox) => targetBox && targetBox.display !== "none" && targetBox.visibility === "visible" && targetBox.width > 0 && targetBox.height > 0);
+    const groupButtons = Array.from(document.querySelectorAll(".holding-section-actions .holding-section-order-btn"))
+      .map((button) => boxOf(button))
+      .filter((targetBox) => targetBox && targetBox.display !== "none" && targetBox.visibility === "visible" && targetBox.width > 0 && targetBox.height > 0);
+    const trackedBoxes = [
+      boxOf(updatedHeader),
+      boxOf(actionHeader),
+      boxOf(actionCell),
+      ...actionButtons,
+      ...groupButtons,
+    ].filter(Boolean);
+    return {
+      viewport: { width: viewportWidth, height: window.innerHeight },
+      pageOverflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      scroller: {
+        ...boxOf(scroller),
+        clientWidth: scroller?.clientWidth || 0,
+        scrollWidth: scroller?.scrollWidth || 0,
+        scrollLeft: scroller?.scrollLeft || 0,
+        scrollOverflowX: scroller ? scroller.scrollWidth - scroller.clientWidth : 0,
+      },
+      table: boxOf(table),
+      updatedHeader: boxOf(updatedHeader),
+      actionHeader: boxOf(actionHeader),
+      actionCell: boxOf(actionCell),
+      actionButtons,
+      groupButtons,
+      outsideViewport: trackedBoxes.filter((targetBox) => targetBox.left < -1 || targetBox.right > viewportWidth + 1),
+      hiddenHitTargets: [...actionButtons, ...groupButtons].filter(
+        (targetBox) => targetBox.top >= 0 && targetBox.bottom <= window.innerHeight && !targetBox.hitVisible
+      ),
+      undersizedRowActions: actionButtons.filter((targetBox) => {
+        const text = targetBox.text.trim();
+        const minWidth = ["↑", "↓"].includes(text) ? 32 : 40;
+        return targetBox.width < minWidth || targetBox.height < 32;
+      }),
+      undersizedGroupActions: groupButtons.filter((targetBox) => targetBox.width < 32 || targetBox.height < 32),
+    };
+  }, holdingPrefix);
+
+  expect(metrics.updatedHeader, `updated sort header should exist: ${JSON.stringify(metrics)}`).toBeTruthy();
+  expect(metrics.actionHeader, `desktop action header should exist: ${JSON.stringify(metrics)}`).toBeTruthy();
+  expect(metrics.actionCell, `target row action cell should exist: ${JSON.stringify(metrics)}`).toBeTruthy();
+  expect(metrics.actionButtons.length, `test should exercise holding row move/edit/delete targets: ${JSON.stringify(metrics)}`).toBe(4);
+  expect(metrics.groupButtons.length, `test should exercise holding group move targets: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(4);
+  expect(metrics.pageOverflowX, `1024px desktop page should not overflow horizontally: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
+  expect(metrics.scroller.scrollOverflowX, `1024px holding table should not hide right-side columns/actions behind horizontal scroll: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
+  expect(metrics.outsideViewport, `updated/action headers, row actions, and group move buttons should stay inside viewport: ${JSON.stringify(metrics)}`).toEqual([]);
+  expect(metrics.undersizedRowActions, `holding row actions should keep usable desktop targets: ${JSON.stringify(metrics)}`).toEqual([]);
+  expect(metrics.undersizedGroupActions, `holding group move actions should keep usable desktop targets: ${JSON.stringify(metrics)}`).toEqual([]);
+  expect(metrics.hiddenHitTargets, `holding action centers should remain directly clickable: ${JSON.stringify(metrics)}`).toEqual([]);
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "issue-226-1024-holding-actions-visible");
 });
 
 test("holdings flow: create, inline edit, delete, responsive", async ({ page }) => {
