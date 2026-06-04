@@ -21,6 +21,7 @@ from app.schemas import (
     ImportReport,
     validate_krw_transaction_amount,
 )
+from app.services.owner_links import legacy_owner_name_key
 
 
 MONTH_SHEET = re.compile(r"^(?:[1-9]|1[0-2])$")
@@ -821,10 +822,10 @@ class WorkbookImporter:
         ).all()
         lookup: dict[str, list[str]] = {}
         for user_id, display_name in rows:
-            normalized = self._normalize_holder_text(display_name)
-            if not normalized:
+            owner_key = legacy_owner_name_key(display_name)
+            if not owner_key:
                 continue
-            lookup.setdefault(normalized.lower(), []).append(str(user_id))
+            lookup.setdefault(owner_key, []).append(str(user_id))
         return lookup
 
     def _resolve_owner_from_lookup(
@@ -833,9 +834,10 @@ class WorkbookImporter:
         value: str | None,
     ) -> tuple[str | None, str, str]:
         normalized_owner = self._normalize_holder_text(value)
-        if not normalized_owner:
+        owner_key = legacy_owner_name_key(value)
+        if not owner_key:
             return None, "", "empty"
-        user_ids = owner_lookup.get(normalized_owner.lower(), [])
+        user_ids = owner_lookup.get(owner_key, [])
         if len(user_ids) == 1:
             return user_ids[0], normalized_owner, "linked"
         if len(user_ids) > 1:

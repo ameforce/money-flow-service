@@ -27,6 +27,7 @@ from app.db.models import (
     User,
 )
 from app.schemas import ImportIssue, MigrationPackageReport, validate_krw_transaction_amount
+from app.services.owner_links import legacy_owner_name_key
 from app.services.profile import normalize_holding_settings, normalize_optional_text, normalize_transaction_row_colors
 
 _PACKAGE_KIND = "moneyflow-household-transfer"
@@ -50,7 +51,7 @@ def _sanitize_filename_token(value: str, *, fallback: str) -> str:
 
 
 def _owner_key(value: str | None) -> str:
-    return str(value or "").strip().lower()
+    return legacy_owner_name_key(value)
 
 
 def _parse_positive_decimal(value: str, *, field_name: str) -> Decimal:

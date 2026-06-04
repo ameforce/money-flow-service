@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.errors import app_error
@@ -61,21 +61,19 @@ def find_unique_household_member_by_display_name(
     household_id: str,
     display_name: str | None,
 ) -> User | None:
-    normalized = normalize_optional_text(display_name)
-    if not normalized:
+    owner_key = legacy_owner_name_key(display_name)
+    if not owner_key:
         return None
-    rows = db.scalars(
-        select(User)
+    rows = db.execute(
+        select(User, User.display_name)
         .join(HouseholdMember, HouseholdMember.user_id == User.id)
-        .where(
-            HouseholdMember.household_id == household_id,
-            func.lower(User.display_name) == normalized.lower(),
-        )
+        .where(HouseholdMember.household_id == household_id)
         .order_by(HouseholdMember.created_at.asc(), User.created_at.asc())
     ).all()
-    if len(rows) != 1:
+    matches = [user for user, member_display_name in rows if legacy_owner_name_key(member_display_name) == owner_key]
+    if len(matches) != 1:
         return None
-    return rows[0]
+    return matches[0]
 
 
 def ensure_unique_household_member_display_name(

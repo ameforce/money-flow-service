@@ -104,6 +104,7 @@ from app.db.session import SessionLocal, engine  # noqa: E402
 from app.schemas import VerifyEmailRequest  # noqa: E402
 from app.services.email_service import email_service  # noqa: E402
 from app.services.importer import ParsedHolding, ParsedTransaction, WorkbookImporter  # noqa: E402
+from app.services.owner_links import backfill_owner_links_for_household  # noqa: E402
 from app.services.runtime import dashboard_service, price_service  # noqa: E402
 
 
@@ -5480,6 +5481,70 @@ def test_household_legacy_owner_remap_rechecks_target_member_after_lock(monkeypa
             assert db.scalar(select(func.count(EntityPatchLog.id)).where(EntityPatchLog.entity_id == transaction_id)) == 0
 
 
+def test_household_legacy_owner_remap_rechecks_actor_member_after_lock(monkeypatch: pytest.MonkeyPatch) -> None:
+    with TestClient(app) as client:
+        token = _auth(client, f"owner-remap-actor-lock-{uuid.uuid4().hex}@example.com", "Password1234", "OwnerActorLock")
+        household_id = client.get("/api/v1/household/current", headers=_headers(token)).json()["household"]["id"]
+        member = client.get("/api/v1/household/members", headers=_headers(token)).json()[0]
+        target_user_id = member["user_id"]
+
+        with SessionLocal() as db:
+            actor_member = db.scalar(
+                select(HouseholdMember).where(
+                    HouseholdMember.household_id == household_id,
+                    HouseholdMember.user_id == target_user_id,
+                )
+            )
+            assert actor_member is not None
+            actor_member_id = str(actor_member.id)
+            category = Category(
+                household_id=household_id,
+                flow_type=FlowType.expense,
+                major="식비",
+                minor="점심",
+            )
+            db.add(category)
+            db.flush()
+            transaction = Transaction(
+                household_id=household_id,
+                category_id=category.id,
+                flow_type=FlowType.expense,
+                occurred_on=date(2026, 4, 25),
+                amount=Decimal("12000"),
+                currency="KRW",
+                memo="legacy remap actor lock transaction",
+                owner_name="LegacyActorLock",
+            )
+            db.add(transaction)
+            db.commit()
+            transaction_id = str(transaction.id)
+            transaction_version = int(transaction.version)
+
+        original_lock = household_route._lock_household_members
+
+        def lock_without_actor(db: Session, household_id: str) -> dict[str, HouseholdMember]:
+            locked = original_lock(db, household_id)
+            locked.pop(actor_member_id, None)
+            return locked
+
+        monkeypatch.setattr(household_route, "_lock_household_members", lock_without_actor)
+        response = client.post(
+            "/api/v1/household/legacy-owner-remap",
+            headers=_headers(token),
+            json={"owner_name": "LegacyActorLock", "target_owner_user_id": target_user_id},
+        )
+
+        assert response.status_code == 403
+        assert response.json()["error"]["code"] == "HOUSEHOLD_ROLE_FORBIDDEN"
+        with SessionLocal() as db:
+            transaction = db.get(Transaction, transaction_id)
+            assert transaction is not None
+            assert transaction.owner_user_id is None
+            assert transaction.owner_name == "LegacyActorLock"
+            assert transaction.version == transaction_version
+            assert db.scalar(select(func.count(EntityPatchLog.id)).where(EntityPatchLog.entity_id == transaction_id)) == 0
+
+
 def test_household_legacy_owner_remap_matches_collapsed_legacy_owner_whitespace() -> None:
     with TestClient(app) as client:
         token = _auth(client, f"owner-remap-space-{uuid.uuid4().hex}@example.com", "Password1234", "OwnerRemapSpace")
@@ -5675,6 +5740,64 @@ def test_household_legacy_owner_remap_rolls_back_when_holding_conflicts() -> Non
                 )
                 == 0
             )
+
+
+def test_backfill_owner_links_matches_collapsed_legacy_owner_whitespace() -> None:
+    with TestClient(app) as client:
+        token = _auth(client, f"owner-backfill-space-{uuid.uuid4().hex}@example.com", "Password1234", "Backfill Owner")
+        me = client.get("/api/v1/auth/me", headers=_headers(token))
+        assert me.status_code == 200
+        user_id = str(me.json()["id"])
+        household_id = client.get("/api/v1/household/current", headers=_headers(token)).json()["household"]["id"]
+
+    with SessionLocal() as db:
+        category = Category(
+            household_id=household_id,
+            flow_type=FlowType.expense,
+            major="식비",
+            minor="점심",
+        )
+        db.add(category)
+        db.flush()
+        transaction = Transaction(
+            household_id=household_id,
+            category_id=category.id,
+            flow_type=FlowType.expense,
+            occurred_on=date(2026, 4, 29),
+            amount=Decimal("15000"),
+            currency="KRW",
+            memo="legacy backfill space transaction",
+            owner_name="Backfill\tOwner",
+        )
+        holding = Holding(
+            household_id=household_id,
+            asset_type=AssetType.cash,
+            symbol="BACKFILL-SPACE-CASH",
+            market_symbol="BACKFILL-SPACE-CASH",
+            name="Backfill Space Cash",
+            category="현금성",
+            owner_name="Backfill  Owner",
+            account_name="Backfill Account",
+            quantity=Decimal("1"),
+            average_cost=Decimal("15000"),
+            currency="KRW",
+        )
+        db.add_all([transaction, holding])
+        db.flush()
+        transaction_id = str(transaction.id)
+        holding_id = str(holding.id)
+
+        result = backfill_owner_links_for_household(db, household_id)
+        db.commit()
+
+    assert result == {"transactions": 1, "holdings": 1}
+    with SessionLocal() as db:
+        transaction = db.get(Transaction, transaction_id)
+        holding = db.get(Holding, holding_id)
+        assert transaction is not None
+        assert holding is not None
+        assert transaction.owner_user_id == user_id
+        assert holding.owner_user_id == user_id
 
 
 def test_schema_upgrade_reports_duplicate_nullable_holding_identities(tmp_path: Path) -> None:
@@ -6494,6 +6617,69 @@ def test_import_owner_resolution_preloads_household_members_once_per_apply_path(
     issue_codes = {issue.code for issue in issues}
     assert "HOLDING_OWNER_NOT_MEMBER" in issue_codes
     assert "HOLDING_OWNER_AMBIGUOUS" in issue_codes
+
+
+def test_import_owner_lookup_matches_collapsed_member_whitespace() -> None:
+    with TestClient(app) as client:
+        token = _auth(
+            client,
+            f"import-owner-space-{uuid.uuid4().hex}@example.com",
+            "Password1234",
+            "Import Space Owner",
+        )
+        me = client.get("/api/v1/auth/me", headers=_headers(token))
+        assert me.status_code == 200
+        user_id = str(me.json()["id"])
+        current = client.get("/api/v1/household/current", headers=_headers(token))
+        assert current.status_code == 200
+        household_id = current.json()["household"]["id"]
+
+    importer = WorkbookImporter()
+    tx_rows = [
+        ParsedTransaction(
+            source_ref=f"tx-owner-space-{uuid.uuid4().hex}",
+            dedupe_hash=f"tx-owner-space-{uuid.uuid4().hex}",
+            dedupe_ordinal=1,
+            occurred_on=date(2026, 4, 23),
+            flow_type=FlowType.expense,
+            major="테스트",
+            minor="소분류",
+            amount=Decimal("12000"),
+            memo="owner-space-import",
+            owner_name="Import   Space Owner",
+        )
+    ]
+    holding_rows = [
+        ParsedHolding(
+            asset_type=AssetType.stock,
+            symbol="IMPORT-SPACE",
+            market_symbol="IMPORT-SPACE",
+            name="Import Space Asset",
+            category="테스트",
+            owner_name="Import\tSpace Owner",
+            account_name="LookupAccount",
+            quantity=Decimal("1"),
+            average_cost=Decimal("100"),
+            currency="KRW",
+            source_ref=f"holding-owner-space-{uuid.uuid4().hex}",
+        )
+    ]
+    with SessionLocal() as db:
+        tx_added, tx_skipped, tx_refs = importer._apply_transactions(db, household_id, {}, tx_rows)
+        holding_added, holding_updated, issues, holding_refs = importer._apply_holdings(db, household_id, holding_rows)
+        db.commit()
+        transaction = db.get(Transaction, tx_refs[0].id)
+        holding = db.get(Holding, holding_refs[0].id)
+
+    assert tx_added == 1
+    assert tx_skipped == 0
+    assert holding_added == 1
+    assert holding_updated == 0
+    assert {issue.code for issue in issues} == set()
+    assert transaction is not None
+    assert holding is not None
+    assert transaction.owner_user_id == user_id
+    assert holding.owner_user_id == user_id
 
 
 def test_import_holding_key_avoids_delimiter_collisions() -> None:
@@ -7915,6 +8101,128 @@ def test_migration_package_apply_replaces_existing_household_data() -> None:
         target_settings = client.get("/api/v1/household/settings", headers=_headers(target_token))
         assert target_settings.status_code == 200
         assert target_settings.json()["base_currency"] == "USD"
+
+
+def test_migration_package_apply_links_owner_names_with_collapsed_whitespace() -> None:
+    with TestClient(app) as client:
+        source_token = _auth(
+            client,
+            f"migration-owner-space-source-{uuid.uuid4().hex}@example.com",
+            "Password1234",
+            "PackageSource",
+        )
+        source_me = client.get("/api/v1/auth/me", headers=_headers(source_token))
+        assert source_me.status_code == 200
+        source_user_id = str(source_me.json()["id"])
+        source_household = client.get("/api/v1/household/current", headers=_headers(source_token))
+        assert source_household.status_code == 200
+        source_household_id = str(source_household.json()["household"]["id"])
+
+        with SessionLocal() as db:
+            category = Category(
+                household_id=source_household_id,
+                flow_type=FlowType.expense,
+                major="식비",
+                minor="점심",
+                sort_order=100,
+            )
+            db.add(category)
+            db.flush()
+            db.add(
+                Transaction(
+                    household_id=source_household_id,
+                    category_id=category.id,
+                    flow_type=FlowType.expense,
+                    occurred_on=date(2026, 5, 14),
+                    amount=Decimal("16000"),
+                    currency="KRW",
+                    memo="migration-owner-space-source",
+                    owner_user_id=source_user_id,
+                    owner_name="PackageSource",
+                    source_ref=f"migration-owner-space-tx-{uuid.uuid4().hex}",
+                    version=1,
+                    created_by_user_id=source_user_id,
+                )
+            )
+            db.add(
+                Holding(
+                    household_id=source_household_id,
+                    asset_type=AssetType.stock,
+                    symbol="SPACE-PKG",
+                    market_symbol="SPACE-PKG",
+                    name="Space Package Asset",
+                    type_key="stock",
+                    category="주식",
+                    owner_user_id=source_user_id,
+                    owner_name="PackageSource",
+                    account_name="Broker",
+                    quantity=Decimal("1"),
+                    average_cost=Decimal("160"),
+                    currency="USD",
+                    display_order=100,
+                    source_ref=f"migration-owner-space-holding-{uuid.uuid4().hex}",
+                    version=1,
+                )
+            )
+            db.commit()
+
+        export_resp = client.get("/api/v1/imports/migration-package/export", headers=_headers(source_token))
+        assert export_resp.status_code == 200
+        with zipfile.ZipFile(io.BytesIO(export_resp.content), "r") as source_archive:
+            manifest = json.loads(source_archive.read("manifest.json").decode("utf-8"))
+            payload = json.loads(source_archive.read("payload.json").decode("utf-8"))
+        payload["transactions"][0]["owner_name"] = "Package   Owner"
+        payload["holdings"][0]["owner_name"] = "Package\tOwner"
+        payload_bytes = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
+        manifest["payload_sha256"] = hashlib.sha256(payload_bytes).hexdigest()
+        manifest["payload_size_bytes"] = len(payload_bytes)
+        manifest_bytes = json.dumps(manifest, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
+        mutated_package = io.BytesIO()
+        with zipfile.ZipFile(mutated_package, "w", zipfile.ZIP_DEFLATED) as target_archive:
+            target_archive.writestr("manifest.json", manifest_bytes)
+            target_archive.writestr("payload.json", payload_bytes)
+        mutated_package.seek(0)
+
+        target_token = _auth(
+            client,
+            f"migration-owner-space-target-{uuid.uuid4().hex}@example.com",
+            "Password1234",
+            "Package Owner",
+        )
+        target_me = client.get("/api/v1/auth/me", headers=_headers(target_token))
+        assert target_me.status_code == 200
+        target_user_id = str(target_me.json()["id"])
+        target_household = client.get("/api/v1/household/current", headers=_headers(target_token))
+        assert target_household.status_code == 200
+        target_household_id = str(target_household.json()["household"]["id"])
+
+        applied = client.post(
+            "/api/v1/imports/migration-package/upload?mode=apply&replace_existing=true",
+            headers=_headers(target_token),
+            files={"file": ("owner-space-transfer.zip", mutated_package.getvalue(), "application/zip")},
+        )
+        assert applied.status_code == 200
+        report = applied.json()
+        assert report["owner_names_unmatched"] == 0
+        assert report["owner_names_ambiguous"] == 0
+
+    with SessionLocal() as db:
+        transaction = db.scalar(
+            select(Transaction).where(
+                Transaction.household_id == target_household_id,
+                Transaction.memo == "migration-owner-space-source",
+            )
+        )
+        holding = db.scalar(
+            select(Holding).where(
+                Holding.household_id == target_household_id,
+                Holding.market_symbol == "SPACE-PKG",
+            )
+        )
+        assert transaction is not None
+        assert holding is not None
+        assert transaction.owner_user_id == target_user_id
+        assert holding.owner_user_id == target_user_id
 
 
 def test_migration_package_upload_rejects_fractional_krw_transaction_amount() -> None:
