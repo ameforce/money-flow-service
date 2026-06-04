@@ -4681,6 +4681,47 @@ def test_transaction_category_blank_string_normalized_to_none() -> None:
         assert tx["category_id"] is None
 
 
+def test_transaction_create_and_patch_reject_decimal_krw_amount() -> None:
+    with TestClient(app) as client:
+        token = _auth(client, f"tx-decimal-{uuid.uuid4().hex}@example.com", "Password1234", "TxDecimal")
+
+        decimal_create = client.post(
+            "/api/v1/transactions",
+            headers=_headers(token),
+            json={
+                "occurred_on": "2026-02-03",
+                "flow_type": "expense",
+                "amount": "123.6",
+                "currency": "KRW",
+                "memo": "decimal-create",
+            },
+        )
+        assert decimal_create.status_code == 400
+        assert decimal_create.json()["error"]["code"] == "REQUEST_VALIDATION_FAILED"
+
+        created = client.post(
+            "/api/v1/transactions",
+            headers=_headers(token),
+            json={
+                "occurred_on": "2026-02-03",
+                "flow_type": "expense",
+                "amount": "123",
+                "currency": "KRW",
+                "memo": "integer-create",
+            },
+        )
+        assert created.status_code == 201
+        tx = created.json()
+
+        decimal_patch = client.patch(
+            f"/api/v1/transactions/{tx['id']}",
+            headers=_headers(token),
+            json={"base_version": tx["version"], "amount": "456.7"},
+        )
+        assert decimal_patch.status_code == 400
+        assert decimal_patch.json()["error"]["code"] == "REQUEST_VALIDATION_FAILED"
+
+
 def test_transaction_source_ref_is_idempotent_for_retried_seed() -> None:
     with TestClient(app) as client:
         token = _auth(client, f"tx-source-ref-{uuid.uuid4().hex}@example.com", "Password1234", "TxSource")
