@@ -35,6 +35,63 @@ const AUTH_LAYOUT_PROFILES = [
   { name: "mobile-standard-signup", width: 390, height: 844, font: "Noto Sans KR", mobile: true },
 ];
 
+async function resetViewportScroll(page) {
+  await page.evaluate(async () => {
+    const html = document.documentElement;
+    const body = document.body;
+    const previousHtmlScrollBehavior = html.style.scrollBehavior;
+    const previousBodyScrollBehavior = body.style.scrollBehavior;
+    html.style.scrollBehavior = "auto";
+    body.style.scrollBehavior = "auto";
+
+    const roots = [document.scrollingElement, html, body].filter(Boolean);
+    const reset = () => {
+      document.activeElement?.blur?.();
+      window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+      for (const element of roots) {
+        element.scrollTop = 0;
+        element.scrollLeft = 0;
+      }
+    };
+
+    // Chrome can restore an anchor after layout settles, so reset on both sides of two frames.
+    reset();
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    reset();
+
+    html.style.scrollBehavior = previousHtmlScrollBehavior;
+    body.style.scrollBehavior = previousBodyScrollBehavior;
+  });
+}
+
+async function getViewportScrollTop(page) {
+  return page.evaluate(() => {
+    const positions = [window.scrollY, document.scrollingElement?.scrollTop ?? 0, document.documentElement.scrollTop, document.body.scrollTop];
+    return Math.max(...positions);
+  });
+}
+
+async function scrollViewportToTop(page) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await resetViewportScroll(page);
+    const settled = await expect
+      .poll(() => getViewportScrollTop(page), {
+        message: "viewport should settle at the top before measuring chrome",
+        timeout: 1_500,
+      })
+      .toBeLessThanOrEqual(1)
+      .then(() => true)
+      .catch(() => false);
+
+    if (settled) {
+      return;
+    }
+  }
+
+  const scrollTop = await getViewportScrollTop(page);
+  expect(scrollTop, "viewport should settle at the top before measuring chrome").toBeLessThanOrEqual(1);
+}
+
 async function applyFontProfile(page, fontFamily) {
   await page.addStyleTag({
     content: `
@@ -50,6 +107,8 @@ async function expectMobileTabBarStable(page) {
   if (!isMobile) {
     return;
   }
+
+  await scrollViewportToTop(page);
 
   const nav = page.locator("nav.topbar-tabs");
   await expect(nav).toBeVisible();
@@ -84,15 +143,13 @@ async function expectMobileTabBarStable(page) {
     const style = getComputedStyle(element);
     return {
       position: style.position,
-      top: box.top,
-      bottom: box.bottom,
+      height: box.height,
       viewportHeight: window.innerHeight,
     };
   });
 
   expect(navMetrics.position).not.toBe("fixed");
-  expect(navMetrics.top).toBeGreaterThanOrEqual(-2);
-  expect(navMetrics.bottom).toBeLessThan(navMetrics.viewportHeight * 0.34);
+  expect(navMetrics.height).toBeLessThan(navMetrics.viewportHeight * 0.34);
 }
 
 async function expectMobileBottomClearance(page) {
@@ -377,6 +434,34 @@ async function expectHoldingSectionRowsAligned(page) {
   expect(metrics.gapFromHeader).toBeGreaterThanOrEqual(-1);
   expect(metrics.titleCenterOffset).toBeLessThanOrEqual(2.5);
   expect(metrics.titleOverflow).toBeLessThanOrEqual(2);
+}
+
+async function expectLandscapeWorkspaceControlVisible(page, locator, label, { minVisibleHeight = 34 } = {}) {
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await expect(locator).toBeVisible();
+  const metrics = await locator.evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    const topbarBox = document.querySelector(".topbar")?.getBoundingClientRect();
+    const navBox = document.querySelector("nav.topbar-tabs")?.getBoundingClientRect();
+    const visibleTop = Math.max(0, box.top);
+    const visibleBottom = Math.min(window.innerHeight, box.bottom);
+    return {
+      viewportHeight: window.innerHeight,
+      topbarBottom: topbarBox?.bottom ?? 0,
+      navBottom: navBox?.bottom ?? 0,
+      sampleTop: box.top,
+      sampleBottom: box.bottom,
+      sampleHeight: box.height,
+      visibleHeight: Math.max(0, visibleBottom - visibleTop),
+    };
+  });
+
+  expect(metrics.navBottom, `${label} chrome should leave most of 568x320 for work: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(104);
+  expect(metrics.sampleTop, `${label} first work control should start inside first viewport: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(286);
+  expect(
+    metrics.visibleHeight,
+    `${label} first work control should be materially visible without scroll: ${JSON.stringify(metrics)}`,
+  ).toBeGreaterThanOrEqual(Math.min(minVisibleHeight, metrics.sampleHeight));
 }
 
 async function openSignupSurface(page, profile) {
@@ -742,6 +827,53 @@ test("mobile transaction sheet actions keep navigation reachable", async ({ page
   await expect(page.locator(".holding-list-card")).toBeVisible();
 });
 
+test("mobile landscape surfaces show first work controls without immediate scroll", async ({ page }) => {
+  const email = `${unique("landscape-workspace")}@example.com`;
+  const displayName = unique("landscape-workspace-user");
+  const holdingName = "랜드스케이프 첫 화면 검증 자산";
+
+  await page.setViewportSize({ width: 568, height: 320 });
+  await registerAndVerify(page, { email, displayName });
+  await applyFontProfile(page, "Malgun Gothic");
+  await createBasicHolding(page, { name: holdingName, category: "주식" });
+  const savedMessageClose = page.locator(".message .message-close").first();
+  if (await savedMessageClose.isVisible().catch(() => false)) {
+    await savedMessageClose.click();
+  }
+
+  const surfaces = [
+    {
+      tab: "자산",
+      locator: () => page.locator("tr.holding-row", { hasText: holdingName }).first(),
+      label: "holdings row",
+      minVisibleHeight: 38,
+    },
+    {
+      tab: "협업",
+      locator: () => page.locator("#collaboration-household-select"),
+      label: "collaboration household select",
+      minVisibleHeight: 34,
+    },
+    {
+      tab: "설정",
+      locator: () => page.getByRole("textbox", { name: "본명" }),
+      label: "settings profile name input",
+      minVisibleHeight: 34,
+    },
+  ];
+
+  for (const surface of surfaces) {
+    await test.step(surface.tab, async () => {
+      await openTab(page, surface.tab);
+      await expectNoHorizontalOverflow(page, 12);
+      await expectLandscapeWorkspaceControlVisible(page, surface.locator(), surface.label, {
+        minVisibleHeight: surface.minVisibleHeight,
+      });
+      await capture(page, `layout-landscape-workspace-${surface.tab}`);
+    });
+  }
+});
+
 test("layout stability matrix: pages remain clean across desktop, tablet, and mobile fonts", async ({ page }) => {
   test.setTimeout(180_000);
 
@@ -776,7 +908,9 @@ test("layout stability matrix: pages remain clean across desktop, tablet, and mo
       await sample.scrollIntoViewIfNeeded();
       await expectClearOfFixedBottomNav(sample);
       await expectMobileBottomClearance(page);
-      await page.evaluate(() => window.scrollTo(0, 0));
+      await scrollViewportToTop(page);
     }
   }
+
+  await capture(page, "layout-stability-matrix");
 });

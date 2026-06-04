@@ -23,6 +23,18 @@ def get_household_member_user(db: Session, household_id: str, user_id: str | Non
     )
 
 
+def normalize_legacy_owner_name(value: str | None) -> str | None:
+    normalized = normalize_optional_text(value)
+    if not normalized:
+        return None
+    collapsed = " ".join(normalized.split())
+    return collapsed or None
+
+
+def legacy_owner_name_key(value: str | None) -> str:
+    return (normalize_legacy_owner_name(value) or "").lower()
+
+
 def require_household_member_user(
     db: Session,
     *,
@@ -49,21 +61,19 @@ def find_unique_household_member_by_display_name(
     household_id: str,
     display_name: str | None,
 ) -> User | None:
-    normalized = normalize_optional_text(display_name)
-    if not normalized:
+    owner_key = legacy_owner_name_key(display_name)
+    if not owner_key:
         return None
-    rows = db.scalars(
-        select(User)
+    rows = db.execute(
+        select(User, User.display_name)
         .join(HouseholdMember, HouseholdMember.user_id == User.id)
-        .where(
-            HouseholdMember.household_id == household_id,
-            func.lower(User.display_name) == normalized.lower(),
-        )
+        .where(HouseholdMember.household_id == household_id)
         .order_by(HouseholdMember.created_at.asc(), User.created_at.asc())
     ).all()
-    if len(rows) != 1:
+    matches = [user for user, member_display_name in rows if legacy_owner_name_key(member_display_name) == owner_key]
+    if len(matches) != 1:
         return None
-    return rows[0]
+    return matches[0]
 
 
 def ensure_unique_household_member_display_name(

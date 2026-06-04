@@ -259,6 +259,37 @@
   line-height: 1.25;
 }
 
+.auth-recovery-callout {
+  border: 1px solid #c8d9f9;
+  background: #f5f8ff;
+  color: #24466f;
+  border-radius: 8px;
+  padding: 0.72rem 0.8rem;
+  display: grid;
+  gap: 0.28rem;
+  font-size: 0.84rem;
+  line-height: 1.42;
+}
+
+.auth-recovery-callout strong {
+  color: #18345d;
+  font-size: 0.88rem;
+  font-weight: 850;
+}
+
+.auth-recovery-callout span {
+  color: #4a6387;
+  overflow-wrap: anywhere;
+}
+
+.auth-recovery-callout .text-button {
+  justify-self: start;
+  align-items: center;
+  min-height: 2.25rem;
+  padding: 0;
+  font-weight: 750;
+}
+
 .auth-pending-invite {
   border: 1px solid #c8d9f9;
   background: #eef4ff;
@@ -372,6 +403,27 @@
   min-height: auto;
   margin: 0;
   flex: 0 0 auto;
+}
+
+.settings-asset-rules-card .check-row {
+  min-height: 2.75rem;
+  width: 100%;
+  padding: 0.48rem 0.66rem;
+  border: 1px solid #d9e6f7;
+  border-radius: 12px;
+  background: rgba(247, 251, 255, 0.78);
+  box-sizing: border-box;
+  cursor: pointer;
+}
+
+.settings-asset-rules-card .check-row input[type="checkbox"] {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.settings-asset-rules-card .check-row:has(input[type="checkbox"]:focus-visible) {
+  outline: 2px solid rgba(15, 124, 255, 0.34);
+  outline-offset: 2px;
 }
 
 .upload-row {
@@ -1429,6 +1481,12 @@
 
 .transaction-list-card {
   --transaction-fab-clearance: calc(5.4rem + env(safe-area-inset-bottom));
+  --transaction-toolbar-sticky-top: max(0.75rem, env(safe-area-inset-top));
+  --transaction-toolbar-sticky-height: 10.75rem;
+  --transaction-column-head-gap: 0.18rem;
+  --transaction-column-head-top: calc(
+    var(--transaction-toolbar-sticky-top) + var(--transaction-toolbar-sticky-height) + var(--transaction-column-head-gap)
+  );
   overflow: visible;
   padding-bottom: var(--transaction-fab-clearance);
 }
@@ -1450,13 +1508,27 @@
   margin-left: auto;
 }
 
+.transaction-desktop-add-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 2.55rem;
+  padding-inline: 0.85rem 0.95rem;
+  white-space: nowrap;
+}
+
+.transaction-desktop-add-action span[aria-hidden="true"] {
+  font-size: 1.12rem;
+  line-height: 1;
+}
+
 .surface-count-summary {
   margin: 0;
 }
 
 .transaction-list-card > .transaction-sticky-toolbar {
   position: sticky;
-  top: max(0.75rem, env(safe-area-inset-top));
+  top: var(--transaction-toolbar-sticky-top);
   align-self: start;
   z-index: 44;
   display: grid;
@@ -1495,6 +1567,38 @@
 
 .transaction-filter-actions .table-summary {
   margin: 0;
+}
+
+.transaction-selection-summary,
+.transaction-selection-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.transaction-selection-summary .surface-chip {
+  flex: 0 0 auto;
+}
+
+.transaction-selection-amount {
+  font-variant-numeric: tabular-nums;
+}
+
+.transaction-selection-clear {
+  flex: 0 0 auto;
+  min-height: 1.45rem;
+  padding: 0.16rem 0.52rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  line-height: 1.05;
+  white-space: nowrap;
+}
+
+.transaction-selection-summary[data-selection-active="false"] .transaction-selection-amount {
+  color: var(--mf-color-ink-500);
+  background: #ffffff;
 }
 
 .work-surface-header {
@@ -1874,6 +1978,13 @@
 
 .holdings-form-grid {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  align-items: stretch;
+}
+
+.holdings-form-fields {
+  display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: 0.75rem;
   align-items: end;
@@ -2061,6 +2172,16 @@
 }
 
 @media (max-width: 680px) {
+  .transaction-inline-editor-cell {
+    padding: 0.5rem 0.56rem 0.62rem !important;
+  }
+
+  .transaction-inline-editor-grid {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+    gap: 0.42rem;
+  }
+
   .tx-inline-category-section,
   .tx-inline-memo-field,
   .tx-inline-owner-field,
@@ -2070,6 +2191,22 @@
 
   .tx-inline-category-section {
     grid-template-columns: 1fr;
+  }
+
+  .tx-inline-editor-actions {
+    order: -1;
+    justify-content: space-between;
+    align-items: stretch;
+    width: 100%;
+    padding: 0.4rem;
+    border: 1px solid #d8e4f5;
+    border-radius: 8px;
+    background: rgba(247, 251, 255, 0.98);
+  }
+
+  .tx-inline-editor-actions button {
+    flex: 1 1 0;
+    min-height: 2.45rem;
   }
 }
 
@@ -2278,6 +2415,18 @@ label {
   overflow-wrap: anywhere;
 }
 
+.field-error {
+  color: var(--mf-color-red-500);
+  font-weight: 700;
+}
+
+input[aria-invalid="true"],
+select[aria-invalid="true"],
+textarea[aria-invalid="true"] {
+  border-color: var(--mf-color-red-500);
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.14);
+}
+
 input,
 select,
 button,
@@ -2392,7 +2541,7 @@ button.danger:active:not(:disabled) {
   background: rgba(15, 23, 42, 0.42);
   display: grid;
   place-items: center;
-  z-index: 50;
+  z-index: 120;
   padding: 1rem;
 }
 
@@ -2464,12 +2613,13 @@ button.danger:active:not(:disabled) {
   position: fixed;
   left: max(0.72rem, env(safe-area-inset-left));
   right: max(0.72rem, env(safe-area-inset-right));
-  bottom: calc(5.95rem + env(safe-area-inset-bottom));
+  top: max(0.72rem, env(safe-area-inset-top));
+  bottom: calc(0.72rem + env(safe-area-inset-bottom));
   z-index: 68;
   box-sizing: border-box;
   max-width: calc(100vw - 1.44rem);
-  max-height: min(35rem, calc(100dvh - 7rem));
-  overflow-y: auto;
+  max-height: none;
+  overflow-y: hidden;
   overflow-x: clip;
   padding:
     var(--holding-entry-sheet-padding-block)
@@ -2477,6 +2627,14 @@ button.danger:active:not(:disabled) {
     calc(var(--holding-entry-sheet-padding-block) + env(safe-area-inset-bottom));
   border-radius: 20px 20px 16px 16px;
   box-shadow: 0 24px 50px -28px rgba(15, 23, 42, 0.42);
+}
+
+.holding-entry-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 67;
+  background: rgba(15, 23, 42, 0.34);
+  backdrop-filter: blur(8px);
 }
 
 .transaction-entry-sheet-backdrop {
@@ -2497,7 +2655,15 @@ button.danger:active:not(:disabled) {
 }
 
 .transaction-entry-sheet {
-  --transaction-quick-action-clearance: calc(4.7rem + env(safe-area-inset-bottom));
+  --transaction-quick-action-button-height: 2.82rem;
+  --transaction-quick-action-padding-top: 0.62rem;
+  --transaction-quick-action-padding-bottom: 0.78rem;
+  --transaction-quick-action-scroll-gap: 1.75rem;
+  --transaction-quick-action-clearance: calc(
+    var(--transaction-quick-action-button-height) + var(--transaction-quick-action-padding-top) +
+      var(--transaction-quick-action-padding-bottom) + var(--transaction-quick-action-scroll-gap) +
+      env(safe-area-inset-bottom)
+  );
   position: relative;
   z-index: 1;
   box-sizing: border-box;
@@ -2506,6 +2672,7 @@ button.danger:active:not(:disabled) {
   max-height: min(32rem, calc(100dvh - 5.5rem));
   overflow: auto;
   scroll-padding-bottom: calc(var(--transaction-quick-action-clearance) + 0.75rem);
+  scroll-padding-block-end: calc(var(--transaction-quick-action-clearance) + 0.75rem);
   display: grid;
   gap: 0.85rem;
   background: #ffffff;
@@ -2584,6 +2751,46 @@ button.danger:active:not(:disabled) {
   font-variant-numeric: tabular-nums;
 }
 
+.transaction-quick-context-strip {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.34rem;
+  min-width: 0;
+}
+
+.transaction-quick-context-item {
+  display: grid;
+  gap: 0.08rem;
+  min-width: 0;
+  min-height: 2.42rem;
+  padding: 0.38rem 0.48rem;
+  border: 1px solid #d8e2f0;
+  border-radius: 8px;
+  background: #f8fbff;
+}
+
+.transaction-quick-context-item span,
+.transaction-quick-context-item strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.transaction-quick-context-item span {
+  color: #5b718f;
+  font-size: 0.68rem;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.transaction-quick-context-item strong {
+  color: #16233a;
+  font-size: 0.82rem;
+  font-weight: 900;
+  line-height: 1.25;
+}
+
 .transaction-quick-section-title {
   display: flex;
   align-items: baseline;
@@ -2618,6 +2825,182 @@ button.danger:active:not(:disabled) {
   display: grid;
   gap: 0.32rem;
   min-width: 0;
+}
+
+.transaction-category-picker {
+  display: grid;
+  gap: 0.42rem;
+  min-width: 0;
+}
+
+.transactions-form-grid .transaction-category-picker-desktop,
+.tx-inline-category-section .transaction-category-picker-inline {
+  grid-column: 1 / -1;
+}
+
+.transaction-category-picker-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.transaction-category-picker-title > span {
+  flex: 0 0 auto;
+  color: #16233a;
+  font-weight: 900;
+}
+
+.transaction-category-picker-title small {
+  min-width: 0;
+  overflow: hidden;
+  color: #5b718f;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.35;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.transaction-category-picker-search {
+  display: grid;
+  gap: 0.28rem;
+  min-width: 0;
+  margin: 0;
+  color: #385272;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.transaction-category-picker-search input {
+  width: 100%;
+  min-width: 0;
+}
+
+.transaction-category-create {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 0.38rem;
+  min-width: 0;
+  padding: 0.5rem;
+  border: 1px solid #d7e2f1;
+  border-radius: 8px;
+  background: #f8fbff;
+}
+
+.transaction-category-create label {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+  margin: 0;
+  color: #385272;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.transaction-category-create input {
+  width: 100%;
+  min-width: 0;
+}
+
+.transaction-category-create-submit {
+  min-height: 2.35rem;
+  white-space: nowrap;
+}
+
+.tx-category-restore-notice {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-width: 0;
+  padding: 0.62rem 0.72rem;
+  border: 1px solid #f2c36b;
+  border-radius: 8px;
+  background: #fff8e8;
+  color: #493418;
+}
+
+.tx-category-restore-notice span {
+  display: grid;
+  gap: 0.16rem;
+  min-width: 0;
+}
+
+.tx-category-restore-notice strong,
+.tx-category-restore-notice small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tx-category-restore-notice strong {
+  font-size: 0.84rem;
+  font-weight: 900;
+}
+
+.tx-category-restore-notice small {
+  color: #725024;
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.tx-category-restore-notice button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.transaction-category-picker-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.38rem;
+  min-width: 0;
+}
+
+.transaction-category-option {
+  display: inline-flex;
+  min-height: 2.3rem;
+  max-width: min(14rem, 100%);
+  align-items: center;
+  justify-content: center;
+  gap: 0.32rem;
+  padding: 0.42rem 0.64rem;
+  border-color: #d7e2f1;
+  border-radius: 999px;
+  background: #f7fbff;
+  color: #21385b;
+  text-align: center;
+}
+
+.transaction-category-option span,
+.transaction-category-option small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.transaction-category-option span {
+  font-size: 0.84rem;
+  font-weight: 900;
+}
+
+.transaction-category-option small {
+  color: #5b718f;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.transaction-category-option.selected {
+  border-color: #1d66d1;
+  background: #eaf3ff;
+  color: #0d4aa3;
+  box-shadow: 0 10px 24px -20px rgba(13, 74, 163, 0.58);
 }
 
 .transaction-quick-category-chips {
@@ -2751,6 +3134,7 @@ button.danger:active:not(:disabled) {
 .transaction-entry-sheet .transaction-quick-details textarea,
 .transaction-entry-sheet .transaction-quick-details button {
   scroll-margin-bottom: calc(var(--transaction-quick-action-clearance) + 0.75rem);
+  scroll-margin-block-end: calc(var(--transaction-quick-action-clearance) + 0.75rem);
 }
 
 .transaction-quick-sticky-actions {
@@ -2761,7 +3145,7 @@ button.danger:active:not(:disabled) {
   grid-template-columns: minmax(0, 0.82fr) minmax(0, 1.18fr);
   gap: 0.5rem;
   margin: 0.05rem -0.35rem 0;
-  padding: 0.62rem 0.35rem calc(0.78rem + env(safe-area-inset-bottom));
+  padding: var(--transaction-quick-action-padding-top) 0.35rem calc(var(--transaction-quick-action-padding-bottom) + env(safe-area-inset-bottom));
   border-top: 1px solid rgba(219, 227, 239, 0.88);
   background: rgba(255, 255, 255, 0.96);
   backdrop-filter: blur(12px);
@@ -2770,7 +3154,7 @@ button.danger:active:not(:disabled) {
 
 .transaction-quick-sticky-actions button {
   min-width: 0;
-  min-height: 2.82rem;
+  min-height: var(--transaction-quick-action-button-height);
   pointer-events: auto;
 }
 
@@ -2825,6 +3209,18 @@ button.danger:active:not(:disabled) {
   margin: 0;
   font-size: 0.84rem;
   color: #355177;
+}
+
+.filter-pending-status {
+  margin: 0;
+  padding: 0.22rem 0.48rem;
+  border: 1px solid #f2c94c;
+  border-radius: 6px;
+  background: #fff7d6;
+  color: #725400;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.25;
 }
 
 .compact-support-card,
@@ -3396,6 +3792,10 @@ table {
   -webkit-overflow-scrolling: touch;
 }
 
+.surface-ledger-desktop-head {
+  display: none;
+}
+
 .transactions-surface-table {
   table-layout: fixed;
 }
@@ -3406,7 +3806,7 @@ table {
 
 .transactions-surface-table th:first-child,
 .transactions-surface-table .transaction-col-select {
-  width: 2.4rem;
+  width: 3rem;
 }
 
 .transactions-surface-table .transaction-col-date {
@@ -3438,7 +3838,7 @@ table {
 }
 
 .transactions-surface-table .transaction-col-actions {
-  width: 4.8rem;
+  width: 6.6rem;
 }
 
 .transactions-surface-table thead,
@@ -3448,6 +3848,82 @@ table {
   z-index: 3;
   background: linear-gradient(180deg, #f4f8ff, #edf4ff);
   box-shadow: 0 1px 0 #dbe3ef;
+}
+
+.transaction-list-card .transactions-surface-table thead {
+  display: none;
+}
+
+.transaction-list-card .surface-ledger-desktop-head {
+  position: sticky;
+  top: var(--transaction-column-head-top, calc(max(0.75rem, env(safe-area-inset-top)) + 10.75rem));
+  z-index: 43;
+  display: grid;
+  grid-template-columns: 3rem 6.6rem 4.6rem 7.2rem minmax(9rem, 1fr) 6.3rem 7.3rem 6.4rem 4.8rem;
+  align-items: stretch;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  border: 1px solid #dbe3ef;
+  border-bottom: 0;
+  border-radius: 12px 12px 0 0;
+  background: linear-gradient(180deg, #f4f8ff, #edf4ff);
+  box-shadow: 0 1px 0 #dbe3ef, 0 10px 20px -24px rgba(15, 23, 42, 0.52);
+  overflow: hidden;
+}
+
+.transaction-list-card .surface-ledger-desktop-head .desktop-ledger-head-cell {
+  display: inline-flex;
+  min-width: 0;
+  min-height: 2.02rem;
+  align-items: center;
+  padding: 0.34rem 0.38rem;
+  border-right: 1px solid rgba(219, 227, 239, 0.82);
+  color: #355177;
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+
+.transaction-list-card .surface-ledger-desktop-head .desktop-ledger-head-cell:last-child {
+  border-right: 0;
+}
+
+.transaction-list-card .surface-ledger-desktop-head .transaction-col-amount {
+  justify-content: flex-end;
+  text-align: right;
+}
+
+.transaction-list-card .surface-ledger-desktop-head .transaction-col-actions,
+.transaction-list-card .surface-ledger-desktop-head .transaction-col-select {
+  justify-content: center;
+}
+
+.transaction-list-card .surface-ledger-desktop-head .transaction-col-select,
+.transactions-surface-table .transaction-col-select {
+  padding: 0.21rem 0.3rem;
+}
+
+.transactions-surface-table .transaction-col-select {
+  max-width: none;
+  overflow: visible;
+  text-align: center;
+}
+
+.transaction-row td:first-child.transaction-col-select {
+  padding-left: 0.3rem;
+}
+
+.transaction-list-card .surface-ledger-desktop-head .transaction-col-select input[type="checkbox"],
+.transactions-surface-table .transaction-col-select input[type="checkbox"] {
+  width: 2rem;
+  min-width: 2rem;
+  height: 2rem;
+  min-height: 2rem;
+  margin: 0;
+  cursor: pointer;
+  accent-color: #2563eb;
 }
 
 .holdings-surface-table th,
@@ -3475,6 +3951,29 @@ table {
 
 .transactions-surface-table tbody tr.transaction-row {
   height: 2.42rem;
+  cursor: pointer;
+  scroll-margin-top: calc(var(--transaction-column-head-top, 12rem) + 2.4rem);
+}
+
+.transactions-surface-table tbody tr.transaction-row,
+.transactions-surface-table tbody tr.transaction-row * {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.transactions-surface-table tbody tr.transaction-row.transaction-row-editing,
+.transactions-surface-table tbody tr.transaction-row.transaction-row-editing * {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.transactions-surface-table tbody tr.transaction-row[data-row-selected="true"] {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--transaction-row-accent, #2563eb) 16%, #eff6ff),
+    rgba(37, 99, 235, 0.035)
+  );
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.22);
 }
 
 .transactions-surface-table tbody tr.transaction-row td {
@@ -3530,6 +4029,10 @@ table {
   overflow: visible;
 }
 
+.transactions-surface-table tbody tr.transaction-row td.transaction-col-actions {
+  padding-block: 0.12rem;
+}
+
 .holdings-surface-table .holding-col-actions {
   max-width: none;
   overflow: visible;
@@ -3542,22 +4045,105 @@ table {
 }
 
 .transactions-surface-table .transaction-col-actions .inline {
-  gap: 0.18rem;
+  gap: 0.28rem;
 }
 
 .holdings-surface-table .holding-col-actions .inline {
   gap: 0.24rem;
 }
 
-.transactions-surface-table .transaction-col-actions button {
-  min-height: 1.55rem;
-  min-width: auto;
-  padding: 0.12rem 0.28rem;
-  border-radius: 0.46rem;
+.transactions-surface-table .transaction-col-actions button:not(.mobile-toggle-btn) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.25rem;
+  min-width: 2.75rem;
+  padding: 0.34rem 0.56rem;
+  border-radius: 0.55rem;
   box-shadow: none;
-  font-size: 0.72rem;
-  line-height: 1.05;
+  font-size: 0.78rem;
+  line-height: 1;
   white-space: nowrap;
+}
+
+@media (min-width: 821px) and (max-width: 1100px) {
+  .transactions-surface-table {
+    min-width: 0;
+  }
+
+  .transaction-list-card .surface-ledger-desktop-head {
+    grid-template-columns: 2.55rem 4.3rem 3.15rem 3.7rem minmax(3.9rem, 1fr) 4.75rem 3.6rem 4rem 6.35rem;
+  }
+
+  .transaction-list-card .surface-ledger-desktop-head .desktop-ledger-head-cell {
+    padding-inline: 0.26rem;
+    font-size: 0.72rem;
+  }
+
+  .transaction-list-card .surface-ledger-desktop-head .transaction-col-select,
+  .transactions-surface-table .transaction-col-select {
+    width: 2.55rem;
+    padding-inline: 0.2rem;
+  }
+
+  .transactions-surface-table .transaction-col-date {
+    width: 4.3rem;
+  }
+
+  .transactions-surface-table .transaction-col-type {
+    width: 3.15rem;
+  }
+
+  .transactions-surface-table .transaction-col-category {
+    width: 3.7rem;
+  }
+
+  .transactions-surface-table .transaction-col-memo {
+    width: 3.9rem;
+  }
+
+  .transactions-surface-table .transaction-col-amount {
+    width: 4.75rem;
+  }
+
+  .transactions-surface-table .transaction-col-owner {
+    width: 3.6rem;
+  }
+
+  .transactions-surface-table .transaction-col-updated {
+    width: 4rem;
+  }
+
+  .transactions-surface-table .transaction-col-actions {
+    width: 6.35rem;
+  }
+
+  .transactions-surface-table th,
+  .transactions-surface-table td {
+    padding-inline: 0.26rem;
+  }
+
+  .transactions-surface-table .transaction-col-actions .inline {
+    gap: 0.16rem;
+  }
+
+  .transactions-surface-table .transaction-col-actions button:not(.mobile-toggle-btn) {
+    min-width: 2.75rem;
+    padding-inline: 0.32rem;
+  }
+
+  .transactions-surface-table .transaction-col-date .desktop-date-text,
+  .transactions-surface-table .transaction-flow-full {
+    display: none;
+  }
+
+  .transactions-surface-table .transaction-col-date .mobile-date-text {
+    display: inline;
+  }
+
+  .transactions-surface-table .transaction-flow-short {
+    display: inline-flex;
+  }
 }
 
 .holdings-surface-table .holding-col-actions button {
@@ -3768,6 +4354,55 @@ thead {
   overflow-wrap: anywhere;
 }
 
+.import-post-apply-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.7rem;
+  align-items: center;
+  min-width: 0;
+  border: 1px solid #bfd7ff;
+  border-radius: 8px;
+  padding: 0.75rem;
+  background: #f5f9ff;
+}
+
+.import-post-apply-copy {
+  display: grid;
+  gap: 0.18rem;
+  min-width: 0;
+  color: #203147;
+  font-size: 0.84rem;
+}
+
+.import-post-apply-copy strong {
+  color: #173a67;
+}
+
+.import-post-apply-copy span {
+  overflow-wrap: anywhere;
+  color: #53687f;
+  font-weight: 700;
+}
+
+.import-post-apply-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  justify-content: flex-end;
+}
+
+.import-post-apply-buttons button {
+  min-height: 2.35rem;
+  white-space: nowrap;
+}
+
+tr.transaction-row-imported,
+tr.transaction-row-saved,
+tr.holding-row-imported {
+  outline: 2px solid #2563eb;
+  outline-offset: -2px;
+}
+
 .import-list-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
@@ -3792,6 +4427,262 @@ thead {
 .compact-list li {
   font-size: 0.81rem;
   color: #203147;
+}
+
+.owner-remap-cleanup {
+  display: grid;
+  gap: 0.7rem;
+  min-width: 0;
+  border: 1px solid #d2dfef;
+  border-radius: 8px;
+  padding: 0.85rem;
+  background: #f8fbff;
+}
+
+.owner-remap-heading {
+  align-items: start;
+}
+
+.owner-remap-list {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.owner-remap-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(190px, 0.85fr) auto;
+  gap: 0.65rem;
+  align-items: end;
+  min-width: 0;
+  border-top: 1px solid #d8e4f5;
+  padding-top: 0.65rem;
+}
+
+.owner-remap-summary {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.owner-remap-summary strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: #172033;
+}
+
+.owner-remap-summary span {
+  color: #53687f;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.owner-remap-row label {
+  display: grid;
+  gap: 0.25rem;
+  color: #355177;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.owner-remap-row select {
+  min-width: 0;
+  min-height: 2.35rem;
+  border: 1px solid #cbd7e8;
+  border-radius: 8px;
+  padding: 0.46rem 0.58rem;
+  background: #ffffff;
+  color: #172033;
+  font: inherit;
+}
+
+.owner-legacy-helper {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+  grid-column: 1 / -1;
+  color: #53687f;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.inline-owner-remap-btn {
+  min-height: 2rem;
+  padding: 0.32rem 0.55rem;
+  white-space: nowrap;
+}
+
+.owner-quick-select {
+  display: flex;
+  flex-wrap: wrap;
+  grid-column: 1 / -1;
+  gap: 0.42rem;
+  align-items: center;
+  min-width: 0;
+}
+
+.owner-quick-chip {
+  min-width: 0;
+  min-height: 2.2rem;
+  border: 1px solid #c9d7ea;
+  border-radius: 999px;
+  padding: 0.42rem 0.72rem;
+  background: #ffffff;
+  color: #274364;
+  font-size: 0.82rem;
+  font-weight: 800;
+  line-height: 1.1;
+  box-shadow: 0 6px 14px -14px rgba(15, 23, 42, 0.42);
+}
+
+.owner-quick-chip:hover:not(:disabled),
+.owner-quick-chip:focus-visible {
+  border-color: #2f7d74;
+  color: #155b53;
+}
+
+.owner-quick-chip.selected {
+  border-color: #256f66;
+  background: #e8f7f4;
+  color: #124d47;
+}
+
+.owner-quick-chip-name {
+  display: block;
+  min-width: 0;
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.import-report-workbench {
+  display: grid;
+  gap: 0.75rem;
+  min-width: 0;
+  border-top: 1px solid #d8e4f5;
+  padding-top: 0.8rem;
+}
+
+.import-report-workbench-heading {
+  align-items: end;
+}
+
+.import-report-toolbar {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.55rem;
+  align-items: end;
+}
+
+.import-report-toolbar label {
+  display: grid;
+  gap: 0.24rem;
+  min-width: 0;
+  color: #355177;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.import-report-toolbar input,
+.import-report-toolbar select {
+  min-width: 0;
+  min-height: 2.35rem;
+  border: 1px solid #cbd7e8;
+  border-radius: 10px;
+  padding: 0.46rem 0.58rem;
+  background: #ffffff;
+  color: #172033;
+  font: inherit;
+}
+
+.import-report-actions {
+  display: flex;
+  flex-wrap: wrap;
+  grid-column: 1 / -1;
+  gap: 0.45rem;
+  justify-content: flex-end;
+}
+
+.import-report-actions .secondary-btn {
+  min-height: 2.35rem;
+  white-space: nowrap;
+}
+
+.import-report-table-scroll {
+  width: 100%;
+  max-height: 360px;
+  overflow: auto;
+  border: 1px solid #d8e4f5;
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.import-report-table {
+  min-width: 760px;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.import-report-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: linear-gradient(180deg, #f4f8ff, #edf4ff);
+  box-shadow: 0 1px 0 #d8e4f5;
+}
+
+.import-report-table th,
+.import-report-table td {
+  padding: 0.44rem 0.5rem;
+  border-bottom: 1px solid #e4ecf7;
+  color: #203147;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  text-align: left;
+  vertical-align: top;
+}
+
+.import-report-table th {
+  color: #355177;
+  font-weight: 800;
+}
+
+.import-report-table tbody tr:hover {
+  background: #f8fbff;
+}
+
+.import-report-table a {
+  color: #1f5f9f;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.import-report-table a:hover {
+  text-decoration: underline;
+}
+
+.import-report-severity {
+  display: inline-flex;
+  min-height: 1.55rem;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.14rem 0.46rem;
+  background: #ecfdf5;
+  color: #047857;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.import-report-severity[data-severity="error"] {
+  background: #fff1f2;
+  color: #be123c;
+}
+
+.import-report-severity[data-severity="warning"],
+.import-report-severity[data-severity="warn"] {
+  background: #fffbeb;
+  color: #b45309;
 }
 
 .category-entry-toolbar {
@@ -4017,6 +4908,13 @@ thead {
   background-color: var(--mf-color-blue-700);
 }
 
+.range-filter-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: min(100%, 25rem);
+}
+
 .range-picker {
   display: flex;
   align-items: center;
@@ -4025,12 +4923,13 @@ thead {
   border: 1px solid #e2e8f0;
   border-radius: 8px;
   padding: 0.25rem 0.5rem;
-  height: 42px;
+  min-height: 42px;
 }
 
 .range-date-field {
-  display: flex;
-  align-items: center;
+  display: grid;
+  align-content: center;
+  gap: 0.08rem;
   min-width: 0;
 }
 
@@ -4044,7 +4943,7 @@ thead {
   font-weight: 500;
   color: #0f172a;
   padding: 0 0.4rem;
-  height: 100%;
+  min-height: 1.45rem;
 }
 
 .range-picker input[type="date"]:focus {
@@ -4058,6 +4957,40 @@ thead {
 .range-separator {
   color: #64748b;
   font-weight: 600;
+}
+
+.range-date-value {
+  color: #51657f;
+  font-size: 0.72rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  padding-inline: 0.4rem;
+}
+
+.range-preset-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.range-preset-row button {
+  min-height: 2.25rem;
+  padding: 0 0.75rem;
+  border: 1px solid #d6e3f8;
+  border-radius: 8px;
+  background: #f8fbff;
+  color: #0b4ab4;
+  font-size: 0.84rem;
+  font-weight: 700;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.range-preset-row button:hover,
+.range-preset-row button:focus-visible {
+  background: #eaf2ff;
+  border-color: #9fc0f6;
 }
 
 
@@ -4255,11 +5188,62 @@ thead {
   color: #355177;
 }
 
-.holding-display-options {
-  margin-top: 0.8rem;
+.holding-display-options.compact-inline-details {
+  margin-top: 0.55rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.holding-display-options > summary {
+  width: fit-content;
+  min-height: 2.75rem;
+  padding: 0.38rem 0.68rem;
+  border: 1px solid #d9e6f7;
+  border-radius: 999px;
+  background: #f8fbff;
+}
+
+.holding-display-options[open] {
+  padding: 0.8rem 0.9rem 0.95rem;
   border: 1px solid #e2e8f0;
   border-radius: 12px;
   background: #fbfdff;
+}
+
+.holding-display-options[open] > summary {
+  width: 100%;
+  padding: 0 0 0.45rem;
+  border: 0;
+  border-bottom: 1px solid #e8eef6;
+  border-radius: 0;
+  background: transparent;
+}
+
+.holding-display-options-state {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.5rem;
+  padding: 0.12rem 0.44rem;
+  border-radius: 999px;
+  background: #e8f2ff;
+  color: #28527a;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.holding-display-options-state-open {
+  display: none;
+}
+
+.holding-display-options[open] .holding-display-options-state-closed {
+  display: none;
+}
+
+.holding-display-options[open] .holding-display-options-state-open {
+  display: inline-flex;
 }
 
 .holding-display-options > .table-toolbar,
@@ -4338,6 +5322,158 @@ thead {
   }
 }
 
+@media (min-width: 821px) and (max-width: 1100px) {
+  .holdings-surface-table {
+    min-width: 0;
+  }
+
+  .holdings-surface-table th,
+  .holdings-surface-table td {
+    padding-inline: 0.22rem;
+    font-size: 0.72rem;
+  }
+
+  .holdings-surface-table .holding-col-select {
+    width: 2.35rem;
+    padding-inline: 0.16rem;
+  }
+
+  .holdings-surface-table .holding-col-name {
+    width: 6.35rem;
+  }
+
+  .holdings-surface-table .holding-col-type {
+    width: 3.05rem;
+  }
+
+  .holdings-surface-table .holding-col-owner {
+    width: 3.4rem;
+  }
+
+  .holdings-surface-table .holding-col-category {
+    width: 3.55rem;
+  }
+
+  .holdings-surface-table .holding-col-quantity {
+    width: 2.85rem;
+  }
+
+  .holdings-surface-table .holding-col-average {
+    width: 3.85rem;
+  }
+
+  .holdings-surface-table .holding-col-market {
+    width: 4.35rem;
+  }
+
+  .holdings-surface-table .holding-col-gain {
+    width: 4.1rem;
+  }
+
+  .holdings-surface-table .holding-col-updated {
+    width: 4.15rem;
+  }
+
+  .holdings-surface-table .holding-col-actions {
+    width: 5.1rem;
+  }
+
+  .holdings-surface-table tbody tr.holding-row td {
+    max-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    line-height: 1.12;
+  }
+
+  .holdings-surface-table .holding-name-cell {
+    white-space: nowrap;
+  }
+
+  .holdings-surface-table .holding-name-text {
+    display: flex;
+    gap: 0.28rem;
+  }
+
+  .holdings-surface-table .holding-name-dot {
+    width: 0.42rem;
+    height: 0.42rem;
+  }
+
+  .holdings-surface-table .holding-name-label {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .holdings-surface-table .holding-col-actions .inline {
+    display: grid;
+    grid-template-columns: 2rem 2.5rem;
+    justify-content: start;
+    gap: 0.12rem;
+    width: max-content;
+  }
+
+  .holdings-surface-table .holding-col-actions button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 2rem;
+    padding-inline: 0.2rem;
+  }
+
+  .holdings-surface-table .holding-col-actions .row-order-btn {
+    width: 2rem;
+    min-width: 2rem;
+  }
+
+  .holdings-surface-table .holding-col-actions .row-order-btn:first-child {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .holdings-surface-table .holding-col-actions .row-order-btn:nth-child(2) {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .holdings-surface-table .holding-col-actions .row-edit-btn {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .holdings-surface-table .holding-col-actions .row-delete-btn {
+    grid-column: 2;
+    grid-row: 2;
+  }
+
+  .holdings-surface-table .holding-col-actions button:not(.row-order-btn):not(.mobile-toggle-btn) {
+    min-width: 2.5rem;
+  }
+
+  .holdings-surface-table .section-header-cell {
+    padding-inline: 0.3rem;
+  }
+
+  .holdings-surface-table .holding-section-header {
+    min-width: 0;
+    gap: 0.3rem;
+  }
+
+  .holdings-surface-table .holding-section-title {
+    min-width: 0;
+  }
+
+  .holdings-surface-table .holding-section-actions .holding-section-order-btn {
+    width: 2rem;
+    min-width: 2rem;
+    min-height: 2rem;
+    height: 2rem;
+    padding: 0;
+  }
+}
+
 .settings-category-usage-detail {
   margin-top: 0.15rem;
   border: 1px dashed #d6e3f7;
@@ -4370,6 +5506,7 @@ thead {
 .transaction-mobile-category-cue,
 .transaction-owner-chip,
 .transaction-owner-empty,
+.transaction-owner-summary,
 .transaction-flow-short,
 .holding-mobile-meta,
 .holding-mobile-detail-label,
@@ -4954,6 +6091,27 @@ thead {
     content: "⏻";
   }
 
+  .topbar-actions .topbar-price-refresh-action {
+    width: 4.9rem;
+    gap: 0.18rem;
+    padding-inline: 0.34rem;
+  }
+
+  .topbar-actions .topbar-price-refresh-action .topbar-action-label {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+    font-size: 0.68rem;
+    font-weight: 800;
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  .topbar-actions .topbar-price-refresh-action.is-active .topbar-action-label {
+    font-size: 0.6rem;
+  }
+
   .topbar-tabs {
     grid-column: 1;
     grid-row: auto;
@@ -5111,6 +6269,30 @@ thead {
   }
 
   .transaction-quick-category-chip small {
+    width: 100%;
+  }
+
+  .transaction-category-create {
+    grid-template-columns: 1fr;
+  }
+
+  .transaction-category-create-submit {
+    width: 100%;
+  }
+
+  .tx-category-restore-notice {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .tx-category-restore-notice strong,
+  .tx-category-restore-notice small {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+  }
+
+  .tx-category-restore-notice button {
     width: 100%;
   }
 
@@ -5386,6 +6568,10 @@ thead {
     order: 7;
   }
 
+  .transaction-list-card .surface-ledger-desktop-head {
+    display: none;
+  }
+
   .holding-list-card > .surface-list-heading {
     order: 1;
   }
@@ -5427,8 +6613,27 @@ thead {
   .holding-list-card > .holding-display-options {
     order: 8;
     margin-top: 0.1rem;
-    padding-top: 0.5rem;
-    border-top: 1px solid #eef3f9;
+    padding-top: 0;
+    border-top: 0;
+  }
+
+  .holding-list-card > .holding-display-options > summary {
+    display: inline-flex;
+    grid-template-columns: none;
+    align-content: normal;
+    justify-items: normal;
+    gap: 0.55rem;
+    width: fit-content;
+  }
+
+  .holding-list-card > .holding-display-options[open] {
+    padding-top: 0.8rem;
+    border-top: 1px solid #e2e8f0;
+  }
+
+  .holding-list-card > .holding-display-options[open] > summary {
+    display: flex;
+    width: 100%;
   }
 
   .surface-list-heading {
@@ -5507,6 +6712,49 @@ thead {
   .import-action-row button {
     flex: 1 1 auto;
     width: 100%;
+  }
+
+  .import-post-apply-actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .import-post-apply-buttons {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    justify-content: stretch;
+  }
+
+  .import-post-apply-buttons button {
+    width: 100%;
+  }
+
+  .owner-remap-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .owner-remap-row button,
+  .inline-owner-remap-btn {
+    width: 100%;
+  }
+
+  .owner-legacy-helper {
+    align-items: stretch;
+  }
+
+  .import-report-toolbar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .import-report-actions {
+    justify-content: stretch;
+  }
+
+  .import-report-actions .secondary-btn {
+    flex: 1 1 0;
+  }
+
+  .import-report-table {
+    min-width: 680px;
   }
 
   .collaboration-form-grid .form-actions,
@@ -6171,6 +7419,11 @@ thead {
     gap: 0;
   }
 
+  .dashboard-filter-card .range-filter-stack {
+    width: 100%;
+    min-width: 0;
+  }
+
   .dashboard-filter-card .month-stepper,
   .dashboard-filter-card .range-picker {
     width: 100%;
@@ -6290,6 +7543,17 @@ thead {
   .dashboard-filter-card .range-separator {
     flex: 0 0 auto;
     font-size: 0.8rem;
+  }
+
+  .dashboard-filter-card .range-preset-row {
+    gap: 0.3rem;
+  }
+
+  .dashboard-filter-card .range-preset-row button {
+    flex: 1 1 0;
+    min-height: 2.5rem;
+    padding-inline: 0.35rem;
+    font-size: 0.76rem;
   }
 }
 
@@ -6468,10 +7732,13 @@ thead {
     --holding-entry-sheet-padding-block: 0.64rem;
     --holding-entry-sheet-padding-inline: 0.7rem;
     display: grid;
-    gap: 0.64rem;
-    bottom: calc(0.75rem + env(safe-area-inset-bottom));
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 0.52rem;
+    top: max(0.7rem, env(safe-area-inset-top));
+    bottom: calc(0.7rem + env(safe-area-inset-bottom));
     width: auto;
-    max-height: min(35rem, calc(100dvh - 2rem));
+    max-height: none;
+    overflow: hidden;
   }
 
   .holding-entry-sheet > .table-summary,
@@ -6495,13 +7762,33 @@ thead {
 
   .holding-entry-sheet .holdings-form-container,
   .holding-entry-sheet .holdings-form-grid,
+  .holding-entry-sheet .holdings-form-fields,
   .holding-entry-sheet .holdings-form-grid label {
     min-width: 0;
     max-width: 100%;
   }
 
+  .holding-entry-sheet .holdings-form-container {
+    display: block;
+    min-height: 0;
+    overflow: hidden;
+    padding: 0;
+    border-radius: 14px;
+  }
+
   .holding-entry-sheet .holdings-form-grid {
+    grid-template-rows: minmax(0, 1fr) auto;
     grid-template-columns: minmax(0, 1fr);
+    height: 100%;
+    min-height: 0;
+  }
+
+  .holding-entry-sheet .holdings-form-fields {
+    grid-template-columns: minmax(0, 1fr);
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 0.85rem;
   }
 
   .holding-entry-sheet .holdings-form-grid :is(input, select, textarea),
@@ -6510,6 +7797,17 @@ thead {
     box-sizing: border-box;
     min-width: 0;
     max-width: 100%;
+  }
+
+  .holding-entry-sheet .holdings-form-actions {
+    position: relative;
+    z-index: 1;
+    margin: 0;
+    padding: 0.72rem 0.85rem calc(0.72rem + env(safe-area-inset-bottom));
+    border-top: 1px solid rgba(203, 213, 225, 0.82);
+    border-radius: 0 0 14px 14px;
+    background: rgba(255, 255, 255, 0.96);
+    box-shadow: 0 -12px 24px -24px rgba(15, 23, 42, 0.44);
   }
 
   .transaction-list-card,
@@ -6525,14 +7823,16 @@ thead {
   }
 
   .transaction-list-card {
-    --surface-heading-sticky-height: 13.25rem;
+    --transaction-toolbar-sticky-top: var(--surface-section-sticky-top);
+    --transaction-toolbar-sticky-height: 10.75rem;
+    --surface-heading-sticky-height: calc(var(--transaction-toolbar-sticky-height) + 0.25rem);
     --surface-filter-sticky-height: 0rem;
     --transaction-fab-clearance: calc(5.6rem + env(safe-area-inset-bottom));
     padding-bottom: var(--transaction-fab-clearance);
   }
 
   .transaction-list-card > .transaction-sticky-toolbar {
-    top: var(--surface-section-sticky-top);
+    top: var(--transaction-toolbar-sticky-top);
     z-index: 44;
     gap: 0.26rem;
     margin: 0 -0.16rem 0;
@@ -6551,10 +7851,12 @@ thead {
 
   .transaction-sticky-toolbar .surface-control-strip {
     display: flex;
+    flex-wrap: wrap;
     gap: 0.3rem;
-    overflow-x: auto;
-    padding-bottom: 0.04rem;
-    scrollbar-width: none;
+    row-gap: 0.28rem;
+    overflow-x: visible;
+    padding-bottom: 0;
+    scrollbar-width: auto;
   }
 
   .transaction-sticky-toolbar .surface-control-strip::-webkit-scrollbar {
@@ -6563,6 +7865,25 @@ thead {
 
   .transaction-sticky-toolbar .surface-chip {
     flex: 0 0 auto;
+  }
+
+  .transaction-sticky-toolbar .transaction-selection-summary,
+  .transaction-sticky-toolbar .transaction-selection-status {
+    flex: 1 1 auto;
+    flex-wrap: wrap;
+    gap: 0.24rem;
+    max-width: 100%;
+    white-space: normal;
+  }
+
+  .transaction-sticky-toolbar .transaction-selection-status {
+    flex: 0 1 auto;
+  }
+
+  .transaction-sticky-toolbar .transaction-selection-clear {
+    min-height: 1.26rem;
+    padding: 0.13rem 0.42rem;
+    font-size: 0.66rem;
   }
 
   .transaction-sticky-toolbar .month-stepper-inline {
@@ -6837,6 +8158,14 @@ thead {
     padding-top: 1.46rem;
   }
 
+  .transaction-list-card:has(> .tx-ledger-filter-panel) .transactions-surface-table tbody {
+    padding-top: 10.25rem;
+  }
+
+  .transaction-list-card:has(> .tx-ledger-filter-panel) .transactions-surface-table.mobile-sticky-active tbody {
+    padding-top: calc(1.46rem + 10.25rem);
+  }
+
   .transactions-surface-table tbody tr.surface-empty-row,
   .holdings-surface-table tbody tr.surface-empty-row {
     display: block;
@@ -6929,7 +8258,7 @@ thead {
 
   .transactions-surface-table tbody tr.transaction-row {
     cursor: pointer;
-    touch-action: manipulation;
+    touch-action: pan-y;
     scroll-margin-top: calc(
       var(--surface-ledger-sticky-top, 2.8rem) + var(--surface-ledger-head-height, 3.12rem) + 0.9rem
     );
@@ -6940,6 +8269,13 @@ thead {
     scroll-margin-top: calc(
       var(--surface-ledger-sticky-top, 2.8rem) + var(--surface-ledger-head-height, 3.12rem) + 10.25rem
     );
+  }
+
+  .transaction-list-card:has(> .tx-ledger-filter-panel) .transactions-surface-table tbody tr.transaction-row .transaction-col-actions button {
+    scroll-margin-top: calc(
+      var(--surface-ledger-sticky-top, 2.8rem) + var(--surface-ledger-head-height, 3.12rem) + 10.25rem
+    );
+    scroll-margin-bottom: calc(var(--transaction-fab-clearance, 5.6rem) + 0.9rem);
   }
 
   .transactions-surface-table tbody tr.transaction-row:first-child,
@@ -6958,29 +8294,37 @@ thead {
     text-overflow: clip;
   }
 
+  .transactions-surface-table .transaction-col-date,
+  .transactions-surface-table .transaction-col-type,
+  .transactions-surface-table .transaction-col-memo,
+  .transactions-surface-table .transaction-col-amount,
+  .transactions-surface-table .transaction-col-actions {
+    width: auto;
+    min-width: 0;
+  }
+
   .transactions-surface-table tbody tr.transaction-row {
     display: grid;
-    --transaction-fab-side-clearance: 3.45rem;
-    grid-template-columns: 2.24rem minmax(0, 1fr) calc(2.5rem + var(--transaction-fab-side-clearance));
+    --transaction-action-strip-width: 7.25rem;
+    grid-template-columns: 2.1rem 1.78rem minmax(0, 1fr) minmax(3.35rem, max-content) var(--transaction-action-strip-width);
     grid-template-areas:
-      "date memo actions"
-      "date amount actions"
-      "date meta actions";
+      "date meta memo amount actions";
     height: auto;
-    min-height: 3.48rem;
-    padding-top: 0.2rem;
-    padding-bottom: 0.18rem;
-    row-gap: 0.05rem;
+    min-height: 2.82rem;
+    padding-top: 0.22rem;
+    padding-right: 0.46rem;
+    padding-bottom: 0.22rem;
+    column-gap: 0.18rem;
+    row-gap: 0;
   }
 
   .transactions-surface-table tbody tr.transaction-row.mobile-row-expanded {
     grid-template-areas:
-      "date memo actions"
-      "date amount actions"
-      "date meta actions"
-      "category category category"
-      "owner owner owner"
-      "updated updated updated";
+      "date meta amount amount actions"
+      "memo memo memo memo memo"
+      "category category category category category"
+      "owner owner owner owner owner"
+      "updated updated updated updated updated";
     border-bottom: 0;
     min-height: 0;
     overflow: visible;
@@ -7007,6 +8351,7 @@ thead {
   .transactions-surface-table .transaction-col-date {
     grid-area: date;
     align-self: center;
+    justify-self: start;
     font-size: 0.68rem;
     color: var(--mf-color-ink-500);
     white-space: nowrap;
@@ -7022,6 +8367,7 @@ thead {
 
   .transactions-surface-table .transaction-col-amount {
     grid-area: amount;
+    align-self: center;
     justify-self: start;
     text-align: left;
     white-space: nowrap;
@@ -7035,12 +8381,13 @@ thead {
 
   .transactions-surface-table .transaction-col-type {
     grid-area: meta;
+    align-self: center;
     justify-self: start;
     text-align: left;
     display: inline-flex;
     align-items: center;
     justify-content: flex-start;
-    gap: 0.16rem;
+    gap: 0.1rem;
     min-width: 0;
     max-width: 100%;
     overflow: hidden;
@@ -7049,8 +8396,13 @@ thead {
 
   .transactions-surface-table .transaction-col-memo {
     grid-area: memo;
-    display: block !important;
+    display: flex !important;
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: 0.16rem;
     min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
     white-space: nowrap;
   }
 
@@ -7063,10 +8415,19 @@ thead {
   }
 
   .transactions-surface-table .transaction-mobile-category-cue {
-    display: none;
-    margin-bottom: 0.1rem;
+    display: inline-flex;
+    align-items: center;
+    flex: 0 1 5.4rem;
+    max-width: min(32%, 5.4rem);
+    align-self: center;
+    min-width: 0;
+    margin-bottom: 0;
+    padding: 0.04rem 0.24rem;
+    border: 1px solid var(--transaction-row-border, rgba(151, 172, 201, 0.34));
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.68);
     overflow: hidden;
-    color: #5f7596;
+    color: #355177;
     font-size: 0.66rem;
     font-weight: 800;
     line-height: 1.05;
@@ -7076,7 +8437,9 @@ thead {
 
   .transactions-surface-table .transaction-memo-text {
     display: block;
-    width: 100%;
+    flex: 1 1 5rem;
+    width: auto;
+    min-width: 0;
     font-size: 0.79rem;
     line-height: 1.1;
     white-space: nowrap;
@@ -7084,16 +8447,19 @@ thead {
     text-overflow: ellipsis;
   }
 
-  .transactions-surface-table tbody tr.transaction-row.mobile-row-expanded .transaction-col-memo,
   .transactions-surface-table tbody tr.transaction-row.mobile-row-expanded .transaction-memo-text {
-    white-space: normal;
-  }
-
-  .transactions-surface-table tbody tr.transaction-row.mobile-row-expanded .transaction-memo-text {
+    flex: 1 1 auto;
+    width: 100%;
     overflow: visible;
     overflow-wrap: anywhere;
     text-overflow: clip;
     line-height: 1.25;
+    white-space: normal;
+  }
+
+  .transactions-surface-table tbody tr.transaction-row.mobile-row-expanded .transaction-mobile-category-cue,
+  .transactions-surface-table tbody tr.transaction-row.mobile-row-expanded .transaction-owner-summary {
+    display: none;
   }
 
   .transactions-surface-table .transaction-owner-chip {
@@ -7102,6 +8468,21 @@ thead {
 
   .transactions-surface-table .transaction-owner-empty {
     display: inline-flex;
+  }
+
+  .transactions-surface-table .transaction-owner-summary {
+    display: inline-block;
+    flex: 0 1 4.8rem;
+    max-width: min(34%, 4.8rem);
+    align-self: center;
+    min-width: 0;
+    overflow: hidden;
+    color: #3d5678;
+    font-size: 0.66rem;
+    font-weight: 800;
+    line-height: 1.05;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .transactions-surface-table .transaction-flow-full {
@@ -7191,17 +8572,25 @@ thead {
     align-self: center;
     position: relative;
     z-index: 2;
-    width: calc(2.5rem + var(--transaction-fab-side-clearance, 3.45rem));
+    width: var(--transaction-action-strip-width, 5.12rem);
   }
 
   .transactions-surface-table tbody tr.transaction-row .transaction-col-actions .inline,
   .holdings-surface-table tbody tr.holding-row .holding-col-actions .inline {
-    justify-content: flex-end;
-    width: auto;
+    justify-content: flex-start;
+    width: 2.75rem;
   }
 
   .transactions-surface-table tbody tr.transaction-row .transaction-col-actions .inline {
+    display: grid;
+    grid-template-columns: 1.55rem 1.55rem 2.75rem;
+    grid-template-areas:
+      "edit delete toggle";
+    align-items: center;
     justify-content: flex-start;
+    column-gap: 0.08rem;
+    row-gap: 0;
+    width: var(--transaction-action-strip-width, 5.12rem);
   }
 
   .transactions-surface-table tbody tr.transaction-row:not(.mobile-row-expanded) .transaction-col-category,
@@ -7210,9 +8599,41 @@ thead {
     display: none !important;
   }
 
-  .transactions-surface-table tbody tr.transaction-row .transaction-col-actions .inline > button:not(.mobile-toggle-btn),
   .holdings-surface-table tbody tr.holding-row .holding-col-actions .inline > button:not(.mobile-toggle-btn) {
     display: none;
+  }
+
+  .transactions-surface-table tbody tr.transaction-row:not(.mobile-row-expanded) td.transaction-col-actions .inline > button.row-edit-btn,
+  .transactions-surface-table tbody tr.transaction-row .transaction-col-actions .row-edit-btn {
+    grid-area: edit;
+    display: inline-flex;
+  }
+
+  .transactions-surface-table tbody tr.transaction-row:not(.mobile-row-expanded) td.transaction-col-actions .inline > button.row-delete-btn,
+  .transactions-surface-table tbody tr.transaction-row .transaction-col-actions .row-delete-btn {
+    grid-area: delete;
+    display: inline-flex;
+  }
+
+  .transactions-surface-table tbody tr.transaction-row .transaction-col-actions .mobile-toggle-btn {
+    grid-area: toggle;
+    align-self: center;
+    width: 2.75rem;
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+    height: 2.75rem;
+    border-radius: 12px;
+  }
+
+  .transactions-surface-table tbody tr.transaction-row .transaction-col-actions button:not(.mobile-toggle-btn) {
+    align-items: center;
+    justify-content: center;
+    min-height: 2rem;
+    width: 1.55rem;
+    min-width: 1.55rem;
+    padding: 0;
+    font-size: 0.58rem;
+    font-weight: 800;
   }
 
   .transactions-surface-table .transaction-col-select,
@@ -7242,11 +8663,52 @@ thead {
 
   .holdings-surface-table tbody tr.holding-row {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto 2.5rem;
+    grid-template-columns: minmax(0, 1fr) auto 4.25rem;
     grid-template-areas:
       "name name actions"
       "type market actions";
     row-gap: 0.08rem;
+  }
+
+  .holdings-surface-table tbody tr.holding-row:not(.mobile-row-expanded) td {
+    padding-block: 0.12rem;
+  }
+
+  .holdings-surface-table tbody tr.holding-row:not(.mobile-row-expanded) .holding-col-name {
+    overflow: visible;
+    overflow-wrap: normal;
+    text-overflow: clip;
+    white-space: normal;
+    word-break: keep-all;
+  }
+
+  .holdings-surface-table tbody tr.holding-row:not(.mobile-row-expanded) .holding-name-text {
+    align-items: center;
+    overflow: visible;
+    white-space: normal;
+  }
+
+  .holdings-surface-table tbody tr.holding-row:not(.mobile-row-expanded) .holding-name-label {
+    display: block;
+    overflow: hidden;
+    overflow-wrap: normal;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    word-break: keep-all;
+    hyphens: none;
+    font-size: 0.82rem;
+    line-height: 1.22;
+  }
+
+  @media (max-width: 360px) {
+    .holdings-surface-table tbody tr.holding-row:not(.mobile-row-expanded) .holding-name-label {
+      display: -webkit-box;
+      overflow-wrap: normal;
+      text-overflow: clip;
+      white-space: normal;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+    }
   }
 
   .holdings-surface-table tbody tr.holding-row.mobile-row-expanded {
@@ -7333,6 +8795,7 @@ thead {
     text-overflow: clip;
     white-space: normal;
     overflow-wrap: anywhere;
+    line-height: 1.35;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
   }
@@ -7455,17 +8918,19 @@ thead {
 
   .holdings-surface-table .holding-col-actions {
     grid-area: actions;
-    justify-self: end;
+    justify-self: start;
     position: relative;
     z-index: 2;
+    width: auto;
+    min-width: 0;
   }
 
   .transactions-surface-table .mobile-toggle-btn,
   .holdings-surface-table .mobile-toggle-btn {
-    width: 2.5rem;
-    min-width: 2.5rem;
-    min-height: 2.5rem;
-    height: 2.5rem;
+    width: 2.75rem;
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+    height: 2.75rem;
     padding: 0;
     border-radius: 14px;
     border-color: var(--transaction-row-border, var(--holding-row-border, rgba(151, 172, 201, 0.55)));
@@ -7564,6 +9029,12 @@ thead {
   }
 }
 
+@media (max-width: 360px) {
+  .tx-ledger-filter-date-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 @media (max-width: 900px) and (max-height: 520px) {
   .transaction-list-card > .transaction-sticky-toolbar,
   .transaction-list-card > .surface-list-heading,
@@ -7582,6 +9053,171 @@ thead {
 
   .transaction-list-card .transactions-surface-table.mobile-sticky-active tbody {
     padding-top: 0;
+  }
+
+  .transaction-list-card:has(> .tx-ledger-filter-panel) .transactions-surface-table tbody,
+  .transaction-list-card:has(> .tx-ledger-filter-panel) .transactions-surface-table.mobile-sticky-active tbody {
+    padding-top: 0;
+  }
+}
+
+@media (max-width: 900px) and (max-height: 420px) and (orientation: landscape) {
+  .app-shell {
+    --mobile-bottom-nav-clearance: calc(0.5rem + env(safe-area-inset-bottom));
+    --mobile-tabs-sticky-offset: 2.1rem;
+    gap: 0.35rem;
+    padding: 0.2rem 0.48rem 0.62rem;
+  }
+
+  .app-content {
+    gap: 0.38rem;
+    padding-bottom: var(--mobile-bottom-nav-clearance);
+  }
+
+  .topbar {
+    margin-bottom: 0.12rem;
+    padding: 0.04rem 0.36rem;
+    gap: 0.34rem;
+    border-radius: 14px;
+  }
+
+  .topbar h1 {
+    font-size: 0.92rem;
+    line-height: 1;
+  }
+
+  .topbar-meta {
+    display: none;
+  }
+
+  .topbar-actions {
+    gap: 0.18rem;
+  }
+
+  .topbar-actions button {
+    width: 2.75rem;
+    min-height: 2.75rem;
+    height: 2.75rem;
+    border-radius: 12px;
+  }
+
+  .topbar-actions .topbar-price-refresh-action {
+    width: 4.85rem;
+    padding-inline: 0.3rem;
+  }
+
+  .topbar-actions .topbar-price-refresh-action .topbar-action-label {
+    font-size: 0.64rem;
+  }
+
+  .topbar-tabs {
+    gap: 0.1rem;
+    margin: 0 0 0.22rem;
+    padding: 0.12rem;
+    border-radius: 0.98rem;
+    box-shadow: 0 8px 22px rgba(11, 30, 66, 0.14);
+  }
+
+  .topbar-tabs button {
+    min-height: 1.85rem;
+    gap: 0.04rem;
+    padding: 0.12rem 0.06rem;
+    border-radius: 0.72rem;
+  }
+
+  .tab-icon {
+    width: 0.96rem;
+    height: 0.96rem;
+    border-radius: 0.38rem;
+    font-size: 0.54rem;
+  }
+
+  .tab-label[data-mobile-label]::after {
+    font-size: 0.54rem;
+    line-height: 1;
+  }
+
+  .card {
+    padding: 0.42rem 0.52rem;
+    gap: 0.32rem;
+    border-radius: 12px;
+  }
+
+  .surface-list-heading,
+  .work-surface-header,
+  .secondary-surface-header {
+    gap: 0.12rem 0.32rem;
+    align-items: center;
+  }
+
+  .work-surface-title {
+    gap: 0;
+  }
+
+  .surface-eyebrow {
+    display: none;
+  }
+
+  .work-surface-title h2,
+  .surface-list-heading h2,
+  .secondary-surface-header h2 {
+    margin: 0;
+    font-size: 0.9rem;
+    line-height: 1.05;
+  }
+
+  .surface-count-summary {
+    display: none;
+  }
+
+  .surface-chip {
+    min-height: 1.05rem;
+    padding: 0.08rem 0.32rem;
+    font-size: 0.58rem;
+    line-height: 1;
+  }
+
+  .secondary-control-strip {
+    gap: 0.16rem;
+  }
+
+  .holding-list-card > .holdings-summary-jump-cue {
+    display: none;
+  }
+
+  .holding-list-card > .sub-tabs {
+    display: none;
+  }
+
+  .holdings-surface-table tbody tr.holding-section-row {
+    display: none;
+  }
+
+  .collaboration-toolbar {
+    gap: 0.36rem;
+    margin-bottom: 0.1rem;
+    padding: 0.42rem;
+    border-radius: 10px;
+  }
+
+  .collaboration-toolbar label {
+    max-width: none;
+  }
+
+  .collaboration-toolbar .table-summary {
+    display: none;
+  }
+
+  .household-select {
+    min-height: 2.1rem;
+    padding: 0.32rem 0.45rem;
+    font-size: 0.82rem;
+  }
+
+  .settings-form-grid,
+  .collaboration-form-grid,
+  .collaboration-accept-grid {
+    gap: 0.38rem;
   }
 }
 

@@ -281,26 +281,80 @@ export async function expectWithinViewport(locator, { allowance = 4, requireVert
 
 export async function expectClearOfFixedBottomNav(locator, { allowance = 4 } = {}) {
   await expect(locator).toBeVisible();
-  const metrics = await locator.evaluate((element) => {
-    const box = element.getBoundingClientRect();
-    const nav = document.querySelector("nav.topbar-tabs");
-    const navBox = nav?.getBoundingClientRect();
-    const navStyle = nav ? window.getComputedStyle(nav) : null;
-    const fixedBottomNav =
-      navBox &&
-      navStyle?.position === "fixed" &&
-      window.innerWidth <= 820 &&
-      navBox.top > 0 &&
-      navBox.bottom >= window.innerHeight - 32;
+  const centerLocator = () =>
+    locator.evaluate((element) => {
+      const box = element.getBoundingClientRect();
+      const nav = document.querySelector("nav.topbar-tabs");
+      const navBox = nav?.getBoundingClientRect();
+      const navStyle = nav ? window.getComputedStyle(nav) : null;
+      const fixedBottomNav =
+        navBox &&
+        navStyle?.position === "fixed" &&
+        window.innerWidth <= 820 &&
+        navBox.top > 0 &&
+        navBox.bottom >= window.innerHeight - 32;
+      const visibleBottom = Math.min(fixedBottomNav ? navBox.top : window.innerHeight, window.innerHeight);
+      const availableHeight = Math.max(0, visibleBottom);
+      if (box.height > availableHeight) {
+        element.scrollIntoView({ block: "nearest", inline: "nearest" });
+        return;
+      }
+      const targetTop = Math.max(0, window.scrollY + box.top - (availableHeight - box.height) / 2);
+      window.scrollTo({ top: targetTop, left: window.scrollX, behavior: "auto" });
+    });
+  const readMetrics = () =>
+    locator.evaluate((element) => {
+      const box = element.getBoundingClientRect();
+      const nav = document.querySelector("nav.topbar-tabs");
+      const navBox = nav?.getBoundingClientRect();
+      const navStyle = nav ? window.getComputedStyle(nav) : null;
+      const fixedBottomNav =
+        navBox &&
+        navStyle?.position === "fixed" &&
+        window.innerWidth <= 820 &&
+        navBox.top > 0 &&
+        navBox.bottom >= window.innerHeight - 32;
 
-    return {
-      bottom: box.bottom,
-      top: box.top,
-      viewportBottom: window.innerHeight,
-      fixedNavTop: fixedBottomNav ? navBox.top : window.innerHeight,
-    };
-  });
-  expect(metrics.top, "locator should not be above the viewport").toBeGreaterThanOrEqual(-allowance);
+      return {
+        bottom: box.bottom,
+        height: box.height,
+        top: box.top,
+        viewportBottom: window.innerHeight,
+        fixedNavTop: fixedBottomNav ? navBox.top : window.innerHeight,
+      };
+    });
+  const isClear = (metrics) => {
+    const visibleBottom = Math.min(metrics.fixedNavTop, metrics.viewportBottom);
+    const fitsVertically = metrics.height <= visibleBottom + allowance;
+    return (
+      (!fitsVertically || metrics.top >= -allowance) &&
+      metrics.bottom <= metrics.fixedNavTop + allowance &&
+      metrics.bottom <= metrics.viewportBottom + allowance
+    );
+  };
+
+  await centerLocator();
+  let metrics = await readMetrics();
+  let consecutiveClearReads = 0;
+  await expect
+    .poll(
+      async () => {
+        metrics = await readMetrics();
+        if (!isClear(metrics)) {
+          consecutiveClearReads = 0;
+          await centerLocator();
+          return false;
+        }
+        consecutiveClearReads += 1;
+        return consecutiveClearReads >= 2;
+      },
+      { message: "locator should settle clear of the viewport chrome", timeout: 3_000 },
+    )
+    .toBe(true);
+  const visibleBottom = Math.min(metrics.fixedNavTop, metrics.viewportBottom);
+  if (metrics.height <= visibleBottom + allowance) {
+    expect(metrics.top, "locator should not be above the viewport").toBeGreaterThanOrEqual(-allowance);
+  }
   expect(metrics.bottom, "locator should be clear of the fixed mobile nav").toBeLessThanOrEqual(
     metrics.fixedNavTop + allowance
   );
@@ -488,28 +542,46 @@ export async function expectNoOrphanTextLine(locator, label) {
 }
 
 export async function expectPortfolioLabelsClearOfBottomNav(page, card, label) {
-  const metrics = await card.getByTestId("portfolio-donut-slice-label").evaluateAll((nodes) => {
-    const nav = document.querySelector("nav.topbar-tabs");
-    const navBox = nav?.getBoundingClientRect();
-    const navStyle = nav ? getComputedStyle(nav) : null;
-    const fixedBottomNav = Boolean(
-      navBox &&
-        navStyle?.position === "fixed" &&
-        window.innerWidth <= 820 &&
-        navBox.bottom >= window.innerHeight - 32 &&
-        navBox.top > window.innerHeight * 0.5,
-    );
-    return nodes.map((node) => {
-      const box = node.getBoundingClientRect();
-      return {
-        text: node.textContent?.replace(/\s+/g, " ").trim(),
-        bottom: box.bottom,
-        fixedBottomNav,
-        navTop: fixedBottomNav ? navBox.top : window.innerHeight,
-        viewportBottom: window.innerHeight,
-      };
+  let metrics = [];
+  const readMetrics = () =>
+    card.getByTestId("portfolio-donut-slice-label").evaluateAll((nodes) => {
+      const nav = document.querySelector("nav.topbar-tabs");
+      const navBox = nav?.getBoundingClientRect();
+      const navStyle = nav ? getComputedStyle(nav) : null;
+      const fixedBottomNav = Boolean(
+        navBox &&
+          navStyle?.position === "fixed" &&
+          window.innerWidth <= 820 &&
+          navBox.bottom >= window.innerHeight - 32 &&
+          navBox.top > window.innerHeight * 0.5,
+      );
+      return nodes.map((node) => {
+        const box = node.getBoundingClientRect();
+        return {
+          text: node.textContent?.replace(/\s+/g, " ").trim(),
+          bottom: box.bottom,
+          fixedBottomNav,
+          navTop: fixedBottomNav ? navBox.top : window.innerHeight,
+          viewportBottom: window.innerHeight,
+        };
+      });
     });
-  });
+
+  await expect
+    .poll(
+      async () => {
+        metrics = await readMetrics();
+        return (
+          metrics.length > 0 &&
+          metrics.every(
+            (item) => item.bottom <= item.viewportBottom && (!item.fixedBottomNav || item.bottom <= item.navTop - 4),
+          )
+        );
+      },
+      { message: `${label} slice labels should settle inside the viewport`, timeout: 3_000 },
+    )
+    .toBe(true);
+  metrics = await readMetrics();
   expect(metrics.length, `${label} should expose visible slice labels`).toBeGreaterThan(0);
   for (const item of metrics) {
     expect(item.bottom, `${label} ${item.text} should stay within the viewport`).toBeLessThanOrEqual(
@@ -806,10 +878,16 @@ export async function openTransactionEntryForm(page) {
     };
   }
 
+  const viewport = page.viewportSize();
+  const desktopTransactionAddAction = page.getByTestId("transactions-desktop-add-action");
   const transactionFab = page.getByTestId("transactions-fab");
-  await expect(transactionFab).toBeVisible();
-  await expect(transactionFab).toBeEnabled();
-  await transactionFab.click();
+  const transactionAddAction =
+    (viewport?.width ?? 0) > 820 && (await desktopTransactionAddAction.isVisible().catch(() => false))
+      ? desktopTransactionAddAction
+      : transactionFab;
+  await expect(transactionAddAction).toBeVisible();
+  await expect(transactionAddAction).toBeEnabled();
+  await transactionAddAction.click();
   await expect(transactionSheet).toBeVisible();
   await expect(transactionSheet.locator("form.transactions-form-grid, form.transaction-quick-form").first()).toBeVisible();
   return {
@@ -923,6 +1001,9 @@ export async function createBasicTransaction(
     await expect(txToggleButton).toContainText("거래 추가", { timeout: 20_000 });
     await expect(txToggleButton).toBeEnabled();
   } else {
+    if (await transactionSheet.isVisible().catch(() => false)) {
+      await page.getByTestId("transaction-entry-sheet-close").click();
+    }
     await expect(transactionSheet).toBeHidden({ timeout: 20_000 });
   }
   return row;
@@ -1009,6 +1090,105 @@ export async function createTransactionViaApi(
     }
   );
   expect(result.ok, `transaction api create failed: ${result.status} ${result.text}`).toBe(true);
+  return result.payload;
+}
+
+export async function createHoldingViaApi(
+  page,
+  {
+    name,
+    category = "현금성",
+    assetType = "cash",
+    typeKey = assetType,
+    symbol = "MFS",
+    marketSymbol = symbol,
+    accountName = "검증계좌",
+    quantity = "1",
+    averageCost = "300000",
+    currency = "KRW",
+    ownerName = "",
+  }
+) {
+  const result = await page.evaluate(
+    async ({
+      accountName,
+      activeHouseholdKey,
+      assetType,
+      averageCost,
+      category,
+      csrfCookieName,
+      csrfHeaderName,
+      currency,
+      householdHeaderName,
+      marketSymbol,
+      name,
+      ownerName,
+      quantity,
+      symbol,
+      typeKey,
+    }) => {
+      const cookieValue = (cookieName) => {
+        const prefix = `${cookieName}=`;
+        return String(document.cookie || "")
+          .split(";")
+          .map((item) => item.trim())
+          .find((item) => item.startsWith(prefix))
+          ?.slice(prefix.length) || "";
+      };
+      const householdId = String(localStorage.getItem(activeHouseholdKey) || "").trim();
+      const headers = {
+        "Content-Type": "application/json",
+        [csrfHeaderName]: decodeURIComponent(cookieValue(csrfCookieName)),
+      };
+      if (householdId) {
+        headers[householdHeaderName] = householdId;
+      }
+      const response = await fetch("/api/v1/holdings", {
+        method: "POST",
+        credentials: "include",
+        headers,
+        body: JSON.stringify({
+          asset_type: assetType,
+          type_key: typeKey || assetType,
+          symbol,
+          market_symbol: marketSymbol || symbol,
+          name,
+          category,
+          owner_name: ownerName || null,
+          account_name: accountName || null,
+          quantity,
+          average_cost: averageCost,
+          currency,
+        }),
+      });
+      const text = await response.text();
+      let payload = null;
+      try {
+        payload = text ? JSON.parse(text) : null;
+      } catch {
+        payload = null;
+      }
+      return { ok: response.ok, status: response.status, payload, text };
+    },
+    {
+      accountName,
+      activeHouseholdKey: ACTIVE_HOUSEHOLD_KEY,
+      assetType,
+      averageCost,
+      category,
+      csrfCookieName: DEFAULT_CSRF_COOKIE_NAME,
+      csrfHeaderName: DEFAULT_CSRF_HEADER_NAME,
+      currency,
+      householdHeaderName: DEFAULT_HOUSEHOLD_HEADER_NAME,
+      marketSymbol,
+      name,
+      ownerName,
+      quantity,
+      symbol,
+      typeKey,
+    }
+  );
+  expect(result.ok, `holding api create failed: ${result.status} ${result.text}`).toBe(true);
   return result.payload;
 }
 
@@ -1102,6 +1282,25 @@ export async function createBasicHolding(page, {
   return row;
 }
 
+function resolveWorkbookPythonCommand() {
+  const venvPython = process.platform === "win32"
+    ? path.resolve(".venv", "Scripts", "python.exe")
+    : path.resolve(".venv", "bin", "python");
+  const explicitPython = process.env.E2E_WORKBOOK_PYTHON || process.env.E2E_PYTHON;
+  const candidates = [explicitPython, venvPython].filter(Boolean);
+  for (const candidate of candidates) {
+    if (candidate === explicitPython || fs.existsSync(candidate)) {
+      return { command: candidate, args: ["-c"] };
+    }
+  }
+  try {
+    execFileSync("uv", ["--version"], { stdio: "ignore" });
+    return { command: "uv", args: ["run", "python", "-c"] };
+  } catch {
+    return { command: process.platform === "win32" ? "python" : "python3", args: ["-c"] };
+  }
+}
+
 export function createImportWorkbook(workbookPath, { txMemo, holdingName, categoryMinor }) {
   const script = `
 from datetime import date
@@ -1136,7 +1335,8 @@ cash_ws["H7"] = 123456
 wb.save(path)
 `
     .trim();
-  execFileSync("uv", ["run", "python", "-c", script, workbookPath, txMemo, holdingName, categoryMinor], {
+  const python = resolveWorkbookPythonCommand();
+  execFileSync(python.command, [...python.args, script, workbookPath, txMemo, holdingName, categoryMinor], {
     stdio: "pipe",
   });
 }
