@@ -1249,6 +1249,17 @@ function createTransactionForm(defaultOccurredOn = todayIso()) {
   };
 }
 
+function createRepeatTransactionForm(previousForm, fallbackOccurredOn = todayIso()) {
+  const normalizedDate = normalizeIsoDateKey(previousForm?.occurred_on, fallbackOccurredOn);
+  return {
+    ...createTransactionForm(normalizedDate),
+    flow_type: previousForm?.flow_type || "expense",
+    category_id: previousForm?.category_id || "",
+    owner_user_id: previousForm?.owner_user_id || "",
+    owner_name: previousForm?.owner_name || "",
+  };
+}
+
 function buildDirtyPatchFields(payload, baseline, comparators = {}) {
   if (!baseline) {
     return { ...payload };
@@ -1888,6 +1899,7 @@ function App() {
   const [transactionSupportOpen, setTransactionSupportOpen] = useState(false);
   const [txEntrySheetStep, setTxEntrySheetStep] = useState("form");
   const [showTransactionQuickResume, setShowTransactionQuickResume] = useState(false);
+  const [txRepeatFocusRequest, setTxRepeatFocusRequest] = useState(0);
   const [txQuickOwnerTouched, setTxQuickOwnerTouched] = useState(false);
   const [showHoldingForm, setShowHoldingForm] = useState(false);
   const [holdingSummaryOpen, setHoldingSummaryOpen] = useState(true);
@@ -3204,6 +3216,38 @@ function App() {
   }, [isCompactViewport, showTransactionForm, txEntrySheetStep]);
 
   useEffect(() => {
+    if (!txRepeatFocusRequest || loading || !showTransactionForm || txEntrySheetStep !== "form") {
+      return undefined;
+    }
+
+    let cancelled = false;
+    let timeoutId = 0;
+    let frameId = requestAnimationFrame(() => {
+      timeoutId = window.setTimeout(() => {
+        if (cancelled) {
+          return;
+        }
+        const amountInput = txAmountInputRef.current;
+        if (!amountInput || amountInput.disabled) {
+          return;
+        }
+        txQuickLastFocusedFieldRef.current = amountInput;
+        amountInput.focus?.({ preventScroll: false });
+        amountInput.select?.();
+        if (document.activeElement === amountInput) {
+          setShowTransactionQuickResume(false);
+        }
+      }, 0);
+    });
+
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(frameId);
+      window.clearTimeout(timeoutId);
+    };
+  }, [loading, showTransactionForm, txEntrySheetStep, txRepeatFocusRequest]);
+
+  useEffect(() => {
     if (!isCompactViewport || !showTransactionForm || txEntrySheetStep !== "form") {
       return undefined;
     }
@@ -3481,6 +3525,10 @@ function App() {
         setShowTransactionQuickResume(false);
       }
     });
+  }
+
+  function focusTransactionAmountForRepeatEntry() {
+    setTxRepeatFocusRequest((current) => current + 1);
   }
 
   function isTransactionQuickRestorableField(element) {
@@ -5733,6 +5781,10 @@ function App() {
     setMessage("");
     try {
       const payload = buildTransactionPayloadFromForm(txForm);
+      const repeatForm = createRepeatTransactionForm(
+        txForm,
+        normalizeIsoDateKey(payload.occurred_on, transactionHistoryToday || todayIso())
+      );
       await api(
         `${API_PREFIX}/transactions`,
         {
@@ -5741,13 +5793,10 @@ function App() {
         },
         token
       );
-      setTxForm(createTransactionForm(normalizeIsoDateKey(transactionHistoryToday, todayIso())));
-      setTxCategoryMajor("");
+      setTxForm(repeatForm);
       setShowTransactionEntryBanner(false);
-      setShowTransactionForm(false);
       setTxEntrySheetStep("form");
       setShowTransactionQuickResume(false);
-      setTxQuickOwnerTouched(false);
       await refreshData(false);
       if (transactionHistoryInitialized || tab === "transactions") {
         await refreshTransactionHistoryAtAnchor(
@@ -5755,7 +5804,8 @@ function App() {
           { alignToEnd: true }
         );
       }
-      setMessage(uiGuideMessage("거래를 등록했습니다.", "목록에서 반영 결과를 확인해 주세요."));
+      focusTransactionAmountForRepeatEntry();
+      setMessage(uiGuideMessage("거래를 등록했습니다.", "다음 거래 금액을 바로 입력할 수 있습니다."));
     } catch (error) {
       setMessage(formatApiError(error, "transaction_submit"));
     } finally {
@@ -8616,6 +8666,7 @@ function App() {
       <label>
         금액
         <input
+          ref={txAmountInputRef}
           type="text"
           inputMode="numeric"
           enterKeyHint="next"
