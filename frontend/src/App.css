@@ -8391,6 +8391,12 @@ tr.holding-row-imported {
   }
 }
 
+@media (max-width: 360px) {
+  .tx-ledger-filter-date-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 @media (max-width: 900px) and (max-height: 520px) {
   .transaction-list-card > .transaction-sticky-toolbar,
   .transaction-list-card > .surface-list-heading,
