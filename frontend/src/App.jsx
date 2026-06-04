@@ -1653,6 +1653,7 @@ function App() {
   const [householdInvites, setHouseholdInvites] = useState([]);
   const [receivedHouseholdInvites, setReceivedHouseholdInvites] = useState([]);
   const [inviteForm, setInviteForm] = useState({ email: "", role: "viewer" });
+  const [inviteFormErrors, setInviteFormErrors] = useState({ email: "" });
   const [inviteAcceptToken, setInviteAcceptToken] = useState("");
   const [inviteAcceptanceNotice, setInviteAcceptanceNotice] = useState(null);
   const [receivedInviteTab, setReceivedInviteTab] = useState("new");
@@ -1835,6 +1836,7 @@ function App() {
   const roleNoticeStateRef = useRef({ householdId: "", role: "" });
   const receivedInviteIdsRef = useRef(new Set());
   const activeDeepLinkFlowRef = useRef({ type: "", token: "" });
+  const inviteEmailInputRef = useRef(null);
   const confirmResolveRef = useRef(null);
   const [confirmDialog, setConfirmDialog] = useState({
     open: false,
@@ -4736,7 +4738,7 @@ function App() {
   }
 
   function validateInviteForm(form) {
-    return validateAuthEmail(form.email, "초대 이메일");
+    return validateAuthEmail(form.email, "초대할 이메일");
   }
 
   function validateTransactionForm(form) {
@@ -5131,9 +5133,14 @@ function App() {
     event.preventDefault();
     const validationMessage = validateInviteForm(inviteForm);
     if (validationMessage) {
+      setInviteFormErrors({ email: validationMessage });
+      inviteEmailInputRef.current?.setCustomValidity?.(validationMessage);
+      inviteEmailInputRef.current?.focus({ preventScroll: true });
       setMessage(validationMessage);
       return;
     }
+    setInviteFormErrors({ email: "" });
+    inviteEmailInputRef.current?.setCustomValidity?.("");
     setLoading(true);
     setMessage("");
     try {
@@ -5153,6 +5160,7 @@ function App() {
         setInviteAcceptToken(debugToken);
       }
       setInviteForm({ email: "", role: "viewer" });
+      setInviteFormErrors({ email: "" });
       await refreshCollaborationData(token);
       setMessage(
         uiGuideMessage(
@@ -6791,6 +6799,7 @@ function App() {
     setHouseholdInvites([]);
     setReceivedHouseholdInvites([]);
     setInviteForm({ email: "", role: "viewer" });
+    setInviteFormErrors({ email: "" });
     setInviteAcceptToken("");
     setInviteAcceptanceNotice(null);
     setRecentInviteIds([]);
@@ -10548,16 +10557,28 @@ function App() {
             )}
 
             <form className="form-grid collaboration-form-grid" onSubmit={createHouseholdInvite} noValidate>
-              <label>
+              <label className="form-field">
                 초대할 이메일
                 <input
+                  ref={inviteEmailInputRef}
                   type="email"
                   value={inviteForm.email}
-                  onChange={(event) => setInviteForm((prev) => ({ ...prev, email: event.target.value }))}
+                  onChange={(event) => {
+                    event.target.setCustomValidity("");
+                    setInviteFormErrors({ email: "" });
+                    setInviteForm((prev) => ({ ...prev, email: event.target.value }));
+                  }}
                   placeholder="example@email.com"
                   disabled={loading || !canManageHousehold}
                   required
+                  aria-invalid={inviteFormErrors.email ? "true" : undefined}
+                  aria-describedby={inviteFormErrors.email ? "collaboration-invite-email-error" : undefined}
                 />
+                {inviteFormErrors.email && (
+                  <p id="collaboration-invite-email-error" className="field-helper field-error" role="alert">
+                    {inviteFormErrors.email}
+                  </p>
+                )}
               </label>
               <label>
                 권한
