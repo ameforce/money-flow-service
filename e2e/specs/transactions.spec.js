@@ -3400,6 +3400,70 @@ test("issue 220: mobile collapsed transaction row scans as one ledger line", asy
   await capture(page, "issue-220-mobile-row-one-line-summary");
 });
 
+test("issue 221: mobile transaction status chips keep clear action in viewport", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("tx-status-chip-row")}@example.com`;
+  const displayName = unique("tx-status-chip-owner");
+
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openTab(page, "거래");
+  await page.waitForLoadState("networkidle");
+
+  const toolbar = page.getByTestId("transaction-sticky-toolbar");
+  const controlStrip = toolbar.locator(".surface-control-strip").first();
+  const clearButton = controlStrip.getByRole("button", { name: "선택 해제" });
+  await expect(controlStrip).toBeVisible();
+  await expect(clearButton).toBeVisible();
+
+  const metrics = await controlStrip.evaluate((strip) => {
+    const stripBox = strip.getBoundingClientRect();
+    const stripStyle = getComputedStyle(strip);
+    const items = Array.from(strip.querySelectorAll(".surface-chip, .transaction-selection-clear")).map((item) => {
+      const box = item.getBoundingClientRect();
+      const style = getComputedStyle(item);
+      return {
+        text: item.textContent?.replace(/\s+/g, " ").trim() || item.getAttribute("aria-label") || "",
+        left: box.left,
+        right: box.right,
+        width: box.width,
+        height: box.height,
+        hidden: style.display === "none" || style.visibility === "hidden" || box.width <= 0 || box.height <= 0,
+      };
+    });
+    const visibleItems = items.filter((item) => !item.hidden);
+    return {
+      viewportWidth: document.documentElement.clientWidth,
+      strip: {
+        left: stripBox.left,
+        right: stripBox.right,
+        clientWidth: strip.clientWidth,
+        scrollWidth: strip.scrollWidth,
+        overflowX: stripStyle.overflowX,
+        flexWrap: stripStyle.flexWrap,
+      },
+      visibleItems,
+      clippedItems: visibleItems.filter(
+        (item) =>
+          item.left < stripBox.left - 1 ||
+          item.right > stripBox.right + 1 ||
+          item.left < -1 ||
+          item.right > document.documentElement.clientWidth + 1
+      ),
+    };
+  });
+
+  expect(metrics.strip.flexWrap, `status chips should wrap instead of hiding overflow: ${JSON.stringify(metrics)}`).toBe("wrap");
+  expect(metrics.strip.scrollWidth, `status chip strip should not require hidden horizontal scroll: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(
+    metrics.strip.clientWidth + 1
+  );
+  expect(metrics.clippedItems, `status chips and clear action should stay in the viewport: ${JSON.stringify(metrics)}`).toEqual([]);
+  expect(metrics.visibleItems.map((item) => item.text).join(" ")).toContain("선택 해제");
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "issue-221-mobile-status-chips-visible");
+});
+
 test("transactions flow: create, inline edit, delete, responsive", async ({ page }) => {
   test.setTimeout(240_000);
 
