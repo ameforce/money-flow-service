@@ -452,6 +452,57 @@ async function expectTopbarActionHitAreas(page, label) {
   ).toBe(true);
 }
 
+async function expectPriceRefreshVisualLabel(page, label) {
+  const button = page.getByRole("button", { name: /시세 갱신/ });
+  await expect(button).toBeVisible();
+  const metrics = await button.evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    const textMetrics = [];
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+    let node = walker.nextNode();
+    while (node) {
+      const text = String(node.textContent || "").replace(/\s+/g, " ").trim();
+      if (text.includes("시세")) {
+        const parent = node.parentElement || element;
+        const style = getComputedStyle(parent);
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        const rect = range.getBoundingClientRect();
+        textMetrics.push({
+          text,
+          width: rect.width,
+          height: rect.height,
+          fontSize: Number.parseFloat(style.fontSize) || 0,
+          visibility: style.visibility,
+          opacity: Number.parseFloat(style.opacity) || 0,
+        });
+        range.detach();
+      }
+      node = walker.nextNode();
+    }
+    return {
+      buttonText: String(element.textContent || "").replace(/\s+/g, " ").trim(),
+      buttonWidth: box.width,
+      buttonHeight: box.height,
+      textMetrics,
+    };
+  });
+  expect(metrics.textMetrics.length, `${label} should include a 시세 text node: ${JSON.stringify(metrics)}`).toBeGreaterThan(0);
+  expect(
+    metrics.textMetrics.some(
+      (item) =>
+        item.width >= 22 &&
+        item.height >= 8 &&
+        item.fontSize >= 9.5 &&
+        item.visibility !== "hidden" &&
+        item.opacity >= 0.5,
+    ),
+    `${label} should expose a visible price refresh label: ${JSON.stringify(metrics)}`,
+  ).toBe(true);
+  expect(metrics.buttonWidth, `${label} should allocate room for a visible label: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(62);
+  expect(metrics.buttonHeight, `${label} should keep touch height: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(44);
+}
+
 test("price refresh polling releases the global busy state after status failures", async ({ page }) => {
   test.setTimeout(120_000);
 
@@ -605,6 +656,26 @@ test("dashboard topbar actions keep landscape touch targets", async ({ page }) =
   }
   await expectNoHorizontalOverflow(page, 12);
   await capture(page, "dashboard-landscape-topbar-touch-targets");
+});
+
+test("dashboard mobile topbar exposes a visible price refresh label", async ({ page }) => {
+  const email = `${unique("dashboard-price-label")}@example.com`;
+  const displayName = unique("dashboard-price-label-name");
+
+  await registerAndVerify(page, { email, displayName });
+
+  for (const viewport of [
+    { width: 320, height: 568 },
+    { width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await applyFontFamily(page, '"Malgun Gothic", "Noto Sans KR", "Apple SD Gothic Neo", sans-serif');
+    await openTab(page, "대시보드");
+    await expectPriceRefreshVisualLabel(page, `${viewport.width}x${viewport.height}`);
+    await expectNoHorizontalOverflow(page, 12);
+  }
+
+  await capture(page, "dashboard-mobile-price-refresh-visible-label");
 });
 
 test("dashboard mobile footer actions keep touch targets", async ({ page }) => {

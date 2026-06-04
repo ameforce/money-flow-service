@@ -9220,17 +9220,20 @@ function App() {
           </div>
         </div>
         <div className="actions topbar-actions">
-          <button className="secondary" onClick={() => refreshDataWithUiFeedback().catch(() => undefined)} disabled={dashboardLoading}>
-            {dashboardLoading ? "불러오는 중..." : "새로고침"}
+          <button className="secondary topbar-action-button topbar-refresh-action" onClick={() => refreshDataWithUiFeedback().catch(() => undefined)} disabled={dashboardLoading}>
+            <span className="topbar-action-label">{dashboardLoading ? "불러오는 중..." : "새로고침"}</span>
           </button>
           <button
-            className="secondary"
+            className={`secondary topbar-action-button topbar-price-refresh-action${isPriceRefreshActive ? " is-active" : ""}`}
             onClick={refreshPriceNow}
             disabled={loading || dashboardLoading || isPriceRefreshActive}
+            title={isPriceRefreshActive ? "시세 갱신 중" : "시세 갱신"}
           >
-            {isPriceRefreshActive ? "시세 갱신 중..." : "시세 갱신"}
+            <span className="topbar-action-label">{isPriceRefreshActive ? "시세 갱신 중..." : "시세 갱신"}</span>
           </button>
-          <button className="danger" onClick={() => logout().catch(() => undefined)}>로그아웃</button>
+          <button className="danger topbar-action-button topbar-logout-action" onClick={() => logout().catch(() => undefined)}>
+            <span className="topbar-action-label">로그아웃</span>
+          </button>
         </div>
       </header>
 

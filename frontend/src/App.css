@@ -5423,6 +5423,27 @@ tr.holding-row-imported {
     content: "⏻";
   }
 
+  .topbar-actions .topbar-price-refresh-action {
+    width: 4.9rem;
+    gap: 0.18rem;
+    padding-inline: 0.34rem;
+  }
+
+  .topbar-actions .topbar-price-refresh-action .topbar-action-label {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+    font-size: 0.68rem;
+    font-weight: 800;
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  .topbar-actions .topbar-price-refresh-action.is-active .topbar-action-label {
+    font-size: 0.6rem;
+  }
+
   .topbar-tabs {
     grid-column: 1;
     grid-row: auto;
