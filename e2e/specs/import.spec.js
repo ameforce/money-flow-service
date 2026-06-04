@@ -59,6 +59,29 @@ test("import flow: no-file actions stay disabled with helper text", async ({ pag
   await capture(page, "issue-217-package-actions-disabled-without-file");
 });
 
+test("import flow: mobile upload copy is touch oriented", async ({ page }) => {
+  const email = `${unique("import-copy-user")}@example.com`;
+  const displayName = unique("import-copy-name");
+
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 320, height: 568 });
+  await assertResponsiveShell(page);
+  await page.getByRole("button", { name: "데이터 가져오기", exact: true }).click();
+
+  const excelPanel = page.locator(".import-excel-panel");
+  const workbookPlaceholder = excelPanel.locator(".upload-placeholder").first();
+  await expect(workbookPlaceholder).toHaveText(
+    "탭해서 엑셀 파일을 선택하세요. 파일 앱 또는 기기 저장소에서 업로드할 수 있습니다."
+  );
+  await expect(workbookPlaceholder).not.toContainText("드래그 앤 드롭");
+  await expect(workbookPlaceholder).not.toContainText("클릭");
+  await capture(page, "issue-229-mobile-import-upload-touch-copy");
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(workbookPlaceholder).toContainText("드래그 앤 드롭");
+  await expect(workbookPlaceholder).toContainText("클릭");
+});
+
 test("import flow: workbook dry-run and apply", async ({ page }, testInfo) => {
   test.setTimeout(240_000);
 
