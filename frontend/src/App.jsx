@@ -2052,10 +2052,13 @@ function App() {
 
   const [filterMode, setFilterMode] = useState("month");
   const [yearMonth, setYearMonth] = useState(currentMonth());
+  const [isMonthFilterPending, setIsMonthFilterPending] = useState(false);
   const [range, setRange] = useState(() => yearMonthFullDateRange(currentMonth()));
 
   const filterModeRef = useRef(filterMode);
   const yearMonthRef = useRef(yearMonth);
+  const appliedYearMonthRef = useRef(yearMonth);
+  const isMonthFilterPendingRef = useRef(false);
   const rangeRef = useRef(range);
   useEffect(() => { filterModeRef.current = filterMode; }, [filterMode]);
   useEffect(() => { yearMonthRef.current = yearMonth; }, [yearMonth]);
@@ -3185,6 +3188,12 @@ function App() {
   useEffect(() => {
     tabRef.current = tab;
   }, [tab]);
+
+  function setMonthFilterPending(nextValue) {
+    const normalized = Boolean(nextValue);
+    isMonthFilterPendingRef.current = normalized;
+    setIsMonthFilterPending(normalized);
+  }
 
   useEffect(() => {
     transactionHistoryInitializedRef.current = transactionHistoryInitialized;
@@ -4731,7 +4740,7 @@ function App() {
     const activeElement = document.activeElement;
     const isEditingMonthStepper =
       activeElement instanceof HTMLElement && activeElement.closest(".transaction-list-card .month-stepper");
-    if (isEditingMonthStepper && Math.abs(currentScrollY - transactionHistoryMonthSyncScrollYRef.current) <= 2) {
+    if (isEditingMonthStepper || isMonthFilterPendingRef.current) {
       return;
     }
     const visibleDateKey = findVisibleTransactionHistoryDateKey();
@@ -4754,6 +4763,8 @@ function App() {
     }
     const nextYearMonth = { ...visibleYearMonth };
     yearMonthRef.current = nextYearMonth;
+    appliedYearMonthRef.current = nextYearMonth;
+    setMonthFilterPending(false);
     setYearMonth(nextYearMonth);
   }
 
@@ -5236,6 +5247,8 @@ function App() {
     setFilterMode("month");
     filterModeRef.current = "month";
     yearMonthRef.current = normalized;
+    appliedYearMonthRef.current = normalized;
+    setMonthFilterPending(false);
     setYearMonth(normalized);
     if (tab === "transactions" || transactionHistoryInitialized) {
       refreshTransactionHistoryAtAnchor(yearMonthEndDateKey(normalized, transactionHistoryToday || todayIso()), {
@@ -5253,11 +5266,10 @@ function App() {
   function updateYearMonthInput(part, value) {
     const numericValue = Number(value);
     const safeValue = Number.isFinite(numericValue) ? numericValue : 0;
-    setYearMonth((prev) => {
-      const next = { ...prev, [part]: safeValue };
-      yearMonthRef.current = next;
-      return next;
-    });
+    const next = { ...yearMonthRef.current, [part]: safeValue };
+    yearMonthRef.current = next;
+    setYearMonth(next);
+    setMonthFilterPending(compareYearMonth(next, appliedYearMonthRef.current) !== 0);
   }
 
   function handleApplyYearMonth() {
@@ -5277,6 +5289,7 @@ function App() {
     setFilterMode("range");
     filterModeRef.current = "range";
     rangeRef.current = nextRange;
+    setMonthFilterPending(false);
     setRange(nextRange);
     if (!nextRange.start || !nextRange.end) {
       return;
@@ -8012,6 +8025,8 @@ function App() {
     filterModeRef.current = "month";
     const resetMonth = currentMonth();
     yearMonthRef.current = resetMonth;
+    appliedYearMonthRef.current = resetMonth;
+    setMonthFilterPending(false);
     setYearMonth(resetMonth);
     const resetRange = yearMonthFullDateRange(resetMonth);
     rangeRef.current = resetRange;
@@ -9960,7 +9975,8 @@ function App() {
               </div>
               <div className="filter-inputs-wrapper">
                 {filterMode === "month" ? (
-                  <div className="month-stepper">
+                  <>
+                    <div className="month-stepper">
                     <button
                       type="button"
                       className="icon-btn"
@@ -10014,7 +10030,13 @@ function App() {
                     >
                       이번 달
                     </button>
-                  </div>
+                    </div>
+                    {isMonthFilterPending && (
+                      <p className="filter-pending-status" data-testid="transaction-month-pending-status" aria-live="polite">
+                        변경됨 · Enter 또는 입력칸을 벗어나면 조회 적용
+                      </p>
+                    )}
+                  </>
                 ) : (
                   <div className="range-filter-stack">
                     <div className="range-picker">
@@ -10342,6 +10364,11 @@ function App() {
                   <p className="table-summary">
                     조회 가능 월: {toYearMonthKey(minMonth)} ~ {toYearMonthKey(maxMonth)}
                   </p>
+                  {isMonthFilterPending && (
+                    <p className="filter-pending-status" data-testid="transaction-month-pending-status" aria-live="polite">
+                      변경됨 · Enter 또는 입력칸을 벗어나면 조회 적용
+                    </p>
+                  )}
                 </div>
               </div>
               <div className="transaction-filter-actions" aria-label="거래 필터 빠른 조작">
