@@ -2478,6 +2478,61 @@ test("mobile quick entry keeps owner override and filters ordered category chips
   await staleHistoryFixture.unroute();
 });
 
+test("issue 82: mobile quick category guidance and chips stay readable at 320px", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("tx-issue-82")}@example.com`;
+  const displayName = unique("tx-issue-82-name");
+  const memo = unique("tx-issue-82-memo");
+  const category = {
+    major: unique("지출"),
+    minor: unique("테스트긴분류명"),
+  };
+
+  await registerAndVerify(page, { email, displayName });
+  const createdCategory = await createCategoryViaApi(page, category);
+  await createTransactionViaApi(page, {
+    memo,
+    amount: "82000",
+    categoryId: createdCategory.id,
+    ownerName: displayName,
+  });
+  await page.reload();
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.addStyleTag({
+    content: 'html, body, button, input, select, textarea { font-family: "Malgun Gothic", "Noto Sans KR", sans-serif !important; }',
+  });
+
+  await openMobileTransactionQuickEntry(page);
+  await expect(page.getByTestId("transaction-quick-form")).toBeVisible();
+  await expect(page.getByTestId("transaction-quick-category-chip").first()).toBeVisible();
+  await expectQuickCategoryLayoutStable(page);
+
+  const issueMetrics = await page.locator(".transaction-quick-category-panel").evaluate((panel) => {
+    const hint = panel.querySelector(".transaction-quick-section-title small");
+    const chips = Array.from(panel.querySelectorAll("[data-testid='transaction-quick-category-chip']"));
+    return {
+      hintText: hint?.textContent?.trim() || "",
+      hintClientWidth: hint?.clientWidth || 0,
+      hintScrollWidth: hint?.scrollWidth || 0,
+      hintClientHeight: hint?.clientHeight || 0,
+      hintScrollHeight: hint?.scrollHeight || 0,
+      chipHeights: chips.map((chip) => chip.getBoundingClientRect().height),
+      chipTexts: chips.map((chip) => chip.textContent?.trim() || ""),
+    };
+  });
+
+  expect(issueMetrics.hintText).toBe("추천 카테고리를 탭하면 바로 연결됩니다.");
+  expect(issueMetrics.hintScrollWidth, JSON.stringify(issueMetrics)).toBeLessThanOrEqual(issueMetrics.hintClientWidth + 1);
+  expect(issueMetrics.hintScrollHeight, JSON.stringify(issueMetrics)).toBeLessThanOrEqual(issueMetrics.hintClientHeight + 1);
+  expect(issueMetrics.chipHeights.every((height) => height >= 44), JSON.stringify(issueMetrics)).toBe(true);
+  expect(issueMetrics.chipTexts.join(" ")).toContain(category.minor);
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "issue-82-mobile-category-guidance-fit");
+  await page.getByTestId("transaction-quick-category-chip").first().scrollIntoViewIfNeeded();
+  await capture(page, "issue-82-mobile-category-chip-fit");
+});
+
 test("mobile quick entry stays usable across viewport and Korean font fallbacks", async ({ page }) => {
   test.setTimeout(180_000);
 
