@@ -2610,6 +2610,54 @@ test("desktop transaction row click and sweep selection keep toolbar summary sta
   await capture(page, "transactions-row-selection-desktop");
 });
 
+test("issue 233: desktop transaction selection checkboxes expose a 32px hit target", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("tx-checkbox-hitarea")}@example.com`;
+  const displayName = unique("tx-checkbox-hitarea-name");
+  const memo = unique("tx-checkbox-hitarea-memo");
+
+  await registerAndVerify(page, { email, displayName });
+  await createTransactionViaApi(page, {
+    memo,
+    amount: "23300",
+    ownerName: displayName,
+  });
+  await page.reload();
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await openTab(page, "거래");
+  await page.waitForLoadState("networkidle");
+
+  const headerCheckbox = page.getByLabel("표시된 거래 전체 선택");
+  const targetRow = page.locator("tr.transaction-row", { hasText: memo }).first();
+  const rowCheckbox = targetRow.locator(".transaction-col-select input[type='checkbox']").first();
+  await expect(rowCheckbox).toBeVisible({ timeout: 20_000 });
+  const checkboxMetrics = await Promise.all(
+    [headerCheckbox, rowCheckbox].map((locator) =>
+      locator.evaluate((input) => {
+        const rect = input.getBoundingClientRect();
+        const cellRect = input.closest(".transaction-col-select")?.getBoundingClientRect();
+        return {
+          width: rect.width,
+          height: rect.height,
+          cellWidth: cellRect?.width || 0,
+          cellHeight: cellRect?.height || 0,
+        };
+      }),
+    ),
+  );
+  for (const metric of checkboxMetrics) {
+    expect(metric.width, "desktop transaction checkbox width should be at least 32px").toBeGreaterThanOrEqual(32);
+    expect(metric.height, "desktop transaction checkbox height should be at least 32px").toBeGreaterThanOrEqual(32);
+    expect(metric.cellWidth, "desktop transaction selection cell should contain the checkbox target").toBeGreaterThanOrEqual(32);
+  }
+
+  await rowCheckbox.check();
+  await expect(targetRow).toHaveAttribute("data-row-selected", "true");
+  await expectTransactionSelectionSummary(page, 1, "23,300원");
+  await capture(page, "issue-233-desktop-transaction-checkbox-hitarea");
+});
+
 test("desktop transaction sticky column titles and sweep auto-scroll selection toggle work", async ({ page }) => {
   test.setTimeout(240_000);
 
