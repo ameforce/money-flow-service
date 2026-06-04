@@ -215,6 +215,10 @@ const CATEGORY_MINOR_ALIAS = {
   "카드 대금": "카드대금",
   건강1: "건강",
 };
+const PASSWORD_RECOVERY_EMAIL = "support@enmsoftware.com";
+const PASSWORD_RECOVERY_MAILTO = `mailto:${PASSWORD_RECOVERY_EMAIL}?subject=${encodeURIComponent(
+  "Money Flow 비밀번호 재설정 요청"
+)}&body=${encodeURIComponent("가입 이메일:\n요청 내용: 비밀번호 재설정을 요청합니다.")}`;
 let refreshSessionPromise = null;
 
 function uiGuideMessage(problem, action) {
@@ -1395,7 +1399,10 @@ function formatApiError(error, context) {
     return uiGuideMessage("요청 출처를 확인할 수 없습니다.", "브라우저에서 앱을 다시 열고 로그인해 주세요.");
   }
   if (context === "auth_login" && (code === "AUTH_INVALID_CREDENTIALS" || code === "AUTH_USER_NOT_FOUND" || status === 401)) {
-    return uiGuideMessage("로그인에 실패했습니다.", "이메일과 비밀번호를 확인한 뒤 다시 시도해 주세요.");
+    return uiGuideMessage(
+      "로그인에 실패했습니다.",
+      "이메일과 비밀번호를 확인한 뒤 다시 시도해 주세요. 비밀번호를 잊었다면 관리자에게 재설정을 요청해 주세요."
+    );
   }
   if (context === "auth_register" && (code === "AUTH_EMAIL_ALREADY_EXISTS" || status === 409)) {
     return uiGuideMessage("이미 가입된 이메일입니다.", "로그인으로 전환하거나 다른 이메일을 사용해 주세요.");
@@ -8313,6 +8320,15 @@ function App() {
                 비밀번호
                 <input type="password" value={authForm.password} onChange={(e) => setAuthForm({ ...authForm, password: e.target.value })} required />
               </label>
+              {authMode === "login" && (
+                <div className="auth-recovery-callout" role="note">
+                  <strong>비밀번호를 잊으셨나요?</strong>
+                  <span>현재는 관리자 재설정으로 계정 복구를 지원합니다. 가입 이메일을 함께 보내 주세요.</span>
+                  <a className="text-button" href={PASSWORD_RECOVERY_MAILTO}>
+                    관리자에게 재설정 요청
+                  </a>
+                </div>
+              )}
               {authMode === "register" && (
                 <>
                   <label>

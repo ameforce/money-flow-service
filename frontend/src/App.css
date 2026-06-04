@@ -259,6 +259,37 @@
   line-height: 1.25;
 }
 
+.auth-recovery-callout {
+  border: 1px solid #c8d9f9;
+  background: #f5f8ff;
+  color: #24466f;
+  border-radius: 8px;
+  padding: 0.72rem 0.8rem;
+  display: grid;
+  gap: 0.28rem;
+  font-size: 0.84rem;
+  line-height: 1.42;
+}
+
+.auth-recovery-callout strong {
+  color: #18345d;
+  font-size: 0.88rem;
+  font-weight: 850;
+}
+
+.auth-recovery-callout span {
+  color: #4a6387;
+  overflow-wrap: anywhere;
+}
+
+.auth-recovery-callout .text-button {
+  justify-self: start;
+  align-items: center;
+  min-height: 2.25rem;
+  padding: 0;
+  font-weight: 750;
+}
+
 .auth-pending-invite {
   border: 1px solid #c8d9f9;
   background: #eef4ff;

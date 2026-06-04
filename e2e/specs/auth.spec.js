@@ -160,6 +160,38 @@ test("auth signup switch after failed login clears password fields", async ({ pa
   await capture(page, "issue-205-signup-password-cleared");
 });
 
+test("auth login offers password recovery path after failed login", async ({ page }) => {
+  await page.route("**/api/v1/auth/login", async (route) => {
+    await route.fulfill({
+      status: 401,
+      contentType: "application/json",
+      body: JSON.stringify({
+        error: {
+          code: "AUTH_INVALID_CREDENTIALS",
+          message: "이메일 또는 비밀번호가 올바르지 않습니다.",
+        },
+      }),
+    });
+  });
+
+  await page.goto("/");
+  const recoveryLink = page.getByRole("link", { name: "관리자에게 재설정 요청" });
+  await expect(page.getByText("비밀번호를 잊으셨나요?")).toBeVisible();
+  await expect(page.getByText("가입 이메일을 함께 보내 주세요.")).toBeVisible();
+  await expect(recoveryLink).toHaveAttribute("href", /mailto:support@enmsoftware\.com/i);
+  await capture(page, "issue-206-login-recovery-initial");
+
+  await page.getByLabel("이메일", { exact: true }).fill(`${unique("issue-206-login")}@example.com`);
+  await page.getByLabel("비밀번호", { exact: true }).fill("WrongPassword1234");
+  await capture(page, "issue-206-login-recovery-filled");
+  await page.getByRole("button", { name: "로그인하기" }).click();
+
+  await expect(page.getByText("로그인에 실패했습니다.")).toBeVisible();
+  await expect(page.getByText("관리자에게 재설정을 요청해 주세요.")).toBeVisible();
+  await expect(recoveryLink).toBeVisible();
+  await capture(page, "issue-206-login-recovery-after-fail");
+});
+
 test("auth verification submit waits for a link token or 6-digit code", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 568 });
   await page.route("**/api/v1/auth/register", async (route) => {
