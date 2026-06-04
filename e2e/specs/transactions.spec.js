@@ -3144,6 +3144,58 @@ test("transaction date controls use unambiguous ISO text fields", async ({ page 
   await capture(page, "transactions-date-iso-mobile-edit");
 });
 
+test("issue 219: mobile inline transaction date edit uses numeric ISO assistance", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("tx-mobile-date-edit")}@example.com`;
+  const displayName = unique("tx-mobile-date-edit-name");
+  const memo = unique("tx-mobile-date-edit-memo");
+  const occurredOn = currentE2EHistoryDateIso();
+
+  await registerAndVerify(page, { email, displayName });
+  await createTransactionViaApi(page, {
+    memo,
+    amount: "21900",
+    occurredOn,
+    ownerName: displayName,
+  });
+  await page.reload();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openTab(page, "거래");
+  await page.waitForLoadState("networkidle");
+
+  const mobileRow = page.locator("tr.transaction-row", { hasText: memo }).first();
+  await expect(mobileRow).toBeVisible({ timeout: 20_000 });
+  await mobileRow.locator(".mobile-toggle-btn").first().click();
+  const expandedActionRow = mobileRow.locator(
+    "xpath=following-sibling::tr[1][contains(@class,'transaction-mobile-expanded-actions-row')]",
+  );
+  await expect(expandedActionRow).toBeVisible();
+  await expandedActionRow.getByRole("button", { name: "수정" }).click();
+
+  const editorRow = page.locator("tr.transaction-inline-editor-row").first();
+  await expect(editorRow).toBeVisible();
+  const inlineEditDate = editorRow.getByLabel("일자");
+  await expectIsoDateInput(inlineEditDate, "issue 219 mobile inline edit date", occurredOn);
+  const dateAttributes = await inlineEditDate.evaluate((input) => ({
+    type: input.getAttribute("type"),
+    inputMode: input.getAttribute("inputmode"),
+    pattern: input.getAttribute("pattern"),
+    maxLength: input.getAttribute("maxlength"),
+    placeholder: input.getAttribute("placeholder"),
+  }));
+  expect(dateAttributes).toEqual({
+    type: "text",
+    inputMode: "numeric",
+    pattern: "[0-9]{4}-[0-9]{2}-[0-9]{2}",
+    maxLength: "10",
+    placeholder: "YYYY-MM-DD",
+  });
+  await inlineEditDate.fill("20260301");
+  await expect(inlineEditDate).toHaveValue("2026-03-01");
+  await capture(page, "issue-219-mobile-inline-date-numeric-iso-assistance");
+});
+
 test("mobile transaction expanded row keeps details readable with filter panel open", async ({ page }) => {
   test.setTimeout(120_000);
 
