@@ -7932,7 +7932,7 @@ tr.holding-row-imported {
 
   .transactions-surface-table tbody tr.transaction-row {
     display: grid;
-    --transaction-action-strip-width: 5.88rem;
+    --transaction-action-strip-width: 7.25rem;
     grid-template-columns: 2.1rem 1.78rem minmax(0, 1fr) minmax(3.35rem, max-content) var(--transaction-action-strip-width);
     grid-template-areas:
       "date meta memo amount actions";
@@ -8204,13 +8204,13 @@ tr.holding-row-imported {
 
   .transactions-surface-table tbody tr.transaction-row .transaction-col-actions .inline,
   .holdings-surface-table tbody tr.holding-row .holding-col-actions .inline {
-    justify-content: flex-end;
-    width: auto;
+    justify-content: flex-start;
+    width: 2.75rem;
   }
 
   .transactions-surface-table tbody tr.transaction-row .transaction-col-actions .inline {
     display: grid;
-    grid-template-columns: 1.55rem 1.55rem 2.5rem;
+    grid-template-columns: 1.55rem 1.55rem 2.75rem;
     grid-template-areas:
       "edit delete toggle";
     align-items: center;
@@ -8245,10 +8245,10 @@ tr.holding-row-imported {
   .transactions-surface-table tbody tr.transaction-row .transaction-col-actions .mobile-toggle-btn {
     grid-area: toggle;
     align-self: center;
-    width: 2.5rem;
-    min-width: 2.5rem;
-    min-height: 2.5rem;
-    height: 2.5rem;
+    width: 2.75rem;
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+    height: 2.75rem;
     border-radius: 12px;
   }
 
@@ -8290,11 +8290,37 @@ tr.holding-row-imported {
 
   .holdings-surface-table tbody tr.holding-row {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto 2.5rem;
+    grid-template-columns: minmax(0, 1fr) auto 4.25rem;
     grid-template-areas:
       "name name actions"
       "type market actions";
     row-gap: 0.08rem;
+  }
+
+  .holdings-surface-table tbody tr.holding-row:not(.mobile-row-expanded) td {
+    padding-block: 0.12rem;
+  }
+
+  .holdings-surface-table tbody tr.holding-row:not(.mobile-row-expanded) .holding-col-name {
+    overflow: hidden;
+    overflow-wrap: normal;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .holdings-surface-table tbody tr.holding-row:not(.mobile-row-expanded) .holding-name-text {
+    align-items: center;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+
+  .holdings-surface-table tbody tr.holding-row:not(.mobile-row-expanded) .holding-name-label {
+    display: block;
+    overflow: hidden;
+    overflow-wrap: normal;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    -webkit-line-clamp: unset;
   }
 
   .holdings-surface-table tbody tr.holding-row.mobile-row-expanded {
@@ -8504,17 +8530,19 @@ tr.holding-row-imported {
 
   .holdings-surface-table .holding-col-actions {
     grid-area: actions;
-    justify-self: end;
+    justify-self: start;
     position: relative;
     z-index: 2;
+    width: auto;
+    min-width: 0;
   }
 
   .transactions-surface-table .mobile-toggle-btn,
   .holdings-surface-table .mobile-toggle-btn {
-    width: 2.5rem;
-    min-width: 2.5rem;
-    min-height: 2.5rem;
-    height: 2.5rem;
+    width: 2.75rem;
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+    height: 2.75rem;
     padding: 0;
     border-radius: 14px;
     border-color: var(--transaction-row-border, var(--holding-row-border, rgba(151, 172, 201, 0.55)));

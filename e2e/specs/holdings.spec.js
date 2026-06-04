@@ -745,8 +745,8 @@ test("holdings flow: create, inline edit, delete, responsive", async ({ page }) 
   const holdingToggleBox = await mobileToggleButton.boundingBox();
   expect(holdingToggleBox, "mobile holding detail toggle should have a bounding box").not.toBeNull();
   expect(
-    (holdingToggleBox?.width ?? 0) >= 40 && (holdingToggleBox?.height ?? 0) >= 40,
-    `mobile holding detail toggle should keep a 40px hit target: ${JSON.stringify(holdingToggleBox)}`,
+    (holdingToggleBox?.width ?? 0) >= 44 && (holdingToggleBox?.height ?? 0) >= 44,
+    `mobile holding detail toggle should keep a 44px hit target: ${JSON.stringify(holdingToggleBox)}`,
   ).toBe(true);
   await expectStableButtonPosition(mobileToggleButton, async () => {
     await mobileToggleButton.click({ force: true });

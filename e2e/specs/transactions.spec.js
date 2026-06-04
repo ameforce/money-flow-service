@@ -938,6 +938,23 @@ async function selectTransactionFormCategory(container, category) {
   return { majorSelect, categorySelect };
 }
 
+async function createTransactionCategoryFromQuickPicker(picker, category) {
+  const majorInput = picker.getByTestId("transaction-category-create-major");
+  const minorInput = picker.getByTestId("transaction-category-create-minor");
+  const submitButton = picker.getByTestId("transaction-category-create-submit");
+
+  await expect(majorInput).toBeVisible();
+  await expect(minorInput).toBeVisible();
+  await expect(async () => {
+    await majorInput.fill(category.major);
+    await minorInput.fill(category.minor);
+    await expect(majorInput).toHaveValue(category.major);
+    await expect(minorInput).toHaveValue(category.minor);
+    await expect(submitButton).toBeEnabled();
+  }).toPass({ timeout: 15_000 });
+  await submitButton.click();
+}
+
 async function expectMobileQuickEntryDefaults(page, transactionSheet) {
   const today = currentE2EHistoryDateIso();
   const dateInput = labeledField(transactionSheet, "일자", "input");
@@ -1297,9 +1314,7 @@ test("issue 194: desktop transaction entry creates and applies a missing categor
   const transactionSheet = await openTransactionEntrySheet(page, { width: 1440, height: 900 });
   const picker = transactionSheet.getByTestId("transaction-category-quick-picker");
   await expect(picker).toBeVisible();
-  await picker.getByTestId("transaction-category-create-major").fill(targetCategory.major);
-  await picker.getByTestId("transaction-category-create-minor").fill(targetCategory.minor);
-  await picker.getByTestId("transaction-category-create-submit").click();
+  await createTransactionCategoryFromQuickPicker(picker, targetCategory);
 
   await expect(labeledField(transactionSheet, "카테고리 그룹", "select")).toHaveValue(targetCategory.major);
   const categorySelect = transactionSheet
@@ -1348,9 +1363,7 @@ test("issue 194: inline transaction edit creates and applies a missing category 
 
   const picker = editorRow.getByTestId("transaction-category-quick-picker");
   await expect(picker).toBeVisible();
-  await picker.getByTestId("transaction-category-create-major").fill(targetCategory.major);
-  await picker.getByTestId("transaction-category-create-minor").fill(targetCategory.minor);
-  await picker.getByTestId("transaction-category-create-submit").click();
+  await createTransactionCategoryFromQuickPicker(picker, targetCategory);
 
   await expect(editorRow.getByLabel("카테고리 그룹", { exact: true })).toHaveValue(targetCategory.major);
   await expect(editorRow.getByLabel("카테고리", { exact: true }).locator("option:checked")).toContainText(targetCategory.minor);
@@ -3780,6 +3793,9 @@ test("issue 224: desktop transaction row edit and delete targets stay comfortabl
   await page.setViewportSize({ width: 1280, height: 720 });
   await openTab(page, "거래");
   await page.waitForLoadState("networkidle");
+  await page.locator(".transaction-list-card").first().evaluate((element) => element.scrollIntoView({ block: "start" }));
+  await page.locator("tr.transaction-row", { hasText: memoPrefix }).first().scrollIntoViewIfNeeded();
+  await page.waitForTimeout(150);
 
   const metrics = await page.evaluate(() => {
     const boxOf = (element) => {
@@ -4993,8 +5009,8 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   const transactionToggleBox = await mobileToggleButton.boundingBox();
   expect(transactionToggleBox, "mobile transaction detail toggle should have a bounding box").not.toBeNull();
   expect(
-    (transactionToggleBox?.width ?? 0) >= 40 && (transactionToggleBox?.height ?? 0) >= 40,
-    `mobile transaction detail toggle should keep a 40px hit target: ${JSON.stringify(transactionToggleBox)}`,
+    (transactionToggleBox?.width ?? 0) >= 44 && (transactionToggleBox?.height ?? 0) >= 44,
+    `mobile transaction detail toggle should keep a 44px hit target: ${JSON.stringify(transactionToggleBox)}`,
   ).toBe(true);
   await expectStableButtonPosition(mobileToggleButton, async () => {
     await mobileToggleButton.evaluate((element) => element.click());
