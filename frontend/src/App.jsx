@@ -8216,8 +8216,8 @@ function App() {
             </div>
           {hasPendingInviteToken && (
             <div className="auth-pending-invite" role="status">
-              <strong>가계부 초대 링크를 확인했습니다.</strong>
-              <span>로그인 또는 회원가입 후 협업 탭의 초대 수락 토큰 칸에 자동 입력됩니다.</span>
+              <strong>초대 토큰을 감지했습니다.</strong>
+              <span>아직 초대 유효성은 확인되지 않았습니다. 로그인 또는 회원가입 후 협업 탭에서 초대를 확인하고 수락해 주세요.</span>
             </div>
           )}
           {authMode === "verify" ? (
