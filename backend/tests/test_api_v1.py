@@ -5546,6 +5546,20 @@ def test_import_upload_apply_row_shift_keeps_transaction_idempotency(tmp_path: P
         assert apply_once.status_code == 200, apply_once.text
         apply_once_payload = apply_once.json()
         assert int(apply_once_payload.get("applied_transactions") or 0) > 0
+        applied_transaction_refs = apply_once_payload.get("applied_transaction_refs")
+        assert isinstance(applied_transaction_refs, list)
+        assert len(applied_transaction_refs) == int(apply_once_payload.get("applied_transactions") or 0)
+        assert all(str(item.get("id") or "").strip() for item in applied_transaction_refs)
+        assert all(str(item.get("occurred_on") or "").strip() for item in applied_transaction_refs)
+
+        applied_holding_refs = apply_once_payload.get("applied_holding_refs")
+        assert isinstance(applied_holding_refs, list)
+        assert len(applied_holding_refs) == int(apply_once_payload.get("applied_holdings_added") or 0) + int(
+            apply_once_payload.get("applied_holdings_updated") or 0
+        )
+        assert all(str(item.get("id") or "").strip() for item in applied_holding_refs)
+        assert all(str(item.get("name") or "").strip() for item in applied_holding_refs)
+        assert all(item.get("action") in {"added", "updated"} for item in applied_holding_refs)
 
         with SessionLocal() as db:
             tx_count_before = int(
@@ -5918,11 +5932,13 @@ def test_import_non_member_owner_names_do_not_collapse_to_same_holding() -> None
     ]
     importer = WorkbookImporter()
     with SessionLocal() as db:
-        added, updated, issues = importer._apply_holdings(db, household_id, rows)
+        added, updated, issues, refs = importer._apply_holdings(db, household_id, rows)
         db.commit()
 
         assert added == 2
         assert updated == 0
+        assert len(refs) == 2
+        assert {item.action for item in refs} == {"added"}
 
         imported = db.scalars(
             select(Holding).where(
@@ -6016,16 +6032,23 @@ def test_import_owner_resolution_preloads_household_members_once_per_apply_path(
     event.listen(engine, "before_cursor_execute", _capture_member_lookup)
     try:
         with SessionLocal() as db:
-            tx_added, tx_skipped = importer._apply_transactions(db, household_id, {}, tx_rows)
-            holding_added, holding_updated, issues = importer._apply_holdings(db, household_id, holding_rows)
+            tx_added, tx_skipped, tx_refs = importer._apply_transactions(db, household_id, {}, tx_rows)
+            holding_added, holding_updated, issues, holding_refs = importer._apply_holdings(db, household_id, holding_rows)
             db.rollback()
     finally:
         event.remove(engine, "before_cursor_execute", _capture_member_lookup)
 
     assert tx_added == len(tx_rows)
     assert tx_skipped == 0
+    assert len(tx_refs) == len(tx_rows)
+    assert all(str(item.id or "").strip() for item in tx_refs)
+    assert {item.memo for item in tx_refs} == {row.memo for row in tx_rows}
     assert holding_added == len(holding_rows)
     assert holding_updated == 0
+    assert len(holding_refs) == len(holding_rows)
+    assert all(str(item.id or "").strip() for item in holding_refs)
+    assert {item.name for item in holding_refs} == {row.name for row in holding_rows}
+    assert {item.action for item in holding_refs} == {"added"}
     assert len(member_lookup_selects) == 2
     issue_codes = {issue.code for issue in issues}
     assert "HOLDING_OWNER_NOT_MEMBER" in issue_codes

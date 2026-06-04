@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.db.models import AssetType, Category, FlowType, Holding, Household, HouseholdMember, Transaction, User
-from app.schemas import ImportIssue, ImportReport
+from app.schemas import ImportAppliedHoldingRef, ImportAppliedTransactionRef, ImportIssue, ImportReport
 
 
 MONTH_SHEET = re.compile(r"^(?:[1-9]|1[0-2])$")
@@ -83,16 +83,20 @@ class WorkbookImporter:
             skipped_transactions = 0
             applied_holdings_added = 0
             applied_holdings_updated = 0
+            applied_transaction_refs: list[ImportAppliedTransactionRef] = []
+            applied_holding_refs: list[ImportAppliedHoldingRef] = []
 
             if mode == "apply":
                 category_map, inserted = self._upsert_categories(db, household.id, categories)
                 applied_categories += inserted
-                tx_added, tx_skipped = self._apply_transactions(db, household.id, category_map, tx_rows)
+                tx_added, tx_skipped, tx_refs = self._apply_transactions(db, household.id, category_map, tx_rows)
                 applied_transactions += tx_added
                 skipped_transactions += tx_skipped
-                h_added, h_updated, h_issues = self._apply_holdings(db, household.id, holding_rows)
+                applied_transaction_refs.extend(tx_refs)
+                h_added, h_updated, h_issues, h_refs = self._apply_holdings(db, household.id, holding_rows)
                 applied_holdings_added += h_added
                 applied_holdings_updated += h_updated
+                applied_holding_refs.extend(h_refs)
                 holding_issues.extend(h_issues)
                 if commit:
                     db.commit()
@@ -114,6 +118,8 @@ class WorkbookImporter:
                 applied_holdings_added=applied_holdings_added,
                 applied_holdings_updated=applied_holdings_updated,
                 skipped_transactions=skipped_transactions,
+                applied_transaction_refs=applied_transaction_refs,
+                applied_holding_refs=applied_holding_refs,
                 issues=issues,
             )
         finally:
@@ -523,7 +529,7 @@ class WorkbookImporter:
         household_id: str,
         category_map: dict[tuple[FlowType, str, str], Category],
         rows: list[ParsedTransaction],
-    ) -> tuple[int, int]:
+    ) -> tuple[int, int, list[ImportAppliedTransactionRef]]:
         owner_lookup = self._load_household_member_owner_lookup(db, household_id)
         existing_transactions = db.scalars(
             select(Transaction).where(Transaction.household_id == household_id)
@@ -561,6 +567,7 @@ class WorkbookImporter:
             existing_hash_counts[dedupe_hash] = int(existing_hash_counts.get(dedupe_hash, 0)) + 1
         added = 0
         skipped = 0
+        refs: list[ImportAppliedTransactionRef] = []
         for row in rows:
             existing_same_hash = int(existing_hash_counts.get(row.dedupe_hash, 0))
             if row.source_ref in existing_sources or row.dedupe_ordinal <= existing_same_hash:
@@ -581,26 +588,39 @@ class WorkbookImporter:
                 category_map[key] = category
 
             owner_user_id, _, _ = self._resolve_owner_from_lookup(owner_lookup, row.owner_name)
-            db.add(
-                Transaction(
-                    household_id=household_id,
-                    category_id=category.id,
-                    flow_type=row.flow_type,
-                    occurred_on=row.occurred_on,
-                    amount=row.amount,
-                    currency="KRW",
-                    memo=row.memo,
-                    owner_user_id=owner_user_id,
-                    owner_name=row.owner_name,
-                    source_ref=row.source_ref,
+            entity = Transaction(
+                household_id=household_id,
+                category_id=category.id,
+                flow_type=row.flow_type,
+                occurred_on=row.occurred_on,
+                amount=row.amount,
+                currency="KRW",
+                memo=row.memo,
+                owner_user_id=owner_user_id,
+                owner_name=row.owner_name,
+                source_ref=row.source_ref,
+            )
+            db.add(entity)
+            db.flush()
+            refs.append(
+                ImportAppliedTransactionRef(
+                    id=str(entity.id),
+                    occurred_on=entity.occurred_on,
+                    memo=entity.memo or "",
+                    source_ref=entity.source_ref,
                 )
             )
             existing_sources.add(row.source_ref)
             existing_hash_counts[row.dedupe_hash] = max(existing_same_hash, row.dedupe_ordinal)
             added += 1
-        return added, skipped
+        return added, skipped, refs
 
-    def _apply_holdings(self, db: Session, household_id: str, rows: list[ParsedHolding]) -> tuple[int, int, list[ImportIssue]]:
+    def _apply_holdings(
+        self,
+        db: Session,
+        household_id: str,
+        rows: list[ParsedHolding],
+    ) -> tuple[int, int, list[ImportIssue], list[ImportAppliedHoldingRef]]:
         owner_lookup = self._load_household_member_owner_lookup(db, household_id)
         existing = db.scalars(select(Holding).where(Holding.household_id == household_id)).all()
         invalid_owner_names: set[str] = set()
@@ -634,6 +654,7 @@ class WorkbookImporter:
         }
         added = 0
         updated = 0
+        refs: list[ImportAppliedHoldingRef] = []
         for row in rows:
             owner_user_id, normalized_owner = resolve_owner(row.owner_name)
             normalized_account = self._normalize_holder_text(row.account_name)
@@ -664,9 +685,19 @@ class WorkbookImporter:
                     source_ref=row.source_ref,
                 )
                 db.add(entity)
+                db.flush()
                 by_key[key] = entity
                 if row.source_ref:
                     by_source_ref[row.source_ref] = entity
+                refs.append(
+                    ImportAppliedHoldingRef(
+                        id=str(entity.id),
+                        name=entity.name,
+                        category=entity.category,
+                        source_ref=entity.source_ref,
+                        action="added",
+                    )
+                )
                 added += 1
                 continue
 
@@ -704,6 +735,15 @@ class WorkbookImporter:
                     changed = True
             if changed:
                 entity.version = self._normalize_version(entity.version) + 1
+                refs.append(
+                    ImportAppliedHoldingRef(
+                        id=str(entity.id),
+                        name=entity.name,
+                        category=entity.category,
+                        source_ref=entity.source_ref,
+                        action="updated",
+                    )
+                )
                 updated += 1
             new_key = self._holding_key(
                 entity.asset_type,
@@ -735,7 +775,7 @@ class WorkbookImporter:
                     detail={"owner_name": owner_name},
                 )
             )
-        return added, updated, apply_issues
+        return added, updated, apply_issues, refs
 
     @staticmethod
     def _holding_key(

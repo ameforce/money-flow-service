@@ -3936,6 +3936,54 @@ thead {
   overflow-wrap: anywhere;
 }
 
+.import-post-apply-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.7rem;
+  align-items: center;
+  min-width: 0;
+  border: 1px solid #bfd7ff;
+  border-radius: 8px;
+  padding: 0.75rem;
+  background: #f5f9ff;
+}
+
+.import-post-apply-copy {
+  display: grid;
+  gap: 0.18rem;
+  min-width: 0;
+  color: #203147;
+  font-size: 0.84rem;
+}
+
+.import-post-apply-copy strong {
+  color: #173a67;
+}
+
+.import-post-apply-copy span {
+  overflow-wrap: anywhere;
+  color: #53687f;
+  font-weight: 700;
+}
+
+.import-post-apply-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  justify-content: flex-end;
+}
+
+.import-post-apply-buttons button {
+  min-height: 2.35rem;
+  white-space: nowrap;
+}
+
+tr.transaction-row-imported,
+tr.holding-row-imported {
+  outline: 2px solid #2563eb;
+  outline-offset: -2px;
+}
+
 .import-list-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
@@ -5889,6 +5937,20 @@ thead {
 
   .import-action-row button {
     flex: 1 1 auto;
+    width: 100%;
+  }
+
+  .import-post-apply-actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .import-post-apply-buttons {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    justify-content: stretch;
+  }
+
+  .import-post-apply-buttons button {
     width: 100%;
   }
 
