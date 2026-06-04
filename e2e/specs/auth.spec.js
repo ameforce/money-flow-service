@@ -128,6 +128,38 @@ test("auth forms show Korean required-field validation", async ({ page }) => {
   await expect(page.getByText("본명을 입력해 주세요.")).toBeVisible();
 });
 
+test("auth signup switch after failed login clears password fields", async ({ page }) => {
+  await page.route("**/api/v1/auth/login", async (route) => {
+    await route.fulfill({
+      status: 401,
+      contentType: "application/json",
+      body: JSON.stringify({
+        error: {
+          code: "AUTH_INVALID_CREDENTIALS",
+          message: "이메일 또는 비밀번호가 올바르지 않습니다.",
+        },
+      }),
+    });
+  });
+
+  await page.goto("/");
+  const failedEmail = `${unique("issue-205-login")}@example.com`;
+  await page.getByLabel("이메일", { exact: true }).fill(failedEmail);
+  await page.getByLabel("비밀번호", { exact: true }).fill("WrongPassword1234");
+  await capture(page, "issue-205-login-filled");
+
+  await page.getByRole("button", { name: "로그인하기" }).click();
+  await expect(page.getByText("로그인에 실패했습니다.")).toBeVisible();
+  await capture(page, "issue-205-login-failed");
+
+  await page.getByRole("button", { name: "회원가입", exact: true }).click();
+  await expect(page.locator("form.auth-card-register")).toBeVisible();
+  await expect(page.getByLabel("이메일", { exact: true })).toHaveValue(failedEmail);
+  await expect(page.getByLabel("비밀번호", { exact: true })).toHaveValue("");
+  await expect(page.getByLabel("비밀번호 확인")).toHaveValue("");
+  await capture(page, "issue-205-signup-password-cleared");
+});
+
 test("auth verification submit waits for a link token or 6-digit code", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 568 });
   await page.route("**/api/v1/auth/register", async (route) => {
