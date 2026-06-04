@@ -1834,6 +1834,7 @@ function App() {
   const pendingTransactionHistoryScrollAnchorRef = useRef(null);
   const roleNoticeStateRef = useRef({ householdId: "", role: "" });
   const receivedInviteIdsRef = useRef(new Set());
+  const activeDeepLinkFlowRef = useRef({ type: "", token: "" });
   const confirmResolveRef = useRef(null);
   const [confirmDialog, setConfirmDialog] = useState({
     open: false,
@@ -3825,6 +3826,9 @@ function App() {
         setMessage("");
       }
       if (verifyToken) {
+        activeDeepLinkFlowRef.current = { type: "verify", token: verifyToken };
+        setInviteAcceptToken("");
+        setInviteAcceptanceNotice(null);
         setAuthMode("verify");
         setVerifyForm((prev) => ({
           ...prev,
@@ -3839,9 +3843,19 @@ function App() {
         verifyEmailTokenFromLink(verifyToken).catch(() => undefined);
         params.delete("verify_token");
         hashParams.delete("verify_token");
-      }
-      if (inviteToken) {
+        hashParams.delete("invite_token");
+      } else if (inviteToken) {
+        activeDeepLinkFlowRef.current = { type: "invite", token: inviteToken };
+        autoVerifyTokenRef.current = "";
+        setLoading(false);
+        setAuthMode("login");
+        setVerifyForm((prev) => ({
+          ...createVerifyForm(),
+          email: prev.email || getSavedEmail() || "",
+        }));
+        setVerificationMeta(createVerificationMeta());
         setInviteAcceptToken(inviteToken);
+        hashParams.delete("verify_token");
         hashParams.delete("invite_token");
       }
       if (hadLegacyQueryTokens) {
@@ -4605,6 +4619,8 @@ function App() {
     if (!tokenText || autoVerifyTokenRef.current === tokenText) {
       return;
     }
+    const isCurrentVerifyDeepLink = () =>
+      activeDeepLinkFlowRef.current.type === "verify" && activeDeepLinkFlowRef.current.token === tokenText;
     autoVerifyTokenRef.current = tokenText;
     setLoading(true);
     setMessage("인증 링크를 확인하고 있습니다...");
@@ -4617,11 +4633,17 @@ function App() {
           remember_me: keepSignedIn,
         }),
       });
+      if (!isCurrentVerifyDeepLink()) {
+        return;
+      }
       await finishAuthFlow(
         payload,
         uiGuideMessage("회원가입이 완료되었습니다.", "Money Flow Service로 바로 이동했습니다.")
       );
     } catch (error) {
+      if (!isCurrentVerifyDeepLink()) {
+        return;
+      }
       autoVerifyTokenRef.current = "";
       setAuthMode("verify");
       if (isRegistrationPasswordSetupRequired(error)) {
@@ -4639,7 +4661,9 @@ function App() {
       }
       setMessage(formatAuthError(error, "verify"));
     } finally {
-      setLoading(false);
+      if (isCurrentVerifyDeepLink()) {
+        setLoading(false);
+      }
     }
   }
 

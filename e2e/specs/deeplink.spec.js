@@ -113,6 +113,45 @@ test("household invite hash link refreshes after rejected query token in same ta
   await capture(page, "deeplink-invite-token-after-query-reject-result");
 });
 
+test("email verification deep-link clears stale invite token in same tab", async ({ page }) => {
+  test.setTimeout(60_000);
+
+  await page.goto("/#invite_token=invite-hash-token");
+  await expect(page.getByText(PENDING_INVITE_NEUTRAL_TITLE, { exact: true })).toBeVisible();
+  await expect(page.getByLabel("감지된 초대 토큰")).toHaveValue("invite-hash-token");
+  await expect.poll(() => page.url()).not.toContain("invite_token=invite-hash-token");
+
+  await page.goto("/#verify_token=badverify123456");
+  await capture(page, "issue-209-verify-after-invite-entry");
+  await expect(page.getByRole("button", { name: "이메일 인증 완료" })).toBeVisible();
+  await expect(page.getByText(/인증 토큰이 유효하지 않습니다|인증 링크를 바로 완료할 수 없습니다/)).toBeVisible();
+  await expect(page.getByText("인증 후 협업 탭에서 초대를 수락할 수 있습니다.", { exact: true })).toHaveCount(0);
+  await expect(page.getByText(PENDING_INVITE_NEUTRAL_TITLE, { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel("감지된 초대 토큰")).toHaveCount(0);
+  await expect.poll(() => page.url()).not.toContain("verify_token=badverify123456");
+  await capture(page, "issue-209-verify-clears-stale-invite");
+});
+
+test("household invite deep-link clears stale verification mode in same tab", async ({ page }) => {
+  test.setTimeout(60_000);
+
+  await page.goto("/#verify_token=badverify123456");
+  await expect(page.getByRole("button", { name: "이메일 인증 완료" })).toBeVisible();
+  await expect(page.getByText(/인증 토큰이 유효하지 않습니다|인증 링크를 바로 완료할 수 없습니다/)).toBeVisible();
+  await expect.poll(() => page.url()).not.toContain("verify_token=badverify123456");
+
+  await page.goto("/#invite_token=invite-hash-token");
+  await capture(page, "issue-210-invite-after-verify-entry");
+  await expect(page.getByText(PENDING_INVITE_NEUTRAL_TITLE, { exact: true })).toBeVisible();
+  await expect(page.getByText(PENDING_INVITE_UNVALIDATED_COPY, { exact: true })).toBeVisible();
+  await expect(page.getByLabel("감지된 초대 토큰")).toHaveValue("invite-hash-token");
+  await expect(page.getByRole("button", { name: "로그인하기" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "이메일 인증 완료" })).toHaveCount(0);
+  await expect(page.getByText("인증 토큰이 유효하지 않습니다.", { exact: true })).toHaveCount(0);
+  await expect.poll(() => page.url()).not.toContain("invite_token=invite-hash-token");
+  await capture(page, "issue-210-invite-clears-stale-verification");
+});
+
 test("tab query overrides the previously saved active tab", async ({ page }) => {
   test.setTimeout(90_000);
 
