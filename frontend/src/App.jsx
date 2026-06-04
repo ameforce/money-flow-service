@@ -2300,6 +2300,7 @@ function App() {
   const transactionListHeadingRef = useRef(null);
   const transactionListCardRef = useRef(null);
   const transactionStickyToolbarRef = useRef(null);
+  const transactionDesktopAddActionRef = useRef(null);
   const transactionFabRef = useRef(null);
   const transactionSheetScrollYRef = useRef(0);
   const holdingSheetScrollYRef = useRef(0);
@@ -3727,10 +3728,11 @@ function App() {
     clearTransactionQuickFocusScrollTimers();
     window.setTimeout(() => {
       window.scrollTo({ top: restoreScrollY, behavior: "auto" });
-      transactionFabRef.current?.focus?.({ preventScroll: true });
+      const trigger = isCompactViewport ? transactionFabRef.current : transactionDesktopAddActionRef.current ?? transactionFabRef.current;
+      trigger?.focus?.({ preventScroll: true });
     }, 0);
     return true;
-  }, [clearTransactionQuickFocusScrollTimers, isTransactionEntryDraftDirty, requestConfirmDialog, txEntrySheetStep]);
+  }, [clearTransactionQuickFocusScrollTimers, isCompactViewport, isTransactionEntryDraftDirty, requestConfirmDialog, txEntrySheetStep]);
 
   useEffect(() => {
     if (!showTransactionForm) {
@@ -10373,6 +10375,19 @@ function App() {
                 <p className="table-summary surface-count-summary">
                   {transactionHistoryInitialized ? "불러온" : "총"} {transactionLedgerItems.length}건 중 {sortedTransactions.length}건 표시
                 </p>
+                {!isCompactViewport && !txInlineEdit && (
+                  <button
+                    ref={transactionDesktopAddActionRef}
+                    type="button"
+                    className="primary surface-heading-action transaction-desktop-add-action"
+                    data-testid="transactions-desktop-add-action"
+                    disabled={loading}
+                    onClick={() => openTransactionEntrySheet("form")}
+                  >
+                    <span aria-hidden="true">＋</span>
+                    <span>거래 추가</span>
+                  </button>
+                )}
               </div>
               <div className="surface-control-strip" aria-label="거래 목록 상태">
                 <span className="surface-chip surface-chip-strong">{transactionSortSummary}</span>
@@ -10618,7 +10633,7 @@ function App() {
               toCategoryMinorLabel={toCategoryMinorLabel}
             />
           </article>
-          {!txInlineEdit && (
+          {isCompactViewport && !txInlineEdit && (
             <button
               ref={transactionFabRef}
               type="button"
