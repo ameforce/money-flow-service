@@ -67,6 +67,7 @@ export function TransactionSurfaceTable({
   txInlineCategoryMajorOptions,
   txInlineCategoryMinorOptions,
   setTxInlineEdit,
+  createTxInlineCategory,
   categoryById,
   renderCategoryCell,
   FLOW_TYPE_LABELS,
@@ -80,6 +81,7 @@ export function TransactionSurfaceTable({
   expandedTransactionRows,
   toggleExpandedTransactionRow,
   canEditRecords,
+  canEditHouseholdData = false,
   loading,
   closeTxInlineEdit,
   removeTx,
@@ -907,6 +909,8 @@ export function TransactionSurfaceTable({
                           quickOptions={txInlineCategoryQuickChips}
                           selectedCategoryId={editForm.category_id}
                           disabled={!canEditRecords}
+                          allowCreate={canEditHouseholdData}
+                          createDisabled={!canEditHouseholdData || loading}
                           onSelect={(categoryId, category) =>
                             setTxInlineEdit({
                               ...editForm,
@@ -914,6 +918,7 @@ export function TransactionSurfaceTable({
                               category_major: category ? String(category.major || "") : "",
                             })
                           }
+                          onCreate={createTxInlineCategory}
                           title="카테고리 빠른 선택"
                           rootClassName="transaction-category-picker-inline"
                           toCategoryMajorLabel={toCategoryMajorLabel}

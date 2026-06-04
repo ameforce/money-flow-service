@@ -1226,6 +1226,81 @@ test("issue 193: inline transaction edit searches category in one step", async (
   await capture(page, "issue-193-inline-category-one-step-edit");
 });
 
+test("issue 194: desktop transaction entry creates and applies a missing category inline", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("tx-cat-create-entry")}@example.com`;
+  const displayName = unique("tx-cat-create-entry-name");
+  const targetCategory = {
+    major: unique("즉시분류"),
+    minor: unique("즉시항목"),
+  };
+
+  await registerAndVerify(page, { email, displayName });
+
+  const transactionSheet = await openTransactionEntrySheet(page, { width: 1440, height: 900 });
+  const picker = transactionSheet.getByTestId("transaction-category-quick-picker");
+  await expect(picker).toBeVisible();
+  await picker.getByTestId("transaction-category-create-major").fill(targetCategory.major);
+  await picker.getByTestId("transaction-category-create-minor").fill(targetCategory.minor);
+  await picker.getByTestId("transaction-category-create-submit").click();
+
+  await expect(labeledField(transactionSheet, "카테고리 그룹", "select")).toHaveValue(targetCategory.major);
+  const categorySelect = transactionSheet
+    .locator("label")
+    .filter({ hasText: /^\s*카테고리\s*\(/ })
+    .locator("select")
+    .first();
+  await expect(categorySelect).not.toHaveValue("");
+  await expect(categorySelect.locator("option:checked")).toContainText(targetCategory.minor);
+  await capture(page, "issue-194-desktop-inline-category-create");
+});
+
+test("issue 194: inline transaction edit creates and applies a missing category inline", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("tx-cat-create-inline")}@example.com`;
+  const displayName = unique("tx-cat-create-inline-name");
+  const memo = unique("tx-cat-create-inline-memo");
+  const sourceCategory = {
+    major: unique("기존즉시분류"),
+    minor: unique("기존즉시항목"),
+  };
+  const targetCategory = {
+    major: unique("수정즉시분류"),
+    minor: unique("수정즉시항목"),
+  };
+
+  await registerAndVerify(page, { email, displayName });
+  const source = await createCategoryViaApi(page, sourceCategory);
+  await createTransactionViaApi(page, {
+    memo,
+    amount: "12000",
+    categoryId: source.id,
+    occurredOn: currentE2EHistoryDateIso(),
+  });
+  await page.reload();
+  await page.waitForLoadState("networkidle");
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openTab(page, "거래");
+
+  const row = page.locator("tr.transaction-row", { hasText: memo }).first();
+  await expect(row).toBeVisible({ timeout: 20_000 });
+  await clickDesktopTransactionRowAction(row, "수정");
+  const editorRow = page.locator("tr.transaction-inline-editor-row").first();
+  await expect(editorRow).toBeVisible();
+
+  const picker = editorRow.getByTestId("transaction-category-quick-picker");
+  await expect(picker).toBeVisible();
+  await picker.getByTestId("transaction-category-create-major").fill(targetCategory.major);
+  await picker.getByTestId("transaction-category-create-minor").fill(targetCategory.minor);
+  await picker.getByTestId("transaction-category-create-submit").click();
+
+  await expect(editorRow.getByLabel("카테고리 그룹", { exact: true })).toHaveValue(targetCategory.major);
+  await expect(editorRow.getByLabel("카테고리", { exact: true }).locator("option:checked")).toContainText(targetCategory.minor);
+  await capture(page, "issue-194-inline-category-create");
+});
+
 test("mobile quick entry keeps repeat context and returns focus to amount", async ({ page }) => {
   test.setTimeout(180_000);
 

@@ -17,11 +17,19 @@ export function TransactionCategoryQuickPicker({
   quickOptions = [],
   selectedCategoryId = "",
   disabled = false,
+  allowCreate = false,
+  createDisabled = false,
   onSelect,
+  onCreate,
   title = "추천 카테고리",
   selectedEmptyText = "카테고리를 검색하거나 추천 항목을 선택하세요.",
   searchLabel = "카테고리 검색",
   searchPlaceholder = "카테고리 검색",
+  createMajorLabel = "새 대분류",
+  createMajorPlaceholder = "예: 식비",
+  createMinorLabel = "새 중분류",
+  createMinorPlaceholder = "예: 점심",
+  createButtonLabel = "추가",
   maxOptions = 8,
   rootClassName = "",
   titleClassName = "transaction-category-picker-title",
@@ -32,7 +40,14 @@ export function TransactionCategoryQuickPicker({
   toCategoryMinorLabel = (value) => normalizeText(value),
 }) {
   const [query, setQuery] = useState("");
+  const [createMajor, setCreateMajor] = useState("");
+  const [createMinor, setCreateMinor] = useState("");
+  const [createPending, setCreatePending] = useState(false);
   const selectedId = String(selectedCategoryId || "").trim();
+  const normalizedCreateMajor = normalizeText(createMajor);
+  const normalizedCreateMinor = normalizeText(createMinor);
+  const isCreateDisabled =
+    disabled || createDisabled || createPending || !normalizedCreateMajor || !normalizedCreateMinor || typeof onCreate !== "function";
   const categoryMap = useMemo(
     () => new Map(categories.map((category) => [categoryIdOf(category), category]).filter(([id]) => id)),
     [categories]
@@ -122,6 +137,34 @@ export function TransactionCategoryQuickPicker({
 
   const rootClass = ["transaction-category-picker", rootClassName].filter(Boolean).join(" ");
 
+  const handleCreate = async () => {
+    if (isCreateDisabled) {
+      return;
+    }
+    setCreatePending(true);
+    try {
+      const result = await onCreate?.({
+        major: normalizedCreateMajor,
+        minor: normalizedCreateMinor,
+      });
+      if (result !== false) {
+        setCreateMajor("");
+        setCreateMinor("");
+        setQuery("");
+      }
+    } finally {
+      setCreatePending(false);
+    }
+  };
+
+  const handleCreateInputKeyDown = (event) => {
+    if (event.key !== "Enter" || event.isComposing) {
+      return;
+    }
+    event.preventDefault();
+    void handleCreate();
+  };
+
   return (
     <section className={rootClass} data-testid="transaction-category-quick-picker" aria-label={title}>
       <div className={titleClassName}>
@@ -145,6 +188,45 @@ export function TransactionCategoryQuickPicker({
           }}
         />
       </label>
+      {allowCreate && (
+        <div className="transaction-category-create" data-testid="transaction-category-create">
+          <label>
+            <span>{createMajorLabel}</span>
+            <input
+              type="text"
+              data-testid="transaction-category-create-major"
+              data-skip-enter-flow="true"
+              value={createMajor}
+              placeholder={createMajorPlaceholder}
+              disabled={disabled || createDisabled || createPending}
+              onChange={(event) => setCreateMajor(event.target.value)}
+              onKeyDown={handleCreateInputKeyDown}
+            />
+          </label>
+          <label>
+            <span>{createMinorLabel}</span>
+            <input
+              type="text"
+              data-testid="transaction-category-create-minor"
+              data-skip-enter-flow="true"
+              value={createMinor}
+              placeholder={createMinorPlaceholder}
+              disabled={disabled || createDisabled || createPending}
+              onChange={(event) => setCreateMinor(event.target.value)}
+              onKeyDown={handleCreateInputKeyDown}
+            />
+          </label>
+          <button
+            type="button"
+            className="secondary transaction-category-create-submit"
+            data-testid="transaction-category-create-submit"
+            disabled={isCreateDisabled}
+            onClick={() => void handleCreate()}
+          >
+            {createPending ? "추가 중" : createButtonLabel}
+          </button>
+        </div>
+      )}
       <div className={optionsClassName}>
         {visibleOptions.length > 0 ? (
           visibleOptions.map((option) => {

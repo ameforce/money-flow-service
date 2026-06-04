@@ -2762,6 +2762,38 @@ button.danger:active:not(:disabled) {
   min-width: 0;
 }
 
+.transaction-category-create {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 0.38rem;
+  min-width: 0;
+  padding: 0.5rem;
+  border: 1px solid #d7e2f1;
+  border-radius: 8px;
+  background: #f8fbff;
+}
+
+.transaction-category-create label {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+  margin: 0;
+  color: #385272;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.transaction-category-create input {
+  width: 100%;
+  min-width: 0;
+}
+
+.transaction-category-create-submit {
+  min-height: 2.35rem;
+  white-space: nowrap;
+}
+
 .transaction-category-picker-options {
   display: flex;
   flex-wrap: wrap;
@@ -5746,6 +5778,14 @@ tr.holding-row-imported {
   }
 
   .transaction-quick-category-chip small {
+    width: 100%;
+  }
+
+  .transaction-category-create {
+    grid-template-columns: 1fr;
+  }
+
+  .transaction-category-create-submit {
     width: 100%;
   }
 
