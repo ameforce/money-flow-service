@@ -958,6 +958,85 @@ test("issue 218: mobile holding valuation is numeric and reachable before option
   await expect(valuationInput).toHaveAttribute("inputmode", "numeric");
 });
 
+test("issue 238: mobile holding entry opens as a focused sheet with visible submit path", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("issue-238-mobile-holding-sheet")}@example.com`;
+  const displayName = unique("issue-238-mobile-holding-sheet-name");
+
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openTab(page, "자산");
+  await page.waitForLoadState("networkidle");
+
+  await page.getByTestId("holdings-fab").click();
+  const holdingSheet = page.getByTestId("holding-entry-sheet");
+  await expect(holdingSheet).toBeVisible();
+  await expect(labeledField(holdingSheet, "자산명", "textarea")).toBeVisible();
+  await capture(page, "issue-238-mobile-holding-entry-focused-sheet");
+
+  const metrics = await page.evaluate(() => {
+    const sheet = document.querySelector("[data-testid='holding-entry-sheet']");
+    const backdrop = document.querySelector("[data-testid='holding-entry-sheet-backdrop']");
+    const actions = sheet?.querySelector(".holdings-form-actions");
+    const submitButton = sheet?.querySelector("button[type='submit']");
+    const sheetBox = sheet?.getBoundingClientRect();
+    const backdropBox = backdrop?.getBoundingClientRect();
+    const actionsBox = actions?.getBoundingClientRect();
+    const submitBox = submitButton?.getBoundingClientRect();
+    const backdropStyle = backdrop ? getComputedStyle(backdrop) : null;
+    const backdropHit = document.elementFromPoint(
+      Math.max(2, Math.floor((sheetBox?.left ?? 12) / 2)),
+      Math.floor(window.innerHeight / 2),
+    );
+
+    return {
+      viewportHeight: window.innerHeight,
+      viewportWidth: window.innerWidth,
+      sheetTop: sheetBox?.top ?? Number.POSITIVE_INFINITY,
+      sheetBottom: sheetBox?.bottom ?? Number.POSITIVE_INFINITY,
+      sheetHeight: sheetBox?.height ?? 0,
+      backdropVisible: Boolean(
+        backdrop &&
+          backdropBox &&
+          backdropBox.width >= window.innerWidth - 1 &&
+          backdropBox.height >= window.innerHeight - 1 &&
+          backdropStyle?.pointerEvents !== "none" &&
+          backdropStyle?.backgroundColor !== "rgba(0, 0, 0, 0)",
+      ),
+      backdropBlocksBackground: Boolean(backdropHit?.closest("[data-testid='holding-entry-sheet-backdrop']")),
+      submitVisibleInViewport: Boolean(
+        submitBox &&
+          submitBox.top >= 0 &&
+          submitBox.bottom <= window.innerHeight &&
+          submitBox.width >= 44 &&
+          submitBox.height >= 40,
+      ),
+      actionsBottom: actionsBox?.bottom ?? Number.POSITIVE_INFINITY,
+    };
+  });
+
+  expect(metrics.backdropVisible, `focused sheet should dim and block the list: ${JSON.stringify(metrics)}`).toBe(true);
+  expect(metrics.backdropBlocksBackground, `background list should not remain interactive: ${JSON.stringify(metrics)}`).toBe(
+    true,
+  );
+  expect(metrics.sheetTop, `sheet should take focus instead of starting inside the list: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(
+    32,
+  );
+  expect(metrics.sheetBottom, `sheet should stay inside the viewport: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(
+    metrics.viewportHeight + 1,
+  );
+  expect(metrics.sheetHeight, `sheet should use most of the viewport: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(
+    metrics.viewportHeight * 0.86,
+  );
+  expect(metrics.submitVisibleInViewport, `submit action should be reachable without hunting: ${JSON.stringify(metrics)}`).toBe(
+    true,
+  );
+  expect(metrics.actionsBottom, `actions should remain in the first viewport: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(
+    metrics.viewportHeight + 1,
+  );
+});
+
 test("mobile holding entry sheet stays within the viewport", async ({ page }) => {
   test.setTimeout(120_000);
 

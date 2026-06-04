@@ -10899,6 +10899,14 @@ function App() {
 
       {tab === "holdings" && (
         <section className="grid-1">
+          {isCompactViewport && showHoldingForm && (
+            <div
+              className="holding-entry-sheet-backdrop"
+              data-testid="holding-entry-sheet-backdrop"
+              aria-hidden="true"
+              onClick={closeHoldingEntrySheet}
+            />
+          )}
           <article
             className={`card surface-entry-card holding-entry-card${isCompactViewport && showHoldingForm ? " holding-entry-sheet" : ""}`}
             data-testid={isCompactViewport && showHoldingForm ? "holding-entry-sheet" : undefined}
@@ -10932,209 +10940,211 @@ function App() {
             {showHoldingForm && (
               <div className="holdings-form-container">
               <form className="holdings-form-grid" onSubmit={submitHolding} noValidate>
-                <label>
-                  유형
-                  <select
-                    value={holdingForm.type_key}
-                    disabled={!canEditRecords}
-                    onChange={(event) => {
-                      setHoldingDraftTouched(true);
-                      const nextTypeKey = normalizeHoldingTypeKey(event.target.value || "");
-                      const nextType = holdingTypeByKey.get(nextTypeKey) || holdingTypeOptions[0] || DEFAULT_HOLDING_TYPES[0];
-                      const previousType =
-                        holdingTypeByKey.get(normalizeHoldingTypeKey(holdingForm.type_key || holdingForm.asset_type || "")) ||
-                        holdingFormType;
-                      if (shouldExplainHoldingValueReset(holdingForm.average_cost, previousType, nextType)) {
-                        setMessage(
-                          uiGuideMessage(
-                            "자산 유형을 변경했습니다.",
-                            "평가금액과 평균단가의 의미가 달라 금액 입력값을 비웠습니다."
-                          )
-                        );
-                      }
-                      setHoldingForm((prev) => ({
-                        ...createHoldingForm(nextType.asset_type || "other", nextType.key, nextType.label),
-                        name: prev.name,
-                        category: resolveHoldingCategoryOnTypeChange(
-                          prev.category,
-                          previousType,
-                          nextType
-                        ),
-                        owner_user_id: prev.owner_user_id,
-                        owner_name: prev.owner_name,
-                        account_name: prev.account_name,
-                        average_cost: nextAverageCostForHoldingTypeChange(prev.average_cost, previousType, nextType),
-                      }));
-                    }}
-                  >
-                    {holdingTypeOptions.map((item) => (
-                      <option key={item.key} value={item.key}>
-                        {item.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  자산명
-                  <textarea
-                    rows={2}
-                    ref={holdingNameInputRef}
-                    value={holdingForm.name}
-                    onChange={(event) => {
-                      setHoldingDraftTouched(true);
-                      setHoldingForm({ ...holdingForm, name: event.target.value });
-                    }}
-                    disabled={!canEditRecords}
-                    required
-                  />
-                </label>
-                <div className="settings-preview">
-                  선택 유형: <strong>{holdingFormType?.label || "-"}</strong>
-                </div>
-                <label>
-                  카테고리
-                  <input
-                    value={holdingForm.category}
-                    onChange={(event) => {
-                      setHoldingDraftTouched(true);
-                      setHoldingForm({ ...holdingForm, category: event.target.value });
-                    }}
-                    disabled={!canEditRecords}
-                  />
-                </label>
-                <label>
-                  보유자
-                  <select
-                    value={ownerSelectValue(holdingForm.owner_user_id, holdingForm.owner_name)}
-                    disabled={!canEditRecords}
-                    onChange={(event) => {
+                <div className="holdings-form-fields">
+                  <label>
+                    유형
+                    <select
+                      value={holdingForm.type_key}
+                      disabled={!canEditRecords}
+                      onChange={(event) => {
+                        setHoldingDraftTouched(true);
+                        const nextTypeKey = normalizeHoldingTypeKey(event.target.value || "");
+                        const nextType = holdingTypeByKey.get(nextTypeKey) || holdingTypeOptions[0] || DEFAULT_HOLDING_TYPES[0];
+                        const previousType =
+                          holdingTypeByKey.get(normalizeHoldingTypeKey(holdingForm.type_key || holdingForm.asset_type || "")) ||
+                          holdingFormType;
+                        if (shouldExplainHoldingValueReset(holdingForm.average_cost, previousType, nextType)) {
+                          setMessage(
+                            uiGuideMessage(
+                              "자산 유형을 변경했습니다.",
+                              "평가금액과 평균단가의 의미가 달라 금액 입력값을 비웠습니다."
+                            )
+                          );
+                        }
+                        setHoldingForm((prev) => ({
+                          ...createHoldingForm(nextType.asset_type || "other", nextType.key, nextType.label),
+                          name: prev.name,
+                          category: resolveHoldingCategoryOnTypeChange(
+                            prev.category,
+                            previousType,
+                            nextType
+                          ),
+                          owner_user_id: prev.owner_user_id,
+                          owner_name: prev.owner_name,
+                          account_name: prev.account_name,
+                          average_cost: nextAverageCostForHoldingTypeChange(prev.average_cost, previousType, nextType),
+                        }));
+                      }}
+                    >
+                      {holdingTypeOptions.map((item) => (
+                        <option key={item.key} value={item.key}>
+                          {item.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    자산명
+                    <textarea
+                      rows={2}
+                      ref={holdingNameInputRef}
+                      value={holdingForm.name}
+                      onChange={(event) => {
+                        setHoldingDraftTouched(true);
+                        setHoldingForm({ ...holdingForm, name: event.target.value });
+                      }}
+                      disabled={!canEditRecords}
+                      required
+                    />
+                  </label>
+                  <div className="settings-preview">
+                    선택 유형: <strong>{holdingFormType?.label || "-"}</strong>
+                  </div>
+                  <label>
+                    카테고리
+                    <input
+                      value={holdingForm.category}
+                      onChange={(event) => {
+                        setHoldingDraftTouched(true);
+                        setHoldingForm({ ...holdingForm, category: event.target.value });
+                      }}
+                      disabled={!canEditRecords}
+                    />
+                  </label>
+                  <label>
+                    보유자
+                    <select
+                      value={ownerSelectValue(holdingForm.owner_user_id, holdingForm.owner_name)}
+                      disabled={!canEditRecords}
+                      onChange={(event) => {
+                        setHoldingOwnerTouched(true);
+                        setHoldingDraftTouched(true);
+                        setHoldingForm({
+                          ...holdingForm,
+                          ...ownerSelectionFromValue(event.target.value, holdingFormOwnerOptions),
+                        });
+                      }}
+                    >
+                      <option value="">(선택 안함)</option>
+                      {holdingFormOwnerOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {renderOwnerQuickSelect({
+                    ownerLabel: "보유자",
+                    testId: "holding-owner-quick-select",
+                    selectedValue: holdingForm.owner_user_id,
+                    disabled: !canEditRecords,
+                    onSelect: applyHoldingOwnerOption,
+                  })}
+                  {renderLegacyOwnerRemapHelper({
+                    ownerUserId: holdingForm.owner_user_id,
+                    ownerName: holdingForm.owner_name,
+                    disabled: !canEditRecords,
+                    onApply: (target) => {
                       setHoldingOwnerTouched(true);
                       setHoldingDraftTouched(true);
-                      setHoldingForm({
-                        ...holdingForm,
-                        ...ownerSelectionFromValue(event.target.value, holdingFormOwnerOptions),
-                      });
-                    }}
-                  >
-                    <option value="">(선택 안함)</option>
-                    {holdingFormOwnerOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                {renderOwnerQuickSelect({
-                  ownerLabel: "보유자",
-                  testId: "holding-owner-quick-select",
-                  selectedValue: holdingForm.owner_user_id,
-                  disabled: !canEditRecords,
-                  onSelect: applyHoldingOwnerOption,
-                })}
-                {renderLegacyOwnerRemapHelper({
-                  ownerUserId: holdingForm.owner_user_id,
-                  ownerName: holdingForm.owner_name,
-                  disabled: !canEditRecords,
-                  onApply: (target) => {
-                    setHoldingOwnerTouched(true);
-                    setHoldingDraftTouched(true);
-                    setHoldingForm((prev) => ({
-                      ...prev,
-                      owner_user_id: target.value,
-                      owner_name: target.displayName,
-                    }));
-                  },
-                })}
-                {holdingFormTracked ? (
-                  <>
-                    <label>
-                      심볼
-                      <input
-                        value={holdingForm.symbol}
-                        onChange={(event) => {
-                          setHoldingDraftTouched(true);
-                          setHoldingForm({ ...holdingForm, symbol: event.target.value });
-                        }}
-                        disabled={!canEditRecords}
-                        required
-                      />
-                    </label>
-                    <label>
-                      시장심볼
-                      <input
-                        value={holdingForm.market_symbol}
-                        onChange={(event) => {
-                          setHoldingDraftTouched(true);
-                          setHoldingForm({ ...holdingForm, market_symbol: event.target.value });
-                        }}
-                        disabled={!canEditRecords}
-                      />
-                    </label>
-                    <label>
-                      수량
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        value={holdingForm.quantity}
-                        onChange={(event) => handleHoldingEntryDecimalInput(event, "quantity")}
-                        disabled={!canEditRecords}
-                        required
-                      />
-                    </label>
-                    {holdingFormShowAverageCost && (
+                      setHoldingForm((prev) => ({
+                        ...prev,
+                        owner_user_id: target.value,
+                        owner_name: target.displayName,
+                      }));
+                    },
+                  })}
+                  {holdingFormTracked ? (
+                    <>
                       <label>
-                        평균단가
+                        심볼
+                        <input
+                          value={holdingForm.symbol}
+                          onChange={(event) => {
+                            setHoldingDraftTouched(true);
+                            setHoldingForm({ ...holdingForm, symbol: event.target.value });
+                          }}
+                          disabled={!canEditRecords}
+                          required
+                        />
+                      </label>
+                      <label>
+                        시장심볼
+                        <input
+                          value={holdingForm.market_symbol}
+                          onChange={(event) => {
+                            setHoldingDraftTouched(true);
+                            setHoldingForm({ ...holdingForm, market_symbol: event.target.value });
+                          }}
+                          disabled={!canEditRecords}
+                        />
+                      </label>
+                      <label>
+                        수량
                         <input
                           type="text"
                           inputMode="decimal"
+                          value={holdingForm.quantity}
+                          onChange={(event) => handleHoldingEntryDecimalInput(event, "quantity")}
+                          disabled={!canEditRecords}
+                          required
+                        />
+                      </label>
+                      {holdingFormShowAverageCost && (
+                        <label>
+                          평균단가
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={holdingForm.average_cost}
+                            onChange={(event) => handleHoldingEntryDecimalInput(event, "average_cost")}
+                            disabled={!canEditRecords}
+                            required
+                          />
+                        </label>
+                      )}
+                    </>
+                  ) : (
+                    holdingFormShowAverageCost ? (
+                      <label>
+                        평가금액
+                        <input
+                          type="text"
+                          inputMode={holdingValuationInputMode(holdingForm.currency)}
                           value={holdingForm.average_cost}
                           onChange={(event) => handleHoldingEntryDecimalInput(event, "average_cost")}
                           disabled={!canEditRecords}
                           required
                         />
                       </label>
-                    )}
-                  </>
-                ) : (
-                  holdingFormShowAverageCost ? (
-                    <label>
-                      평가금액
-                      <input
-                        type="text"
-                        inputMode={holdingValuationInputMode(holdingForm.currency)}
-                        value={holdingForm.average_cost}
-                        onChange={(event) => handleHoldingEntryDecimalInput(event, "average_cost")}
-                        disabled={!canEditRecords}
-                        required
-                      />
-                    </label>
-                  ) : (
-                    <div className="settings-preview">선택한 유형은 평균단가/손익 입력이 필요하지 않습니다.</div>
-                  )
-                )}
-                <label>
-                  계좌
-                  <input
-                    value={holdingForm.account_name}
-                    onChange={(event) => {
-                      setHoldingDraftTouched(true);
-                      setHoldingForm({ ...holdingForm, account_name: event.target.value });
-                    }}
-                    disabled={!canEditRecords}
-                  />
-                </label>
-                <label>
-                  통화
-                  <input
-                    value={holdingForm.currency}
-                    onChange={(event) => {
-                      setHoldingDraftTouched(true);
-                      setHoldingForm({ ...holdingForm, currency: event.target.value.toUpperCase() });
-                    }}
-                    disabled={!canEditRecords}
-                    required
-                  />
-                </label>
+                    ) : (
+                      <div className="settings-preview">선택한 유형은 평균단가/손익 입력이 필요하지 않습니다.</div>
+                    )
+                  )}
+                  <label>
+                    계좌
+                    <input
+                      value={holdingForm.account_name}
+                      onChange={(event) => {
+                        setHoldingDraftTouched(true);
+                        setHoldingForm({ ...holdingForm, account_name: event.target.value });
+                      }}
+                      disabled={!canEditRecords}
+                    />
+                  </label>
+                  <label>
+                    통화
+                    <input
+                      value={holdingForm.currency}
+                      onChange={(event) => {
+                        setHoldingDraftTouched(true);
+                        setHoldingForm({ ...holdingForm, currency: event.target.value.toUpperCase() });
+                      }}
+                      disabled={!canEditRecords}
+                      required
+                    />
+                  </label>
+                </div>
                 <div className="holdings-form-actions">
                   <button
                     type="button"

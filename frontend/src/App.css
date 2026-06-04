@@ -1957,6 +1957,13 @@
 
 .holdings-form-grid {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  align-items: stretch;
+}
+
+.holdings-form-fields {
+  display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: 0.75rem;
   align-items: end;
@@ -2585,12 +2592,13 @@ button.danger:active:not(:disabled) {
   position: fixed;
   left: max(0.72rem, env(safe-area-inset-left));
   right: max(0.72rem, env(safe-area-inset-right));
-  bottom: calc(5.95rem + env(safe-area-inset-bottom));
+  top: max(0.72rem, env(safe-area-inset-top));
+  bottom: calc(0.72rem + env(safe-area-inset-bottom));
   z-index: 68;
   box-sizing: border-box;
   max-width: calc(100vw - 1.44rem);
-  max-height: min(35rem, calc(100dvh - 7rem));
-  overflow-y: auto;
+  max-height: none;
+  overflow-y: hidden;
   overflow-x: clip;
   padding:
     var(--holding-entry-sheet-padding-block)
@@ -2598,6 +2606,14 @@ button.danger:active:not(:disabled) {
     calc(var(--holding-entry-sheet-padding-block) + env(safe-area-inset-bottom));
   border-radius: 20px 20px 16px 16px;
   box-shadow: 0 24px 50px -28px rgba(15, 23, 42, 0.42);
+}
+
+.holding-entry-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 67;
+  background: rgba(15, 23, 42, 0.34);
+  backdrop-filter: blur(8px);
 }
 
 .transaction-entry-sheet-backdrop {
@@ -7473,10 +7489,13 @@ tr.holding-row-imported {
     --holding-entry-sheet-padding-block: 0.64rem;
     --holding-entry-sheet-padding-inline: 0.7rem;
     display: grid;
-    gap: 0.64rem;
-    bottom: calc(0.75rem + env(safe-area-inset-bottom));
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 0.52rem;
+    top: max(0.7rem, env(safe-area-inset-top));
+    bottom: calc(0.7rem + env(safe-area-inset-bottom));
     width: auto;
-    max-height: min(35rem, calc(100dvh - 2rem));
+    max-height: none;
+    overflow: hidden;
   }
 
   .holding-entry-sheet > .table-summary,
@@ -7500,13 +7519,33 @@ tr.holding-row-imported {
 
   .holding-entry-sheet .holdings-form-container,
   .holding-entry-sheet .holdings-form-grid,
+  .holding-entry-sheet .holdings-form-fields,
   .holding-entry-sheet .holdings-form-grid label {
     min-width: 0;
     max-width: 100%;
   }
 
+  .holding-entry-sheet .holdings-form-container {
+    display: block;
+    min-height: 0;
+    overflow: hidden;
+    padding: 0;
+    border-radius: 14px;
+  }
+
   .holding-entry-sheet .holdings-form-grid {
+    grid-template-rows: minmax(0, 1fr) auto;
     grid-template-columns: minmax(0, 1fr);
+    height: 100%;
+    min-height: 0;
+  }
+
+  .holding-entry-sheet .holdings-form-fields {
+    grid-template-columns: minmax(0, 1fr);
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 0.85rem;
   }
 
   .holding-entry-sheet .holdings-form-grid :is(input, select, textarea),
@@ -7515,6 +7554,17 @@ tr.holding-row-imported {
     box-sizing: border-box;
     min-width: 0;
     max-width: 100%;
+  }
+
+  .holding-entry-sheet .holdings-form-actions {
+    position: relative;
+    z-index: 1;
+    margin: 0;
+    padding: 0.72rem 0.85rem calc(0.72rem + env(safe-area-inset-bottom));
+    border-top: 1px solid rgba(203, 213, 225, 0.82);
+    border-radius: 0 0 14px 14px;
+    background: rgba(255, 255, 255, 0.96);
+    box-shadow: 0 -12px 24px -24px rgba(15, 23, 42, 0.44);
   }
 
   .transaction-list-card,
