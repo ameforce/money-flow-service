@@ -1470,6 +1470,14 @@ function ownerSelectValue(ownerUserId = "", ownerName = "") {
   return `${LEGACY_OWNER_PREFIX}${normalizedOwnerName}`;
 }
 
+function normalizeOwnerName(value) {
+  return String(value || "").trim().replace(/\s+/g, " ");
+}
+
+function isLegacyOwnerIdentity(ownerUserId = "", ownerName = "") {
+  return !String(ownerUserId || "").trim() && Boolean(normalizeOwnerName(ownerName));
+}
+
 function createProfileForm(user) {
   return {
     real_name: String(user?.real_name || user?.display_name || "").trim(),
@@ -1905,6 +1913,8 @@ function App() {
   const [overview, setOverview] = useState(null);
   const [portfolio, setPortfolio] = useState(null);
   const [transactions, setTransactions] = useState([]);
+  const [ownerCleanupTransactions, setOwnerCleanupTransactions] = useState([]);
+  const [ownerCleanupTransactionsLoaded, setOwnerCleanupTransactionsLoaded] = useState(false);
   const [transactionHistoryItems, setTransactionHistoryItems] = useState([]);
   const [transactionHistoryOlderCursor, setTransactionHistoryOlderCursor] = useState("");
   const [transactionHistoryNewerCursor, setTransactionHistoryNewerCursor] = useState("");
@@ -1927,6 +1937,8 @@ function App() {
   const [importReportSeverityFilter, setImportReportSeverityFilter] = useState("all");
   const [importReportTypeFilter, setImportReportTypeFilter] = useState("all");
   const [importReportSort, setImportReportSort] = useState("row_asc");
+  const [ownerRemapTargets, setOwnerRemapTargets] = useState({});
+  const [ownerRemappingKey, setOwnerRemappingKey] = useState("");
   const [importMode, setImportMode] = useState("workbook");
   const [tossPreview, setTossPreview] = useState(null);
   const [tossApplyReport, setTossApplyReport] = useState(null);
@@ -2601,6 +2613,37 @@ function App() {
       })
       .filter(Boolean);
   }, [householdMembers]);
+  const defaultOwnerRemapOption = useMemo(() => {
+    if (currentUserId) {
+      const currentUserOption = ownerMemberOptions.find((option) => option.value === currentUserId);
+      if (currentUserOption) {
+        return currentUserOption;
+      }
+    }
+    return ownerMemberOptions[0] || null;
+  }, [currentUserId, ownerMemberOptions]);
+  const legacyOwnerCleanupRows = useMemo(() => {
+    const groups = new Map();
+    const transactionSource = ownerCleanupTransactionsLoaded ? ownerCleanupTransactions : transactions;
+    const addItem = (kind, item) => {
+      const ownerName = normalizeOwnerName(item?.owner_name);
+      if (!isLegacyOwnerIdentity(item?.owner_user_id, ownerName)) {
+        return;
+      }
+      const key = ownerName.toLocaleLowerCase("ko-KR");
+      const group = groups.get(key) || {
+        key,
+        ownerName,
+        transactions: [],
+        holdings: [],
+      };
+      group[kind].push(item);
+      groups.set(key, group);
+    };
+    transactionSource.forEach((item) => addItem("transactions", item));
+    holdings.forEach((item) => addItem("holdings", item));
+    return [...groups.values()].sort((left, right) => left.ownerName.localeCompare(right.ownerName, "ko-KR"));
+  }, [holdings, ownerCleanupTransactions, ownerCleanupTransactionsLoaded, transactions]);
   const transactionQuickOwnerSuggestion = useMemo(() => {
     if (txQuickOwnerTouched) {
       return null;
@@ -2621,6 +2664,49 @@ function App() {
 
     return ownerMemberOptions.length === 1 ? ownerMemberOptions[0] : null;
   }, [currentUserId, ownerMemberOptions, txForm.owner_name, txForm.owner_user_id, txQuickOwnerTouched]);
+  useEffect(() => {
+    setOwnerRemapTargets((prev) => {
+      const next = {};
+      let changed = Object.keys(prev).length !== legacyOwnerCleanupRows.length;
+      for (const row of legacyOwnerCleanupRows) {
+        const existing = String(prev[row.key] || "").trim();
+        const existingStillValid = ownerMemberOptions.some((option) => option.value === existing);
+        const nextValue = existingStillValid ? existing : defaultOwnerRemapOption?.value || "";
+        next[row.key] = nextValue;
+        if (prev[row.key] !== nextValue) {
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [defaultOwnerRemapOption?.value, legacyOwnerCleanupRows, ownerMemberOptions]);
+  useEffect(() => {
+    if (!token || !household?.id) {
+      setOwnerCleanupTransactions([]);
+      setOwnerCleanupTransactionsLoaded(false);
+      return undefined;
+    }
+    if (tab !== "import") {
+      return undefined;
+    }
+    let active = true;
+    api(`${API_PREFIX}/transactions?limit=3000`, {}, token)
+      .then((rows) => {
+        if (!active) {
+          return;
+        }
+        setOwnerCleanupTransactions(Array.isArray(rows) ? rows : []);
+        setOwnerCleanupTransactionsLoaded(true);
+      })
+      .catch(() => {
+        if (active) {
+          setOwnerCleanupTransactionsLoaded(false);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [household?.id, tab, token]);
   const categoryGroups = useMemo(() => {
     const flows = new Map();
     for (const category of categories) {
@@ -4518,6 +4604,13 @@ function App() {
       .catch((error) => ({ ok: false, error }));
   }
 
+  async function loadOwnerCleanupTransactions(nextToken = token) {
+    const rows = await api(`${API_PREFIX}/transactions?limit=3000`, {}, nextToken);
+    setOwnerCleanupTransactions(Array.isArray(rows) ? rows : []);
+    setOwnerCleanupTransactionsLoaded(true);
+    return rows;
+  }
+
   async function refreshData(REFRESH_PRICES = false, nextToken = token, filterOverride = null, options = {}) {
     const silent = Boolean(options?.silent);
     void REFRESH_PRICES;
@@ -5569,6 +5662,109 @@ function App() {
       owner_user_id: normalizedValue,
       owner_name: matched?.displayName || "",
     };
+  }
+
+  function legacyOwnerCountText(row) {
+    const parts = [];
+    if (row.transactions.length > 0) {
+      parts.push(`거래 ${fmt(row.transactions.length)}건`);
+    }
+    if (row.holdings.length > 0) {
+      parts.push(`자산 ${fmt(row.holdings.length)}건`);
+    }
+    return parts.join(" · ");
+  }
+
+  async function applyLegacyOwnerRemap(rowKey) {
+    if (!canEditRecords) {
+      setMessage(uiGuideMessage("현재 권한으로는 소유자를 매핑할 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
+      return;
+    }
+    const row = legacyOwnerCleanupRows.find((item) => item.key === rowKey);
+    if (!row) {
+      return;
+    }
+    const targetValue = ownerRemapTargets[row.key] || defaultOwnerRemapOption?.value || "";
+    const target = ownerMemberOptions.find((option) => option.value === targetValue);
+    if (!target) {
+      setMessage(uiGuideMessage("매핑할 현재 구성원을 선택해 주세요.", "대상 구성원을 선택한 뒤 다시 실행해 주세요."));
+      return;
+    }
+    setOwnerRemappingKey(row.key);
+    setLoading(true);
+    setMessage("");
+    try {
+      for (const item of row.transactions) {
+        await api(
+          `${API_PREFIX}/transactions/${item.id}`,
+          {
+            method: "PATCH",
+            body: JSON.stringify({
+              base_version: item.version,
+              owner_user_id: target.value,
+              owner_name: target.displayName,
+            }),
+          },
+          token
+        );
+      }
+      for (const item of row.holdings) {
+        await api(
+          `${API_PREFIX}/holdings/${item.id}`,
+          {
+            method: "PATCH",
+            body: JSON.stringify({
+              base_version: item.version,
+              owner_user_id: target.value,
+              owner_name: target.displayName,
+            }),
+          },
+          token
+        );
+      }
+      await refreshData(false);
+      await loadOwnerCleanupTransactions(token);
+      if (row.transactions.length > 0 && (transactionHistoryInitialized || tab === "transactions")) {
+        await refreshTransactionHistoryAtAnchor(transactionHistoryAnchorDate || transactionHistoryToday || todayIso(), {
+          alignToEnd: false,
+        });
+      }
+      const total = row.transactions.length + row.holdings.length;
+      setMessage(
+        uiGuideMessage(
+          "기존 소유자를 현재 구성원으로 매핑했습니다.",
+          `${row.ownerName} ${fmt(total)}건을 ${target.displayName}으로 연결했습니다.`
+        )
+      );
+    } catch (error) {
+      setMessage(formatApiError(error, "owner_remap"));
+    } finally {
+      setOwnerRemappingKey("");
+      setLoading(false);
+    }
+  }
+
+  function renderLegacyOwnerRemapHelper({ ownerUserId = "", ownerName = "", disabled = false, onApply }) {
+    const normalizedOwnerName = normalizeOwnerName(ownerName);
+    if (!isLegacyOwnerIdentity(ownerUserId, normalizedOwnerName)) {
+      return null;
+    }
+    const target = defaultOwnerRemapOption;
+    return (
+      <div className="owner-legacy-helper">
+        <span>기존 값은 현재 가계 구성원과 연결되지 않은 과거/가져오기 소유자명입니다.</span>
+        {target && (
+          <button
+            type="button"
+            className="secondary inline-owner-remap-btn"
+            onClick={() => onApply?.(target)}
+            disabled={disabled}
+          >
+            현재 구성원으로 매핑
+          </button>
+        )}
+      </div>
+    );
   }
 
   async function submitHolding(event) {
@@ -6877,6 +7073,17 @@ function App() {
                     ))}
                   </select>
                 </label>
+                {renderLegacyOwnerRemapHelper({
+                  ownerUserId: editForm.owner_user_id,
+                  ownerName: editForm.owner_name,
+                  disabled: !canEditRecords,
+                  onApply: (target) =>
+                    setHoldingInlineEdit((prev) => ({
+                      ...prev,
+                      owner_user_id: target.value,
+                      owner_name: target.displayName,
+                    })),
+                })}
                 <label>
                   계좌
                   <input
@@ -7011,6 +7218,8 @@ function App() {
     setCategories([]);
     setOverview(null);
     setTransactions([]);
+    setOwnerCleanupTransactions([]);
+    setOwnerCleanupTransactionsLoaded(false);
     setHoldings([]);
     setPortfolio(null);
     setPriceStatus(null);
@@ -8050,6 +8259,19 @@ function App() {
                 ))}
               </select>
             </label>
+            {renderLegacyOwnerRemapHelper({
+              ownerUserId: txForm.owner_user_id,
+              ownerName: txForm.owner_name,
+              disabled: transactionFormDisabled,
+              onApply: (target) => {
+                setTxQuickOwnerTouched(true);
+                setTxForm((prev) => ({
+                  ...prev,
+                  owner_user_id: target.value,
+                  owner_name: target.displayName,
+                }));
+              },
+            })}
           </div>
         </details>
 
@@ -8197,6 +8419,19 @@ function App() {
           ))}
         </select>
       </label>
+      {renderLegacyOwnerRemapHelper({
+        ownerUserId: txForm.owner_user_id,
+        ownerName: txForm.owner_name,
+        disabled: transactionFormDisabled,
+        onApply: (target) => {
+          setTxQuickOwnerTouched(true);
+          setTxForm((prev) => ({
+            ...prev,
+            owner_user_id: target.value,
+            owner_name: target.displayName,
+          }));
+        },
+      })}
       <div className="inline form-actions">
         <button
           type="button"
@@ -9396,6 +9631,7 @@ function App() {
               handleTxInlineEditKeyDown={handleTxInlineEditKeyDown}
               handleGroupedDecimalInput={handleGroupedDecimalInput}
               ownerSelectionFromValue={ownerSelectionFromValue}
+              renderLegacyOwnerRemapHelper={renderLegacyOwnerRemapHelper}
               submitTxInlineEdit={submitTxInlineEdit}
               fmtKrw={fmtKrw}
               fmtDate={fmtDate}
@@ -9724,6 +9960,17 @@ function App() {
                     ))}
                   </select>
                 </label>
+                {renderLegacyOwnerRemapHelper({
+                  ownerUserId: holdingForm.owner_user_id,
+                  ownerName: holdingForm.owner_name,
+                  disabled: !canEditRecords,
+                  onApply: (target) =>
+                    setHoldingForm((prev) => ({
+                      ...prev,
+                      owner_user_id: target.value,
+                      owner_name: target.displayName,
+                    })),
+                })}
                 <label>
                   계좌
                   <input
@@ -11077,6 +11324,62 @@ function App() {
             </div>
             {!canEditRecords && (
               <p className="table-summary">데이터 가져오기는 편집자 이상 권한에서만 가능합니다.</p>
+            )}
+            {legacyOwnerCleanupRows.length > 0 && (
+              <section className="owner-remap-cleanup" aria-labelledby="owner-remap-cleanup-title">
+                <div className="secondary-table-heading owner-remap-heading">
+                  <div className="work-surface-title">
+                    <span className="surface-eyebrow">소유자 정리</span>
+                    <h3 id="owner-remap-cleanup-title">기존 소유자 정리</h3>
+                  </div>
+                  <p className="table-summary">
+                    기존 값은 현재 가계 구성원과 연결되지 않은 과거/가져오기 소유자명입니다.
+                  </p>
+                </div>
+                <div className="owner-remap-list">
+                  {legacyOwnerCleanupRows.map((row) => {
+                    const targetValue = ownerRemapTargets[row.key] || defaultOwnerRemapOption?.value || "";
+                    const remapping = ownerRemappingKey === row.key;
+                    const totalCount = row.transactions.length + row.holdings.length;
+                    return (
+                      <div className="owner-remap-row" key={row.key}>
+                        <div className="owner-remap-summary">
+                          <strong>{row.ownerName} (기존 값)</strong>
+                          <span>{legacyOwnerCountText(row)}</span>
+                        </div>
+                        <label>
+                          매핑 대상
+                          <select
+                            aria-label={`${row.ownerName} 매핑 대상`}
+                            value={targetValue}
+                            disabled={!canEditRecords || remapping || ownerMemberOptions.length === 0}
+                            onChange={(event) =>
+                              setOwnerRemapTargets((prev) => ({
+                                ...prev,
+                                [row.key]: event.target.value,
+                              }))
+                            }
+                          >
+                            {ownerMemberOptions.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <button
+                          type="button"
+                          className="secondary"
+                          disabled={!canEditRecords || remapping || !targetValue || totalCount === 0}
+                          onClick={() => applyLegacyOwnerRemap(row.key)}
+                        >
+                          {remapping ? "매핑 중..." : "현재 구성원으로 매핑"}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
             )}
             <div className="mobile-import-package-export">
               <button

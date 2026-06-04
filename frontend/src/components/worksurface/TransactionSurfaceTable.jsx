@@ -83,6 +83,7 @@ export function TransactionSurfaceTable({
   handleTxInlineEditKeyDown,
   handleGroupedDecimalInput,
   ownerSelectionFromValue,
+  renderLegacyOwnerRemapHelper,
   submitTxInlineEdit,
   fmtKrw,
   fmtDate,
@@ -980,6 +981,18 @@ export function TransactionSurfaceTable({
                       <span className="tx-inline-updated-field" aria-label="최종 수정일">
                         -
                       </span>
+                      {typeof renderLegacyOwnerRemapHelper === "function" &&
+                        renderLegacyOwnerRemapHelper({
+                          ownerUserId: editForm.owner_user_id,
+                          ownerName: editForm.owner_name,
+                          disabled: !canEditRecords,
+                          onApply: (target) =>
+                            setTxInlineEdit({
+                              ...editForm,
+                              owner_user_id: target.value,
+                              owner_name: target.displayName,
+                            }),
+                        })}
                       <div className="inline tx-inline-editor-actions">
                         <button type="button" className="secondary" disabled={!canEditRecords} onClick={() => closeTxInlineEdit()}>
                           취소
