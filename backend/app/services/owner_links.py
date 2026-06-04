@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.errors import app_error
