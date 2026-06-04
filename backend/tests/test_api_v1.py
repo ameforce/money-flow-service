@@ -5414,6 +5414,179 @@ def test_household_legacy_owner_remap_updates_transactions_and_holdings_atomical
             assert {tuple(log.changed_fields or []) for log in logs} == {("owner_name", "owner_user_id")}
 
 
+def test_household_legacy_owner_remap_rechecks_target_member_after_lock(monkeypatch: pytest.MonkeyPatch) -> None:
+    with TestClient(app) as client:
+        token = _auth(client, f"owner-remap-lock-{uuid.uuid4().hex}@example.com", "Password1234", "OwnerRemapLock")
+        household_id = client.get("/api/v1/household/current", headers=_headers(token)).json()["household"]["id"]
+
+        with SessionLocal() as db:
+            target_user = User(
+                email=f"owner-remap-lock-target-{uuid.uuid4().hex}@example.com",
+                password_hash="not-used",
+                display_name="OwnerRemapTarget",
+                email_verified=True,
+                email_verified_at=datetime.now(UTC),
+            )
+            category = Category(
+                household_id=household_id,
+                flow_type=FlowType.expense,
+                major="식비",
+                minor="점심",
+            )
+            db.add_all([target_user, category])
+            db.flush()
+            db.add(HouseholdMember(household_id=household_id, user_id=target_user.id, role=MemberRole.viewer))
+            transaction = Transaction(
+                household_id=household_id,
+                category_id=category.id,
+                flow_type=FlowType.expense,
+                occurred_on=date(2026, 4, 25),
+                amount=Decimal("12000"),
+                currency="KRW",
+                memo="legacy remap lock transaction",
+                owner_name="LegacyLock",
+            )
+            db.add(transaction)
+            db.commit()
+            target_user_id = str(target_user.id)
+            transaction_id = str(transaction.id)
+            transaction_version = int(transaction.version)
+
+        original_lock = household_route._lock_household_members
+
+        def lock_without_target(db: Session, household_id: str) -> dict[str, HouseholdMember]:
+            locked = original_lock(db, household_id)
+            return {
+                member_id: member
+                for member_id, member in locked.items()
+                if str(member.user_id) != target_user_id
+            }
+
+        monkeypatch.setattr(household_route, "_lock_household_members", lock_without_target)
+        response = client.post(
+            "/api/v1/household/legacy-owner-remap",
+            headers=_headers(token),
+            json={"owner_name": "LegacyLock", "target_owner_user_id": target_user_id},
+        )
+
+        assert response.status_code == 400
+        assert response.json()["error"]["code"] == "LEGACY_OWNER_REMAP_TARGET_INVALID"
+        with SessionLocal() as db:
+            transaction = db.get(Transaction, transaction_id)
+            assert transaction is not None
+            assert transaction.owner_user_id is None
+            assert transaction.owner_name == "LegacyLock"
+            assert transaction.version == transaction_version
+            assert db.scalar(select(func.count(EntityPatchLog.id)).where(EntityPatchLog.entity_id == transaction_id)) == 0
+
+
+def test_household_legacy_owner_remap_matches_collapsed_legacy_owner_whitespace() -> None:
+    with TestClient(app) as client:
+        token = _auth(client, f"owner-remap-space-{uuid.uuid4().hex}@example.com", "Password1234", "OwnerRemapSpace")
+        household_id = client.get("/api/v1/household/current", headers=_headers(token)).json()["household"]["id"]
+        member = client.get("/api/v1/household/members", headers=_headers(token)).json()[0]
+        target_user_id = member["user_id"]
+        target_owner_name = member["display_name"]
+
+        with SessionLocal() as db:
+            category = Category(
+                household_id=household_id,
+                flow_type=FlowType.expense,
+                major="식비",
+                minor="점심",
+            )
+            db.add(category)
+            db.flush()
+            transactions = [
+                Transaction(
+                    household_id=household_id,
+                    category_id=category.id,
+                    flow_type=FlowType.expense,
+                    occurred_on=date(2026, 4, 26),
+                    amount=Decimal("12000"),
+                    currency="KRW",
+                    memo="legacy remap space transaction a",
+                    owner_name="Legacy  Owner",
+                ),
+                Transaction(
+                    household_id=household_id,
+                    category_id=category.id,
+                    flow_type=FlowType.expense,
+                    occurred_on=date(2026, 4, 27),
+                    amount=Decimal("13000"),
+                    currency="KRW",
+                    memo="legacy remap space transaction b",
+                    owner_name="Legacy\tOwner",
+                ),
+                Transaction(
+                    household_id=household_id,
+                    category_id=category.id,
+                    flow_type=FlowType.expense,
+                    occurred_on=date(2026, 4, 28),
+                    amount=Decimal("14000"),
+                    currency="KRW",
+                    memo="legacy remap different transaction",
+                    owner_name="Legacy Owner Extra",
+                ),
+            ]
+            holdings = [
+                Holding(
+                    household_id=household_id,
+                    asset_type=AssetType.cash,
+                    symbol="OWNER-SPACE-CASH-A",
+                    market_symbol="OWNER-SPACE-CASH-A",
+                    name="Owner Space Cash A",
+                    category="현금성",
+                    owner_name="Legacy  Owner",
+                    account_name="Legacy Account A",
+                    quantity=Decimal("1"),
+                    average_cost=Decimal("12000"),
+                    currency="KRW",
+                ),
+                Holding(
+                    household_id=household_id,
+                    asset_type=AssetType.cash,
+                    symbol="OWNER-SPACE-CASH-B",
+                    market_symbol="OWNER-SPACE-CASH-B",
+                    name="Owner Space Cash B",
+                    category="현금성",
+                    owner_name="Legacy\tOwner",
+                    account_name="Legacy Account B",
+                    quantity=Decimal("1"),
+                    average_cost=Decimal("13000"),
+                    currency="KRW",
+                ),
+            ]
+            db.add_all([*transactions, *holdings])
+            db.commit()
+            remap_transaction_ids = [str(item.id) for item in transactions[:2]]
+            untouched_transaction_id = str(transactions[2].id)
+            remap_holding_ids = [str(item.id) for item in holdings]
+
+        response = client.post(
+            "/api/v1/household/legacy-owner-remap",
+            headers=_headers(token),
+            json={"owner_name": " Legacy   Owner ", "target_owner_user_id": target_user_id},
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["source_owner_name"] == "Legacy Owner"
+        assert payload["remapped_transactions"] == 2
+        assert payload["remapped_holdings"] == 2
+        with SessionLocal() as db:
+            remapped_transactions = db.scalars(select(Transaction).where(Transaction.id.in_(remap_transaction_ids))).all()
+            remapped_holdings = db.scalars(select(Holding).where(Holding.id.in_(remap_holding_ids))).all()
+            untouched_transaction = db.get(Transaction, untouched_transaction_id)
+            assert len(remapped_transactions) == 2
+            assert len(remapped_holdings) == 2
+            assert all(item.owner_user_id == target_user_id and item.owner_name == target_owner_name for item in remapped_transactions)
+            assert all(item.owner_user_id == target_user_id and item.owner_name == target_owner_name for item in remapped_holdings)
+            assert untouched_transaction is not None
+            assert untouched_transaction.owner_user_id is None
+            assert untouched_transaction.owner_name == "Legacy Owner Extra"
+
+
 def test_household_legacy_owner_remap_rolls_back_when_holding_conflicts() -> None:
     with TestClient(app) as client:
         token = _auth(client, f"owner-remap-conflict-{uuid.uuid4().hex}@example.com", "Password1234", "OwnerConflict")

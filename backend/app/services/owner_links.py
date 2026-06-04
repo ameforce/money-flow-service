@@ -23,6 +23,18 @@ def get_household_member_user(db: Session, household_id: str, user_id: str | Non
     )
 
 
+def normalize_legacy_owner_name(value: str | None) -> str | None:
+    normalized = normalize_optional_text(value)
+    if not normalized:
+        return None
+    collapsed = " ".join(normalized.split())
+    return collapsed or None
+
+
+def legacy_owner_name_key(value: str | None) -> str:
+    return (normalize_legacy_owner_name(value) or "").lower()
+
+
 def require_household_member_user(
     db: Session,
     *,

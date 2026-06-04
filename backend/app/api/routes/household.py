@@ -41,7 +41,11 @@ from app.schemas import (
 )
 from app.services.email_service import email_service
 from app.services.merge import merge_patch_or_raise
-from app.services.owner_links import ensure_unique_household_member_display_name, require_household_member_user
+from app.services.owner_links import (
+    ensure_unique_household_member_display_name,
+    legacy_owner_name_key,
+    normalize_legacy_owner_name,
+)
 from app.services.profile import normalize_holding_settings, normalize_transaction_row_colors
 from app.services.runtime import hub
 
@@ -420,16 +424,38 @@ def remap_legacy_owner(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> LegacyOwnerRemapResponse:
-    household, _ = ctx
-    source_owner_name = payload.owner_name
-    target_user = require_household_member_user(
-        db,
-        household_id=str(household.id),
-        user_id=payload.target_owner_user_id,
-        code="LEGACY_OWNER_REMAP_TARGET_INVALID",
-        message="매핑 대상은 현재 가계 구성원만 선택할 수 있습니다.",
-        action="가계 구성원 목록에서 매핑 대상을 다시 선택해 주세요.",
+    household, member = ctx
+    source_owner_name = normalize_legacy_owner_name(payload.owner_name) or payload.owner_name
+    source_owner_key = legacy_owner_name_key(source_owner_name)
+    db.execute(select(Household.id).where(Household.id == household.id).with_for_update()).first()
+    locked_members = _lock_household_members(db, household.id)
+    actor_member = locked_members.get(str(member.id))
+    if actor_member is None or actor_member.role not in {MemberRole.editor, MemberRole.co_owner, MemberRole.owner}:
+        raise app_error(
+            status_code=403,
+            code="HOUSEHOLD_ROLE_FORBIDDEN",
+            message="소유자 매핑 권한이 없습니다.",
+            action="가계 소유자에게 편집자 이상 권한을 요청해 주세요.",
+        )
+    target_member = next(
+        (item for item in locked_members.values() if str(item.user_id) == payload.target_owner_user_id),
+        None,
     )
+    if target_member is None:
+        raise app_error(
+            status_code=400,
+            code="LEGACY_OWNER_REMAP_TARGET_INVALID",
+            message="매핑 대상은 현재 가계 구성원만 선택할 수 있습니다.",
+            action="가계 구성원 목록에서 매핑 대상을 다시 선택해 주세요.",
+        )
+    target_user = db.get(User, target_member.user_id)
+    if target_user is None:
+        raise app_error(
+            status_code=400,
+            code="LEGACY_OWNER_REMAP_TARGET_INVALID",
+            message="매핑 대상은 현재 가계 구성원만 선택할 수 있습니다.",
+            action="가계 구성원 목록에서 매핑 대상을 다시 선택해 주세요.",
+        )
     target_owner_user_id = str(target_user.id)
     target_owner_name = str(target_user.display_name or "").strip()
     if not target_owner_name:
@@ -440,26 +466,26 @@ def remap_legacy_owner(
             action="대상 구성원의 프로필 표시 이름을 확인한 뒤 다시 시도해 주세요.",
         )
 
-    normalized_source = source_owner_name.lower()
-    db.execute(select(Household.id).where(Household.id == household.id).with_for_update()).first()
-    transactions = db.scalars(
+    transaction_candidates = db.scalars(
         select(Transaction)
         .where(
             Transaction.household_id == household.id,
             Transaction.owner_user_id.is_(None),
-            func.lower(func.trim(Transaction.owner_name)) == normalized_source,
+            Transaction.owner_name.is_not(None),
         )
         .with_for_update()
     ).all()
-    holdings = db.scalars(
+    transactions = [item for item in transaction_candidates if legacy_owner_name_key(item.owner_name) == source_owner_key]
+    holding_candidates = db.scalars(
         select(Holding)
         .where(
             Holding.household_id == household.id,
             Holding.owner_user_id.is_(None),
-            func.lower(func.trim(Holding.owner_name)) == normalized_source,
+            Holding.owner_name.is_not(None),
         )
         .with_for_update()
     ).all()
+    holdings = [item for item in holding_candidates if legacy_owner_name_key(item.owner_name) == source_owner_key]
 
     patch_data = {
         "owner_user_id": target_owner_user_id,
