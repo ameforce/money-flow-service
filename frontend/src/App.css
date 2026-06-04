@@ -2794,6 +2794,50 @@ button.danger:active:not(:disabled) {
   white-space: nowrap;
 }
 
+.tx-category-restore-notice {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-width: 0;
+  padding: 0.62rem 0.72rem;
+  border: 1px solid #f2c36b;
+  border-radius: 8px;
+  background: #fff8e8;
+  color: #493418;
+}
+
+.tx-category-restore-notice span {
+  display: grid;
+  gap: 0.16rem;
+  min-width: 0;
+}
+
+.tx-category-restore-notice strong,
+.tx-category-restore-notice small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tx-category-restore-notice strong {
+  font-size: 0.84rem;
+  font-weight: 900;
+}
+
+.tx-category-restore-notice small {
+  color: #725024;
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.tx-category-restore-notice button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
 .transaction-category-picker-options {
   display: flex;
   flex-wrap: wrap;
@@ -5786,6 +5830,22 @@ tr.holding-row-imported {
   }
 
   .transaction-category-create-submit {
+    width: 100%;
+  }
+
+  .tx-category-restore-notice {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .tx-category-restore-notice strong,
+  .tx-category-restore-notice small {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+  }
+
+  .tx-category-restore-notice button {
     width: 100%;
   }
 

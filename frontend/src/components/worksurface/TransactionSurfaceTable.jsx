@@ -17,6 +17,40 @@ function firstDefinedValue(values) {
   return values.find((value) => String(value || "").trim()) || "";
 }
 
+function normalizeCategoryText(value) {
+  return String(value || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .replace(/\s*\/\s*/g, "/");
+}
+
+function normalizeCategoryFlowType(value) {
+  return String(value || "expense").trim() || "expense";
+}
+
+function findCompatibleCategoryForFlow(categories, sourceCategory, flowType) {
+  if (!sourceCategory) {
+    return null;
+  }
+  const targetFlowType = normalizeCategoryFlowType(flowType);
+  const sourceMajor = normalizeCategoryText(sourceCategory.major);
+  const sourceMinor = normalizeCategoryText(sourceCategory.minor);
+  if (!sourceMajor || !sourceMinor) {
+    return null;
+  }
+  return (
+    (categories || []).find((candidate) => {
+      if (normalizeCategoryFlowType(candidate?.flow_type) !== targetFlowType) {
+        return false;
+      }
+      return (
+        normalizeCategoryText(candidate?.major) === sourceMajor &&
+        normalizeCategoryText(candidate?.minor) === sourceMinor
+      );
+    }) || null
+  );
+}
+
 function isInteractiveRowTarget(target) {
   return Boolean(
     target?.closest?.(
@@ -103,6 +137,7 @@ export function TransactionSurfaceTable({
   const ownerColors = householdSettings?.holding_settings?.owner_colors || {};
   const categoryColors = householdSettings?.holding_settings?.category_colors || {};
   const transactionMobilePriority = (fieldKey) => getWorkSurfaceMobilePriority("transactions", fieldKey);
+  const allCategoryOptions = Array.from(categoryById?.values?.() || []);
   const [mobileFilterKey, setMobileFilterKey] = useState("");
   const rowPointerGestureRef = useRef(null);
   const suppressNextRowClickRef = useRef(false);
@@ -654,6 +689,15 @@ export function TransactionSurfaceTable({
             const editOwnerOptions = ownerOptionsWithFallback(editForm?.owner_user_id || "", editForm?.owner_name || "");
             const rowKey = item.id;
             const category = categoryById.get(String(item.category_id || ""));
+            const originalEditCategory = isEditing ? categoryById.get(String(item.category_id || "")) : null;
+            const currentEditCategory = isEditing ? categoryById.get(String(editForm?.category_id || "")) : null;
+            const inlineOriginalCategoryChanged = Boolean(
+              isEditing &&
+                editForm &&
+                originalEditCategory &&
+                (String(editForm.flow_type || "") !== String(item.flow_type || "") ||
+                  String(editForm.category_id || "") !== String(item.category_id || ""))
+            );
             const compactCategoryLabel = [
               category?.minor ? toCategoryMinorLabel(category.minor) : "",
               !category?.minor && category?.major ? toCategoryMajorLabel(category.major) : "",
@@ -710,6 +754,34 @@ export function TransactionSurfaceTable({
                 memo: item.memo || "",
                 owner_user_id: item.owner_user_id || "",
                 owner_name: item.owner_name || "",
+              });
+            };
+            const updateInlineFlowType = (nextFlowType) => {
+              if (!editForm) {
+                return;
+              }
+              const normalizedFlowType = normalizeCategoryFlowType(nextFlowType);
+              const compatibleCategory = findCompatibleCategoryForFlow(
+                allCategoryOptions,
+                currentEditCategory || originalEditCategory,
+                normalizedFlowType
+              );
+              setTxInlineEdit({
+                ...editForm,
+                flow_type: normalizedFlowType,
+                category_id: compatibleCategory ? String(compatibleCategory.id || "") : "",
+                category_major: compatibleCategory ? String(compatibleCategory.major || "") : "",
+              });
+            };
+            const restoreInlineOriginalCategory = () => {
+              if (!editForm || !originalEditCategory) {
+                return;
+              }
+              setTxInlineEdit({
+                ...editForm,
+                flow_type: normalizeCategoryFlowType(item.flow_type),
+                category_id: String(item.category_id || ""),
+                category_major: String(originalEditCategory.major || ""),
               });
             };
             return (
@@ -887,14 +959,7 @@ export function TransactionSurfaceTable({
                           aria-label="유형"
                           value={editForm.flow_type}
                           disabled={!canEditRecords}
-                          onChange={(e) => {
-                            setTxInlineEdit({
-                              ...editForm,
-                              flow_type: e.target.value,
-                              category_id: "",
-                              category_major: "",
-                            });
-                          }}
+                          onChange={(e) => updateInlineFlowType(e.target.value)}
                         >
                           {FLOW_TYPE_OPTIONS.map((opt) => (
                             <option key={opt.value} value={opt.value}>
@@ -924,6 +989,29 @@ export function TransactionSurfaceTable({
                           toCategoryMajorLabel={toCategoryMajorLabel}
                           toCategoryMinorLabel={toCategoryMinorLabel}
                         />
+                        {inlineOriginalCategoryChanged && (
+                          <div
+                            className="tx-category-restore-notice tx-inline-category-restore-notice"
+                            data-testid="tx-inline-category-restore-notice"
+                            role="status"
+                          >
+                            <span>
+                              <strong>원래 카테고리를 잃을 수 있습니다.</strong>
+                              <small>
+                                원래 선택: {toCategoryMajorLabel(originalEditCategory.major)} / {toCategoryMinorLabel(originalEditCategory.minor)}
+                              </small>
+                            </span>
+                            <button
+                              type="button"
+                              className="secondary"
+                              data-testid="tx-inline-category-restore-button"
+                              onClick={restoreInlineOriginalCategory}
+                              disabled={!canEditRecords}
+                            >
+                              원래 카테고리로 되돌리기
+                            </button>
+                          </div>
+                        )}
                         <label className="tx-inline-major-field">
                           <span className="tx-inline-field-label">카테고리 그룹</span>
                           <select

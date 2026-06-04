@@ -1301,6 +1301,132 @@ test("issue 194: inline transaction edit creates and applies a missing category 
   await capture(page, "issue-194-inline-category-create");
 });
 
+test("issue 195: transaction entry keeps a compatible category when type changes", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("tx-flow-compatible")}@example.com`;
+  const displayName = unique("tx-flow-compatible-name");
+  const categoryPair = {
+    major: unique("유형공유분류"),
+    minor: unique("유형공유항목"),
+  };
+
+  await registerAndVerify(page, { email, displayName });
+  const expenseCategory = await createCategoryViaApi(page, {
+    ...categoryPair,
+    flowType: "expense",
+  });
+  const incomeCategory = await createCategoryViaApi(page, {
+    ...categoryPair,
+    flowType: "income",
+  });
+  await page.reload();
+  await page.waitForLoadState("networkidle");
+
+  const transactionSheet = await openTransactionEntrySheet(page, { width: 1440, height: 900 });
+  await selectTransactionFormCategory(transactionSheet, expenseCategory);
+  await labeledField(transactionSheet, "유형", "select").selectOption("income");
+
+  await expect(labeledField(transactionSheet, "카테고리 그룹", "select")).toHaveValue(categoryPair.major);
+  await expect(
+    transactionSheet
+      .locator("label")
+      .filter({ hasText: /^\s*카테고리\s*\(/ })
+      .locator("select")
+      .first()
+  ).toHaveValue(String(incomeCategory.id));
+  await expect(transactionSheet.getByTestId("transaction-category-restore-notice")).toHaveCount(0);
+  await capture(page, "issue-195-entry-compatible-category-kept");
+});
+
+test("issue 195: transaction entry offers a category restore when type clears selection", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("tx-flow-restore")}@example.com`;
+  const displayName = unique("tx-flow-restore-name");
+  const category = {
+    major: unique("유형복구분류"),
+    minor: unique("유형복구항목"),
+  };
+
+  await registerAndVerify(page, { email, displayName });
+  const expenseCategory = await createCategoryViaApi(page, category);
+  await page.reload();
+  await page.waitForLoadState("networkidle");
+
+  const transactionSheet = await openTransactionEntrySheet(page, { width: 1440, height: 900 });
+  await selectTransactionFormCategory(transactionSheet, expenseCategory);
+  const typeSelect = labeledField(transactionSheet, "유형", "select");
+  await typeSelect.selectOption("income");
+
+  const restoreNotice = transactionSheet.getByTestId("transaction-category-restore-notice");
+  await expect(restoreNotice).toContainText("카테고리 선택을 비웠습니다.");
+  await expect(restoreNotice).toContainText(category.minor);
+  await expect(
+    transactionSheet
+      .locator("label")
+      .filter({ hasText: /^\s*카테고리\s*\(/ })
+      .locator("select")
+      .first()
+  ).toHaveValue("");
+
+  await transactionSheet.getByTestId("transaction-category-restore-button").click();
+  await expect(typeSelect).toHaveValue("expense");
+  await expect(labeledField(transactionSheet, "카테고리 그룹", "select")).toHaveValue(category.major);
+  await expect(
+    transactionSheet
+      .locator("label")
+      .filter({ hasText: /^\s*카테고리\s*\(/ })
+      .locator("select")
+      .first()
+  ).toHaveValue(String(expenseCategory.id));
+  await capture(page, "issue-195-entry-category-restored");
+});
+
+test("issue 195: inline transaction edit restores the original category after type change", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("tx-flow-inline")}@example.com`;
+  const displayName = unique("tx-flow-inline-name");
+  const memo = unique("tx-flow-inline-memo");
+  const category = {
+    major: unique("인라인복구분류"),
+    minor: unique("인라인복구항목"),
+  };
+
+  await registerAndVerify(page, { email, displayName });
+  const expenseCategory = await createCategoryViaApi(page, category);
+  await createTransactionViaApi(page, {
+    memo,
+    amount: "12000",
+    categoryId: expenseCategory.id,
+    occurredOn: currentE2EHistoryDateIso(),
+  });
+  await page.reload();
+  await page.waitForLoadState("networkidle");
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openTab(page, "거래");
+
+  const row = page.locator("tr.transaction-row", { hasText: memo }).first();
+  await expect(row).toBeVisible({ timeout: 20_000 });
+  await clickDesktopTransactionRowAction(row, "수정");
+  const editorRow = page.locator("tr.transaction-inline-editor-row").first();
+  await expect(editorRow).toBeVisible();
+
+  const typeSelect = editorRow.getByLabel("유형", { exact: true });
+  await typeSelect.selectOption("income");
+  const restoreNotice = editorRow.getByTestId("tx-inline-category-restore-notice");
+  await expect(restoreNotice).toContainText("원래 카테고리를 잃을 수 있습니다.");
+  await expect(restoreNotice).toContainText(category.minor);
+  await expect(editorRow.getByLabel("카테고리", { exact: true })).toHaveValue("");
+
+  await editorRow.getByTestId("tx-inline-category-restore-button").click();
+  await expect(typeSelect).toHaveValue("expense");
+  await expect(editorRow.getByLabel("카테고리 그룹", { exact: true })).toHaveValue(category.major);
+  await expect(editorRow.getByLabel("카테고리", { exact: true })).toHaveValue(String(expenseCategory.id));
+  await capture(page, "issue-195-inline-original-category-restored");
+});
+
 test("mobile quick entry keeps repeat context and returns focus to amount", async ({ page }) => {
   test.setTimeout(180_000);
 
