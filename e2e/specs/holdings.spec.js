@@ -530,6 +530,61 @@ test("issue 226: 1024px holding right-side columns and actions stay discoverable
   await capture(page, "issue-226-1024-holding-actions-visible");
 });
 
+test("issue 239: holding view options collapse as a compact explicit toggle", async ({ page }) => {
+  const email = `${unique("issue-239-view-options")}@example.com`;
+  const displayName = unique("issue-239-view-options-name");
+
+  await registerAndVerify(page, { email, displayName });
+  await createHoldingViaApi(page, {
+    name: unique("issue-239-holding"),
+    ownerName: displayName,
+    category: "검증자산",
+    quantity: "1",
+    marketValue: "123456",
+  });
+
+  for (const viewport of [
+    { width: 360, height: 844 },
+    { width: 1366, height: 768 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await assertResponsiveShell(page);
+    await openTab(page, "자산");
+    await page.waitForLoadState("networkidle");
+
+    const displayOptions = page.locator("details.holding-display-options").first();
+    const displaySummary = displayOptions.locator("summary").first();
+    await expect(displayOptions).toBeVisible();
+    await expect(displaySummary).toContainText("보기 옵션");
+    await expect(displaySummary).toContainText("펼치기");
+    expect(await displayOptions.evaluate((element) => element.hasAttribute("open"))).toBe(false);
+
+    const closedMetrics = await displayOptions.evaluate((element) => {
+      const box = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return {
+        height: box.height,
+        width: box.width,
+        borderTopWidth: style.borderTopWidth,
+        borderRightWidth: style.borderRightWidth,
+        backgroundColor: style.backgroundColor,
+      };
+    });
+    expect(closedMetrics.height, `closed options should not look like an empty panel: ${JSON.stringify(closedMetrics)}`).toBeLessThanOrEqual(56);
+    expect(closedMetrics.borderTopWidth, `closed options should be a compact toggle, not a bordered panel: ${JSON.stringify(closedMetrics)}`).toBe("0px");
+    expect(closedMetrics.borderRightWidth, `closed options should be a compact toggle, not a bordered panel: ${JSON.stringify(closedMetrics)}`).toBe("0px");
+    await expect(displayOptions.locator(".table-toolbar")).toBeHidden();
+
+    await displaySummary.click();
+    await expect(displayOptions).toHaveAttribute("open", "");
+    await expect(displaySummary).toContainText("접기");
+    await expect(displayOptions.locator(".table-toolbar")).toBeVisible();
+    await expectNoHorizontalOverflow(page, 12);
+    await capture(page, `issue-239-holding-view-options-compact-toggle-${viewport.width}`);
+    await displaySummary.click();
+  }
+});
+
 test("holdings flow: create, inline edit, delete, responsive", async ({ page }) => {
   test.setTimeout(240_000);
 

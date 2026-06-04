@@ -5188,11 +5188,62 @@ tr.holding-row-imported {
   color: #355177;
 }
 
-.holding-display-options {
-  margin-top: 0.8rem;
+.holding-display-options.compact-inline-details {
+  margin-top: 0.55rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.holding-display-options > summary {
+  width: fit-content;
+  min-height: 2.75rem;
+  padding: 0.38rem 0.68rem;
+  border: 1px solid #d9e6f7;
+  border-radius: 999px;
+  background: #f8fbff;
+}
+
+.holding-display-options[open] {
+  padding: 0.8rem 0.9rem 0.95rem;
   border: 1px solid #e2e8f0;
   border-radius: 12px;
   background: #fbfdff;
+}
+
+.holding-display-options[open] > summary {
+  width: 100%;
+  padding: 0 0 0.45rem;
+  border: 0;
+  border-bottom: 1px solid #e8eef6;
+  border-radius: 0;
+  background: transparent;
+}
+
+.holding-display-options-state {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.5rem;
+  padding: 0.12rem 0.44rem;
+  border-radius: 999px;
+  background: #e8f2ff;
+  color: #28527a;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.holding-display-options-state-open {
+  display: none;
+}
+
+.holding-display-options[open] .holding-display-options-state-closed {
+  display: none;
+}
+
+.holding-display-options[open] .holding-display-options-state-open {
+  display: inline-flex;
 }
 
 .holding-display-options > .table-toolbar,
@@ -6562,8 +6613,27 @@ tr.holding-row-imported {
   .holding-list-card > .holding-display-options {
     order: 8;
     margin-top: 0.1rem;
-    padding-top: 0.5rem;
-    border-top: 1px solid #eef3f9;
+    padding-top: 0;
+    border-top: 0;
+  }
+
+  .holding-list-card > .holding-display-options > summary {
+    display: inline-flex;
+    grid-template-columns: none;
+    align-content: normal;
+    justify-items: normal;
+    gap: 0.55rem;
+    width: fit-content;
+  }
+
+  .holding-list-card > .holding-display-options[open] {
+    padding-top: 0.8rem;
+    border-top: 1px solid #e2e8f0;
+  }
+
+  .holding-list-card > .holding-display-options[open] > summary {
+    display: flex;
+    width: 100%;
   }
 
   .surface-list-heading {
