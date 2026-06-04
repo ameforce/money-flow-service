@@ -22,6 +22,15 @@ function previousMonthMiddleIso() {
   return new Date(Date.UTC(year, month - 2, 15)).toISOString().slice(0, 10);
 }
 
+function currentMonthBounds() {
+  const [year, month] = currentE2EHistoryDateIso().split("-").map((part) => Number(part));
+  const monthText = String(month).padStart(2, "0");
+  return {
+    start: `${year}-${monthText}-01`,
+    end: new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10),
+  };
+}
+
 async function expectDonutTextNotClipped(labelLocator) {
   const metrics = await labelLocator.evaluateAll((nodes) =>
     nodes.map((node) => {
@@ -152,7 +161,14 @@ async function readDashboardFilterLayout(filterCard) {
     const inputs = card.querySelector(".filter-inputs-wrapper")?.getBoundingClientRect();
     const stepper = card.querySelector(".month-stepper")?.getBoundingClientRect();
     const range = card.querySelector(".range-picker")?.getBoundingClientRect();
+    const presetRow = card.querySelector(".range-preset-row")?.getBoundingClientRect();
     const dates = Array.from(card.querySelectorAll('input[type="date"]')).map((input) => input.getBoundingClientRect());
+    const presetButtons = Array.from(card.querySelectorAll(".range-preset-row button")).map((button) => {
+      const buttonBox = button.getBoundingClientRect();
+      return {
+        height: buttonBox.height,
+      };
+    });
     const modeButtons = Array.from(card.querySelectorAll(".filter-modes-segmented button")).map((button) => {
       const buttonBox = button.getBoundingClientRect();
       return {
@@ -205,6 +221,9 @@ async function readDashboardFilterLayout(filterCard) {
       modeHeight: mode?.height ?? 0,
       stepperHeight: stepper?.height ?? 0,
       rangeHeight: range?.height ?? 0,
+      rangeBottom: range?.bottom ?? 0,
+      presetY: presetRow?.y ?? 0,
+      presetHeight: presetRow?.height ?? 0,
       stepperClientWidth: stepper ? Math.round(stepper.width) : 0,
       stepperScrollWidth: stepper ? card.querySelector(".month-stepper").scrollWidth : 0,
       modeCenterY: mode ? mode.y + mode.height / 2 : 0,
@@ -221,6 +240,7 @@ async function readDashboardFilterLayout(filterCard) {
           }
         : null,
       monthGroups,
+      presetButtons,
       stepperChildren,
       stepperOverlaps,
       cardBoxShadow: getComputedStyle(card).boxShadow,
@@ -271,10 +291,14 @@ function expectMonthlyFilterLayout(layout) {
 
 function expectRangeFilterLayout(layout) {
   const stacked = layout.inputsY > layout.modeBottom + 2;
-  expect(layout.height).toBeLessThanOrEqual(stacked ? 180 : 72);
+  const stackedHeightLimit = layout.presetHeight > 0 ? 216 : 180;
+  expect(layout.height).toBeLessThanOrEqual(stacked ? stackedHeightLimit : 72);
   if (stacked) {
     expect(layout.inputsY - layout.modeBottom).toBeGreaterThanOrEqual(4);
     expect(layout.rangeHeight).toBeGreaterThanOrEqual(layout.modeHeight);
+    if (layout.presetHeight > 0) {
+      expect(layout.presetY - layout.rangeBottom).toBeGreaterThanOrEqual(4);
+    }
   } else {
     expect(Math.abs(layout.modeY - layout.inputsY)).toBeLessThanOrEqual(2);
     expect(Math.abs(layout.modeHeight - layout.rangeHeight)).toBeLessThanOrEqual(1);
@@ -292,6 +316,9 @@ function expectRangeFilterLayout(layout) {
   expect(layout.modeOuterInset.left).toBeGreaterThanOrEqual(3.5);
   expect(layout.modeOuterInset.right).toBeGreaterThanOrEqual(3.5);
   expect(layout.modeOuterInset.minButtonHeight).toBeGreaterThanOrEqual(40);
+  for (const button of layout.presetButtons) {
+    expect(button.height, "range preset buttons should keep a mobile touch target").toBeGreaterThanOrEqual(40);
+  }
 }
 
 async function expectNoRefreshNoteLayoutShift(page, button, filterCard, label) {
@@ -662,6 +689,40 @@ test("dashboard month inputs expose visible focus state", async ({ page }) => {
   }
 
   await capture(page, "dashboard-month-input-focus");
+});
+
+test("dashboard period mode keeps the current month scope and ISO date affordance", async ({ page }) => {
+  const email = `${unique("dashboard-period-scope")}@example.com`;
+  const displayName = unique("dashboard-period-scope-name");
+  const memo = unique("dashboard-period-current-month");
+  const monthRange = currentMonthBounds();
+
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await assertResponsiveShell(page);
+  await openTab(page, "거래");
+  await createBasicTransaction(page, {
+    memo,
+    amount: "34000",
+    flowType: "income",
+    occurredOn: currentE2EHistoryDateIso(),
+  });
+
+  await openTab(page, "대시보드");
+  const filterCard = page.locator(".dashboard-filter-card");
+  await filterCard.getByRole("button", { name: "기간" }).click();
+
+  await expect(filterCard.getByLabel("시작일")).toHaveValue(monthRange.start);
+  await expect(filterCard.getByLabel("종료일")).toHaveValue(monthRange.end);
+  await expect(filterCard.getByRole("button", { name: "이번 달" })).toBeVisible();
+  await expect(filterCard.getByRole("button", { name: "최근 30일" })).toBeVisible();
+  await expect(filterCard.locator(".range-date-value", { hasText: monthRange.start })).toBeVisible();
+  await expect(filterCard.locator(".range-date-value", { hasText: monthRange.end })).toBeVisible();
+
+  const incomeCard = page.locator(".dashboard-kpi-card", { hasText: "수입" }).first();
+  await expect(incomeCard.locator(".dashboard-kpi-value-main")).not.toHaveText("0원");
+  await expect(page.getByText("최근 거래가 없습니다.")).toHaveCount(0);
+  await capture(page, "issue-214-dashboard-period-current-month-scope");
 });
 
 test("dashboard range inputs expose readable mobile labels and focus", async ({ page }) => {

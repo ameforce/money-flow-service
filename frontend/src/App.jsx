@@ -804,6 +804,32 @@ function yearMonthEndDateKey(value, todayKey = todayIso()) {
   return lastDay > normalizedToday ? normalizedToday : lastDay;
 }
 
+function yearMonthFullDateRange(value, todayKey = todayIso()) {
+  const fallbackDate = normalizeIsoDateKey(todayKey);
+  const [fallbackYear, fallbackMonth] = fallbackDate.split("-").map((part) => Number(part));
+  const parsed = {
+    year: Number(value?.year),
+    month: Number(value?.month),
+  };
+  const year = Number.isFinite(parsed.year) ? parsed.year : fallbackYear;
+  const month = Number.isFinite(parsed.month) ? Math.max(1, Math.min(12, parsed.month)) : fallbackMonth;
+  const monthText = String(month).padStart(2, "0");
+  return {
+    start: `${year}-${monthText}-01`,
+    end: isoDateFromUtcDate(new Date(Date.UTC(year, month, 0))),
+  };
+}
+
+function recentDateRange(days = 30, todayKey = todayIso()) {
+  const end = normalizeIsoDateKey(todayKey);
+  const [year, month, day] = end.split("-").map((part) => Number(part));
+  const startDate = new Date(Date.UTC(year, month - 1, day - Math.max(0, days - 1)));
+  return {
+    start: isoDateFromUtcDate(startDate),
+    end,
+  };
+}
+
 function compareTransactionHistoryItems(left, right) {
   const leftDate = String(left?.occurred_on || "");
   const rightDate = String(right?.occurred_on || "");
@@ -1878,7 +1904,7 @@ function App() {
 
   const [filterMode, setFilterMode] = useState("month");
   const [yearMonth, setYearMonth] = useState(currentMonth());
-  const [range, setRange] = useState({ start: todayIso(), end: todayIso() });
+  const [range, setRange] = useState(() => yearMonthFullDateRange(currentMonth()));
 
   const filterModeRef = useRef(filterMode);
   const yearMonthRef = useRef(yearMonth);
@@ -4870,6 +4896,7 @@ function App() {
       }
     }
     setFilterMode("month");
+    filterModeRef.current = "month";
     yearMonthRef.current = normalized;
     setYearMonth(normalized);
     if (tab === "transactions" || transactionHistoryInitialized) {
@@ -4910,6 +4937,8 @@ function App() {
 
   function applyRangeFilter(nextRange = range) {
     setFilterMode("range");
+    filterModeRef.current = "range";
+    rangeRef.current = nextRange;
     setRange(nextRange);
     if (!nextRange.start || !nextRange.end) {
       return;
@@ -4925,6 +4954,26 @@ function App() {
 
   function handleRangeInputChange(field, value) {
     applyRangeFilter({ ...range, [field]: value });
+  }
+
+  function handleSwitchToRangeFilter() {
+    const nextRange = filterModeRef.current === "month"
+      ? yearMonthFullDateRange(yearMonthRef.current, transactionHistoryTodayRef.current || todayIso())
+      : rangeRef.current;
+    applyRangeFilter(nextRange);
+  }
+
+  function handleRangePreset(preset) {
+    if (preset === "current_month") {
+      const nextMonth = currentMonth();
+      yearMonthRef.current = nextMonth;
+      setYearMonth(nextMonth);
+      applyRangeFilter(yearMonthFullDateRange(nextMonth, transactionHistoryTodayRef.current || todayIso()));
+      return;
+    }
+    if (preset === "recent_30") {
+      applyRangeFilter(recentDateRange(30, transactionHistoryTodayRef.current || todayIso()));
+    }
   }
 
   function handleYearMonthInputKeyDown(event) {
@@ -7401,8 +7450,13 @@ function App() {
     clearSavedTabId();
     setTab("dashboard");
     setFilterMode("month");
-    setYearMonth(currentMonth());
-    setRange({ start: todayIso(), end: todayIso() });
+    filterModeRef.current = "month";
+    const resetMonth = currentMonth();
+    yearMonthRef.current = resetMonth;
+    setYearMonth(resetMonth);
+    const resetRange = yearMonthFullDateRange(resetMonth);
+    rangeRef.current = resetRange;
+    setRange(resetRange);
     setTxListFilter({
       keyword: "",
       flow_type: "all",
@@ -9286,7 +9340,7 @@ function App() {
             <div className="filter-container">
               <div className="filter-modes-segmented">
                 <button className={filterMode === "month" ? "active" : ""} onClick={() => applyMonthFilter(yearMonth)}>월별</button>
-                <button className={filterMode === "range" ? "active" : ""} onClick={() => applyRangeFilter(range)}>기간</button>
+                <button className={filterMode === "range" ? "active" : ""} onClick={handleSwitchToRangeFilter}>기간</button>
               </div>
               <div className="filter-inputs-wrapper">
                 {filterMode === "month" ? (
@@ -9346,28 +9400,36 @@ function App() {
                     </button>
                   </div>
                 ) : (
-                  <div className="range-picker">
-                    <label className="range-date-field">
-                      <span className="range-date-label">시작일</span>
-                      <input
-                        type="date"
-                        aria-label="시작일"
-                        value={range.start}
-                        onChange={(e) => handleRangeInputChange("start", e.target.value)}
-                        enterKeyHint="done"
-                      />
-                    </label>
-                    <span className="range-separator">~</span>
-                    <label className="range-date-field">
-                      <span className="range-date-label">종료일</span>
-                      <input
-                        type="date"
-                        aria-label="종료일"
-                        value={range.end}
-                        onChange={(e) => handleRangeInputChange("end", e.target.value)}
-                        enterKeyHint="done"
-                      />
-                    </label>
+                  <div className="range-filter-stack">
+                    <div className="range-picker">
+                      <label className="range-date-field">
+                        <span className="range-date-label">시작일</span>
+                        <input
+                          type="date"
+                          aria-label="시작일"
+                          value={range.start}
+                          onChange={(e) => handleRangeInputChange("start", e.target.value)}
+                          enterKeyHint="done"
+                        />
+                        <span className="range-date-value" aria-hidden="true">{range.start}</span>
+                      </label>
+                      <span className="range-separator">~</span>
+                      <label className="range-date-field">
+                        <span className="range-date-label">종료일</span>
+                        <input
+                          type="date"
+                          aria-label="종료일"
+                          value={range.end}
+                          onChange={(e) => handleRangeInputChange("end", e.target.value)}
+                          enterKeyHint="done"
+                        />
+                        <span className="range-date-value" aria-hidden="true">{range.end}</span>
+                      </label>
+                    </div>
+                    <div className="range-preset-row" aria-label="기간 빠른 선택">
+                      <button type="button" onClick={() => handleRangePreset("current_month")}>이번 달</button>
+                      <button type="button" onClick={() => handleRangePreset("recent_30")}>최근 30일</button>
+                    </div>
                   </div>
                 )}
               </div>
