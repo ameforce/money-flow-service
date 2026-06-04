@@ -24,6 +24,31 @@ function signedTossSource(sourceRef) {
   };
 }
 
+function createLargeImportReport() {
+  const issues = Array.from({ length: 25 }, (_, index) => {
+    const row = index + 1;
+    return {
+      code: row % 2 === 0 ? "INVALID_AMOUNT" : "MISSING_REQUIRED_VALUE",
+      severity: row % 2 === 0 ? "warning" : "error",
+      sheet: "거래내역",
+      row,
+      message: `누락 필수값 ${row}`,
+    };
+  });
+  return {
+    workbook_path: "large-import.xlsx",
+    sheets: 2,
+    transaction_rows: 25,
+    holding_rows: 0,
+    applied_transactions: 0,
+    applied_holdings_added: 0,
+    applied_holdings_updated: 0,
+    monthly_formula_mismatch_count: 25,
+    detected_mismatch_cells: Array.from({ length: 25 }, (_, index) => `거래내역!M${index + 1}`),
+    issues,
+  };
+}
+
 test("import flow: no-file actions stay disabled with helper text", async ({ page }) => {
   const email = `${unique("import-empty-user")}@example.com`;
   const displayName = unique("import-empty-name");
@@ -80,6 +105,68 @@ test("import flow: mobile upload copy is touch oriented", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await expect(workbookPlaceholder).toContainText("드래그 앤 드롭");
   await expect(workbookPlaceholder).toContainText("클릭");
+});
+
+test("import flow: large report exposes full table filters and CSV export", async ({ page }, testInfo) => {
+  const email = `${unique("import-large-report-user")}@example.com`;
+  const displayName = unique("import-large-report-name");
+  const workbookPath = testInfo.outputPath(`${unique("large-import-report")}.xlsx`);
+  createImportWorkbook(workbookPath, {
+    txMemo: unique("large-import-report-tx"),
+    holdingName: unique("large-import-report-holding"),
+    categoryMinor: unique("large-import-report-minor"),
+  });
+
+  await page.route("**/api/v1/imports/workbook/upload?mode=dry_run", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(createLargeImportReport()),
+    });
+  });
+
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await assertResponsiveShell(page);
+  await page.getByRole("button", { name: "데이터 가져오기", exact: true }).click();
+
+  await page.getByLabel("엑셀 파일 업로드").setInputFiles(workbookPath);
+  await page.getByRole("button", { name: "미리 검증", exact: true }).click();
+
+  const workbench = page.locator(".import-report-workbench");
+  await expect(workbench.getByRole("heading", { name: "문제 정리 표" })).toBeVisible();
+  await expect(workbench.getByLabel("정리 표 검색")).toBeVisible();
+  await expect(workbench.getByLabel("심각도 필터")).toBeVisible();
+  await expect(workbench.getByLabel("유형 필터")).toBeVisible();
+  await expect(workbench.getByLabel("정렬")).toBeVisible();
+  await expect(workbench.getByRole("button", { name: "CSV 복사" })).toBeVisible();
+
+  await expect(workbench.getByText("누락 필수값 25")).toBeVisible();
+  await expect(workbench.getByText("거래내역!M25")).toBeVisible();
+
+  await workbench.getByLabel("정리 표 검색").fill("누락 필수값 25");
+  await expect(workbench.getByText("누락 필수값 25")).toBeVisible();
+  await expect(workbench.getByText("누락 필수값 24")).toHaveCount(0);
+
+  await workbench.getByLabel("정리 표 검색").fill("");
+  await workbench.getByLabel("심각도 필터").selectOption("error");
+  await expect(workbench.getByText("누락 필수값 25")).toBeVisible();
+  await expect(workbench.getByText("거래내역!M25")).toHaveCount(0);
+
+  await workbench.getByLabel("심각도 필터").selectOption("all");
+  await workbench.getByLabel("정렬").selectOption("row_desc");
+  await expect(workbench.locator("tbody tr").first()).toContainText("25");
+  await workbench.getByLabel("정렬").selectOption("row_asc");
+
+  await workbench.getByLabel("유형 필터").selectOption("formula_mismatch");
+  await expect(workbench.getByText("거래내역!M25")).toBeVisible();
+  await expect(workbench.getByText("누락 필수값 25")).toHaveCount(0);
+
+  const downloadPromise = page.waitForEvent("download");
+  await workbench.getByRole("button", { name: "CSV 다운로드" }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toMatch(/^import-report-issues-.*\.csv$/);
+  await capture(page, "issue-204-import-report-workbench");
 });
 
 test("import flow: workbook dry-run and apply", async ({ page }, testInfo) => {
