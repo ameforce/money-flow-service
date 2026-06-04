@@ -3838,6 +3838,109 @@ test("issue 224: desktop transaction row edit and delete targets stay comfortabl
   await capture(page, "issue-224-desktop-row-action-target-size");
 });
 
+test("issue 227: 1024px transaction row actions stay inside the viewport", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("tx-1024-actions")}@example.com`;
+  const displayName = unique("tx-1024-actions-owner");
+  const memoPrefix = unique("tx-1024-actions-row");
+  const category = await registerAndVerify(page, { email, displayName }).then(() =>
+    createCategoryViaApi(page, {
+      major: unique("Desktop1024"),
+      minor: unique("동작열"),
+    })
+  );
+
+  for (let index = 0; index < 6; index += 1) {
+    await createTransactionViaApi(page, {
+      memo: `${memoPrefix}-${String(index).padStart(2, "0")}`,
+      amount: String(5227 + index),
+      categoryId: category.id,
+      ownerName: displayName,
+    });
+  }
+
+  await page.reload();
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await openTab(page, "거래");
+  await page.waitForLoadState("networkidle");
+
+  const targetRow = page.locator("tr.transaction-row", { hasText: memoPrefix }).first();
+  await expect(targetRow).toBeVisible({ timeout: 20_000 });
+  await page.locator(".transaction-list-card").first().evaluate((element) => element.scrollIntoView({ block: "start" }));
+  await targetRow.evaluate((element) => element.scrollIntoView({ block: "center", inline: "nearest" }));
+  await page.locator(".transactions-surface-scroll").first().evaluate((element) => {
+    element.scrollLeft = 0;
+  });
+  await page.waitForTimeout(150);
+
+  const metrics = await page.evaluate((rowMemoPrefix) => {
+    const boxOf = (element) => {
+      if (!element) {
+        return null;
+      }
+      const box = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      const centerX = box.left + box.width / 2;
+      const centerY = box.top + box.height / 2;
+      const topElement = document.elementFromPoint(centerX, centerY);
+      return {
+        text: element.textContent?.replace(/\s+/g, " ").trim() || element.getAttribute("aria-label") || "",
+        left: box.left,
+        right: box.right,
+        top: box.top,
+        bottom: box.bottom,
+        width: box.width,
+        height: box.height,
+        display: style.display,
+        visibility: style.visibility,
+        hitVisible: Boolean(topElement && (topElement === element || element.contains(topElement))),
+      };
+    };
+    const viewportWidth = window.innerWidth;
+    const scroller = document.querySelector(".transactions-surface-scroll");
+    const table = document.querySelector(".transactions-surface-table");
+    const headerAction = document.querySelector(".transactions-desktop-ledger-head .transaction-col-actions");
+    const target = Array.from(document.querySelectorAll("tr.transaction-row")).find((row) =>
+      row.textContent?.includes(rowMemoPrefix)
+    );
+    const actionCell = target?.querySelector(".transaction-col-actions");
+    const actionButtons = Array.from(actionCell?.querySelectorAll("button:not(.mobile-toggle-btn)") || [])
+      .map((button) => boxOf(button))
+      .filter((targetBox) => targetBox && targetBox.display !== "none" && targetBox.visibility === "visible" && targetBox.width > 0 && targetBox.height > 0);
+    const trackedBoxes = [boxOf(headerAction), boxOf(actionCell), ...actionButtons].filter(Boolean);
+    return {
+      viewport: { width: viewportWidth, height: window.innerHeight },
+      pageOverflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      scroller: {
+        ...boxOf(scroller),
+        clientWidth: scroller?.clientWidth || 0,
+        scrollWidth: scroller?.scrollWidth || 0,
+        scrollLeft: scroller?.scrollLeft || 0,
+        scrollOverflowX: scroller ? scroller.scrollWidth - scroller.clientWidth : 0,
+      },
+      table: boxOf(table),
+      headerAction: boxOf(headerAction),
+      actionCell: boxOf(actionCell),
+      actionButtons,
+      outsideViewport: trackedBoxes.filter((targetBox) => targetBox.left < -1 || targetBox.right > viewportWidth + 1),
+      hiddenHitTargets: actionButtons.filter((targetBox) => !targetBox.hitVisible),
+      undersizedTargets: actionButtons.filter((targetBox) => targetBox.width < 44 || targetBox.height < 36),
+    };
+  }, memoPrefix);
+
+  expect(metrics.headerAction, `desktop action header should exist: ${JSON.stringify(metrics)}`).toBeTruthy();
+  expect(metrics.actionCell, `target row action cell should exist: ${JSON.stringify(metrics)}`).toBeTruthy();
+  expect(metrics.actionButtons.length, `test should exercise edit/delete targets: ${JSON.stringify(metrics)}`).toBe(2);
+  expect(metrics.pageOverflowX, `1024px desktop page should not overflow horizontally: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
+  expect(metrics.scroller.scrollOverflowX, `1024px transaction table should not hide actions behind horizontal scroll: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
+  expect(metrics.outsideViewport, `desktop action header/cell/buttons should stay inside viewport: ${JSON.stringify(metrics)}`).toEqual([]);
+  expect(metrics.undersizedTargets, `desktop edit/delete targets should remain at least 44x36px: ${JSON.stringify(metrics)}`).toEqual([]);
+  expect(metrics.hiddenHitTargets, `desktop edit/delete centers should remain directly clickable: ${JSON.stringify(metrics)}`).toEqual([]);
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "issue-227-1024-transaction-actions-visible");
+});
+
 test("issue 228: mobile transaction filters use ledger headers without duplicate generic toggle", async ({ page }) => {
   test.setTimeout(120_000);
 
