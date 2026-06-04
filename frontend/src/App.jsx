@@ -11228,7 +11228,11 @@ function App() {
               ))}
             </div>
             <details className="holding-display-options compact-inline-details">
-              <summary>보기 옵션</summary>
+              <summary>
+                <span>보기 옵션</span>
+                <span className="holding-display-options-state holding-display-options-state-closed">펼치기</span>
+                <span className="holding-display-options-state holding-display-options-state-open">접기</span>
+              </summary>
               <div className="table-toolbar">
                 <label>
                   색상 기준
