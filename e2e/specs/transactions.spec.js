@@ -3755,6 +3755,73 @@ test("issue 223: desktop transaction add action does not cover bottom row action
   await capture(page, "issue-223-desktop-add-action-row-clearance");
 });
 
+test("issue 224: desktop transaction row edit and delete targets stay comfortable", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("tx-desktop-row-actions")}@example.com`;
+  const displayName = unique("tx-desktop-row-actions-owner");
+  const memoPrefix = unique("tx-desktop-row-actions-row");
+  const category = await registerAndVerify(page, { email, displayName }).then(() =>
+    createCategoryViaApi(page, {
+      major: unique("DesktopActions"),
+      minor: unique("정리작업"),
+    })
+  );
+
+  for (let index = 0; index < 18; index += 1) {
+    await createTransactionViaApi(page, {
+      memo: `${memoPrefix}-${String(index).padStart(2, "0")}`,
+      amount: String(4200 + index),
+      categoryId: category.id,
+      ownerName: displayName,
+    });
+  }
+
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await openTab(page, "거래");
+  await page.waitForLoadState("networkidle");
+
+  const metrics = await page.evaluate(() => {
+    const boxOf = (element) => {
+      const box = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      const centerX = box.left + box.width / 2;
+      const centerY = box.top + box.height / 2;
+      const topElement = document.elementFromPoint(centerX, centerY);
+      return {
+        text: element.textContent?.replace(/\s+/g, " ").trim() || element.getAttribute("aria-label") || "",
+        left: box.left,
+        right: box.right,
+        top: box.top,
+        bottom: box.bottom,
+        width: box.width,
+        height: box.height,
+        display: style.display,
+        visibility: style.visibility,
+        hitVisible: Boolean(topElement && (topElement === element || element.contains(topElement))),
+      };
+    };
+    const visibleTargets = Array.from(document.querySelectorAll("tr.transaction-row .transaction-col-actions button:not(.mobile-toggle-btn)"))
+      .map((button) => boxOf(button))
+      .filter((target) => target.display !== "none" && target.visibility === "visible" && target.width > 0 && target.height > 0)
+      .filter((target) => target.top >= 0 && target.bottom <= window.innerHeight);
+    return {
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+      visibleTargets,
+      undersizedTargets: visibleTargets.filter((target) => target.width < 44 || target.height < 36),
+      hiddenHitTargets: visibleTargets.filter((target) => !target.hitVisible),
+      pageOverflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    };
+  });
+
+  expect(metrics.visibleTargets.length, `test should exercise visible desktop row action targets: ${JSON.stringify(metrics)}`).toBeGreaterThan(4);
+  expect(metrics.undersizedTargets, `desktop edit/delete targets should be at least 44x36px: ${JSON.stringify(metrics)}`).toEqual([]);
+  expect(metrics.hiddenHitTargets, `desktop edit/delete target centers should be directly clickable: ${JSON.stringify(metrics)}`).toEqual([]);
+  expect(metrics.pageOverflowX, `larger desktop row actions should not create horizontal overflow: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "issue-224-desktop-row-action-target-size");
+});
+
 test("issue 228: mobile transaction filters use ledger headers without duplicate generic toggle", async ({ page }) => {
   test.setTimeout(120_000);
 
