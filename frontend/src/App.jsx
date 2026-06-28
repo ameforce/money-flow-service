@@ -12,6 +12,7 @@ import {
 } from "chart.js";
 import { Doughnut, Line } from "react-chartjs-2";
 import { IsoDateInput } from "./components/IsoDateInput";
+import { ChartBreakdownList, FlowTrendValueTable } from "./components/worksurface/ChartAccessibleSummary";
 import { HoldingSurfaceTable } from "./components/worksurface/HoldingSurfaceTable";
 import { TransactionCategoryQuickPicker } from "./components/worksurface/TransactionCategoryQuickPicker";
 import { TransactionSurfaceTable } from "./components/worksurface/TransactionSurfaceTable";
@@ -1329,6 +1330,13 @@ function createTransactionForm(defaultOccurredOn = todayIso()) {
   };
 }
 
+function createTransactionFormErrors() {
+  return {
+    occurred_on: "",
+    amount: "",
+  };
+}
+
 function createRepeatTransactionForm(previousForm, fallbackOccurredOn = todayIso()) {
   const normalizedDate = normalizeIsoDateKey(previousForm?.occurred_on, fallbackOccurredOn);
   return {
@@ -1645,6 +1653,27 @@ function buildPortfolioChartData(chartSource) {
       },
     ],
   };
+}
+
+function buildPortfolioBreakdownItems(chartSource, keyPrefix = "portfolio") {
+  const items = chartSource?.items || [];
+  const total = items.reduce((sum, item) => sum + Number(item.value || 0), 0);
+  const colors = categoryPalette(items.length);
+  if (!items.length || total <= 0) {
+    return [];
+  }
+  return items.map((item, index) => {
+    const value = Number(item.value || 0);
+    const share = total > 0 ? (value / total) * 100 : 0;
+    return {
+      key: item.key || item.label || `${keyPrefix}-${index}`,
+      label: item.label,
+      value,
+      valueText: fmtKrw(value),
+      shareText: formatSharePercent(share),
+      color: colors[index],
+    };
+  });
 }
 
 function buildPortfolioChartSourceForMode(
@@ -2265,26 +2294,6 @@ function App() {
     return () => document.removeEventListener("keydown", handleMobileFormEnter, true);
   }, [isCompactViewport]);
 
-  useEffect(() => {
-    if (!isCompactViewport) {
-      return undefined;
-    }
-
-    const releaseTouchButtonFocus = () => {
-      const activeElement = document.activeElement;
-      if (activeElement instanceof HTMLElement && activeElement.matches("button, [role='button']")) {
-        activeElement.blur();
-      }
-    };
-
-    document.addEventListener("pointerup", releaseTouchButtonFocus, true);
-    document.addEventListener("touchend", releaseTouchButtonFocus, true);
-    return () => {
-      document.removeEventListener("pointerup", releaseTouchButtonFocus, true);
-      document.removeEventListener("touchend", releaseTouchButtonFocus, true);
-    };
-  }, [isCompactViewport]);
-
   const [overview, setOverview] = useState(null);
   const [portfolio, setPortfolio] = useState(null);
   const [transactions, setTransactions] = useState([]);
@@ -2396,6 +2405,7 @@ function App() {
   }, []);
 
   const [txForm, setTxForm] = useState(() => createTransactionForm());
+  const [txFormErrors, setTxFormErrors] = useState(() => createTransactionFormErrors());
   const [txCategoryMajor, setTxCategoryMajor] = useState("");
   const [txCategoryRestore, setTxCategoryRestore] = useState(null);
   const [txListFilter, setTxListFilter] = useState({
@@ -3559,7 +3569,7 @@ function App() {
       return;
     }
     requestAnimationFrame(() => {
-      const focusTarget = isCompactViewport && txEntrySheetStep === "form" ? txAmountInputRef.current : txDateInputRef.current;
+      const focusTarget = txEntrySheetStep === "form" ? txAmountInputRef.current : txDateInputRef.current;
       focusTarget?.focus?.({ preventScroll: false });
       if (focusTarget === txAmountInputRef.current) {
         setShowTransactionQuickResume(false);
@@ -3850,11 +3860,26 @@ function App() {
     txQuickFocusScrollTimersRef.current = [];
   }, []);
 
+  const clearTransactionEntryValidationFeedback = useCallback(() => {
+    const validationMessages = new Set(
+      [txFormErrors.occurred_on, txFormErrors.amount]
+        .map((value) => String(value || "").trim())
+        .filter(Boolean)
+    );
+
+    setTxFormErrors(createTransactionFormErrors());
+    setMessage((prev) => {
+      const normalized = String(prev || "").trim();
+      return normalized && validationMessages.has(normalized) ? "" : prev;
+    });
+  }, [txFormErrors.amount, txFormErrors.occurred_on]);
+
   function openTransactionEntrySheet(nextStep = "form") {
     if (loading) {
       return;
     }
     transactionSheetScrollYRef.current = typeof window !== "undefined" ? window.scrollY : 0;
+    clearTransactionEntryValidationFeedback();
     setTxEntrySheetStep(nextStep);
     setShowTransactionForm(true);
   }
@@ -3871,6 +3896,7 @@ function App() {
       }
     }
     const restoreScrollY = transactionSheetScrollYRef.current;
+    clearTransactionEntryValidationFeedback();
     setShowTransactionForm(false);
     setTxEntrySheetStep("form");
     setShowTransactionQuickResume(false);
@@ -3881,7 +3907,14 @@ function App() {
       trigger?.focus?.({ preventScroll: true });
     }, 0);
     return true;
-  }, [clearTransactionQuickFocusScrollTimers, isCompactViewport, isTransactionEntryDraftDirty, requestConfirmDialog, txEntrySheetStep]);
+  }, [
+    clearTransactionEntryValidationFeedback,
+    clearTransactionQuickFocusScrollTimers,
+    isCompactViewport,
+    isTransactionEntryDraftDirty,
+    requestConfirmDialog,
+    txEntrySheetStep,
+  ]);
 
   useEffect(() => {
     if (!showTransactionForm) {
@@ -3900,6 +3933,7 @@ function App() {
 
   function resetTransactionDraft() {
     setTxForm(createTransactionForm(transactionEntryContextDate()));
+    setTxFormErrors(createTransactionFormErrors());
     setTxCategoryMajor("");
     setTxCategoryRestore(null);
     setTxDraftTouched(false);
@@ -3922,6 +3956,17 @@ function App() {
 
   function focusTransactionAmountForRepeatEntry() {
     setTxRepeatFocusRequest((current) => current + 1);
+  }
+
+  function clearTransactionFormError(field) {
+    setTxFormErrors((prev) => (prev[field] ? { ...prev, [field]: "" } : prev));
+  }
+
+  function focusFirstTransactionFormError(errors) {
+    const target = errors.occurred_on ? txDateInputRef.current : errors.amount ? txAmountInputRef.current : null;
+    requestAnimationFrame(() => {
+      target?.focus?.({ preventScroll: false });
+    });
   }
 
   function isTransactionQuickRestorableField(element) {
@@ -5699,8 +5744,13 @@ function App() {
   }
 
   function handleTransactionEntryAmountInput(event) {
+    const rawValue = String(event.currentTarget.value || "");
     setTxDraftTouched(true);
     handleTransactionAmountInput(event, setTxForm);
+    setTxFormErrors((prev) => {
+      const amountMessage = hasDecimalSeparatorInput(rawValue) ? KRW_TRANSACTION_INTEGER_AMOUNT_MESSAGE : "";
+      return prev.amount === amountMessage ? prev : { ...prev, amount: amountMessage };
+    });
   }
 
   function handleHoldingEntryDecimalInput(event, field) {
@@ -5748,12 +5798,22 @@ function App() {
     return validateAuthEmail(form.email, "초대할 이메일");
   }
 
-  function validateTransactionForm(form) {
+  function getTransactionFormErrors(form) {
+    const errors = createTransactionFormErrors();
     const dateMessage = validateRequiredText(form.occurred_on, "일자를 입력해 주세요.");
     if (dateMessage) {
-      return dateMessage;
+      errors.occurred_on = dateMessage;
     }
-    return validateTransactionAmountInput(form.amount);
+    errors.amount = validateTransactionAmountInput(form.amount);
+    return errors;
+  }
+
+  function firstTransactionFormError(errors) {
+    return errors.occurred_on || errors.amount || "";
+  }
+
+  function validateTransactionForm(form) {
+    return firstTransactionFormError(getTransactionFormErrors(form));
   }
 
   function validateCategoryDraftForm() {
@@ -6316,9 +6376,12 @@ function App() {
       setMessage(uiGuideMessage("현재 권한으로는 거래를 저장할 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
       return;
     }
-    const validationMessage = validateTransactionForm(txForm);
+    const transactionErrors = getTransactionFormErrors(txForm);
+    const validationMessage = firstTransactionFormError(transactionErrors);
+    setTxFormErrors(transactionErrors);
     if (validationMessage) {
       setMessage(validationMessage);
+      focusFirstTransactionFormError(transactionErrors);
       return;
     }
     setLoading(true);
@@ -6339,6 +6402,7 @@ function App() {
         token
       );
       setTxForm(repeatForm);
+      setTxFormErrors(createTransactionFormErrors());
       setTxCategoryRestore(null);
       setTxDraftTouched(false);
       setShowTransactionEntryBanner(false);
@@ -8262,6 +8326,7 @@ function App() {
     setTxCategoryMajor("");
     closeTxInlineEdit();
     setTxForm(createTransactionForm());
+    setTxFormErrors(createTransactionFormErrors());
     setTxDraftTouched(false);
     setHoldingForm(createHoldingForm("cash"));
     setHoldingOwnerTouched(false);
@@ -8673,6 +8738,15 @@ function App() {
   const holdingPortfolioChartData = useMemo(() => {
     return buildPortfolioChartData(holdingPortfolioChartSource);
   }, [holdingPortfolioChartSource]);
+  const dashboardFlowTrendRows = useMemo(() => {
+    const rows = Array.isArray(overview?.trend) ? overview.trend : [];
+    return rows.map((item) => ({
+      month: item.month,
+      income: Number(item.income || 0),
+      expense: Number(item.expense || 0),
+      investment: Number(item.investment || 0),
+    }));
+  }, [overview?.trend]);
   const lineChartOptions = useMemo(
     () => ({
       responsive: true,
@@ -8695,7 +8769,9 @@ function App() {
     []
   );
   const dashboardPortfolioViewLabel = PORTFOLIO_VIEW_LABELS[dashboardPortfolioViewMode] || dashboardPortfolioViewMode;
+  const dashboardFlowChartDescription = "월별 수입, 지출, 투자 추이";
   const dashboardPortfolioChartDescription = `${dashboardPortfolioChartSource?.title || "차트"} 기준 ${dashboardPortfolioViewLabel}`;
+  const holdingPortfolioChartDescription = `${holdingPortfolioChartSource?.title || "자산 포트폴리오"} 기준 평가금액`;
   const dashboardPortfolioCenterLabel = useMemo(
     () => {
       if (dashboardPortfolioViewMode === "holding_type") {
@@ -8753,24 +8829,12 @@ function App() {
     return (gainLoss / invested) * 100;
   }, [portfolio?.total_gain_loss_krw, portfolio?.total_invested_krw]);
   const holdingPortfolioGainTone = Number(portfolio?.total_gain_loss_krw || 0) >= 0 ? "positive" : "negative";
+  const dashboardPortfolioBreakdownItems = useMemo(
+    () => buildPortfolioBreakdownItems(dashboardPortfolioChartSource, "dashboard-portfolio"),
+    [dashboardPortfolioChartSource]
+  );
   const holdingPortfolioBreakdownItems = useMemo(() => {
-    const items = holdingPortfolioChartSource?.items || [];
-    const total = items.reduce((sum, item) => sum + Number(item.value || 0), 0);
-    const colors = categoryPalette(items.length);
-    if (!items.length || total <= 0) {
-      return [];
-    }
-    return items.map((item, index) => {
-      const value = Number(item.value || 0);
-      const share = total > 0 ? (value / total) * 100 : 0;
-      return {
-        key: item.key || item.label || `asset-${index}`,
-        label: item.label,
-        value,
-        shareText: formatSharePercent(share),
-        color: colors[index],
-      };
-    });
+    return buildPortfolioBreakdownItems(holdingPortfolioChartSource, "asset");
   }, [holdingPortfolioChartSource]);
   const holdingPortfolioBreakdownCanFilter = holdingSummaryViewMode === "type";
   const txFlowSummaryTotal = useMemo(
@@ -8997,7 +9061,7 @@ function App() {
 
   const transactionEntryBanner = showTransactionEntryBanner ? (
     <div className="tx-entry-banner" role="status">
-      <span>첫 거래를 바로 입력해 보세요. 거래자와 카테고리를 먼저 고르면 정리 속도가 빨라집니다.</span>
+      <span>금액과 카테고리만 정하면 바로 저장할 수 있습니다. 날짜와 거래자는 기본값을 사용합니다.</span>
       <button type="button" className="secondary" onClick={() => setShowTransactionEntryBanner(false)}>
         닫기
       </button>
@@ -9057,7 +9121,9 @@ function App() {
     const selectedCategoryId = String(txForm.category_id || "").trim();
     const selectedCategoryLabel = selectedCategoryId
       ? toCategoryPairLabel(categoryById.get(selectedCategoryId))
-      : "추천 카테고리를 탭하면 바로 연결됩니다.";
+      : transactionQuickCategoryChips.length > 0
+        ? "추천 카테고리를 탭하면 바로 연결됩니다."
+        : "미선택 저장 가능";
     const selectedCategoryContextLabel = selectedCategoryId
       ? toCategoryPairLabel(categoryById.get(selectedCategoryId))
       : "미선택";
@@ -9088,6 +9154,13 @@ function App() {
         value: selectedCategoryContextLabel,
       },
     ];
+    const transactionQuickSecondarySummary = [
+      FLOW_TYPE_LABELS[txForm.flow_type] || txForm.flow_type || "지출",
+      txForm.occurred_on || transactionEntryContextDate(),
+      selectedOwnerLabel,
+    ]
+      .filter(Boolean)
+      .join(" · ");
 
     return (
       <form
@@ -9100,39 +9173,75 @@ function App() {
         onKeyDownCapture={handleTransactionQuickFormKeyDown}
         onPointerDownCapture={rememberActiveTransactionQuickField}
       >
-        <label className="transaction-quick-amount-field">
-          <span>금액</span>
-          <input
-            ref={txAmountInputRef}
-            data-testid="transaction-quick-amount"
-            type="text"
-            inputMode="numeric"
-            enterKeyHint="next"
-            autoComplete="off"
-            placeholder="0"
-            value={txForm.amount}
-            onChange={handleTransactionEntryAmountInput}
-            onKeyDown={handleTransactionQuickAmountKeyDown}
-            disabled={transactionFormDisabled}
-            required
-          />
-        </label>
+        <div className="transaction-quick-primary-stack" data-testid="transaction-quick-primary-path">
+          <label className="transaction-quick-amount-field">
+            <span>금액</span>
+            <input
+              ref={txAmountInputRef}
+              data-testid="transaction-quick-amount"
+              type="text"
+              inputMode="numeric"
+              enterKeyHint="next"
+              autoComplete="off"
+              placeholder="0"
+              value={txForm.amount}
+              onChange={handleTransactionEntryAmountInput}
+              onKeyDown={handleTransactionQuickAmountKeyDown}
+              aria-invalid={txFormErrors.amount ? "true" : undefined}
+              aria-describedby={txFormErrors.amount ? "transaction-quick-amount-error" : undefined}
+              disabled={transactionFormDisabled}
+              required
+            />
+            {txFormErrors.amount && (
+              <p id="transaction-quick-amount-error" className="field-helper field-error" role="alert">
+                {txFormErrors.amount}
+              </p>
+            )}
+          </label>
 
-        <div
-          className="transaction-quick-context-strip"
-          data-testid="transaction-quick-context-summary"
-          aria-label="저장 컨텍스트 요약"
-        >
-          {transactionQuickContextItems.map((item) => (
-            <div
-              key={item.key}
-              className="transaction-quick-context-item"
-              data-testid={`transaction-quick-context-${item.key}`}
-            >
-              <span>{item.label}</span>
-              <strong title={item.value}>{item.value}</strong>
-            </div>
-          ))}
+          <TransactionCategoryQuickPicker
+            categories={categoryOptions}
+            quickOptions={transactionQuickCategoryChips}
+            selectedCategoryId={selectedCategoryId}
+            disabled={transactionFormDisabled}
+            allowCreate={canEditHouseholdData}
+            createDisabled={!canEditHouseholdData}
+            createMode="toggle"
+            createToggleLabel="새 카테고리"
+            createToggleVisibility="on-query"
+            maxOptions={6}
+            onSelect={selectTransactionQuickCategory}
+            onCreate={createAndApplyTransactionCategory}
+            title="카테고리"
+            selectedEmptyText={selectedCategoryLabel}
+            searchLabel="검색"
+            searchPlaceholder="추천 또는 검색"
+            searchMode="toggle"
+            searchToggleLabel="카테고리 선택"
+            rootClassName="transaction-quick-category-panel"
+            titleClassName="transaction-quick-section-title"
+            optionsClassName="transaction-quick-category-chips"
+            optionClassName="transaction-quick-category-chip"
+            optionTestId="transaction-quick-category-chip"
+            toCategoryMajorLabel={toCategoryMajorLabel}
+            toCategoryMinorLabel={toCategoryMinorLabel}
+          />
+
+          <label className="transaction-quick-memo-field">
+            메모
+            <input
+              ref={txQuickMemoInputRef}
+              enterKeyHint="done"
+              value={txForm.memo}
+              placeholder="선택 입력"
+              onChange={(e) => {
+                setTxDraftTouched(true);
+                setTxForm((prev) => ({ ...prev, memo: e.target.value }));
+              }}
+              onKeyDown={handleTransactionQuickMemoKeyDown}
+              disabled={transactionFormDisabled}
+            />
+          </label>
         </div>
 
         {showTransactionQuickResume && (
@@ -9147,52 +9256,85 @@ function App() {
           </button>
         )}
 
-        <TransactionCategoryQuickPicker
-          categories={categoryOptions}
-          quickOptions={transactionQuickCategoryChips}
-          selectedCategoryId={selectedCategoryId}
-          disabled={transactionFormDisabled}
-          allowCreate={canEditHouseholdData}
-          createDisabled={!canEditHouseholdData}
-          onSelect={selectTransactionQuickCategory}
-          onCreate={createAndApplyTransactionCategory}
-          title="추천 카테고리"
-          selectedEmptyText={selectedCategoryLabel}
-          searchPlaceholder="카테고리 검색"
-          rootClassName="transaction-quick-category-panel"
-          titleClassName="transaction-quick-section-title"
-          optionsClassName="transaction-quick-category-chips"
-          optionClassName="transaction-quick-category-chip"
-          optionTestId="transaction-quick-category-chip"
-          toCategoryMajorLabel={toCategoryMajorLabel}
-          toCategoryMinorLabel={toCategoryMinorLabel}
-        />
-
-        <label className="transaction-quick-memo-field">
-          메모
-          <input
-            ref={txQuickMemoInputRef}
-            enterKeyHint="done"
-            value={txForm.memo}
-            placeholder="선택 입력"
-            onChange={(e) => {
-              setTxDraftTouched(true);
-              setTxForm((prev) => ({ ...prev, memo: e.target.value }));
-            }}
-            onKeyDown={handleTransactionQuickMemoKeyDown}
-            disabled={transactionFormDisabled}
-          />
-        </label>
-
-        {transactionQuickOwnerSuggestion && (
-          <p className="transaction-quick-owner-hint">
-            거래자 기본값: {transactionQuickOwnerSuggestion.displayName || transactionQuickOwnerSuggestion.label}
-          </p>
-        )}
-
-        <details className="transaction-quick-details" onToggle={handleTransactionQuickDetailsToggle}>
-          <summary>전체 카테고리</summary>
-          <div className="transaction-quick-detail-grid">
+        <details className="transaction-quick-details transaction-quick-secondary-details" onToggle={handleTransactionQuickDetailsToggle}>
+          <summary>
+            <span>날짜·유형·거래자·전체 카테고리</span>
+            <small>{transactionQuickSecondarySummary}</small>
+          </summary>
+          <div className="transaction-quick-detail-grid transaction-quick-detail-grid-secondary">
+            <div
+              className="transaction-quick-context-strip"
+              data-testid="transaction-quick-context-summary"
+              aria-label="저장 컨텍스트 요약"
+            >
+              {transactionQuickContextItems.map((item) => (
+                <div
+                  key={item.key}
+                  className="transaction-quick-context-item"
+                  data-testid={`transaction-quick-context-${item.key}`}
+                >
+                  <span>{item.label}</span>
+                  <strong title={item.value}>{item.value}</strong>
+                </div>
+              ))}
+            </div>
+            {transactionQuickOwnerSuggestion && (
+              <p className="transaction-quick-owner-hint">
+                거래자 기본값: {transactionQuickOwnerSuggestion.displayName || transactionQuickOwnerSuggestion.label}
+              </p>
+            )}
+            <label className="date-field">
+              일자
+              <div className="date-input-wrap">
+                <IsoDateInput
+                  ref={txDateInputRef}
+                  enterKeyHint="next"
+                  value={txForm.occurred_on}
+                  onValueChange={(value) => {
+                    clearTransactionFormError("occurred_on");
+                    setTxDraftTouched(true);
+                    setTxForm((prev) => ({ ...prev, occurred_on: value }));
+                  }}
+                  aria-invalid={txFormErrors.occurred_on ? "true" : undefined}
+                  aria-describedby={txFormErrors.occurred_on ? "transaction-quick-date-error" : undefined}
+                  disabled={transactionFormDisabled}
+                  required
+                />
+                <button
+                  type="button"
+                  className="secondary today-btn"
+                  onClick={() => {
+                    clearTransactionFormError("occurred_on");
+                    setTxDraftTouched(true);
+                    setTxForm((prev) => ({ ...prev, occurred_on: transactionEntryTodayDate() }));
+                  }}
+                  disabled={transactionFormDisabled}
+                >
+                  오늘
+                </button>
+              </div>
+              {txFormErrors.occurred_on && (
+                <p id="transaction-quick-date-error" className="field-helper field-error" role="alert">
+                  {txFormErrors.occurred_on}
+                </p>
+              )}
+            </label>
+            <label>
+              유형
+              <select
+                enterKeyHint="next"
+                value={txForm.flow_type}
+                disabled={transactionFormDisabled}
+                onChange={(e) => changeTransactionFlowType(e.target.value)}
+              >
+                {FLOW_TYPE_OPTIONS.map((item) => (
+                  <option key={item.value} value={item.value}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {renderTransactionCategoryRestoreNotice()}
             <label>
               카테고리 그룹
               <select
@@ -9234,55 +9376,6 @@ function App() {
                 ))}
               </select>
             </label>
-          </div>
-        </details>
-
-        <details className="transaction-quick-details" onToggle={handleTransactionQuickDetailsToggle}>
-          <summary>추가 입력</summary>
-          <div className="transaction-quick-detail-grid">
-            <label className="date-field">
-              일자
-              <div className="date-input-wrap">
-                <IsoDateInput
-                  ref={txDateInputRef}
-                  enterKeyHint="next"
-                  value={txForm.occurred_on}
-                  onValueChange={(value) => {
-                    setTxDraftTouched(true);
-                    setTxForm((prev) => ({ ...prev, occurred_on: value }));
-                  }}
-                  disabled={transactionFormDisabled}
-                  required
-                />
-                <button
-                  type="button"
-                  className="secondary today-btn"
-                  onClick={() => {
-                    setTxDraftTouched(true);
-                    setTxForm((prev) => ({ ...prev, occurred_on: transactionEntryTodayDate() }));
-                  }}
-                  disabled={transactionFormDisabled}
-                >
-                  오늘
-                </button>
-              </div>
-            </label>
-            <label>
-              유형
-              <select
-                enterKeyHint="next"
-                value={txForm.flow_type}
-                disabled={transactionFormDisabled}
-                onChange={(e) => changeTransactionFlowType(e.target.value)}
-              >
-                {FLOW_TYPE_OPTIONS.map((item) => (
-                  <option key={item.value} value={item.value}>
-                    {item.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {renderTransactionCategoryRestoreNotice()}
             <label>
               거래자
               <select
@@ -9348,7 +9441,7 @@ function App() {
 
   const renderTransactionFormFields = ({ sheetMode = false } = {}) => {
     const transactionFormDisabled = !canEditRecords || loading;
-    if (sheetMode && isCompactViewport) {
+    if (sheetMode) {
       return renderTransactionQuickEntryForm();
     }
     return (
@@ -9365,9 +9458,12 @@ function App() {
             enterKeyHint="next"
             value={txForm.occurred_on}
             onValueChange={(value) => {
+              clearTransactionFormError("occurred_on");
               setTxDraftTouched(true);
               setTxForm((prev) => ({ ...prev, occurred_on: value }));
             }}
+            aria-invalid={txFormErrors.occurred_on ? "true" : undefined}
+            aria-describedby={txFormErrors.occurred_on ? "transaction-form-date-error" : undefined}
             disabled={transactionFormDisabled}
             required
           />
@@ -9375,6 +9471,7 @@ function App() {
             type="button"
             className="secondary today-btn"
             onClick={() => {
+              clearTransactionFormError("occurred_on");
               setTxDraftTouched(true);
               setTxForm((prev) => ({ ...prev, occurred_on: transactionEntryTodayDate() }));
             }}
@@ -9383,6 +9480,11 @@ function App() {
             오늘
           </button>
         </div>
+        {txFormErrors.occurred_on && (
+          <p id="transaction-form-date-error" className="field-helper field-error" role="alert">
+            {txFormErrors.occurred_on}
+          </p>
+        )}
       </label>
       <label>
         유형
@@ -9409,9 +9511,16 @@ function App() {
           enterKeyHint="next"
           value={txForm.amount}
           onChange={handleTransactionEntryAmountInput}
+          aria-invalid={txFormErrors.amount ? "true" : undefined}
+          aria-describedby={txFormErrors.amount ? "transaction-form-amount-error" : undefined}
           disabled={transactionFormDisabled}
           required
         />
+        {txFormErrors.amount && (
+          <p id="transaction-form-amount-error" className="field-helper field-error" role="alert">
+            {txFormErrors.amount}
+          </p>
+        )}
       </label>
       <TransactionCategoryQuickPicker
         categories={categoryOptions}
@@ -10339,11 +10448,12 @@ function App() {
                     <p>차트 데이터를 불러오는 중...</p>
                   </div>
                 ) : trendChartData ? (
-                  <Line data={trendChartData} options={lineChartOptions} />
+                  <Line data={trendChartData} options={lineChartOptions} role="img" aria-label={dashboardFlowChartDescription} />
                 ) : (
                   <p className="dashboard-empty-state">데이터 없음</p>
                 )}
               </div>
+              <FlowTrendValueTable rows={dashboardFlowTrendRows} formatCurrency={fmtKrw} />
             </article>
 
             <article className="card chart-card dashboard-portfolio-card">
@@ -10379,7 +10489,7 @@ function App() {
                   </div>
                 ) : dashboardPortfolioChartData ? (
                   <>
-                    <Doughnut data={dashboardPortfolioChartData} options={donutChartOptions} />
+                    <Doughnut data={dashboardPortfolioChartData} options={donutChartOptions} role="img" aria-label={dashboardPortfolioChartDescription} />
                     {renderDonutSliceLabels(dashboardPortfolioChartSource.items, {
                       testId: "portfolio-donut-slice-label",
                       labelPrefix: dashboardPortfolioChartSource.title,
@@ -10393,6 +10503,12 @@ function App() {
                   <p className="dashboard-empty-state">데이터 없음</p>
                 )}
               </div>
+              <ChartBreakdownList
+                items={dashboardPortfolioBreakdownItems}
+                ariaLabel={`${dashboardPortfolioChartSource.title} 수치 대체 목록`}
+                testId="dashboard-portfolio-breakdown"
+                className="dashboard-portfolio-breakdown"
+              />
             </article>
           </div>
 
@@ -10901,8 +11017,7 @@ function App() {
                   })}
                 </div>
               </section>
-              {!isCompactViewport && (
-                <section ref={txCategoryManagerRef} className="compact-support-section">
+              <section ref={txCategoryManagerRef} className="compact-support-section">
                 <div className="inline compact-support-header">
                   <h3>거래 탭 카테고리 관리</h3>
                   <button type="button" className="secondary" onClick={() => toggleTransactionCategoryManager()}>
@@ -10914,8 +11029,7 @@ function App() {
                 ) : (
                   <p className="table-summary compact-support-summary">필요할 때만 열어 추가·수정·삭제를 진행합니다.</p>
                 )}
-                </section>
-              )}
+              </section>
             </div>
           </details>
           {showTransactionForm && (
@@ -10934,11 +11048,11 @@ function App() {
               >
                 <div className="transaction-entry-sheet-header">
                   <div>
-                    <h3>{txEntrySheetStep === "category" ? "카테고리 관리" : "거래 추가"}</h3>
+                    <h3>{txEntrySheetStep === "category" ? "카테고리 관리" : "거래 등록"}</h3>
                     <p className="table-summary">
                       {txEntrySheetStep === "category"
                         ? "같은 레이어 안에서 카테고리를 정리합니다."
-                        : "현재 위치를 유지한 채 새 거래를 추가합니다."}
+                        : "금액, 카테고리, 메모 순서로 바로 저장합니다."}
                     </p>
                   </div>
                   <button
@@ -10971,16 +11085,6 @@ function App() {
                 ) : (
                   <>
                     {transactionEntryBanner}
-                    <div className="transaction-entry-sheet-actions">
-                      <button
-                        type="button"
-                        className="secondary"
-                        data-testid="transaction-entry-category-manage"
-                        onClick={() => setTxEntrySheetStep("category")}
-                      >
-                        카테고리 관리
-                      </button>
-                    </div>
                     {renderTransactionFormFields({ sheetMode: true })}
                   </>
                 )}
@@ -11440,7 +11544,7 @@ function App() {
                 <div className={`chart-wrap compact-chart-wrap${holdingPortfolioChartData ? "" : " chart-wrap-empty"}`}>
                   {holdingPortfolioChartData ? (
                     <>
-                      <Doughnut data={holdingPortfolioChartData} options={donutChartOptions} />
+                      <Doughnut data={holdingPortfolioChartData} options={donutChartOptions} role="img" aria-label={holdingPortfolioChartDescription} />
                       {renderDonutSliceLabels(holdingPortfolioChartSource.items, {
                         testId: "portfolio-donut-slice-label",
                         labelPrefix: holdingPortfolioChartSource.title,
@@ -11454,38 +11558,17 @@ function App() {
                     <p>표시할 포트폴리오 데이터가 없습니다.</p>
                   )}
                 </div>
-                {holdingPortfolioBreakdownItems.length > 0 && (
-                  <ul className="portfolio-breakdown-list" aria-label={`${holdingPortfolioChartSource.title} 평가금액`}>
-                    {holdingPortfolioBreakdownItems.map((item) => {
-                      const rowContent = (
-                        <>
-                          <span className="portfolio-breakdown-name">
-                            <span className="portfolio-breakdown-dot" style={{ background: item.color }} aria-hidden="true" />
-                            {item.label}
-                          </span>
-                          <span className="portfolio-breakdown-value">{fmtKrw(item.value)}</span>
-                          <strong>{item.shareText}</strong>
-                        </>
-                      );
-                      return (
-                        <li key={item.key}>
-                          {holdingPortfolioBreakdownCanFilter ? (
-                            <button
-                              type="button"
-                              className={holdingTypeFilter === item.key ? "active" : ""}
-                              aria-label={`${item.label}만 보기`}
-                              onClick={() => setHoldingTypeFilter((current) => (current === item.key ? "all" : item.key))}
-                            >
-                              {rowContent}
-                            </button>
-                          ) : (
-                            <div className="portfolio-breakdown-row">{rowContent}</div>
-                          )}
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
+                <ChartBreakdownList
+                  items={holdingPortfolioBreakdownItems}
+                  ariaLabel={`${holdingPortfolioChartSource.title} 평가금액`}
+                  testId="holding-portfolio-breakdown"
+                  activeKey={holdingTypeFilter}
+                  onItemAction={
+                    holdingPortfolioBreakdownCanFilter
+                      ? (item) => setHoldingTypeFilter((current) => (current === item.key ? "all" : item.key))
+                      : undefined
+                  }
+                />
                 {holdingTypeFilter !== "all" && (
                   <button type="button" className="secondary portfolio-filter-reset" onClick={() => setHoldingTypeFilter("all")}>
                     자산 유형 필터 해제
@@ -12684,7 +12767,9 @@ function App() {
                   </button>
                 </div>
                 {importLoadingMode && (
-                  <div className="import-progress">서버에서 파일을 처리 중입니다. 완료까지 잠시만 기다려 주세요.</div>
+                  <div className="import-progress" role="status" aria-live="polite">
+                    서버에서 파일을 처리 중입니다. 완료까지 잠시만 기다려 주세요.
+                  </div>
                 )}
                 {importReport && (
                   <section className="import-report">
@@ -13201,9 +13286,11 @@ function App() {
                   {migrationLoadingMode === "apply" ? "적용 중..." : "패키지 적용"}
                 </button>
               </div>
-              {migrationLoadingMode && (
-                <div className="import-progress">이식 패키지를 검증/적용하는 중입니다. 완료까지 잠시만 기다려 주세요.</div>
-              )}
+                {migrationLoadingMode && (
+                  <div className="import-progress" role="status" aria-live="polite">
+                    이식 패키지를 검증/적용하는 중입니다. 완료까지 잠시만 기다려 주세요.
+                  </div>
+                )}
               {migrationReport && (
                 <>
                   <div className="import-summary-grid">

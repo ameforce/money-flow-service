@@ -5,6 +5,15 @@ import { openRequestedTab, tryRegisterDashboard } from "./browser-session.mjs";
 import { seedDashboardFixtures, seedWorkSurfaceLedgerFixtures } from "./fixtures.mjs";
 import { withBrowserEvidence } from "./scenario-runtime.mjs";
 
+const PERFORMANCE_BUDGETS_MS = Object.freeze({
+  dashboardFirstUsableMs: 5000,
+  dashboardChartSwitchMs: 1200,
+  transactionsTabSwitchMs: 2000,
+  ledgerToggleMs: 1200,
+  importTabSwitchMs: 2000,
+  importReportRenderMs: 2500,
+});
+
 async function afterPaint(page) {
   await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
 }
@@ -105,6 +114,19 @@ function compareToPrior(options, metrics) {
   return { available: true, baselineScenario: prior.scenario, thresholdPercent, regressions };
 }
 
+function compareToAbsoluteBudgets(metrics) {
+  const failures = Object.entries(PERFORMANCE_BUDGETS_MS)
+    .map(([key, budgetMs]) => {
+      const actualMs = Number(metrics[key]);
+      if (!Number.isFinite(actualMs) || actualMs <= 0) {
+        return { key, budgetMs, actualMs, reason: "missing-or-invalid" };
+      }
+      return actualMs > budgetMs ? { key, budgetMs, actualMs, overByMs: Math.round((actualMs - budgetMs) * 10) / 10 } : null;
+    })
+    .filter(Boolean);
+  return { budgetsMs: PERFORMANCE_BUDGETS_MS, failures };
+}
+
 export async function runPerformanceBaseline(options) {
   return withBrowserEvidence(options, { isolated: true }, "performance-baseline", async ({ app, page }) => {
     await installImportReportRoute(page);
@@ -172,10 +194,12 @@ export async function runPerformanceBaseline(options) {
     await delay(50);
     const health = summarizeHealth(surfaceHealth, await readPageHealth(page));
     const comparison = compareToPrior(options, measurements);
+    const absoluteBudgets = compareToAbsoluteBudgets(measurements);
     const failures = [];
     if (!dashboard.reached) failures.push("dashboard not reached");
     if (health.hasHorizontalOverflow) failures.push("document has horizontal overflow");
     if (Object.values(measurements).some((value) => !Number.isFinite(value) || value <= 0)) failures.push("one or more performance measurements are invalid");
+    if (absoluteBudgets.failures.length > 0) failures.push("absolute performance budget exceeded");
     if (comparison.regressions.length > 0) failures.push("performance regression beyond tolerance");
     return {
       url: page.url(),
@@ -186,6 +210,7 @@ export async function runPerformanceBaseline(options) {
       seed,
       metrics: measurements,
       health,
+      absoluteBudgets,
       comparison,
       verdict: failures.length === 0 ? "pass" : "fail",
       failures,

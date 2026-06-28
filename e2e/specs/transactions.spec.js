@@ -914,7 +914,19 @@ async function openTransactionEntrySheet(page, viewport = { width: 1440, height:
 }
 
 async function openTransactionQuickDetails(transactionSheet, summaryText) {
-  const details = transactionSheet.locator("details.transaction-quick-details", { hasText: summaryText }).first();
+  const labels =
+    summaryText === "추가 입력" || summaryText === "전체 카테고리"
+      ? [summaryText, "날짜·유형·거래자·전체 카테고리", "기본값·전체 카테고리"]
+      : [summaryText];
+  let details = transactionSheet.locator("details.transaction-quick-details", { hasText: labels[0] }).first();
+  for (const label of labels) {
+    const candidate = transactionSheet.locator("details.transaction-quick-details", { hasText: label }).first();
+    if ((await candidate.count()) > 0) {
+      details = candidate;
+      break;
+    }
+  }
+
   await expect(details.locator("summary")).toBeVisible();
   const isOpen = await details.evaluate((element) => element.open);
   if (!isOpen) {
@@ -926,6 +938,12 @@ async function openTransactionQuickDetails(transactionSheet, summaryText) {
 
 async function selectTransactionFormCategory(container, category) {
   const majorSelect = labeledField(container, "카테고리 그룹", "select");
+  if ((await majorSelect.count()) > 0 && !(await majorSelect.isVisible().catch(() => false))) {
+    const quickDetails = container.locator("details.transaction-quick-details");
+    if ((await quickDetails.count()) > 0) {
+      await openTransactionQuickDetails(container, "전체 카테고리");
+    }
+  }
   await expect(majorSelect).toBeVisible();
   await majorSelect.selectOption(category.major);
   const categorySelect = container
@@ -943,6 +961,15 @@ async function createTransactionCategoryFromQuickPicker(picker, category) {
   const minorInput = picker.getByTestId("transaction-category-create-minor");
   const submitButton = picker.getByTestId("transaction-category-create-submit");
 
+  if (!(await majorInput.isVisible().catch(() => false))) {
+    const searchInput = await openTransactionCategorySearch(picker);
+    await searchInput.fill(category.minor);
+    const createToggle = picker.getByTestId("transaction-category-create-toggle");
+    if ((await createToggle.count()) > 0) {
+      await createToggle.click();
+    }
+  }
+
   await expect(majorInput).toBeVisible();
   await expect(minorInput).toBeVisible();
   await expect(async () => {
@@ -953,6 +980,16 @@ async function createTransactionCategoryFromQuickPicker(picker, category) {
     await expect(submitButton).toBeEnabled();
   }).toPass({ timeout: 15_000 });
   await submitButton.click();
+}
+
+async function openTransactionCategorySearch(picker) {
+  const searchToggle = picker.getByTestId("transaction-category-search-toggle");
+  if ((await searchToggle.count()) > 0 && (await searchToggle.isVisible().catch(() => false))) {
+    await searchToggle.click();
+  }
+  const searchInput = picker.getByTestId("transaction-category-search");
+  await expect(searchInput).toBeVisible();
+  return searchInput;
 }
 
 async function expectMobileQuickEntryDefaults(page, transactionSheet) {
@@ -1014,7 +1051,7 @@ async function expectQuickEntryFieldClearOfStickyActions(transactionSheet, label
 
 async function expectQuickCategoryReflectedInFullFallback(transactionSheet, selectedChipText) {
   const categoryTrigger = transactionSheet
-    .getByRole("button", { name: /전체 카테고리|카테고리 선택|카테고리 변경|자세히|추가 입력/ })
+    .getByRole("button", { name: /날짜·유형·거래자·전체 카테고리|전체 카테고리|카테고리 선택|카테고리 변경|자세히|추가 입력/ })
     .first();
   if ((await categoryTrigger.count()) > 0 && (await categoryTrigger.isVisible().catch(() => false))) {
     await categoryTrigger.click();
@@ -1037,6 +1074,112 @@ async function expectQuickCategoryReflectedInFullFallback(transactionSheet, sele
       `full category fallback should reflect quick chip ${normalizedChip}; selected ${selectedText}`
     ).toBe(true);
   }
+}
+
+async function expectTransactionEntryPrimaryPath(page, transactionSheet, label) {
+  const quickForm = transactionSheet.getByTestId("transaction-quick-form");
+  const amountInput = transactionSheet.getByTestId("transaction-quick-amount");
+  const categoryPicker = transactionSheet.getByTestId("transaction-category-quick-picker");
+  const memoInput = labeledField(transactionSheet, "메모", "input");
+  const saveButton = transactionSheet.getByTestId("transaction-quick-save");
+
+  await expect(quickForm, `${label} should use the quick transaction form`).toBeVisible();
+  await expect(amountInput, `${label} amount is the first primary field`).toBeVisible();
+  await expect(amountInput, `${label} amount keeps initial focus`).toBeFocused();
+  await expect(categoryPicker, `${label} category picker is in the primary path`).toBeVisible();
+  await expect(memoInput, `${label} memo is in the primary path`).toBeVisible();
+  await expect(saveButton, `${label} save is visible with primary fields`).toBeVisible();
+  await expect(transactionSheet.locator("details.transaction-quick-details"), `${label} should have one secondary details block`).toHaveCount(1);
+  await expect(transactionSheet.locator("details.transaction-quick-details[open]"), `${label} secondary details is not required`).toHaveCount(0);
+
+  const metrics = await transactionSheet.evaluate((sheet) => {
+    const rectFor = (element) => {
+      const rect = element?.getBoundingClientRect();
+      if (!rect) {
+        return null;
+      }
+      return {
+        top: rect.top,
+        bottom: rect.bottom,
+        left: rect.left,
+        right: rect.right,
+        width: rect.width,
+        height: rect.height,
+        centerX: rect.left + rect.width / 2,
+        centerY: rect.top + rect.height / 2,
+      };
+    };
+    const visible = (element) => {
+      const rect = element?.getBoundingClientRect();
+      const style = element ? getComputedStyle(element) : null;
+      return Boolean(rect && rect.width > 0 && rect.height > 0 && style?.display !== "none" && style?.visibility !== "hidden");
+    };
+    const amount = sheet.querySelector("[data-testid='transaction-quick-amount']");
+    const category = sheet.querySelector("[data-testid='transaction-category-quick-picker']");
+    const memo = Array.from(sheet.querySelectorAll("label"))
+      .find((candidate) => candidate.textContent?.replace(/\s+/g, " ").trim().startsWith("메모"))
+      ?.querySelector("input");
+    const save = sheet.querySelector("[data-testid='transaction-quick-save']");
+    const details = Array.from(sheet.querySelectorAll("details.transaction-quick-details"));
+    const sheetBox = rectFor(sheet);
+    const primaryRects = [amount, category, memo, save].map(rectFor);
+    const visiblePrimaryRects = [amount, category, memo, save].filter(visible).map(rectFor);
+    const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+    const documentOverflowX = document.documentElement.scrollWidth - document.documentElement.clientWidth;
+    const sheetOverflowX = sheet.scrollWidth - sheet.clientWidth;
+    const primaryTop = Math.min(...visiblePrimaryRects.map((rect) => rect.top));
+    const primaryBottom = Math.max(...visiblePrimaryRects.map((rect) => rect.bottom));
+    const primaryHeight = primaryBottom - primaryTop;
+    const pointerDistance =
+      amount && category && memo && save
+        ? Math.round(
+            Math.abs(rectFor(amount).centerY - rectFor(category).centerY) +
+              Math.abs(rectFor(category).centerY - rectFor(memo).centerY) +
+              Math.abs(rectFor(memo).centerY - rectFor(save).centerY)
+          )
+        : Number.POSITIVE_INFINITY;
+
+    return {
+      amount: primaryRects[0],
+      category: primaryRects[1],
+      memo: primaryRects[2],
+      save: primaryRects[3],
+      details: details.map((detail) => ({
+        open: detail.open,
+        summary: detail.querySelector("summary")?.textContent?.replace(/\s+/g, " ").trim() || "",
+        rect: rectFor(detail),
+      })),
+      documentOverflowX,
+      pointerDistance,
+      primaryHeight,
+      sheet: {
+        ...sheetBox,
+        clientHeight: sheet.clientHeight,
+        scrollHeight: sheet.scrollHeight,
+        scrollTop: sheet.scrollTop,
+      },
+      sheetOverflowX,
+      viewportHeight,
+      viewportWidth,
+    };
+  });
+
+  expect(metrics.documentOverflowX, `${label} document should not overflow horizontally: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
+  expect(metrics.sheetOverflowX, `${label} sheet should not overflow horizontally: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
+  expect(metrics.amount.top, `${label} amount should precede category: ${JSON.stringify(metrics)}`).toBeLessThan(metrics.category.top);
+  expect(metrics.category.top, `${label} category should precede memo: ${JSON.stringify(metrics)}`).toBeLessThan(metrics.memo.top);
+  expect(metrics.memo.top, `${label} memo should remain close to save: ${JSON.stringify(metrics)}`).toBeLessThan(metrics.save.bottom);
+  expect(metrics.details[0].rect.top, `${label} secondary details should be below primary input: ${JSON.stringify(metrics)}`).toBeGreaterThan(
+    metrics.memo.top
+  );
+  expect(metrics.primaryHeight, `${label} primary path should fit as one compact work unit: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(
+    Math.min(metrics.viewportHeight * 0.78, 620)
+  );
+  expect(metrics.pointerDistance, `${label} pointer travel should stay bounded: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(
+    Math.min(metrics.viewportHeight * 0.95, 720)
+  );
+  expect(metrics.save.bottom, `${label} save action should stay in view: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(metrics.viewportHeight + 1);
 }
 
 async function installStaleCategoryHistoryFixture(page, { staleCategoryMajor, staleCategoryMinor, staleMemo }) {
@@ -1155,6 +1298,62 @@ test("mobile quick entry creates an expense through amount-first chip path", asy
   await expect(createdRow).toBeVisible({ timeout: 20_000 });
 });
 
+test("transaction entry primary path stays shallow across mobile tablet and desktop", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("tx-entry-primary-path")}@example.com`;
+  const displayName = unique("tx-entry-primary-path-name");
+  const seedMemo = unique("tx-entry-primary-seed");
+  await registerAndVerify(page, { email, displayName });
+  const seedCategory = await createCategoryViaApi(page, {
+    major: unique("주경로"),
+    minor: unique("추천카테고리"),
+  });
+  await createTransactionViaApi(page, {
+    memo: seedMemo,
+    amount: "12000",
+    categoryId: seedCategory.id,
+    ownerName: displayName,
+  });
+
+  const cases = [
+    {
+      name: "mobile-320",
+      viewport: { width: 320, height: 568 },
+      fontStack: '"Malgun Gothic", "Noto Sans KR", sans-serif',
+    },
+    {
+      name: "mobile-390",
+      viewport: { width: 390, height: 844 },
+      fontStack: '"Apple SD Gothic Neo", "Malgun Gothic", sans-serif',
+    },
+    {
+      name: "tablet-768",
+      viewport: { width: 768, height: 1024 },
+      fontStack: '"Noto Sans KR", "Malgun Gothic", sans-serif',
+    },
+    {
+      name: "desktop-1366",
+      viewport: { width: 1366, height: 900 },
+      fontStack: '"Malgun Gothic", "Noto Sans KR", sans-serif',
+    },
+  ];
+
+  for (const testCase of cases) {
+    await page.setViewportSize(testCase.viewport);
+    await page.reload();
+    await page.addStyleTag({
+      content: `html, body, button, input, select, textarea { font-family: ${testCase.fontStack} !important; }`,
+    });
+    const transactionSheet = await openTransactionEntrySheet(page, testCase.viewport);
+    await expectTransactionEntryPrimaryPath(page, transactionSheet, testCase.name);
+    await expectNoHorizontalOverflow(page, 12);
+    await capture(page, `transactions-entry-primary-path-${testCase.name}`);
+    await transactionSheet.getByTestId("transaction-entry-sheet-close").click();
+    await expect(transactionSheet).toBeHidden();
+  }
+});
+
 test("desktop transaction entry keeps repeat context after save", async ({ page }) => {
   test.setTimeout(180_000);
 
@@ -1174,6 +1373,7 @@ test("desktop transaction entry keeps repeat context after save", async ({ page 
   const occurredOn = currentE2EHistoryDateIso(-2);
 
   const transactionSheet = await openTransactionEntrySheet(page, { width: 1440, height: 900 });
+  await openTransactionQuickDetails(transactionSheet, "추가 입력");
   const amountInput = labeledField(transactionSheet, "금액", "input");
   const memoInput = labeledField(transactionSheet, "메모", "input");
   const dateInput = labeledField(transactionSheet, "일자", "input");
@@ -1228,13 +1428,16 @@ test("issue 193: desktop transaction entry searches category in one step", async
   const picker = transactionSheet.getByTestId("transaction-category-quick-picker");
   await expect(picker).toBeVisible();
 
-  const searchInput = picker.getByTestId("transaction-category-search");
-  await expect(searchInput).toBeVisible();
+  const searchInput = await openTransactionCategorySearch(picker);
   await searchInput.fill(targetCategory.minor);
 
-  const option = picker.getByTestId("transaction-category-option").filter({ hasText: targetCategory.minor }).first();
+  const option = picker
+    .locator("[data-testid='transaction-category-option'], [data-testid='transaction-quick-category-chip']")
+    .filter({ hasText: targetCategory.minor })
+    .first();
   await expect(option).toBeVisible();
   await option.click();
+  await openTransactionQuickDetails(transactionSheet, "전체 카테고리");
 
   await expect(labeledField(transactionSheet, "카테고리 그룹", "select")).toHaveValue(targetCategory.major);
   const categorySelect = transactionSheet
@@ -1290,7 +1493,10 @@ test("issue 193: inline transaction edit searches category in one step", async (
   await expect(searchInput).toBeVisible();
   await searchInput.fill(targetCategory.minor);
 
-  const option = picker.getByTestId("transaction-category-option").filter({ hasText: targetCategory.minor }).first();
+  const option = picker
+    .locator("[data-testid='transaction-category-option'], [data-testid='transaction-quick-category-chip']")
+    .filter({ hasText: targetCategory.minor })
+    .first();
   await expect(option).toBeVisible();
   await option.click();
 
@@ -1315,6 +1521,7 @@ test("issue 194: desktop transaction entry creates and applies a missing categor
   const picker = transactionSheet.getByTestId("transaction-category-quick-picker");
   await expect(picker).toBeVisible();
   await createTransactionCategoryFromQuickPicker(picker, targetCategory);
+  await openTransactionQuickDetails(transactionSheet, "전체 카테고리");
 
   await expect(labeledField(transactionSheet, "카테고리 그룹", "select")).toHaveValue(targetCategory.major);
   const categorySelect = transactionSheet
@@ -1538,6 +1745,7 @@ test("issue 196: transaction save clears hiding filters and reveals the saved ro
   await capture(page, "issue-196-active-filter-before-save");
 
   const transactionSheet = await openTransactionEntrySheet(page, { width: 1440, height: 900 });
+  await openTransactionQuickDetails(transactionSheet, "추가 입력");
   await labeledField(transactionSheet, "일자", "input").fill(occurredOn);
   await labeledField(transactionSheet, "유형", "select").selectOption("expense");
   await selectTransactionFormCategory(transactionSheet, expenseCategory);
@@ -1591,7 +1799,7 @@ test("issue 212: mobile transaction quick amount requests a numeric keypad", asy
   });
   await capture(page, "issue-212-mobile-quick-amount-numeric-keypad");
 
-  await expect(transactionSheet).toContainText("현재 위치를 유지한 채 새 거래를 추가합니다.");
+  await expect(transactionSheet).toContainText("금액, 카테고리, 메모 순서로 바로 저장합니다.");
 });
 
 test("mobile quick entry keeps repeat context and returns focus to amount", async ({ page }) => {
@@ -1787,7 +1995,7 @@ test("mobile quick entry keeps expanded fields above sticky actions", async ({ p
         };
       }),
     );
-    expect(quickDetailSummaryMetrics.length, `${mobileCase.name} quick detail summaries`).toBeGreaterThanOrEqual(2);
+    expect(quickDetailSummaryMetrics.length, `${mobileCase.name} quick detail summaries`).toBeGreaterThanOrEqual(1);
     expect(
       quickDetailSummaryMetrics.every(({ height }) => height >= 44),
       `${mobileCase.name} quick detail summaries should keep 44px hit targets: ${JSON.stringify(quickDetailSummaryMetrics)}`,
@@ -1797,8 +2005,7 @@ test("mobile quick entry keeps expanded fields above sticky actions", async ({ p
       `${mobileCase.name} quick detail summaries should not clip: ${JSON.stringify(quickDetailSummaryMetrics)}`,
     ).toBe(true);
 
-    await transactionSheet.getByText("전체 카테고리").click();
-    await transactionSheet.getByText("추가 입력").click();
+    await openTransactionQuickDetails(transactionSheet, "추가 입력");
 
     await expectQuickEntryFieldClearOfStickyActions(transactionSheet, "일자", "input");
     await expectQuickEntryFieldClearOfStickyActions(transactionSheet, "유형", "select");
@@ -2416,7 +2623,7 @@ test("mobile quick entry defaults owner to current user over recent other member
   await page.reload();
 
   const transactionSheet = await openMobileTransactionQuickEntry(page);
-  await transactionSheet.getByText("추가 입력").click();
+  await openTransactionQuickDetails(transactionSheet, "추가 입력");
   const ownerSelect = labeledField(transactionSheet, "거래자", "select");
   await expect(ownerSelect).toHaveValue(currentUser.id);
   await expect(ownerSelect.locator("option:checked")).toContainText(displayName);
@@ -2437,6 +2644,7 @@ test("desktop transaction entry defaults owner and exposes quick member selectio
   });
 
   const transactionSheet = await openTransactionEntrySheet(page, { width: 1440, height: 900 });
+  await openTransactionQuickDetails(transactionSheet, "추가 입력");
   const ownerSelect = labeledField(transactionSheet, "거래자", "select");
   await expect(ownerSelect).toHaveValue(currentUser.id);
   await expect(ownerSelect.locator("option:checked")).toContainText(displayName);
@@ -2524,7 +2732,7 @@ test("mobile quick entry keeps owner override and filters ordered category chips
   expect(chipTexts).not.toContain(incomeCategory.minor);
   expect(chipTexts).not.toContain(staleCategory.minor);
 
-  await transactionSheet.getByText("추가 입력").click();
+  await openTransactionQuickDetails(transactionSheet, "추가 입력");
   const ownerSelect = labeledField(transactionSheet, "거래자", "select");
   await expect(ownerSelect).toBeVisible();
   await ownerSelect.selectOption("");
@@ -3118,7 +3326,7 @@ test("issue 213: mobile transaction add inherits the visible month date context"
   await transactionFab.click();
   const transactionSheet = page.getByTestId("transaction-entry-sheet");
   await expect(page.getByRole("dialog", { name: "거래 추가 레이어" })).toBeVisible();
-  await expect(transactionSheet).toContainText("현재 위치를 유지한 채 새 거래를 추가합니다.");
+  await expect(transactionSheet).toContainText("금액, 카테고리, 메모 순서로 바로 저장합니다.");
 
   const details = await openTransactionQuickDetails(transactionSheet, "추가 입력");
   const dateInput = labeledField(details, "일자", "input");
@@ -3127,7 +3335,7 @@ test("issue 213: mobile transaction add inherits the visible month date context"
   await capture(page, "issue-213-mobile-add-date-in-visible-month-context");
 });
 
-test("issue 234: mobile transaction add first screen shows the saved context", async ({ page }) => {
+test("issue 234: mobile transaction add keeps saved context in secondary details", async ({ page }) => {
   test.setTimeout(120_000);
 
   const email = `${unique("tx-add-context-first-screen")}@example.com`;
@@ -3138,9 +3346,46 @@ test("issue 234: mobile transaction add first screen shows the saved context", a
   const transactionSheet = await openMobileTransactionQuickEntry(page);
   await expect(page.getByRole("dialog", { name: "거래 추가 레이어" })).toBeVisible();
   await expect(page.getByTestId("transaction-quick-save")).toBeVisible();
+  await expect(page.getByTestId("transaction-quick-amount")).toBeFocused();
 
-  const contextSummary = page.getByTestId("transaction-quick-context-summary");
-  await expect(contextSummary).toBeVisible();
+  const secondaryDetails = transactionSheet.locator("details.transaction-quick-details").first();
+  await expect(secondaryDetails.locator("summary")).toContainText("날짜·유형·거래자·전체 카테고리");
+  await expect(transactionSheet.locator("details.transaction-quick-details[open]")).toHaveCount(0);
+
+  const metrics = await transactionSheet.evaluate((sheet) => {
+    const amount = sheet.querySelector("[data-testid='transaction-quick-amount']");
+    const recommendation = sheet.querySelector(".transaction-quick-category-panel");
+    const memo = Array.from(sheet.querySelectorAll("label"))
+      .find((candidate) => candidate.textContent?.replace(/\s+/g, " ").trim().startsWith("메모"))
+      ?.querySelector("input");
+    const details = sheet.querySelector("details.transaction-quick-details");
+    const saveButton = sheet.querySelector("[data-testid='transaction-quick-save']");
+    const amountRect = amount?.getBoundingClientRect();
+    const recommendationRect = recommendation?.getBoundingClientRect();
+    const memoRect = memo?.getBoundingClientRect();
+    const detailsRect = details?.getBoundingClientRect();
+    const saveRect = saveButton?.getBoundingClientRect();
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+    return {
+      viewportHeight,
+      amountTop: amountRect?.top || 0,
+      amountBottom: amountRect?.bottom || 0,
+      recommendationTop: recommendationRect?.top || 0,
+      recommendationBottom: recommendationRect?.bottom || 0,
+      memoTop: memoRect?.top || 0,
+      memoBottom: memoRect?.bottom || 0,
+      detailsTop: detailsRect?.top || 0,
+      saveTop: saveRect?.top || 0,
+      saveBottom: saveRect?.bottom || 0,
+    };
+  });
+
+  expect(metrics.amountTop, JSON.stringify(metrics)).toBeGreaterThanOrEqual(0);
+  expect(metrics.recommendationTop, "recommendation should remain below amount").toBeGreaterThan(metrics.amountBottom);
+  expect(metrics.memoTop, "memo should remain below category").toBeGreaterThan(metrics.recommendationTop);
+  expect(metrics.detailsTop, "secondary details should not precede primary fields").toBeGreaterThan(metrics.memoTop);
+  expect(metrics.saveTop, JSON.stringify(metrics)).toBeLessThan(metrics.viewportHeight);
+  await openTransactionQuickDetails(transactionSheet, "추가 입력");
   const contextItems = [
     ["transaction-quick-context-flow", "유형"],
     ["transaction-quick-context-date", "일자"],
@@ -3150,46 +3395,7 @@ test("issue 234: mobile transaction add first screen shows the saved context", a
   for (const [testId, label] of contextItems) {
     await expect(page.getByTestId(testId)).toContainText(label);
   }
-
-  const metrics = await contextSummary.evaluate((summary) => {
-    const sheet = summary.closest("[data-testid='transaction-entry-sheet']");
-    const recommendation = sheet?.querySelector(".transaction-quick-category-panel");
-    const saveButton = sheet?.querySelector("[data-testid='transaction-quick-save']");
-    const summaryRect = summary.getBoundingClientRect();
-    const recommendationRect = recommendation?.getBoundingClientRect();
-    const saveRect = saveButton?.getBoundingClientRect();
-    const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
-    const itemRects = Array.from(summary.querySelectorAll(".transaction-quick-context-item")).map((item) => {
-      const rect = item.getBoundingClientRect();
-      return {
-        text: item.textContent?.replace(/\s+/g, " ").trim() || "",
-        top: rect.top,
-        bottom: rect.bottom,
-        width: rect.width,
-      };
-    });
-    return {
-      viewportHeight,
-      summaryTop: summaryRect.top,
-      summaryBottom: summaryRect.bottom,
-      recommendationTop: recommendationRect?.top || 0,
-      saveTop: saveRect?.top || 0,
-      saveBottom: saveRect?.bottom || 0,
-      itemRects,
-    };
-  });
-
-  expect(metrics.summaryTop, JSON.stringify(metrics)).toBeGreaterThanOrEqual(0);
-  expect(metrics.summaryBottom, JSON.stringify(metrics)).toBeLessThanOrEqual(metrics.viewportHeight);
-  expect(metrics.recommendationTop, "recommendation should remain below the context summary").toBeGreaterThan(
-    metrics.summaryBottom
-  );
-  expect(metrics.saveTop, JSON.stringify(metrics)).toBeLessThan(metrics.viewportHeight);
-  expect(metrics.itemRects.every((item) => item.bottom <= metrics.viewportHeight && item.width > 0), JSON.stringify(metrics)).toBe(
-    true
-  );
-  await expect(transactionSheet.locator("details.transaction-quick-details[open]")).toHaveCount(0);
-  await capture(page, "issue-234-mobile-add-context-first-screen");
+  await capture(page, "issue-234-mobile-add-context-secondary-details");
 });
 
 test("issue 237: mobile transaction edit keeps completion controls in the first viewport", async ({ page }) => {
@@ -3977,6 +4183,94 @@ test("issue 228: mobile transaction filters use ledger headers without duplicate
   await expect(mobileFilterPanel).toBeHidden();
   await expectNoHorizontalOverflow(page, 12);
   await capture(page, "issue-228-mobile-filter-closed");
+});
+
+test("issue #249: mobile transaction sticky stack uses measured heights", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("tx-sticky-measured")}@example.com`;
+  const displayName = unique("tx-sticky-measured-owner");
+  const memo = unique("tx-sticky-measured-row");
+
+  await registerAndVerify(page, { email, displayName });
+  await createTransactionViaApi(page, {
+    memo,
+    amount: "49000",
+    occurredOn: isoDaysAgo(0),
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openTab(page, "거래");
+  await page.waitForLoadState("networkidle");
+
+  const mobileLedgerHead = page.locator(".transactions-mobile-ledger-head").first();
+  await expect(mobileLedgerHead).toBeVisible();
+  await mobileLedgerHead.getByRole("button", { name: "메모 필터 열기" }).click();
+  const mobileFilterPanel = page.getByTestId("tx-ledger-filter-panel");
+  await expect(mobileFilterPanel).toBeVisible();
+  await mobileFilterPanel.getByPlaceholder("메모 검색").fill(memo);
+  await expect(page.locator("tr.transaction-row", { hasText: memo }).first()).toBeVisible();
+
+  const metrics = await page.locator(".transaction-list-card").evaluate((card) => {
+    const readNumber = (value) => Number.parseFloat(String(value || "").replace("px", ""));
+    const style = getComputedStyle(card);
+    const ledgerHead = card.querySelector(".transactions-mobile-ledger-head");
+    const filterPanel = card.querySelector("[data-testid='tx-ledger-filter-panel']");
+    const tableBody = card.querySelector(".transactions-surface-table tbody");
+    const row = card.querySelector("tr.transaction-row");
+    const cssText = Array.from(document.styleSheets).flatMap((sheet) => {
+      try {
+        return Array.from(sheet.cssRules || [])
+          .map((rule) => rule.cssText || "")
+          .filter((ruleText) =>
+            ruleText.includes("transaction-list-card") ||
+            ruleText.includes("transactions-surface-table") ||
+            ruleText.includes("tx-ledger-filter-panel")
+          );
+      } catch {
+        return [];
+      }
+    });
+    const ledgerHeadHeight = Math.ceil(ledgerHead?.getBoundingClientRect().height || 0);
+    const filterPanelHeight = Math.ceil(filterPanel?.getBoundingClientRect().height || 0);
+    const ledgerHeadHeightVar = style.getPropertyValue("--surface-ledger-head-height").trim();
+    const filterPanelHeightVar = style.getPropertyValue("--tx-ledger-filter-panel-height").trim();
+    const bodyPaddingTop = getComputedStyle(tableBody).paddingTop;
+    const rowScrollMarginTop = row ? getComputedStyle(row).scrollMarginTop : "";
+
+    return {
+      ledgerHeadHeight,
+      filterPanelHeight,
+      toolbarHeightVar: style.getPropertyValue("--transaction-toolbar-sticky-height").trim(),
+      ledgerHeadHeightVar,
+      filterPanelHeightVar,
+      bodyPaddingTop,
+      rowScrollMarginTop,
+      bodyPaddingTopPx: readNumber(bodyPaddingTop),
+      rowScrollMarginTopPx: readNumber(rowScrollMarginTop),
+      fixedStickyHeightRules: cssText.filter((ruleText) => /10\.(25|75)rem/.test(ruleText)),
+    };
+  });
+
+  expect(metrics.toolbarHeightVar, `toolbar height should be measured in px: ${JSON.stringify(metrics)}`).toMatch(/px$/);
+  expect(metrics.ledgerHeadHeightVar, `ledger head height should be measured in px: ${JSON.stringify(metrics)}`).toMatch(/px$/);
+  expect(metrics.filterPanelHeightVar, `filter panel height should be measured in px: ${JSON.stringify(metrics)}`).toMatch(/px$/);
+  expect(
+    Math.abs(Number.parseFloat(metrics.ledgerHeadHeightVar) - metrics.ledgerHeadHeight),
+    `ledger head variable should match DOM height: ${JSON.stringify(metrics)}`,
+  ).toBeLessThanOrEqual(2);
+  expect(
+    Math.abs(Number.parseFloat(metrics.filterPanelHeightVar) - metrics.filterPanelHeight),
+    `filter panel variable should match DOM height: ${JSON.stringify(metrics)}`,
+  ).toBeLessThanOrEqual(2);
+  expect(metrics.bodyPaddingTopPx, `filter panel should reserve measured table clearance: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(
+    metrics.filterPanelHeight - 2,
+  );
+  expect(metrics.rowScrollMarginTopPx, `row scroll margin should include measured filter panel clearance: ${JSON.stringify(metrics)}`).toBeGreaterThan(
+    metrics.filterPanelHeight,
+  );
+  expect(metrics.fixedStickyHeightRules, `sticky stack CSS should not depend on fixed 10.xrem fallbacks: ${JSON.stringify(metrics)}`).toEqual([]);
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "issue-249-mobile-sticky-measured-heights");
 });
 
 test("transactions flow: create, inline edit, delete, responsive", async ({ page }) => {
@@ -4877,8 +5171,6 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   const transactionFab = page.getByTestId("transactions-fab");
   const transactionSheet = page.getByTestId("transaction-entry-sheet");
   const transactionSheetClose = page.getByTestId("transaction-entry-sheet-close");
-  const transactionCategoryManageEntry = page.getByTestId("transaction-entry-category-manage");
-  const transactionCategoryManageStep = page.getByTestId("transaction-category-sheet-step");
   const transactionEntryCard = page.locator(".transaction-entry-card").first();
   const transactionTopActionButton = page.locator(".transaction-entry-card").getByRole("button", { name: /거래 추가|카테고리 관리/ }).first();
   const transactionListCard = page.locator(".transaction-list-card").first();
@@ -5062,8 +5354,7 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   expect(transactionSheetBox, "transaction sheet should have a bounding box").not.toBeNull();
   expect(transactionSheetBox?.height ?? Number.POSITIVE_INFINITY).toBeLessThan(844);
   await expect(labeledField(transactionSheet, "금액", "input")).toBeVisible();
-  await transactionCategoryManageEntry.click();
-  await expect(transactionCategoryManageStep).toBeVisible();
+  await expect(page.getByTestId("transaction-entry-category-manage")).toHaveCount(0);
   await transactionSheetClose.click();
   await expect(transactionSheet).toBeHidden();
   const scrollAfterSheetClose = await page.evaluate(() => window.scrollY);

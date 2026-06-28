@@ -133,3 +133,78 @@ test("issue #243: mobile holding sheet closes with Escape and restores trigger f
   await expect(holdingDialog).toHaveCount(0);
   await expect(openButton).toBeFocused();
 });
+
+test("issue #244: mobile touch activation does not forcibly blur the active control", async ({ page }) => {
+  const email = `${unique("uiux-mobile-focus-retention")}@example.com`;
+
+  await registerAndVerify(page, { email, displayName: unique("uiux-mobile-focus-retention-name") });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openTab(page, "거래");
+
+  const transactionTab = page.locator('nav.topbar-tabs button[aria-label="거래"]');
+  await expect(transactionTab).toBeVisible();
+  await transactionTab.click();
+
+  await expect(transactionTab).toBeFocused();
+  await capture(page, "issue-244-mobile-focus-retention");
+  const focusState = await transactionTab.evaluate((button) => ({
+    activeLabel: document.activeElement?.getAttribute("aria-label") || "",
+    activeCurrent: document.activeElement?.getAttribute("aria-current") || "",
+    buttonCurrent: button.getAttribute("aria-current") || "",
+  }));
+  expect(focusState, JSON.stringify(focusState)).toMatchObject({
+    activeLabel: "거래",
+    activeCurrent: "page",
+    buttonCurrent: "page",
+  });
+});
+
+test("issue #259: category management is outside the transaction entry sheet", async ({ page }) => {
+  const email = `${unique("uiux-category-management-separated")}@example.com`;
+
+  await registerAndVerify(page, { email, displayName: unique("uiux-category-management-separated-name") });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openTab(page, "거래");
+
+  await page.getByTestId("transactions-fab").click();
+  const transactionSheet = page.getByTestId("transaction-entry-sheet");
+  await expect(transactionSheet).toBeVisible();
+  await expect(transactionSheet.getByTestId("transaction-entry-category-manage")).toHaveCount(0);
+  await expect(transactionSheet).toContainText("금액, 카테고리, 메모 순서로 바로 저장합니다.");
+  await capture(page, "issue-259-entry-sheet-without-category-management");
+  await page.getByTestId("transaction-entry-sheet-close").click();
+  await expect(transactionSheet).toBeHidden();
+
+  const support = page.locator("details.transaction-support-card").first();
+  if (!(await support.evaluate((element) => element.open))) {
+    await support.locator("summary").click();
+  }
+  const categoryManagement = support.locator(".compact-support-section", { hasText: "거래 탭 카테고리 관리" }).first();
+  await expect(categoryManagement).toBeVisible();
+  await categoryManagement.getByRole("button", { name: "열기" }).click();
+  await expect(categoryManagement.getByText("새 카테고리 만들기")).toBeVisible();
+  await capture(page, "issue-259-category-management-outside-entry-sheet");
+});
+
+test("issue #257: category search does not occupy the default transaction entry path", async ({ page }) => {
+  const email = `${unique("uiux-category-search-on-demand")}@example.com`;
+
+  await registerAndVerify(page, { email, displayName: unique("uiux-category-search-on-demand-name") });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openTab(page, "거래");
+
+  await page.getByTestId("transactions-fab").click();
+  const transactionSheet = page.getByTestId("transaction-entry-sheet");
+  await expect(transactionSheet).toBeVisible();
+  await expect(transactionSheet.getByTestId("transaction-quick-amount")).toBeFocused();
+  await expect(transactionSheet.getByTestId("transaction-category-search")).toHaveCount(0);
+  await expect(transactionSheet.getByTestId("transaction-category-search-toggle")).toBeVisible();
+  await expect(transactionSheet.getByTestId("transaction-category-quick-picker")).toContainText("카테고리");
+  await capture(page, "issue-257-category-search-collapsed-default");
+
+  await transactionSheet.getByTestId("transaction-category-search-toggle").click();
+  const searchInput = transactionSheet.getByTestId("transaction-category-search");
+  await expect(searchInput).toBeVisible();
+  await expect(searchInput).toBeFocused();
+  await capture(page, "issue-257-category-search-opened-on-demand");
+});
