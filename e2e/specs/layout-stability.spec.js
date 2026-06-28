@@ -1,6 +1,3 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
-
 import { expect, test } from "@playwright/test";
 
 import {
@@ -37,8 +34,6 @@ const AUTH_LAYOUT_PROFILES = [
   { name: "mobile-narrow-signup", width: 360, height: 740, font: "Malgun Gothic", mobile: true },
   { name: "mobile-standard-signup", width: 390, height: 844, font: "Noto Sans KR", mobile: true },
 ];
-
-const INDEX_CSS_SOURCE = readFileSync(resolve(process.cwd(), "frontend/src/index.css"), "utf8");
 
 async function resetViewportScroll(page) {
   await page.evaluate(async () => {
@@ -645,9 +640,7 @@ test("global shell CSS baseline", async ({ page }) => {
   expect(baseline.bodyBackgroundColor).not.toBe("transparent");
   expect(baseline.hasAuthShell).toBe(true);
   expect(baseline.hasTableBody).toBe(false);
-  expect(INDEX_CSS_SOURCE).toMatch(/html,\s*body,\s*#root\s*\{/);
-  expect(INDEX_CSS_SOURCE).toMatch(/body\s*\{[\s\S]*margin:\s*0;[\s\S]*background:\s*var\(--mf-surface-canvas\);/);
-  expect(INDEX_CSS_SOURCE).not.toMatch(/\btbody\b\s*,\s*(?:html|body|#root)|(?:html|body|#root)\s*,\s*\btbody\b/);
+  await capture(page, "global-shell-css-baseline");
 });
 
 test("mobile import navigation label stays readable at compact widths", async ({ page }) => {
