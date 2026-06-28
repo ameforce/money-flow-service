@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import { expect, test } from "@playwright/test";
 
 import {
@@ -34,6 +37,8 @@ const AUTH_LAYOUT_PROFILES = [
   { name: "mobile-narrow-signup", width: 360, height: 740, font: "Malgun Gothic", mobile: true },
   { name: "mobile-standard-signup", width: 390, height: 844, font: "Noto Sans KR", mobile: true },
 ];
+
+const INDEX_CSS_SOURCE = readFileSync(resolve(process.cwd(), "frontend/src/index.css"), "utf8");
 
 async function resetViewportScroll(page) {
   await page.evaluate(async () => {
@@ -619,6 +624,30 @@ test("auth landscape hides hero before headline creates orphan text", async ({ p
       await capture(page, `auth-landscape-${mode}-compact`);
     });
   }
+});
+
+test("global shell CSS baseline", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator(".auth-shell")).toBeVisible();
+
+  const baseline = await page.evaluate(() => {
+    const bodyStyle = getComputedStyle(document.body);
+    return {
+      bodyMargin: bodyStyle.margin,
+      bodyBackgroundColor: bodyStyle.backgroundColor,
+      hasAuthShell: Boolean(document.querySelector(".auth-shell")),
+      hasTableBody: Boolean(document.querySelector("tbody")),
+    };
+  });
+
+  expect(baseline.bodyMargin).toBe("0px");
+  expect(baseline.bodyBackgroundColor).not.toBe("rgba(0, 0, 0, 0)");
+  expect(baseline.bodyBackgroundColor).not.toBe("transparent");
+  expect(baseline.hasAuthShell).toBe(true);
+  expect(baseline.hasTableBody).toBe(false);
+  expect(INDEX_CSS_SOURCE).toMatch(/html,\s*body,\s*#root\s*\{/);
+  expect(INDEX_CSS_SOURCE).toMatch(/body\s*\{[\s\S]*margin:\s*0;[\s\S]*background:\s*var\(--mf-surface-canvas\);/);
+  expect(INDEX_CSS_SOURCE).not.toMatch(/\btbody\b\s*,\s*(?:html|body|#root)|(?:html|body|#root)\s*,\s*\btbody\b/);
 });
 
 test("mobile import navigation label stays readable at compact widths", async ({ page }) => {

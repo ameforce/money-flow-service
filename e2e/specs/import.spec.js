@@ -170,6 +170,60 @@ test("import flow: large report exposes full table filters and CSV export", asyn
   await capture(page, "issue-204-import-report-workbench");
 });
 
+test("import flow: report technical details stay collapsed and sanitized", async ({ page }, testInfo) => {
+  const email = `${unique("import-technical-report-user")}@example.com`;
+  const displayName = unique("import-technical-report-name");
+  const workbookPath = testInfo.outputPath(`${unique("technical-report")}.xlsx`);
+  const localWorkbookPath = "C:\\Users\\epapyrus\\Documents\\MoneyFlow\\private-ledger.xlsx";
+
+  createImportWorkbook(workbookPath, {
+    txMemo: unique("technical-report-tx"),
+    holdingName: unique("technical-report-holding"),
+    categoryMinor: unique("technical-report-minor"),
+  });
+
+  await page.route("**/api/v1/imports/workbook/upload?mode=dry_run", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        ...createLargeImportReport(),
+        workbook_path: localWorkbookPath,
+        diagnostic: {
+          source_path: localWorkbookPath,
+        },
+      }),
+    });
+  });
+
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 320, height: 568 });
+  await assertResponsiveShell(page);
+  await page.getByRole("button", { name: "데이터 가져오기", exact: true }).click();
+
+  await page.getByLabel("엑셀 파일 업로드").setInputFiles(workbookPath);
+  await page.getByRole("button", { name: "미리 검증", exact: true }).click();
+
+  const report = page.locator("section.import-report", { hasText: "가져오기 결과" });
+  await expect(report).toBeVisible();
+  await expect(report.getByText("원본 JSON 보기")).toHaveCount(0);
+  await expect(report.locator(".report-raw")).toHaveCount(0);
+
+  const details = report.locator("details.report-technical");
+  await expect(details).toHaveCount(1);
+  await expect(details.locator("summary")).toHaveText("기술 상세 보기");
+  await expect(details).not.toHaveAttribute("open", /.+/);
+
+  const collapsedText = await report.textContent();
+  expect(collapsedText).not.toContain("C:\\Users\\epapyrus");
+  await details.locator("summary").click();
+  const technicalJson = details.locator("pre.technical-report-json");
+  await expect(technicalJson).toContainText('"workbook_path": "[redacted-path]"');
+  await expect(technicalJson).toContainText('"source_path": "[redacted-path]"');
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "issue-205-import-report-technical-details");
+});
+
 test("import flow: legacy owner values can be explained and bulk remapped", async ({ page }) => {
   const email = `${unique("import-owner-remap-user")}@example.com`;
   const displayName = unique("import-owner-remap-name");

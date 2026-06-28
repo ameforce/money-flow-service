@@ -24,6 +24,7 @@ import {
   patchTossRowWithInference,
   recomputeTossDuplicateRows,
 } from "./tossImportUtils.js";
+import { displayImportFileName, formatTechnicalReportJson } from "./importReportUtils.js";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, ArcElement, Tooltip, Legend, Filler);
 
@@ -61,18 +62,87 @@ const TAB_LABELS = {
   import: "데이터 가져오기",
 };
 const TAB_NAV_META = {
-  dashboard: { icon: "⌂", helper: "요약", mobileLabel: "요약" },
-  transactions: { icon: "↔", helper: "흐름", mobileLabel: "거래" },
-  holdings: { icon: "◆", helper: "자산", mobileLabel: "자산" },
-  collaboration: { icon: "◉", helper: "공유", mobileLabel: "협업" },
-  import: { icon: "⇣", helper: "가져오기", mobileLabel: "가져\n오기" },
-  settings: { icon: "⚙", helper: "설정", mobileLabel: "설정" },
+  dashboard: { helper: "요약", mobileLabel: "요약" },
+  transactions: { helper: "흐름", mobileLabel: "거래" },
+  holdings: { helper: "자산", mobileLabel: "자산" },
+  collaboration: { helper: "공유", mobileLabel: "협업" },
+  import: { helper: "가져오기", mobileLabel: "가져\n오기" },
+  settings: { helper: "설정", mobileLabel: "설정" },
 };
 const TAB_GROUPS = {
   left: ["dashboard", "transactions", "holdings"],
   right: ["collaboration", "import", "settings"],
 };
 const TAB_IDS = new Set([...TAB_GROUPS.left, ...TAB_GROUPS.right]);
+
+function TabNavIcon({ tabId }) {
+  const commonProps = {
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: "1.9",
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+    focusable: "false",
+  };
+  if (tabId === "transactions") {
+    return (
+      <svg {...commonProps}>
+        <path d="M5 7h14" />
+        <path d="m15 3 4 4-4 4" />
+        <path d="M19 17H5" />
+        <path d="m9 13-4 4 4 4" />
+      </svg>
+    );
+  }
+  if (tabId === "holdings") {
+    return (
+      <svg {...commonProps}>
+        <path d="M12 3 4 8l8 5 8-5-8-5Z" />
+        <path d="m4 13 8 5 8-5" />
+      </svg>
+    );
+  }
+  if (tabId === "collaboration") {
+    return (
+      <svg {...commonProps}>
+        <path d="M8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" />
+        <path d="M16 12a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z" />
+        <path d="M3.5 20a4.5 4.5 0 0 1 9 0" />
+        <path d="M13.5 19a3.5 3.5 0 0 1 7 0" />
+      </svg>
+    );
+  }
+  if (tabId === "import") {
+    return (
+      <svg {...commonProps}>
+        <path d="M12 4v10" />
+        <path d="m8 10 4 4 4-4" />
+        <path d="M5 18h14" />
+      </svg>
+    );
+  }
+  if (tabId === "settings") {
+    return (
+      <svg {...commonProps}>
+        <path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z" />
+        <path d="M12 3v2" />
+        <path d="M12 19v2" />
+        <path d="M4.2 7.5 5.9 8.5" />
+        <path d="m18.1 15.5 1.7 1" />
+        <path d="m4.2 16.5 1.7-1" />
+        <path d="m18.1 8.5 1.7-1" />
+      </svg>
+    );
+  }
+  return (
+    <svg {...commonProps}>
+      <path d="M4 11.5 12 5l8 6.5" />
+      <path d="M6.5 10.5V19h11v-8.5" />
+      <path d="M10 19v-5h4v5" />
+    </svg>
+  );
+}
 const DISPLAY_NAME_MODE_OPTIONS = [
   { value: "real_name", label: "본명 우선" },
   { value: "nickname", label: "닉네임 우선" },
@@ -1389,6 +1459,20 @@ function compactHouseholdSelectOptionName(name, maxLength = 24) {
   return `${text.slice(0, Math.max(1, maxLength - 3)).trimEnd()}...`;
 }
 
+function renderBreakableInlineText(value, chunkLength = 8) {
+  const text = String(value || "").trim() || "-";
+  const chunks = [];
+  for (let index = 0; index < text.length; index += chunkLength) {
+    chunks.push(text.slice(index, index + chunkLength));
+  }
+  return chunks.map((chunk, index) => (
+    <Fragment key={`${chunk}-${index}`}>
+      {index > 0 && <wbr />}
+      {chunk}
+    </Fragment>
+  ));
+}
+
 function resolveHoldingCategoryOnTypeChange(currentCategory, previousType, nextType) {
   const normalizedCurrent = String(currentCategory || "").trim();
   if (!normalizedCurrent) {
@@ -1535,6 +1619,32 @@ function buildDonutSliceLabelMeta(items, { maxLabels = 6 } = {}) {
   return positionedItems
     .filter((item) => item.share >= 3 || positionedItems.length <= 3)
     .slice(0, maxLabels);
+}
+
+function buildPortfolioChartData(chartSource) {
+  if (!chartSource?.items?.length) {
+    return null;
+  }
+  const values = chartSource.items.map((item) => Number(item.value || 0));
+  const colors = categoryPalette(chartSource.items.length);
+  const isSingleVisibleSlice = values.filter((value) => Number.isFinite(value) && value > 0).length === 1;
+  return {
+    labels: chartSource.items.map((item) => item.label),
+    datasets: [
+      {
+        data: values,
+        backgroundColor: colors,
+        ...(isSingleVisibleSlice
+          ? {
+              borderColor: colors,
+              borderWidth: 0,
+              hoverBorderWidth: 0,
+              spacing: 0,
+            }
+          : {}),
+      },
+    ],
+  };
 }
 
 function buildPortfolioChartSourceForMode(
@@ -2341,6 +2451,8 @@ function App() {
   const transactionFabRef = useRef(null);
   const transactionSheetScrollYRef = useRef(0);
   const holdingSheetScrollYRef = useRef(0);
+  const holdingEntryActionRef = useRef(null);
+  const holdingEntryReturnFocusRef = useRef(null);
   const holdingSummaryCardRef = useRef(null);
   const receivedInviteSectionRef = useRef(null);
 
@@ -4112,9 +4224,15 @@ function App() {
     }, 0);
   }
 
-  function openHoldingEntrySheet() {
+  function openHoldingEntrySheet(event) {
     if (loading) {
       return;
+    }
+    const trigger = event?.currentTarget;
+    if (trigger?.focus) {
+      holdingEntryReturnFocusRef.current = trigger;
+    } else if (!holdingEntryReturnFocusRef.current) {
+      holdingEntryReturnFocusRef.current = holdingEntryActionRef.current;
     }
     if (isCompactViewport && typeof window !== "undefined") {
       holdingSheetScrollYRef.current = window.scrollY;
@@ -4122,7 +4240,7 @@ function App() {
     setShowHoldingForm(true);
   }
 
-  async function closeHoldingEntrySheet({ skipDraftGuard = false } = {}) {
+  const closeHoldingEntrySheet = useCallback(async ({ skipDraftGuard = false } = {}) => {
     if (!skipDraftGuard && isHoldingEntryDraftDirty) {
       const confirmed = await requestConfirmDialog({
         title: "자산 입력을 닫을까요?",
@@ -4134,14 +4252,35 @@ function App() {
       }
     }
     setShowHoldingForm(false);
-    if (!isCompactViewport || typeof window === "undefined") {
+    if (typeof window === "undefined") {
       return true;
     }
+    const restoreScrollY = holdingSheetScrollYRef.current;
     window.setTimeout(() => {
-      window.scrollTo({ top: holdingSheetScrollYRef.current, behavior: "auto" });
+      if (isCompactViewport) {
+        window.scrollTo({ top: restoreScrollY, behavior: "auto" });
+      }
+      const returnFocusTarget = holdingEntryReturnFocusRef.current || holdingEntryActionRef.current;
+      returnFocusTarget?.focus?.({ preventScroll: true });
+      holdingEntryReturnFocusRef.current = null;
     }, 0);
     return true;
-  }
+  }, [isCompactViewport, isHoldingEntryDraftDirty, requestConfirmDialog]);
+
+  useEffect(() => {
+    if (!showHoldingForm || !isCompactViewport) {
+      return undefined;
+    }
+    const handleHoldingEntryEscape = (event) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+      event.preventDefault();
+      closeHoldingEntrySheet();
+    };
+    document.addEventListener("keydown", handleHoldingEntryEscape);
+    return () => document.removeEventListener("keydown", handleHoldingEntryEscape);
+  }, [showHoldingForm, isCompactViewport, closeHoldingEntrySheet]);
 
   function scrollToHoldingSummary() {
     const summaryCard = holdingSummaryCardRef.current;
@@ -4737,7 +4876,7 @@ function App() {
 
   function resolveFilterQuery(override = null) {
     const activeFilterMode = override?.filterMode || filterModeRef.current;
-    const activeYearMonth = override?.yearMonth || yearMonthRef.current;
+    const activeYearMonth = override?.yearMonth || appliedYearMonthRef.current;
     const activeRange = override?.range || rangeRef.current;
     const txQuery =
       activeFilterMode === "month"
@@ -5372,15 +5511,6 @@ function App() {
     applyMonthFilter(yearMonthRef.current);
   }
 
-  function handleYearMonthInputBlur(event) {
-    const relatedTarget = event.relatedTarget;
-    const stepper = event.currentTarget.closest(".month-stepper");
-    if (relatedTarget instanceof HTMLElement && stepper?.contains(relatedTarget)) {
-      return;
-    }
-    handleApplyYearMonth();
-  }
-
   function applyRangeFilter(nextRange = range) {
     setFilterMode("range");
     filterModeRef.current = "range";
@@ -5428,7 +5558,7 @@ function App() {
       return;
     }
     event.preventDefault();
-    event.currentTarget.blur();
+    handleApplyYearMonth();
   }
 
   function handleMoveToCurrentMonth() {
@@ -8537,37 +8667,19 @@ function App() {
     });
   }, [dashboardPortfolioViewMode, holdingTypeTotals, overview?.totals]);
   const holdingPortfolioChartSource = holdingSummarySource;
-  const buildPortfolioChartData = (chartSource) => {
-    if (!chartSource?.items?.length) {
-      return null;
-    }
-    const values = chartSource.items.map((item) => Number(item.value || 0));
-    const colors = categoryPalette(chartSource.items.length);
-    const isSingleVisibleSlice = values.filter((value) => Number.isFinite(value) && value > 0).length === 1;
-    return {
-      labels: chartSource.items.map((item) => item.label),
-      datasets: [
-        {
-          data: values,
-          backgroundColor: colors,
-          ...(isSingleVisibleSlice
-            ? {
-                borderColor: colors,
-                borderWidth: 0,
-                hoverBorderWidth: 0,
-                spacing: 0,
-              }
-            : {}),
-        },
-      ],
-    };
-  };
   const dashboardPortfolioChartData = useMemo(() => {
     return buildPortfolioChartData(dashboardPortfolioChartSource);
   }, [dashboardPortfolioChartSource]);
   const holdingPortfolioChartData = useMemo(() => {
     return buildPortfolioChartData(holdingPortfolioChartSource);
   }, [holdingPortfolioChartSource]);
+  const lineChartOptions = useMemo(
+    () => ({
+      responsive: true,
+      maintainAspectRatio: false,
+    }),
+    []
+  );
   const donutChartOptions = useMemo(
     () => ({
       responsive: true,
@@ -9536,7 +9648,7 @@ function App() {
           </button>
         </div>
       </form>
-      <div className="form-grid settings-form-grid category-create-form" style={{ marginTop: "0.75rem" }}>
+      <div className="form-grid settings-form-grid category-create-form category-create-form-spaced">
         <div className="settings-preview category-manager-guide">
           <strong>기존 카테고리 빠른 정리</strong>
           <span>{categoryQuickActionText}</span>
@@ -9942,10 +10054,11 @@ function App() {
       <button
         key={item}
         aria-label={TAB_LABELS[item] || item}
+        aria-current={isActive ? "page" : undefined}
         className={`${isActive ? "active" : ""}${isCollaborationPulse ? " tab-invite-pulse" : ""}`}
         onClick={() => setTab(item)}
       >
-        <span className="tab-icon" aria-hidden="true">{meta.icon || "•"}</span>
+        <span className="tab-icon" aria-hidden="true"><TabNavIcon tabId={item} /></span>
         <span className="tab-text-break" aria-hidden="true">{"\n"}</span>
         <span className="tab-copy" data-helper={meta.helper || undefined} aria-hidden="true">
           <span className="tab-label" data-mobile-label={meta.mobileLabel || TAB_LABELS[item] || item}>
@@ -10131,7 +10244,6 @@ function App() {
                           aria-label="연도"
                           value={yearMonth.year}
                           onChange={(e) => updateYearMonthInput("year", e.target.value)}
-                          onBlur={handleYearMonthInputBlur}
                           onKeyDown={handleYearMonthInputKeyDown}
                           enterKeyHint="done"
                         />
@@ -10145,7 +10257,6 @@ function App() {
                           aria-label="월"
                           value={yearMonth.month}
                           onChange={(e) => updateYearMonthInput("month", e.target.value)}
-                          onBlur={handleYearMonthInputBlur}
                           onKeyDown={handleYearMonthInputKeyDown}
                           enterKeyHint="done"
                         />
@@ -10171,7 +10282,7 @@ function App() {
                     </div>
                     {isMonthFilterPending && (
                       <p className="filter-pending-status" data-testid="transaction-month-pending-status" aria-live="polite">
-                        변경됨 · Enter 또는 입력칸을 벗어나면 조회 적용
+                        변경됨 · Enter로 조회 적용
                       </p>
                     )}
                   </>
@@ -10228,7 +10339,7 @@ function App() {
                     <p>차트 데이터를 불러오는 중...</p>
                   </div>
                 ) : trendChartData ? (
-                  <Line data={trendChartData} options={{ responsive: true, maintainAspectRatio: false }} />
+                  <Line data={trendChartData} options={lineChartOptions} />
                 ) : (
                   <p className="dashboard-empty-state">데이터 없음</p>
                 )}
@@ -10478,7 +10589,6 @@ function App() {
                           aria-label="연도"
                           value={yearMonth.year}
                           onChange={(event) => updateYearMonthInput("year", event.target.value)}
-                          onBlur={handleYearMonthInputBlur}
                           onKeyDown={handleYearMonthInputKeyDown}
                           enterKeyHint="done"
                         />
@@ -10492,7 +10602,6 @@ function App() {
                           aria-label="월"
                           value={yearMonth.month}
                           onChange={(event) => updateYearMonthInput("month", event.target.value)}
-                          onBlur={handleYearMonthInputBlur}
                           onKeyDown={handleYearMonthInputKeyDown}
                           enterKeyHint="done"
                         />
@@ -10517,7 +10626,7 @@ function App() {
                   </p>
                   {isMonthFilterPending && (
                     <p className="filter-pending-status" data-testid="transaction-month-pending-status" aria-live="polite">
-                      변경됨 · Enter 또는 입력칸을 벗어나면 조회 적용
+                      변경됨 · Enter로 조회 적용
                     </p>
                   )}
                 </div>
@@ -10794,7 +10903,7 @@ function App() {
               </section>
               {!isCompactViewport && (
                 <section ref={txCategoryManagerRef} className="compact-support-section">
-                <div className="inline compact-support-header" style={{ justifyContent: "space-between", alignItems: "center" }}>
+                <div className="inline compact-support-header">
                   <h3>거래 탭 카테고리 관리</h3>
                   <button type="button" className="secondary" onClick={() => toggleTransactionCategoryManager()}>
                     {showTxCategoryManager ? "닫기" : "열기"}
@@ -10906,8 +11015,9 @@ function App() {
               <button
                 type="button"
                 className="secondary"
+                ref={holdingEntryActionRef}
                 data-testid={isCompactViewport && showHoldingForm ? "holding-entry-sheet-close" : undefined}
-                onClick={() => (showHoldingForm ? closeHoldingEntrySheet() : openHoldingEntrySheet())}
+                onClick={(event) => (showHoldingForm ? closeHoldingEntrySheet() : openHoldingEntrySheet(event))}
               >
                 {showHoldingForm ? "입력 닫기" : "자산 추가"}
               </button>
@@ -11727,8 +11837,12 @@ function App() {
                   ))}
                 </select>
               </label>
-              <p className="table-summary" id="settings-household-select-summary">
-                현재 작업 가계: {household?.name || "-"} / 내 권한: {COLLAB_ROLE_LABELS[householdRole] || householdRole || "-"}
+              <p className="table-summary settings-household-current-summary" id="settings-household-select-summary">
+                <span className="settings-household-current-label">현재 작업 가계:</span>
+                <span className="settings-household-current-name">{renderBreakableInlineText(household?.name || "-")}</span>
+                <span className="settings-household-current-role">
+                  / 내 권한: {COLLAB_ROLE_LABELS[householdRole] || householdRole || "-"}
+                </span>
               </p>
             </div>
           </article>
@@ -11848,7 +11962,7 @@ function App() {
                 <button type="submit" disabled={!canEditHouseholdData}>카테고리 추가</button>
               </div>
             </form>
-            <div className="form-grid settings-form-grid category-create-form" style={{ marginTop: "0.75rem" }}>
+            <div className="form-grid settings-form-grid category-create-form category-create-form-spaced">
               <div className="settings-preview category-manager-guide">
                 <strong>기존 카테고리 빠른 정리</strong>
                 <span>{categoryQuickActionText}</span>
@@ -12536,7 +12650,7 @@ function App() {
                     type="file"
                     accept=".xlsx"
                     onChange={(e) => setImportFile(e.target.files?.[0] || null)}
-                    style={{ display: "none" }}
+                    className="visually-hidden-file-input"
                     aria-label="엑셀 파일 업로드"
                     disabled={importBusy || !canEditRecords}
                   />
@@ -12584,7 +12698,7 @@ function App() {
                       </p>
                     </div>
                     <div className="import-summary-grid">
-                      <div className="import-summary-item"><strong>파일</strong><span>{importReport.workbook_path}</span></div>
+                      <div className="import-summary-item"><strong>파일</strong><span>{displayImportFileName(importReport.workbook_path)}</span></div>
                       <div className="import-summary-item"><strong>시트 수</strong><span>{fmt(importReport.sheets)}</span></div>
                       <div className="import-summary-item"><strong>거래 행</strong><span>{fmt(importReport.transaction_rows)}</span></div>
                       <div className="import-summary-item"><strong>보유 행</strong><span>{fmt(importReport.holding_rows)}</span></div>
@@ -12785,9 +12899,9 @@ function App() {
                         </div>
                       </section>
                     )}
-                    <details className="report-raw">
-                      <summary>원본 JSON 보기</summary>
-                      <pre className="report">{JSON.stringify(importReport, null, 2)}</pre>
+                    <details className="report-technical">
+                      <summary>기술 상세 보기</summary>
+                      <pre className="report technical-report-json">{formatTechnicalReportJson(importReport)}</pre>
                     </details>
                   </section>
                 )}
@@ -12823,7 +12937,7 @@ function App() {
                     accept={TOSS_IMAGE_ACCEPT}
                     multiple
                     onChange={(e) => setTossImportFiles(e.target.files)}
-                    style={{ display: "none" }}
+                    className="visually-hidden-file-input"
                     aria-label="토스 스크린샷 업로드"
                     disabled={importBusy || !canEditRecords}
                   />
@@ -13054,7 +13168,7 @@ function App() {
                   type="file"
                   accept=".zip"
                   onChange={(e) => setMigrationPackageFile(e.target.files?.[0] || null)}
-                  style={{ display: "none" }}
+                  className="visually-hidden-file-input"
                   aria-label="이식 패키지 업로드"
                   disabled={Boolean(migrationLoadingMode) || migrationExporting || !canEditRecords}
                 />
@@ -13093,7 +13207,7 @@ function App() {
               {migrationReport && (
                 <>
                   <div className="import-summary-grid">
-                    <div className="import-summary-item"><strong>패키지</strong><span>{migrationReport.package_name}</span></div>
+                    <div className="import-summary-item"><strong>패키지</strong><span>{displayImportFileName(migrationReport.package_name)}</span></div>
                     <div className="import-summary-item"><strong>원본 환경</strong><span>{migrationReport.source_env || "-"}</span></div>
                     <div className="import-summary-item"><strong>원본 가계</strong><span>{migrationReport.source_household_name || "-"}</span></div>
                     <div className="import-summary-item"><strong>카테고리 행</strong><span>{fmt(migrationReport.category_rows)}</span></div>
@@ -13120,9 +13234,9 @@ function App() {
                       <p className="table-summary">+{(migrationReport.issues || []).length - migrationIssuePreview.length}건 더 있음</p>
                     )}
                   </section>
-                  <details className="report-raw">
-                    <summary>이식 리포트 JSON 보기</summary>
-                    <pre className="report">{JSON.stringify(migrationReport, null, 2)}</pre>
+                  <details className="report-technical">
+                    <summary>기술 상세 보기</summary>
+                    <pre className="report technical-report-json">{formatTechnicalReportJson(migrationReport)}</pre>
                   </details>
                 </>
               )}
