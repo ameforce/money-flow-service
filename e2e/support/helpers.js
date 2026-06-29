@@ -823,7 +823,7 @@ async function expandQuickTransactionDetails(container) {
     return;
   }
 
-  for (const summaryText of ["추가 입력", "전체 카테고리"]) {
+  for (const summaryText of ["추가 설정", "추가 입력", "전체 카테고리"]) {
     const details = quickForm.locator("details.transaction-quick-details", { hasText: summaryText }).first();
     if ((await details.count()) === 0) {
       continue;
