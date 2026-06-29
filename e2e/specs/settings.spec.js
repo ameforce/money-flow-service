@@ -14,9 +14,15 @@ import {
   unique,
 } from "../support/helpers";
 
+async function scrollLocatorIntoView(locator) {
+  await locator.evaluate((element) => {
+    element.scrollIntoView({ block: "center", inline: "nearest", behavior: "auto" });
+  });
+}
+
 async function openSettingsDetails(page, text) {
   const card = page.locator("details.card", { hasText: text }).first();
-  await card.scrollIntoViewIfNeeded();
+  await scrollLocatorIntoView(card);
   if (!(await card.evaluate((element) => element.hasAttribute("open")))) {
     await card.locator("summary").click();
   }
@@ -47,7 +53,7 @@ function expectColorInputsKeepTouchTargets(metrics, label) {
 }
 
 async function expectCategoryUsageSummariesKeepHitTargets(page, group, label) {
-  await group.scrollIntoViewIfNeeded();
+  await scrollLocatorIntoView(group);
   const summaryMetrics = await group.locator(".settings-category-usage-detail .category-usage-month summary").evaluateAll((summaries) =>
     summaries.map((summary) => {
       const box = summary.getBoundingClientRect();
@@ -67,7 +73,7 @@ async function expectCategoryUsageSummariesKeepHitTargets(page, group, label) {
 }
 
 async function expectMajorRenameInputAccessible(page, group, label) {
-  await group.scrollIntoViewIfNeeded();
+  await scrollLocatorIntoView(group);
   const majorRenameInput = group.locator("input[placeholder='새 대분류명']").first();
   await expect(majorRenameInput).toHaveAccessibleName(/대분류 변경 새 이름/);
   const inputMetrics = await majorRenameInput.evaluate((input) => {
@@ -177,7 +183,7 @@ test("settings category row actions stay inside mobile cards", async ({ page }) 
   await openTab(page, "설정");
 
   const categoryCard = page.locator("article.card", { has: page.getByRole("heading", { name: "카테고리 관리" }) });
-  await categoryCard.scrollIntoViewIfNeeded();
+  await scrollLocatorIntoView(categoryCard);
   const categoryRow = categoryCard.locator(".settings-category-row", { hasText: minor }).first();
   await expect(categoryRow).toBeVisible();
 
@@ -276,7 +282,7 @@ test("settings flow: profile, household, colors, categories CRUD", async ({ page
   await capture(page, "settings-mobile-entry");
 
   const profileCard = page.locator("article.card", { has: page.getByRole("heading", { name: "내 프로필" }) });
-  await profileCard.scrollIntoViewIfNeeded();
+  await scrollLocatorIntoView(profileCard);
   const nicknameInput = labeledField(profileCard, "닉네임", "input");
   const profileSaveButton = profileCard.getByRole("button", { name: "프로필 저장" });
   await expectWithinViewport(nicknameInput);
@@ -296,7 +302,7 @@ test("settings flow: profile, household, colors, categories CRUD", async ({ page
   await expect(page.locator(".topbar .meta")).toContainText(`사용자: ${nickname}`);
 
   const householdCard = page.locator("article.card", { has: page.getByRole("heading", { name: "가계 설정" }) });
-  await householdCard.scrollIntoViewIfNeeded();
+  await scrollLocatorIntoView(householdCard);
   await expectNoHorizontalOverflow(page, 12);
   await labeledField(householdCard, "가계 이름", "input").fill(householdName);
   await householdCard.getByRole("button", { name: "가계 설정 저장" }).click();
@@ -306,7 +312,7 @@ test("settings flow: profile, household, colors, categories CRUD", async ({ page
   await page.setViewportSize({ width: 320, height: 720 });
   await assertResponsiveShell(page);
   const settingsSwitchCard = page.locator("article.settings-switch-card");
-  await settingsSwitchCard.scrollIntoViewIfNeeded();
+  await scrollLocatorIntoView(settingsSwitchCard);
   const settingsHouseholdSelect = settingsSwitchCard.locator("select.household-select").first();
   await expectWithinViewport(settingsHouseholdSelect);
   const switchMetrics = await settingsHouseholdSelect.evaluate((select) => {
@@ -342,7 +348,7 @@ test("settings flow: profile, household, colors, categories CRUD", async ({ page
   await expect(page.getByText("가계 설정을 저장했습니다.")).toBeVisible();
 
   const categoryCard = page.locator("article.card", { has: page.getByRole("heading", { name: "카테고리 관리" }) });
-  await categoryCard.scrollIntoViewIfNeeded();
+  await scrollLocatorIntoView(categoryCard);
   await expectNoHorizontalOverflow(page, 12);
   await capture(page, "settings-mobile-controls");
   const quickCategorySelect = labeledField(categoryCard, "기존 카테고리 선택", "select");
@@ -402,7 +408,7 @@ test("settings flow: profile, household, colors, categories CRUD", async ({ page
   const createdCategoryRow = createdGroup.locator(".settings-category-row", { hasText: minorSeed }).first();
   await page.setViewportSize({ width: 844, height: 390 });
   await assertResponsiveShell(page);
-  await categoryCard.scrollIntoViewIfNeeded();
+  await scrollLocatorIntoView(categoryCard);
   const landscapeCategoryMetrics = await createdCategoryRow.evaluate((row) => {
     const minor = row.querySelector(".settings-category-minor");
     const rowBox = row.getBoundingClientRect();
@@ -439,7 +445,7 @@ test("settings flow: profile, household, colors, categories CRUD", async ({ page
   await expectNoHorizontalOverflow(page, 12);
   await page.setViewportSize({ width: 390, height: 844 });
   const assetRulesCard = page.locator("details.settings-asset-rules-card").first();
-  await assetRulesCard.scrollIntoViewIfNeeded();
+  await scrollLocatorIntoView(assetRulesCard);
   if (!(await assetRulesCard.evaluate((element) => element.hasAttribute("open")))) {
     await assetRulesCard.locator("summary").click();
   }
@@ -488,7 +494,7 @@ test("settings flow: profile, household, colors, categories CRUD", async ({ page
   await openTab(page, "설정");
   await page.setViewportSize({ width: 390, height: 844 });
   await assertResponsiveShell(page);
-  await categoryCard.scrollIntoViewIfNeeded();
+  await scrollLocatorIntoView(categoryCard);
 
   await createCategoryPairCompat(deleteMajor, deleteMinor);
   await categoryCard.getByRole("button", { name: "카테고리 추가" }).click();
