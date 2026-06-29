@@ -55,6 +55,7 @@ async function expectQuickCategoryLayoutStable(page, expectedHint = "추천 카�
     const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
     const hintStyle = hint ? getComputedStyle(hint) : null;
     const chipContainerStyle = chipContainer ? getComputedStyle(chipContainer) : null;
+    const documentOverflowX = document.documentElement.scrollWidth - document.documentElement.clientWidth;
 
     return {
       hint: hint
@@ -92,7 +93,9 @@ async function expectQuickCategoryLayoutStable(page, expectedHint = "추천 카�
       chipMetrics: chips.map((chip) => {
         const rect = chip.getBoundingClientRect();
         const label = chip.querySelector("span");
+        const subLabel = chip.querySelector("small");
         const labelStyle = label ? getComputedStyle(label) : null;
+        const subLabelStyle = subLabel ? getComputedStyle(subLabel) : null;
         return {
           text: chip.textContent?.trim() || "",
           width: rect.width,
@@ -102,9 +105,18 @@ async function expectQuickCategoryLayoutStable(page, expectedHint = "추천 카�
           labelScrollWidth: label?.scrollWidth || 0,
           labelClientHeight: label?.clientHeight || 0,
           labelScrollHeight: label?.scrollHeight || 0,
+          labelTextOverflow: labelStyle?.textOverflow || "",
           labelWhiteSpace: labelStyle?.whiteSpace || "",
+          subLabelText: subLabel?.textContent?.trim() || "",
+          subLabelClientWidth: subLabel?.clientWidth || 0,
+          subLabelScrollWidth: subLabel?.scrollWidth || 0,
+          subLabelClientHeight: subLabel?.clientHeight || 0,
+          subLabelScrollHeight: subLabel?.scrollHeight || 0,
+          subLabelTextOverflow: subLabelStyle?.textOverflow || "",
+          subLabelWhiteSpace: subLabelStyle?.whiteSpace || "",
         };
       }),
+      documentOverflowX,
     };
   });
 
@@ -117,25 +129,38 @@ async function expectQuickCategoryLayoutStable(page, expectedHint = "추천 카�
   expect(metrics.hint.scrollHeight).toBeLessThanOrEqual(metrics.hint.clientHeight + 1);
   expect(metrics.chips).toBeTruthy();
   expect(metrics.chips.display).toBe("flex");
-  expect(metrics.chips.flexWrap).toBe("wrap");
-  expect(metrics.chips.scrollWidth).toBeLessThanOrEqual(metrics.chips.clientWidth + 1);
-  expect(metrics.outsideViewport).toEqual([]);
+  expect(metrics.chips.flexWrap).toBe("nowrap");
+  expect(["auto", "scroll"]).toContain(metrics.chips.overflowX);
+  expect(metrics.chips.scrollWidth).toBeGreaterThanOrEqual(metrics.chips.clientWidth);
+  expect(metrics.documentOverflowX).toBeLessThanOrEqual(1);
   expect(metrics.chipMetrics.length).toBeGreaterThan(0);
   expect(
     metrics.chipMetrics.every((chip) => chip.height >= 44),
     `quick category chips should keep mobile touch height: ${JSON.stringify(metrics.chipMetrics)}`,
   ).toBe(true);
   expect(
-    metrics.chipMetrics.every((chip) => chip.labelWhiteSpace !== "nowrap"),
-    `quick category labels should wrap on mobile: ${JSON.stringify(metrics.chipMetrics)}`,
+    metrics.chipMetrics.every((chip) => chip.labelWhiteSpace === "nowrap" && chip.labelTextOverflow === "ellipsis"),
+    `quick category labels should stay single-line with ellipsis on the compact rail: ${JSON.stringify(metrics.chipMetrics)}`,
   ).toBe(true);
   expect(
-    metrics.chipMetrics.every((chip) => chip.labelScrollWidth <= chip.labelClientWidth + 1),
-    `quick category labels should not clip horizontally: ${JSON.stringify(metrics.chipMetrics)}`,
+    metrics.chipMetrics.every((chip) => chip.labelClientWidth <= chip.width),
+    `quick category labels should stay inside their chip: ${JSON.stringify(metrics.chipMetrics)}`,
   ).toBe(true);
   expect(
     metrics.chipMetrics.every((chip) => chip.labelScrollHeight <= chip.labelClientHeight + 1),
     `quick category labels should not clip vertically: ${JSON.stringify(metrics.chipMetrics)}`,
+  ).toBe(true);
+  expect(
+    metrics.chipMetrics.every((chip) => chip.subLabelWhiteSpace === "nowrap" && chip.subLabelTextOverflow === "ellipsis"),
+    `quick category sublabels should stay single-line with ellipsis on the compact rail: ${JSON.stringify(metrics.chipMetrics)}`,
+  ).toBe(true);
+  expect(
+    metrics.chipMetrics.every((chip) => chip.subLabelClientWidth <= chip.width),
+    `quick category sublabels should stay inside their chip: ${JSON.stringify(metrics.chipMetrics)}`,
+  ).toBe(true);
+  expect(
+    metrics.chipMetrics.every((chip) => chip.subLabelScrollHeight <= chip.subLabelClientHeight + 1),
+    `quick category sublabels should not clip vertically: ${JSON.stringify(metrics.chipMetrics)}`,
   ).toBe(true);
 }
 
@@ -1120,6 +1145,7 @@ async function expectTransactionEntryPrimaryPath(page, transactionSheet, label) 
       .find((candidate) => candidate.textContent?.replace(/\s+/g, " ").trim().startsWith("메모"))
       ?.querySelector("input");
     const save = sheet.querySelector("[data-testid='transaction-quick-save']");
+    const actions = sheet.querySelector(".transaction-quick-sticky-actions");
     const details = Array.from(sheet.querySelectorAll("details.transaction-quick-details"));
     const sheetBox = rectFor(sheet);
     const primaryRects = [amount, category, memo, save].map(rectFor);
@@ -1145,13 +1171,21 @@ async function expectTransactionEntryPrimaryPath(page, transactionSheet, label) 
       category: primaryRects[1],
       memo: primaryRects[2],
       save: primaryRects[3],
+      actions: rectFor(actions),
       details: details.map((detail) => {
+        const summary = detail.querySelector("summary");
         const summaryLabel = detail.querySelector("summary > span");
+        const summaryBox = rectFor(summary);
+        const centerElement = summaryBox
+          ? document.elementFromPoint(summaryBox.centerX, summaryBox.centerY)
+          : null;
         return {
           open: detail.open,
-          summary: detail.querySelector("summary")?.textContent?.replace(/\s+/g, " ").trim() || "",
+          summary: summary?.textContent?.replace(/\s+/g, " ").trim() || "",
           summaryLabel: summaryLabel?.textContent?.replace(/\s+/g, " ").trim() || "",
           summaryLabelClipped: summaryLabel ? summaryLabel.scrollWidth - summaryLabel.clientWidth > 1 : true,
+          summaryCoveredByActions: Boolean(centerElement?.closest(".transaction-quick-sticky-actions")),
+          summaryRect: summaryBox,
           rect: rectFor(detail),
         };
       }),
@@ -1180,6 +1214,11 @@ async function expectTransactionEntryPrimaryPath(page, transactionSheet, label) 
   );
   expect(metrics.details[0].summaryLabel, `${label} secondary details title should stay short: ${JSON.stringify(metrics)}`).toBe("추가 설정");
   expect(metrics.details[0].summaryLabelClipped, `${label} secondary details title should not be clipped: ${JSON.stringify(metrics)}`).toBe(false);
+  expect(metrics.details[0].summaryCoveredByActions, `${label} secondary details summary should not sit under sticky actions: ${JSON.stringify(metrics)}`).toBe(false);
+  expect(
+    metrics.details[0].summaryRect.bottom,
+    `${label} secondary details summary should clear sticky actions: ${JSON.stringify(metrics)}`
+  ).toBeLessThanOrEqual(metrics.actions.top - 6);
   expect(metrics.primaryHeight, `${label} primary path should fit as one compact work unit: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(
     Math.min(metrics.viewportHeight * 0.78, 620)
   );
@@ -1312,16 +1351,32 @@ test("transaction entry primary path stays shallow across mobile tablet and desk
   const displayName = unique("tx-entry-primary-path-name");
   const seedMemo = unique("tx-entry-primary-seed");
   await registerAndVerify(page, { email, displayName });
-  const seedCategory = await createCategoryViaApi(page, {
-    major: unique("주경로"),
-    minor: unique("추천카테고리"),
+  const recentCategories = await Promise.all(
+    [
+      {
+        major: "post-deploy-import-major",
+        minor: `${unique("초장문추천카테고리")}-post-deploy-import-minor-long-primary-path`,
+      },
+      {
+        major: "post-deploy-import-major",
+        minor: `${unique("초장문추천카테고리")}-post-deploy-import-minor-long-secondary-path`,
+      },
+    ].map((category) => createCategoryViaApi(page, category))
+  );
+  const fallbackCategory = await createCategoryViaApi(page, {
+    major: `${unique("초장문대분류")}-post-deploy-import-major-long-fallback-label`,
+    minor: `${unique("fallback중분류")}-post-deploy-import-minor-long-fallback-label`,
   });
-  await createTransactionViaApi(page, {
-    memo: seedMemo,
-    amount: "12000",
-    categoryId: seedCategory.id,
-    ownerName: displayName,
-  });
+  await Promise.all(
+    recentCategories.map((category, index) =>
+      createTransactionViaApi(page, {
+        memo: `${seedMemo}-${index}`,
+        amount: String(12000 + index),
+        categoryId: category.id,
+        ownerName: displayName,
+      })
+    )
+  );
 
   const cases = [
     {
@@ -1353,6 +1408,16 @@ test("transaction entry primary path stays shallow across mobile tablet and desk
       content: `html, body, button, input, select, textarea { font-family: ${testCase.fontStack} !important; }`,
     });
     const transactionSheet = await openTransactionEntrySheet(page, testCase.viewport);
+    const quickChips = transactionSheet.getByTestId("transaction-quick-category-chip");
+    await expect(quickChips, `${testCase.name} should render recent chips plus the long fallback category chip`).toHaveCount(3);
+    await expect(
+      quickChips.first(),
+      `${testCase.name} should keep the long CJK recent category in the compact rail`
+    ).toContainText("초장문추천카테고리");
+    await expect(
+      quickChips.nth(2),
+      `${testCase.name} should keep the long CJK fallback major label in the compact rail`
+    ).toContainText(fallbackCategory.major);
     await expectTransactionEntryPrimaryPath(page, transactionSheet, testCase.name);
     await expectNoHorizontalOverflow(page, 12);
     await capture(page, `transactions-entry-primary-path-${testCase.name}`);
