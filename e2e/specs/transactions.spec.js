@@ -916,7 +916,7 @@ async function openTransactionEntrySheet(page, viewport = { width: 1440, height:
 async function openTransactionQuickDetails(transactionSheet, summaryText) {
   const labels =
     summaryText === "추가 입력" || summaryText === "전체 카테고리"
-      ? [summaryText, "날짜·유형·거래자·전체 카테고리", "기본값·전체 카테고리"]
+      ? [summaryText, "추가 설정", "날짜·유형·거래자·전체 카테고리", "기본값·전체 카테고리"]
       : [summaryText];
   let details = transactionSheet.locator("details.transaction-quick-details", { hasText: labels[0] }).first();
   for (const label of labels) {
@@ -1051,7 +1051,7 @@ async function expectQuickEntryFieldClearOfStickyActions(transactionSheet, label
 
 async function expectQuickCategoryReflectedInFullFallback(transactionSheet, selectedChipText) {
   const categoryTrigger = transactionSheet
-    .getByRole("button", { name: /날짜·유형·거래자·전체 카테고리|전체 카테고리|카테고리 선택|카테고리 변경|자세히|추가 입력/ })
+    .getByRole("button", { name: /추가 설정|날짜·유형·거래자·전체 카테고리|전체 카테고리|카테고리 선택|카테고리 변경|자세히|추가 입력/ })
     .first();
   if ((await categoryTrigger.count()) > 0 && (await categoryTrigger.isVisible().catch(() => false))) {
     await categoryTrigger.click();
@@ -1145,11 +1145,16 @@ async function expectTransactionEntryPrimaryPath(page, transactionSheet, label) 
       category: primaryRects[1],
       memo: primaryRects[2],
       save: primaryRects[3],
-      details: details.map((detail) => ({
-        open: detail.open,
-        summary: detail.querySelector("summary")?.textContent?.replace(/\s+/g, " ").trim() || "",
-        rect: rectFor(detail),
-      })),
+      details: details.map((detail) => {
+        const summaryLabel = detail.querySelector("summary > span");
+        return {
+          open: detail.open,
+          summary: detail.querySelector("summary")?.textContent?.replace(/\s+/g, " ").trim() || "",
+          summaryLabel: summaryLabel?.textContent?.replace(/\s+/g, " ").trim() || "",
+          summaryLabelClipped: summaryLabel ? summaryLabel.scrollWidth - summaryLabel.clientWidth > 1 : true,
+          rect: rectFor(detail),
+        };
+      }),
       documentOverflowX,
       pointerDistance,
       primaryHeight,
@@ -1173,6 +1178,8 @@ async function expectTransactionEntryPrimaryPath(page, transactionSheet, label) 
   expect(metrics.details[0].rect.top, `${label} secondary details should be below primary input: ${JSON.stringify(metrics)}`).toBeGreaterThan(
     metrics.memo.top
   );
+  expect(metrics.details[0].summaryLabel, `${label} secondary details title should stay short: ${JSON.stringify(metrics)}`).toBe("추가 설정");
+  expect(metrics.details[0].summaryLabelClipped, `${label} secondary details title should not be clipped: ${JSON.stringify(metrics)}`).toBe(false);
   expect(metrics.primaryHeight, `${label} primary path should fit as one compact work unit: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(
     Math.min(metrics.viewportHeight * 0.78, 620)
   );
@@ -3353,7 +3360,8 @@ test("issue 234: mobile transaction add keeps saved context in secondary details
   await expect(page.getByTestId("transaction-quick-amount")).toBeFocused();
 
   const secondaryDetails = transactionSheet.locator("details.transaction-quick-details").first();
-  await expect(secondaryDetails.locator("summary")).toContainText("날짜·유형·거래자·전체 카테고리");
+  const secondarySummaryLabel = secondaryDetails.locator("summary > span").first();
+  await expect(secondarySummaryLabel).toHaveText("추가 설정");
   await expect(transactionSheet.locator("details.transaction-quick-details[open]")).toHaveCount(0);
 
   const metrics = await transactionSheet.evaluate((sheet) => {

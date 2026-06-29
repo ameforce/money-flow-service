@@ -9303,7 +9303,7 @@ function App() {
 
         <details className="transaction-quick-details transaction-quick-secondary-details" onToggle={handleTransactionQuickDetailsToggle}>
           <summary>
-            <span>날짜·유형·거래자·전체 카테고리</span>
+            <span>추가 설정</span>
             <small>{transactionQuickSecondarySummary}</small>
           </summary>
           <div className="transaction-quick-detail-grid transaction-quick-detail-grid-secondary">
