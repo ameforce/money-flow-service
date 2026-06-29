@@ -2676,7 +2676,7 @@ button.danger:active:not(:disabled) {
   --transaction-quick-action-button-height: 2.82rem;
   --transaction-quick-action-padding-top: 0.62rem;
   --transaction-quick-action-padding-bottom: 0.78rem;
-  --transaction-quick-action-scroll-gap: 1.75rem;
+  --transaction-quick-action-scroll-gap: 3rem;
   --transaction-quick-action-clearance: calc(
     var(--transaction-quick-action-button-height) + var(--transaction-quick-action-padding-top) +
       var(--transaction-quick-action-padding-bottom) + var(--transaction-quick-action-scroll-gap) +

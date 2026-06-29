@@ -1874,11 +1874,15 @@ test("mobile quick entry rejects decimal KRW amount immediately", async ({ page 
   await quickAmount.pressSequentially("123.6");
   await expect(quickAmount).toHaveValue("123.6");
 
-  const appMessage = page.locator(".message").first();
-  await expect(appMessage).toContainText("원화 금액은 소수 없이 정수로 입력해 주세요.");
+  const amountError = transactionSheet.locator("#transaction-quick-amount-error");
+  await expect(quickAmount).toHaveAttribute("aria-invalid", "true");
+  await expect(quickAmount).toHaveAttribute("aria-describedby", "transaction-quick-amount-error");
+  await expect(amountError).toHaveText("원화 금액은 소수 없이 정수로 입력해 주세요.");
+  await expect(page.locator(".message", { hasText: "원화 금액은 소수 없이 정수로 입력해 주세요." })).toHaveCount(0);
   await labeledField(transactionSheet, "메모", "input").fill(memo);
   await page.getByTestId("transaction-quick-save").click();
-  await expect(appMessage).toContainText("원화 금액은 소수 없이 정수로 입력해 주세요.");
+  await expect(amountError).toHaveText("원화 금액은 소수 없이 정수로 입력해 주세요.");
+  await expect(page.locator(".message", { hasText: "원화 금액은 소수 없이 정수로 입력해 주세요." })).toHaveCount(0);
   await expect(page.locator("tr.transaction-row", { hasText: memo })).toHaveCount(0);
   await capture(page, "transactions-quick-decimal-rejected");
 });
@@ -4385,7 +4389,8 @@ test("transaction date controls use unambiguous ISO text fields", async ({ page 
   const desktopTransactionAddAction = await expectDesktopTransactionAddActionReachable(page, "desktop transaction add action for ISO date entry");
   await desktopTransactionAddAction.click();
   await expect(desktopTransactionSheet).toBeVisible();
-  const desktopEntryDate = labeledField(desktopTransactionSheet, "일자", "input");
+  const desktopEntryDetails = await openTransactionQuickDetails(desktopTransactionSheet, "추가 입력");
+  const desktopEntryDate = labeledField(desktopEntryDetails, "일자", "input");
   await expectIsoDateInput(desktopEntryDate, "desktop transaction entry date");
   await desktopEntryDate.fill("20260502");
   await expect(desktopEntryDate).toHaveValue("2026-05-02");
@@ -4798,11 +4803,15 @@ test("transactions form rejects decimal KRW amount before rounding can occur", a
   await amountInput.fill("");
   await amountInput.pressSequentially("123.6");
   await expect(amountInput).toHaveValue("123.6");
-  const appMessage = page.locator(".message").first();
-  await expect(appMessage).toContainText("원화 금액은 소수 없이 정수로 입력해 주세요.");
+  const amountError = transactionContainer.locator("#transaction-quick-amount-error");
+  await expect(amountInput).toHaveAttribute("aria-invalid", "true");
+  await expect(amountInput).toHaveAttribute("aria-describedby", "transaction-quick-amount-error");
+  await expect(amountError).toHaveText("원화 금액은 소수 없이 정수로 입력해 주세요.");
+  await expect(page.locator(".message", { hasText: "원화 금액은 소수 없이 정수로 입력해 주세요." })).toHaveCount(0);
   await memoInput.fill(memo);
   await transactionContainer.getByRole("button", { name: /저장|등록/ }).first().click();
-  await expect(appMessage).toContainText("원화 금액은 소수 없이 정수로 입력해 주세요.");
+  await expect(amountError).toHaveText("원화 금액은 소수 없이 정수로 입력해 주세요.");
+  await expect(page.locator(".message", { hasText: "원화 금액은 소수 없이 정수로 입력해 주세요." })).toHaveCount(0);
   await expect(page.locator("tr.transaction-row", { hasText: memo })).toHaveCount(0);
   await capture(page, "transactions-form-decimal-rejected");
 });
@@ -4856,7 +4865,10 @@ test("transactions history shows compact date groups with fixed chronological or
 
   await openTab(page, "거래");
   await expect(page.locator("tr.transaction-row", { hasText: todayMemo })).toBeVisible();
-  await expect(page.locator("th .sort-header-static").first()).toHaveAttribute("aria-label", /연속 내역순 고정/);
+  await expect(page.locator(".transactions-desktop-ledger-head .sort-header-static").first()).toHaveAttribute(
+    "aria-label",
+    /연속 내역순 고정/,
+  );
   await expect(page.locator(".transaction-history-date-row", { hasText: olderDate })).toHaveCount(1);
   await expect(page.locator(".transaction-history-date-row", { hasText: middleDate })).toHaveCount(1);
   await expect(page.locator(".transaction-history-date-row", { hasText: todayDate })).toHaveCount(1);
@@ -4924,8 +4936,11 @@ test("transactions history scrolls older and newer without future rows while kee
   await expect(page.locator("tr.transaction-row", { hasText: oldestMemo })).toHaveCount(0);
   await expect(page.locator("tr.transaction-row", { hasText: futureMemo })).toHaveCount(0);
   await expect(page.locator(".transaction-history-date-row", { hasText: futureDate })).toHaveCount(0);
-  await expect(page.locator("th .sort-header-static").first()).toHaveAttribute("aria-label", /연속 내역순 고정/);
-  await expect(page.locator("th button.sort-header")).toHaveCount(0);
+  await expect(page.locator(".transactions-desktop-ledger-head .sort-header-static").first()).toHaveAttribute(
+    "aria-label",
+    /연속 내역순 고정/,
+  );
+  await expect(page.locator(".transactions-desktop-ledger-head button.sort-header")).toHaveCount(0);
   await expectTransactionMonthControls(page, seeded[seeded.length - 1].occurredOn, "initial today anchor");
   expectMonthStepperCentered(await readTransactionMonthStepperLayout(page), "desktop transaction month stepper");
   await expectDesktopSidebarSticky(page);
@@ -4993,6 +5008,28 @@ test("transactions history scrolls older and newer without future rows while kee
   const monthAnchorSeed = seeded.find((item) => item.occurredOn === createAnchorDate) || seeded[3];
   await jumpTransactionListToMonth(page, monthAnchorSeed.occurredOn);
   await expect(page.locator("tr.transaction-row", { hasText: monthAnchorSeed.memo }).first()).toBeVisible({ timeout: 30_000 });
+  await page.waitForTimeout(1_000);
+
+  const unsolicitedHistoryDirections = [];
+  const trackUnsolicitedHistoryRoute = async (route) => {
+    const url = new URL(route.request().url());
+    const direction = url.searchParams.get("direction");
+    if (direction === "older" || direction === "newer") {
+      unsolicitedHistoryDirections.push(direction);
+    }
+    await route.continue();
+  };
+  await page.route(historyRoutePattern, trackUnsolicitedHistoryRoute);
+  await page.evaluate(() => {
+    const midpoint = Math.max(0, (document.documentElement.scrollHeight - window.innerHeight) / 2);
+    window.scrollTo(0, midpoint);
+  });
+  await page.waitForTimeout(750);
+  await page.unroute(historyRoutePattern, trackUnsolicitedHistoryRoute);
+  expect(
+    unsolicitedHistoryDirections,
+    `mid-list history anchor should not trigger unsolicited edge pagination: ${JSON.stringify(unsolicitedHistoryDirections)}`
+  ).toEqual([]);
 
   const backdatedMemo = `${prefix}-backdated-create`;
   const backdatedRow = await createBasicTransaction(page, {
@@ -5002,18 +5039,9 @@ test("transactions history scrolls older and newer without future rows while kee
   });
   await expect(backdatedRow).toBeVisible();
 
-  const todayRow = page.locator("tr.transaction-row", { hasText: todayMemo }).first();
-  for (let attempt = 0; attempt < 4; attempt += 1) {
-    if (await todayRow.isVisible().catch(() => false)) {
-      break;
-    }
-    await page.evaluate(() => window.scrollBy(0, -200));
-    await page.waitForTimeout(100);
-    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-    await page.waitForTimeout(1_000);
-  }
-  await expect(todayRow).toBeVisible({ timeout: 40_000 });
   await scrollHistoryRowIntoViewport(page, todayMemo, seeded[seeded.length - 1].occurredOn, "end");
+  const todayRow = page.locator("tr.transaction-row", { hasText: todayMemo }).first();
+  await expect(todayRow).toBeVisible({ timeout: 40_000 });
   await expectTransactionMonthControls(page, seeded[seeded.length - 1].occurredOn, "newer visible anchor");
   await expect(page.locator("tr.transaction-row", { hasText: futureMemo })).toHaveCount(0);
   await expect(page.locator(".transaction-history-date-row", { hasText: futureDate })).toHaveCount(0);
@@ -5084,7 +5112,7 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   }
 
   await expectDesktopTransactionColumnHeaderLabels(page, "transactions list affordance column header");
-  const headerTexts = await page.locator(".transactions-desktop-ledger-head [role='columnheader']").evaluateAll((nodes) =>
+  const headerTexts = await page.locator(".transactions-desktop-ledger-head .desktop-ledger-head-cell").evaluateAll((nodes) =>
     nodes.map((node) => String(node.innerText || node.textContent || "").replace(/\s+/g, " ").trim())
   );
   const findHeaderIndex = (label) => headerTexts.findIndex((text) => text.includes(label));

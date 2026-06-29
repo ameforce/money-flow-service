@@ -90,10 +90,11 @@ test("localized form validation replaces native bubbles and mobile messages wrap
 
   await openTab(page, "거래");
   await page.getByTestId("transactions-fab").click();
+  const transactionSheet = page.getByTestId("transaction-entry-sheet");
   await page.getByTestId("transaction-quick-save").click();
-  await expectMessageFullyVisible(page, "금액을 입력해 주세요.");
-  await dismissVisibleMessage(page);
-  await page.getByTestId("transaction-entry-sheet-close").click();
+  await expect(transactionSheet.locator("#transaction-quick-amount-error")).toHaveText("금액을 입력해 주세요.");
+  await expect(page.locator(".message", { hasText: "금액을 입력해 주세요." })).toHaveCount(0);
+  await transactionSheet.getByTestId("transaction-entry-sheet-close").click();
 
   await openTab(page, "자산");
   await page.getByTestId("holdings-fab").click();

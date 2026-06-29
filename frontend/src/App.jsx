@@ -3491,30 +3491,55 @@ function App() {
     if (!topSentinel && !bottomSentinel) {
       return undefined;
     }
+    const isNearDocumentEnd = () => {
+      if (typeof document === "undefined" || typeof window === "undefined") {
+        return false;
+      }
+      const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+      const scrollY = window.scrollY || window.pageYOffset || 0;
+      return scrollY + viewportHeight >= document.documentElement.scrollHeight - 8;
+    };
+    const isSentinelWithinObserverMargin = (target) => {
+      if (!target || typeof window === "undefined" || typeof target.getBoundingClientRect !== "function") {
+        return false;
+      }
+      const rootMargin = Number.parseFloat(TRANSACTION_HISTORY_SENTINEL_ROOT_MARGIN) || 0;
+      const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+      const rect = target.getBoundingClientRect();
+      return rect.bottom >= -rootMargin && rect.top <= viewportHeight + rootMargin;
+    };
+    const maybeLoadHistoryEdge = (target) => {
+      const direction = transactionHistoryScrollDirectionRef.current;
+      if (
+        target === topSentinel &&
+        direction === "up" &&
+        transactionHistoryHasOlder &&
+        transactionHistoryOlderCursor &&
+        !transactionHistoryLoadingRef.current.older
+      ) {
+        loadOlderTransactionHistory().catch(() => undefined);
+      }
+      if (
+        target === bottomSentinel &&
+        (direction !== "up" || isNearDocumentEnd()) &&
+        transactionHistoryHasNewer &&
+        transactionHistoryNewerCursor &&
+        !transactionHistoryLoadingRef.current.newer
+      ) {
+        loadNewerTransactionHistory().catch(() => undefined);
+      }
+    };
+    const maybeLoadVisibleHistoryEdge = (target) => {
+      if (!isSentinelWithinObserverMargin(target) && !(target === bottomSentinel && isNearDocumentEnd())) {
+        return;
+      }
+      maybeLoadHistoryEdge(target);
+    };
     const observer = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
-          if (!entry.isIntersecting) {
-            continue;
-          }
-          const direction = transactionHistoryScrollDirectionRef.current;
-          if (
-            entry.target === topSentinel &&
-            direction === "up" &&
-            transactionHistoryHasOlder &&
-            transactionHistoryOlderCursor &&
-            !transactionHistoryLoadingRef.current.older
-          ) {
-            loadOlderTransactionHistory().catch(() => undefined);
-          }
-          if (
-            entry.target === bottomSentinel &&
-            direction !== "up" &&
-            transactionHistoryHasNewer &&
-            transactionHistoryNewerCursor &&
-            !transactionHistoryLoadingRef.current.newer
-          ) {
-            loadNewerTransactionHistory().catch(() => undefined);
+          if (entry.isIntersecting) {
+            maybeLoadHistoryEdge(entry.target);
           }
         }
       },
@@ -3526,7 +3551,23 @@ function App() {
     if (bottomSentinel) {
       observer.observe(bottomSentinel);
     }
-    return () => observer.disconnect();
+    const kickFrame =
+      typeof window === "undefined"
+        ? 0
+        : window.requestAnimationFrame(() => {
+            if (topSentinel) {
+              maybeLoadVisibleHistoryEdge(topSentinel);
+            }
+            if (bottomSentinel) {
+              maybeLoadVisibleHistoryEdge(bottomSentinel);
+            }
+          });
+    return () => {
+      if (kickFrame) {
+        window.cancelAnimationFrame(kickFrame);
+      }
+      observer.disconnect();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     household?.id,
@@ -9050,6 +9091,10 @@ function App() {
           Number(importReport.applied_holdings_added || 0) + Number(importReport.applied_holdings_updated || 0)
         )}건`
       : "대기 중";
+  const transactionInlineValidationMessage =
+    showTransactionForm && txEntrySheetStep === "form" ? firstTransactionFormError(txFormErrors) : "";
+  const shouldShowGlobalMessage =
+    Boolean(message) && !(transactionInlineValidationMessage && message === transactionInlineValidationMessage);
 
   useEffect(() => {
     if (canEditRecords) {
@@ -10246,7 +10291,7 @@ function App() {
       </nav>
 
       <div className="app-content">
-      {message && (
+      {shouldShowGlobalMessage && (
         <div className="message" role="status">
           <span>{message}</span>
           <button type="button" className="message-close secondary" onClick={dismissMessage}>

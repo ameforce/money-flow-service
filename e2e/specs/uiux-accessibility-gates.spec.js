@@ -163,6 +163,24 @@ test("issue #246: transaction validation errors are linked to blocking fields", 
   await expect(amountError).toHaveAttribute("role", "alert");
   await expect(amountError).toContainText("금액");
   await expect(amountInput).toBeFocused();
+  await expect(page.locator(".message", { hasText: "금액을 입력해 주세요." })).toHaveCount(0);
+  const quickSaveMetrics = await transactionSheet.getByTestId("transaction-quick-save").evaluate((button) => {
+    const box = button.getBoundingClientRect();
+    const centerX = box.left + box.width / 2;
+    const centerY = box.top + box.height / 2;
+    const topElement = document.elementFromPoint(centerX, centerY);
+    return {
+      bottom: box.bottom,
+      viewportHeight: window.innerHeight,
+      coveredByGlobalMessage: Boolean(topElement?.closest(".message")),
+      topTestId: topElement?.closest("[data-testid]")?.getAttribute("data-testid") || "",
+    };
+  });
+  expect(quickSaveMetrics.bottom, `quick save should stay in viewport: ${JSON.stringify(quickSaveMetrics)}`).toBeLessThanOrEqual(
+    quickSaveMetrics.viewportHeight + 1
+  );
+  expect(quickSaveMetrics.coveredByGlobalMessage, `quick save should not be covered by global message: ${JSON.stringify(quickSaveMetrics)}`).toBe(false);
+  expect(quickSaveMetrics.topTestId, `quick save center should stay actionable: ${JSON.stringify(quickSaveMetrics)}`).toBe("transaction-quick-save");
   await capture(page, "issue-246-transaction-field-linked-error");
 });
 
