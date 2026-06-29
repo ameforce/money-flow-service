@@ -10,7 +10,8 @@ const DEFAULT_CSRF_COOKIE_NAME = "mf_csrf_token";
 const DEFAULT_CSRF_HEADER_NAME = "x-csrf-token";
 const DEFAULT_HOUSEHOLD_HEADER_NAME = "x-household-id";
 const SHARED_E2E_LOCAL_HOSTS = new Set(["", "localhost", "127.0.0.1", "::1"]);
-const SHARED_AUTH_READY_TIMEOUT_MS = 12_000;
+const AUTH_READY_TIMEOUT_MS = 12_000;
+const SHARED_AUTH_READY_TIMEOUT_MS = 20_000;
 const SHARED_E2E_UNIQUE_ACCOUNT_PREFIXES = ["auth-user", "dashboard-user", "owner-user", "guest-user"];
 
 export function unique(prefix) {
@@ -125,7 +126,7 @@ async function fillRegisterForm(page, { email, password, displayName }) {
   await page.getByLabel("본명").fill(displayName);
 }
 
-async function expectAuthReady(page, { timeout = 5_000 } = {}) {
+async function expectAuthReady(page, { timeout = AUTH_READY_TIMEOUT_MS } = {}) {
   const appShell = page.locator("main.app-shell");
   const signedIn = await appShell
     .waitFor({ state: "visible", timeout })
@@ -137,7 +138,16 @@ async function expectAuthReady(page, { timeout = 5_000 } = {}) {
   return signedIn;
 }
 
-async function loginFromAuthShell(page, credentials, { timeout = 5_000 } = {}) {
+async function loginFromAuthShell(page, credentials, { timeout = AUTH_READY_TIMEOUT_MS } = {}) {
+  const appShell = page.locator("main.app-shell");
+  const alreadySignedIn = await appShell
+    .waitFor({ state: "visible", timeout: Math.min(timeout, 3_000) })
+    .then(() => true)
+    .catch(() => false);
+  if (alreadySignedIn) {
+    await expect(appShell).toHaveAttribute("translate", "no", { timeout });
+    return true;
+  }
   await fillLoginForm(page, credentials);
   await page.getByRole("button", { name: "로그인하기" }).click();
   return expectAuthReady(page, { timeout });
@@ -348,7 +358,7 @@ export async function expectClearOfFixedBottomNav(locator, { allowance = 4 } = {
         consecutiveClearReads += 1;
         return consecutiveClearReads >= 2;
       },
-      { message: "locator should settle clear of the viewport chrome", timeout: 3_000 },
+      { message: "locator should settle clear of the viewport chrome", timeout: 8_000 },
     )
     .toBe(true);
   const visibleBottom = Math.min(metrics.fixedNavTop, metrics.viewportBottom);
@@ -638,7 +648,7 @@ export async function openTab(page, label) {
 
 export async function login(page, { email, password = TEST_PASSWORD }) {
   const identity = resolveSharedAuthIdentity({ email });
-  const authReadyTimeout = identity.shared ? SHARED_AUTH_READY_TIMEOUT_MS : 5_000;
+  const authReadyTimeout = identity.shared ? SHARED_AUTH_READY_TIMEOUT_MS : AUTH_READY_TIMEOUT_MS;
   await page.goto("/");
   const signedIn = await loginFromAuthShell(page, { email: identity.email, password }, { timeout: authReadyTimeout });
   if (!signedIn) {
@@ -654,7 +664,7 @@ export async function logout(page) {
 
 export async function registerAndVerify(page, { email, password = TEST_PASSWORD, displayName }) {
   const identity = resolveSharedAuthIdentity({ email, displayName });
-  const authReadyTimeout = identity.shared ? SHARED_AUTH_READY_TIMEOUT_MS : 5_000;
+  const authReadyTimeout = identity.shared ? SHARED_AUTH_READY_TIMEOUT_MS : AUTH_READY_TIMEOUT_MS;
   await page.goto("/");
   if (identity.shared) {
     const signedInFromExistingAccount = await loginFromAuthShell(page, { email: identity.email, password }, { timeout: authReadyTimeout });

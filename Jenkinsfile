@@ -172,12 +172,12 @@ pipeline {
           if (isUnix()) {
             sh '''
               set -e
-              git fetch --all --tags --prune
+              git fetch --all --tags --prune --force
               python3 scripts/ci/enforce_gitflow_policy.py --branch "$GITFLOW_POLICY_BRANCH"
             '''
           } else {
             powershell '''
-              git fetch --all --tags --prune
+              git fetch --all --tags --prune --force
               if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
               py scripts/ci/enforce_gitflow_policy.py --branch $env:GITFLOW_POLICY_BRANCH
               if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
