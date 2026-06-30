@@ -618,6 +618,23 @@ export function hexToRgb(hex) {
   return `rgb(${red}, ${green}, ${blue})`;
 }
 
+async function closeTransactionEntrySheetIfOpen(page, { timeout = 20_000 } = {}) {
+  const transactionSheet = page.getByTestId("transaction-entry-sheet");
+  if (!(await transactionSheet.isVisible().catch(() => false))) {
+    return;
+  }
+
+  const closeButton = transactionSheet.getByTestId("transaction-entry-sheet-close").first();
+  const clicked = await closeButton
+    .click({ timeout: Math.min(timeout, 4_000) })
+    .then(() => true)
+    .catch(() => false);
+  if (!clicked && (await transactionSheet.isVisible().catch(() => false))) {
+    await closeButton.dispatchEvent("click").catch(() => undefined);
+  }
+  await expect(transactionSheet).toBeHidden({ timeout });
+}
+
 export async function openTab(page, label) {
   const tabButton = page.getByRole("button", { name: label, exact: true }).first();
   const isAlreadyActive = await tabButton
@@ -629,8 +646,7 @@ export async function openTab(page, label) {
 
   const openTransactionSheet = page.getByTestId("transaction-entry-sheet");
   if (await openTransactionSheet.isVisible().catch(() => false)) {
-    await page.getByTestId("transaction-entry-sheet-close").click();
-    await expect(openTransactionSheet).toBeHidden({ timeout: 20_000 });
+    await closeTransactionEntrySheetIfOpen(page);
   }
 
   for (let attempt = 0; attempt < 4; attempt += 1) {
@@ -855,10 +871,7 @@ export async function openTransactionEntryForm(page) {
       container: transactionSheet,
       mode: "sheet",
       close: async () => {
-        if (await transactionSheet.isVisible().catch(() => false)) {
-          await page.getByTestId("transaction-entry-sheet-close").click();
-          await expect(transactionSheet).toBeHidden({ timeout: 20_000 });
-        }
+        await closeTransactionEntrySheetIfOpen(page);
       },
     };
   }
@@ -904,10 +917,7 @@ export async function openTransactionEntryForm(page) {
     container: transactionSheet,
     mode: "sheet",
     close: async () => {
-      if (await transactionSheet.isVisible().catch(() => false)) {
-        await page.getByTestId("transaction-entry-sheet-close").click();
-        await expect(transactionSheet).toBeHidden({ timeout: 20_000 });
-      }
+      await closeTransactionEntrySheetIfOpen(page);
     },
   };
 }
@@ -1011,10 +1021,7 @@ export async function createBasicTransaction(
     await expect(txToggleButton).toContainText("거래 추가", { timeout: 20_000 });
     await expect(txToggleButton).toBeEnabled();
   } else {
-    if (await transactionSheet.isVisible().catch(() => false)) {
-      await page.getByTestId("transaction-entry-sheet-close").click();
-    }
-    await expect(transactionSheet).toBeHidden({ timeout: 20_000 });
+    await closeTransactionEntrySheetIfOpen(page);
   }
   return row;
 }
