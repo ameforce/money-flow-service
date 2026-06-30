@@ -10,7 +10,7 @@ import re
 import zipfile
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -160,6 +160,7 @@ class _PackageTransaction(BaseModel):
     memo: str = Field(default="", max_length=5000)
     owner_name: str | None = Field(default=None, max_length=80)
     source_ref: str = Field(min_length=1, max_length=120)
+    order_key: int | None = Field(default=None, ge=1)
 
     @field_validator("category_major", "category_minor", "amount", "currency", "source_ref", mode="before")
     @classmethod
@@ -257,7 +258,12 @@ class MigrationPackageService:
         transactions = db.scalars(
             select(Transaction)
             .where(Transaction.household_id == household.id)
-            .order_by(Transaction.occurred_on.asc(), Transaction.created_at.asc(), Transaction.id.asc())
+            .order_by(
+                Transaction.occurred_on.asc(),
+                Transaction.order_key.asc(),
+                Transaction.created_at.asc(),
+                Transaction.id.asc(),
+            )
         ).all()
         holdings = db.scalars(
             select(Holding)
@@ -300,6 +306,7 @@ class MigrationPackageService:
                     "memo": str(item.memo or ""),
                     "owner_name": normalize_optional_text(item.owner_name),
                     "source_ref": str(item.source_ref or "").strip() or f"migration:tx:{item.id}",
+                    "order_key": int(item.order_key or 0) or None,
                 }
                 for item in transactions
             ],
@@ -522,6 +529,7 @@ class MigrationPackageService:
             owner_user_id = owner_lookup.get(_owner_key(owner_name)) if owner_name else None
             prepared_transactions.append(
                 {
+                    "payload_index": index,
                     "category_key": (row.flow_type, row.category_major, row.category_minor),
                     "flow_type": row.flow_type,
                     "occurred_on": row.occurred_on,
@@ -531,6 +539,7 @@ class MigrationPackageService:
                     "owner_user_id": owner_user_id,
                     "owner_name": owner_name,
                     "source_ref": source_ref,
+                    "order_key": int(row.order_key or 0) or None,
                 }
             )
 
@@ -618,17 +627,38 @@ class MigrationPackageService:
             db.flush()
             applied_categories = len(category_map)
 
-            for row in prepared_transactions:
+            next_order_keys: dict[date, int] = {}
+            ordered_transactions = sorted(
+                prepared_transactions,
+                key=lambda row: (
+                    row["occurred_on"],
+                    int(row["order_key"] or 0) if row["order_key"] else 2**63 - 1,
+                    int(row["payload_index"]),
+                ),
+            )
+            for row in ordered_transactions:
                 category = category_map[row["category_key"]]
+                occurred_on = row["occurred_on"]
+                if occurred_on not in next_order_keys:
+                    max_key = db.scalar(
+                        select(func.max(Transaction.order_key)).where(
+                            Transaction.household_id == household.id,
+                            Transaction.occurred_on == occurred_on,
+                        )
+                    )
+                    next_order_keys[occurred_on] = int(max_key or 0) + 1024
+                order_key = next_order_keys[occurred_on]
+                next_order_keys[occurred_on] = order_key + 1024
                 db.add(
                     Transaction(
                         household_id=household.id,
                         category_id=category.id,
                         flow_type=row["flow_type"],
-                        occurred_on=row["occurred_on"],
+                        occurred_on=occurred_on,
                         amount=row["amount"],
                         currency=row["currency"],
                         memo=row["memo"],
+                        order_key=order_key,
                         owner_user_id=row["owner_user_id"],
                         owner_name=row["owner_name"],
                         source_ref=row["source_ref"],

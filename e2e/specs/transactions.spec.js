@@ -587,12 +587,49 @@ async function clearTransactionSelection(page) {
   await expectTransactionSelectionSummary(page, 0, "0원");
 }
 
-async function clickDesktopTransactionRowAction(row, actionName) {
+async function selectTransactionRowForToolbar(page, row) {
   await expect(row).toBeVisible();
   await row.evaluate((element) => element.scrollIntoView({ block: "center", inline: "nearest" }));
-  const actionButton = row.locator("td").last().getByRole("button", { name: actionName }).first();
+  if ((await row.getAttribute("data-row-selected")) !== "true") {
+    const selectionTargets = [
+      row.locator(".transaction-col-memo").first(),
+      row.locator(".transaction-col-date").first(),
+      row.locator(".transaction-col-type").first(),
+    ];
+    for (const target of selectionTargets) {
+      if (!(await target.isVisible().catch(() => false))) {
+        continue;
+      }
+      await target.click();
+      if ((await row.getAttribute("data-row-selected")) === "true") {
+        break;
+      }
+    }
+    if ((await row.getAttribute("data-row-selected")) !== "true") {
+      const checkbox = row.locator(".transaction-col-select input[type='checkbox']").first();
+      if (await checkbox.isVisible().catch(() => false)) {
+        await checkbox.click({ force: true });
+      }
+    }
+  }
+  await expect(row).toHaveAttribute("data-row-selected", "true");
+  await expectTransactionSelectionSummary(page, 1);
+}
+
+async function clickTransactionSelectionToolbarAction(page, row, actionName) {
+  await selectTransactionRowForToolbar(page, row);
+  const actionTestIds = new Map([
+    ["수정", "transaction-selection-edit"],
+    ["삭제", "transaction-selection-delete"],
+    ["위에 삽입", "transaction-selection-insert-above"],
+    ["아래에 삽입", "transaction-selection-insert-below"],
+  ]);
+  const testId = actionTestIds.get(actionName);
+  const actionButton = testId
+    ? page.getByTestId(testId)
+    : page.getByTestId("transaction-sticky-toolbar").getByRole("button", { name: actionName }).first();
   await expect(actionButton).toBeVisible();
-  await actionButton.evaluate((button) => button.click());
+  await actionButton.click();
 }
 
 async function scrollTransactionHeaderIntoStickyRange(page) {
@@ -704,7 +741,7 @@ async function expectTransactionStickyHeaderGeometry(page, label) {
 async function expectDesktopTransactionColumnHeaderLabels(page, label) {
   const header = page.locator(".transactions-desktop-ledger-head").first();
   await expect(header, `${label} desktop ledger header visible`).toBeVisible();
-  for (const columnLabel of ["일자", "유형", "카테고리", "메모", "금액", "거래자명", "최종 수정일", "동작"]) {
+  for (const columnLabel of ["일자", "유형", "카테고리", "메모", "금액", "거래자명", "최종 수정일", "세부"]) {
     await expect(header, `${label} should include ${columnLabel}`).toContainText(columnLabel);
   }
   const metrics = await header.evaluate((element) => {
@@ -1554,7 +1591,7 @@ test("issue 193: inline transaction edit searches category in one step", async (
 
   const row = page.locator("tr.transaction-row", { hasText: memo }).first();
   await expect(row).toBeVisible({ timeout: 20_000 });
-  await clickDesktopTransactionRowAction(row, "수정");
+  await clickTransactionSelectionToolbarAction(page, row, "수정");
   const editorRow = page.locator("tr.transaction-inline-editor-row").first();
   await expect(editorRow).toBeVisible();
 
@@ -1636,7 +1673,7 @@ test("issue 194: inline transaction edit creates and applies a missing category 
 
   const row = page.locator("tr.transaction-row", { hasText: memo }).first();
   await expect(row).toBeVisible({ timeout: 20_000 });
-  await clickDesktopTransactionRowAction(row, "수정");
+  await clickTransactionSelectionToolbarAction(page, row, "수정");
   const editorRow = page.locator("tr.transaction-inline-editor-row").first();
   await expect(editorRow).toBeVisible();
 
@@ -1757,7 +1794,7 @@ test("issue 195: inline transaction edit restores the original category after ty
 
   const row = page.locator("tr.transaction-row", { hasText: memo }).first();
   await expect(row).toBeVisible({ timeout: 20_000 });
-  await clickDesktopTransactionRowAction(row, "수정");
+  await clickTransactionSelectionToolbarAction(page, row, "수정");
   const editorRow = page.locator("tr.transaction-inline-editor-row").first();
   await expect(editorRow).toBeVisible();
 
@@ -2458,7 +2495,7 @@ test("transaction ledger stays readable in landscape compact width", async ({ pa
       boxes,
       filterPanelBelowHead: Boolean(boxes.filterPanel && boxes.ledgerHead && boxes.filterPanel.y >= boxes.ledgerHead.bottom - 2),
       filterResetBeforeRow: Boolean(boxes.filterReset && boxes.row && boxes.filterReset.bottom <= boxes.row.y + 1),
-      actionStartsAfterRow: Boolean(boxes.actionRow && boxes.row && boxes.actionRow.y >= boxes.row.bottom - 1),
+      actionStartsAfterRow: !boxes.actionRow || Boolean(boxes.row && boxes.actionRow.y >= boxes.row.bottom - 1),
       fabToggleOverlap: intersects(boxes.fab, boxes.rowToggle),
       resetRowOverlap: intersects(boxes.filterReset, boxes.row),
     };
@@ -2470,7 +2507,7 @@ test("transaction ledger stays readable in landscape compact width", async ({ pa
   ).toBeLessThanOrEqual(1);
   expect(landscapeMetrics.filterPanelBelowHead, `filter panel should sit below ledger head: ${JSON.stringify(landscapeMetrics)}`).toBe(true);
   expect(landscapeMetrics.filterResetBeforeRow, `filter reset should not overlap ledger row: ${JSON.stringify(landscapeMetrics)}`).toBe(true);
-  expect(landscapeMetrics.actionStartsAfterRow, `expanded action row should not overlap details: ${JSON.stringify(landscapeMetrics)}`).toBe(true);
+  expect(landscapeMetrics.actionStartsAfterRow, `expanded details should not overlap removed row actions: ${JSON.stringify(landscapeMetrics)}`).toBe(true);
   expect(landscapeMetrics.fabToggleOverlap, `transaction FAB should not overlap detail toggle: ${JSON.stringify(landscapeMetrics)}`).toBe(false);
   expect(landscapeMetrics.resetRowOverlap, `filter reset should not overlap row content: ${JSON.stringify(landscapeMetrics)}`).toBe(false);
   await expectNoHorizontalOverflow(page, 12);
@@ -3006,6 +3043,49 @@ test("desktop transaction row click and sweep selection keep toolbar summary sta
   await capture(page, "transactions-row-selection-desktop");
 });
 
+test("transaction selection persists through passive websocket transaction refresh", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("tx-selection-passive")}@example.com`;
+  const displayName = unique("tx-selection-passive-owner");
+  const selectedMemo = unique("tx-selection-passive-selected");
+  const incomingMemo = unique("tx-selection-passive-incoming");
+  const category = await registerAndVerify(page, { email, displayName }).then(() =>
+    createCategoryViaApi(page, {
+      major: unique("실시간"),
+      minor: unique("선택유지"),
+    })
+  );
+  await createTransactionViaApi(page, {
+    memo: selectedMemo,
+    amount: "33000",
+    categoryId: category.id,
+    ownerName: displayName,
+  });
+  await page.reload();
+  await page.setViewportSize({ width: 1366, height: 900 });
+  await openTab(page, "거래");
+  await page.waitForLoadState("networkidle");
+
+  const selectedRow = page.locator("tr.transaction-row", { hasText: selectedMemo }).first();
+  await selectTransactionRowForToolbar(page, selectedRow);
+  await expectTransactionSelectionSummary(page, 1, "33,000원");
+
+  await createTransactionViaApi(page, {
+    memo: incomingMemo,
+    amount: "44000",
+    categoryId: category.id,
+    ownerName: displayName,
+  });
+  await expect(page.locator("tr.transaction-row", { hasText: incomingMemo }).first()).toBeVisible({ timeout: 20_000 });
+  await expect(selectedRow).toHaveAttribute("data-row-selected", "true");
+  await expectTransactionSelectionSummary(page, 1, "33,000원");
+  await expect(page.locator(".transaction-list-card > .message", { hasText: "선택" })).toHaveCount(0);
+  await expect(page.locator(".transaction-list-card > .message", { hasText: "로딩" })).toHaveCount(0);
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "transactions-selection-passive-refresh");
+});
+
 test("issue 233: desktop transaction selection checkboxes expose a 32px hit target", async ({ page }) => {
   test.setTimeout(120_000);
 
@@ -3189,7 +3269,7 @@ test("mobile transaction row selection, touch scroll, and sticky ledger head sur
     await expect(targetRow).toHaveClass(/mobile-row-expanded/);
     await expect(
       targetRow.locator("xpath=following-sibling::tr[1][contains(@class,'transaction-mobile-expanded-actions-row')]"),
-    ).toBeVisible();
+    ).toHaveCount(0);
     await expectTransactionSelectionSummary(
       page,
       1,
@@ -3497,12 +3577,10 @@ test("issue 237: mobile transaction edit keeps completion controls in the first 
 
   const mobileRow = page.locator("tr.transaction-row", { hasText: memo }).first();
   await expect(mobileRow).toBeVisible({ timeout: 20_000 });
-  await mobileRow.locator(".mobile-toggle-btn").first().click();
-  const expandedActionRow = mobileRow.locator(
-    "xpath=following-sibling::tr[1][contains(@class,'transaction-mobile-expanded-actions-row')]",
-  );
-  await expect(expandedActionRow).toBeVisible();
-  await expandedActionRow.getByRole("button", { name: "수정" }).click();
+  await mobileRow.locator(".transaction-col-memo").click();
+  await expect(mobileRow).toHaveAttribute("data-row-selected", "true");
+  await expectTransactionSelectionSummary(page, 1);
+  await page.getByTestId("transaction-selection-edit").click();
 
   const editorRow = page.locator("tr.transaction-inline-editor-row").first();
   await expect(editorRow).toBeVisible();
@@ -3624,16 +3702,25 @@ test("issue 198: mobile collapsed transaction row keeps key details and actions 
   expect(metrics.memo?.text || "", `collapsed memo should keep the memo text: ${JSON.stringify(metrics)}`).toBe(memo);
   expect(metrics.owner?.hidden, `collapsed owner summary should be visible: ${JSON.stringify(metrics)}`).toBe(false);
   expect(metrics.owner?.text || "", `collapsed owner summary should use the full owner label: ${JSON.stringify(metrics)}`).toBe(displayName);
-  for (const label of ["수정", "삭제", "거래 세부 보기"]) {
+  for (const label of ["거래 세부 보기"]) {
     const button = metrics.actions.find((action) => action.text === label || action.ariaLabel === label);
     expect(button, `${label} action should exist in the collapsed row: ${JSON.stringify(metrics)}`).toBeTruthy();
     expect(button?.hidden, `${label} action should be directly visible in the collapsed row: ${JSON.stringify(metrics)}`).toBe(false);
     expect(button?.height ?? 0, `${label} action should keep a touchable height: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(32);
   }
+  expect(
+    metrics.actions.some((action) => ["수정", "삭제"].includes(action.text) || ["수정", "삭제"].includes(action.ariaLabel)),
+    `edit/delete should move out of the collapsed row actions: ${JSON.stringify(metrics)}`
+  ).toBe(false);
   expect(metrics.row.height, `collapsed row should stay compact enough for scanning: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(96);
   expect(metrics.pageOverflowX, `collapsed row should not cause horizontal overflow: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
   await expectNoHorizontalOverflow(page, 12);
   await capture(page, "issue-198-mobile-row-key-details-actions");
+  await selectTransactionRowForToolbar(page, mobileRow);
+  await expect(page.getByTestId("transaction-selection-edit")).toBeVisible();
+  await expect(page.getByTestId("transaction-selection-insert-above")).toBeVisible();
+  await expect(page.getByTestId("transaction-selection-insert-below")).toBeVisible();
+  await expect(page.getByTestId("transaction-selection-delete")).toBeVisible();
 });
 
 test("issue 220: mobile collapsed transaction row scans as one ledger line", async ({ page }) => {
@@ -3727,15 +3814,24 @@ test("issue 220: mobile collapsed transaction row scans as one ledger line", asy
   expect(metrics.row.height, `collapsed row should fit a one-line ledger scan: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(58);
   expect(metrics.centerBandCount, `collapsed row should not split visible content into stacked center lines: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(2);
   expect(metrics.centerSpread, `date/type/memo/amount/actions should share one scan line: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(12);
-  for (const label of ["수정", "삭제", "거래 세부 보기"]) {
+  for (const label of ["거래 세부 보기"]) {
     const button = metrics.buttons.find((action) => action.text === label || action.ariaLabel === label);
     expect(button, `${label} action should remain direct in the one-line row: ${JSON.stringify(metrics)}`).toBeTruthy();
     expect(button?.hidden, `${label} action should remain visible in the one-line row: ${JSON.stringify(metrics)}`).toBe(false);
     expect(button?.height ?? 0, `${label} action should keep a touchable height: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(32);
   }
+  expect(
+    metrics.buttons.some((action) => ["수정", "삭제"].includes(action.text) || ["수정", "삭제"].includes(action.ariaLabel)),
+    `edit/delete should not be direct row actions in the one-line row: ${JSON.stringify(metrics)}`
+  ).toBe(false);
   expect(metrics.pageOverflowX, `one-line row should not cause horizontal overflow: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
   await expectNoHorizontalOverflow(page, 12);
   await capture(page, "issue-220-mobile-row-one-line-summary");
+  await selectTransactionRowForToolbar(page, mobileRow);
+  await expect(page.getByTestId("transaction-selection-edit")).toBeVisible();
+  await expect(page.getByTestId("transaction-selection-insert-above")).toBeVisible();
+  await expect(page.getByTestId("transaction-selection-insert-below")).toBeVisible();
+  await expect(page.getByTestId("transaction-selection-delete")).toBeVisible();
 });
 
 test("issue 221: mobile transaction status chips keep clear action in viewport", async ({ page }) => {
@@ -3959,7 +4055,7 @@ test("issue 223: desktop transaction add action does not cover bottom row action
   await page.evaluate(() => {
     const fab = document.querySelector("[data-testid='transactions-fab']");
     const row = Array.from(document.querySelectorAll("tr.transaction-row"))[Math.min(28, document.querySelectorAll("tr.transaction-row").length - 1)];
-    const actionButton = row?.querySelector(".transaction-col-actions button");
+    const actionButton = row?.querySelector(".transaction-col-select input[type='checkbox'], .transaction-col-actions button");
     const fabBox = fab?.getBoundingClientRect();
     const actionBox = actionButton?.getBoundingClientRect();
     if (!fabBox || !actionBox) {
@@ -4004,7 +4100,9 @@ test("issue 223: desktop transaction add action does not cover bottom row action
           left.bottom - inset > right.top
       );
     const fabBox = boxOf(fixedFab);
-    const actionTargets = Array.from(document.querySelectorAll("tr.transaction-row .transaction-col-actions button"))
+    const actionTargets = Array.from(
+      document.querySelectorAll("tr.transaction-row .transaction-col-select input[type='checkbox'], tr.transaction-row .transaction-col-actions button"),
+    )
       .map((button) => {
         const box = boxOf(button);
         if (!box) {
@@ -4040,9 +4138,9 @@ test("issue 223: desktop transaction add action does not cover bottom row action
     };
   });
 
-  expect(metrics.visibleActionTargetCount, `test should exercise visible row action targets: ${JSON.stringify(metrics)}`).toBeGreaterThan(0);
-  expect(metrics.coveredActionTargets, `desktop add affordance should not cover row action boxes: ${JSON.stringify(metrics)}`).toEqual([]);
-  expect(metrics.centerCoveredActionTargets, `desktop row action centers should remain directly hittable: ${JSON.stringify(metrics)}`).toEqual([]);
+  expect(metrics.visibleActionTargetCount, `test should exercise visible row targets: ${JSON.stringify(metrics)}`).toBeGreaterThan(0);
+  expect(metrics.coveredActionTargets, `desktop add affordance should not cover row targets: ${JSON.stringify(metrics)}`).toEqual([]);
+  expect(metrics.centerCoveredActionTargets, `desktop row target centers should remain directly hittable: ${JSON.stringify(metrics)}`).toEqual([]);
   expect(metrics.desktopAdd, `desktop add action should be docked in the toolbar: ${JSON.stringify(metrics)}`).toBeTruthy();
   expect(metrics.desktopAdd.display, `desktop add action should be visible: ${JSON.stringify(metrics)}`).not.toBe("none");
   expect(metrics.desktopAdd.visibility, `desktop add action should be visible: ${JSON.stringify(metrics)}`).toBe("visible");
@@ -4077,7 +4175,10 @@ test("issue 224: desktop transaction row edit and delete targets stay comfortabl
   await openTab(page, "거래");
   await page.waitForLoadState("networkidle");
   await page.locator(".transaction-list-card").first().evaluate((element) => element.scrollIntoView({ block: "start" }));
-  await page.locator("tr.transaction-row", { hasText: memoPrefix }).first().scrollIntoViewIfNeeded();
+  const targetMemo = `${memoPrefix}-00`;
+  const targetRow = page.locator("tr.transaction-row", { hasText: targetMemo }).first();
+  await targetRow.scrollIntoViewIfNeeded();
+  await selectTransactionRowForToolbar(page, targetRow);
   await page.waitForTimeout(150);
 
   const metrics = await page.evaluate(() => {
@@ -4100,23 +4201,37 @@ test("issue 224: desktop transaction row edit and delete targets stay comfortabl
         hitVisible: Boolean(topElement && (topElement === element || element.contains(topElement))),
       };
     };
-    const visibleTargets = Array.from(document.querySelectorAll("tr.transaction-row .transaction-col-actions button:not(.mobile-toggle-btn)"))
+    const rowEditDeleteTargets = Array.from(document.querySelectorAll("tr.transaction-row .transaction-col-actions button:not(.mobile-toggle-btn)"))
       .map((button) => boxOf(button))
       .filter((target) => target.display !== "none" && target.visibility === "visible" && target.width > 0 && target.height > 0)
       .filter((target) => target.top >= 0 && target.bottom <= window.innerHeight);
+    const toolbarTargets = Array.from(
+      document.querySelectorAll(
+        [
+          "[data-testid='transaction-selection-edit']",
+          "[data-testid='transaction-selection-insert-above']",
+          "[data-testid='transaction-selection-insert-below']",
+          "[data-testid='transaction-selection-delete']",
+        ].join(",")
+      )
+    )
+      .map((button) => boxOf(button))
+      .filter((target) => target.display !== "none" && target.visibility === "visible" && target.width > 0 && target.height > 0);
     return {
       viewport: { width: window.innerWidth, height: window.innerHeight },
-      visibleTargets,
-      undersizedTargets: visibleTargets.filter((target) => target.width < 44 || target.height < 36),
-      hiddenHitTargets: visibleTargets.filter((target) => !target.hitVisible),
+      rowEditDeleteTargets,
+      toolbarTargets,
+      undersizedTargets: toolbarTargets.filter((target) => target.width < 44 || target.height < 36),
+      hiddenHitTargets: toolbarTargets.filter((target) => !target.hitVisible),
       pageOverflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
     };
   });
 
-  expect(metrics.visibleTargets.length, `test should exercise visible desktop row action targets: ${JSON.stringify(metrics)}`).toBeGreaterThan(4);
-  expect(metrics.undersizedTargets, `desktop edit/delete targets should be at least 44x36px: ${JSON.stringify(metrics)}`).toEqual([]);
-  expect(metrics.hiddenHitTargets, `desktop edit/delete target centers should be directly clickable: ${JSON.stringify(metrics)}`).toEqual([]);
-  expect(metrics.pageOverflowX, `larger desktop row actions should not create horizontal overflow: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
+  expect(metrics.rowEditDeleteTargets.length, `row-level edit/delete targets should stay out of ledger rows: ${JSON.stringify(metrics)}`).toBe(0);
+  expect(metrics.toolbarTargets.length, `selection toolbar should expose edit/insert/delete targets: ${JSON.stringify(metrics)}`).toBe(4);
+  expect(metrics.undersizedTargets, `selection toolbar targets should be at least 44x36px: ${JSON.stringify(metrics)}`).toEqual([]);
+  expect(metrics.hiddenHitTargets, `selection toolbar target centers should be directly clickable: ${JSON.stringify(metrics)}`).toEqual([]);
+  expect(metrics.pageOverflowX, `larger desktop selection toolbar should not create horizontal overflow: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
   await expectNoHorizontalOverflow(page, 12);
   await capture(page, "issue-224-desktop-row-action-target-size");
 });
@@ -4148,7 +4263,8 @@ test("issue 227: 1024px transaction row actions stay inside the viewport", async
   await openTab(page, "거래");
   await page.waitForLoadState("networkidle");
 
-  const targetRow = page.locator("tr.transaction-row", { hasText: memoPrefix }).first();
+  const targetMemo = `${memoPrefix}-00`;
+  const targetRow = page.locator("tr.transaction-row", { hasText: targetMemo }).first();
   await expect(targetRow).toBeVisible({ timeout: 20_000 });
   await page.locator(".transaction-list-card").first().evaluate((element) => element.scrollIntoView({ block: "start" }));
   await targetRow.evaluate((element) => element.scrollIntoView({ block: "center", inline: "nearest" }));
@@ -4214,14 +4330,201 @@ test("issue 227: 1024px transaction row actions stay inside the viewport", async
 
   expect(metrics.headerAction, `desktop action header should exist: ${JSON.stringify(metrics)}`).toBeTruthy();
   expect(metrics.actionCell, `target row action cell should exist: ${JSON.stringify(metrics)}`).toBeTruthy();
-  expect(metrics.actionButtons.length, `test should exercise edit/delete targets: ${JSON.stringify(metrics)}`).toBe(2);
+  expect(metrics.actionButtons.length, `row-level edit/delete targets should move out of the ledger row: ${JSON.stringify(metrics)}`).toBe(0);
   expect(metrics.pageOverflowX, `1024px desktop page should not overflow horizontally: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
-  expect(metrics.scroller.scrollOverflowX, `1024px transaction table should not hide actions behind horizontal scroll: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
-  expect(metrics.outsideViewport, `desktop action header/cell/buttons should stay inside viewport: ${JSON.stringify(metrics)}`).toEqual([]);
-  expect(metrics.undersizedTargets, `desktop edit/delete targets should remain at least 44x36px: ${JSON.stringify(metrics)}`).toEqual([]);
-  expect(metrics.hiddenHitTargets, `desktop edit/delete centers should remain directly clickable: ${JSON.stringify(metrics)}`).toEqual([]);
+  expect(metrics.scroller.scrollOverflowX, `1024px transaction table should not need horizontal scroll for row actions: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
+  expect(metrics.outsideViewport, `desktop action header/cell should stay inside viewport: ${JSON.stringify(metrics)}`).toEqual([]);
+  expect(metrics.undersizedTargets, `desktop row should not expose undersized edit/delete targets: ${JSON.stringify(metrics)}`).toEqual([]);
+  expect(metrics.hiddenHitTargets, `desktop row should not expose hidden edit/delete centers: ${JSON.stringify(metrics)}`).toEqual([]);
+  await targetRow.locator("input[type='checkbox']").check({ force: true });
+  await expectTransactionSelectionSummary(page, 1);
+  const selectionToolbar = page.getByTestId("transaction-sticky-toolbar");
+  await expect(selectionToolbar.getByTestId("transaction-selection-edit")).toBeVisible();
+  await expect(selectionToolbar.getByTestId("transaction-selection-edit")).toBeEnabled();
+  await expect(selectionToolbar.getByTestId("transaction-selection-insert-above")).toBeVisible();
+  await expect(selectionToolbar.getByTestId("transaction-selection-insert-below")).toBeVisible();
+  await expect(selectionToolbar.getByTestId("transaction-selection-delete")).toBeVisible();
+
+  const aboveMemo = `${memoPrefix}-insert-above`;
+  await selectionToolbar.getByTestId("transaction-selection-insert-above").click();
+  const aboveEditor = page.locator("tr.transaction-inline-editor-row").first();
+  await expect(aboveEditor).toBeVisible();
+  const aboveGeometry = await page.evaluate((targetText) => {
+    const editor = document.querySelector("tr.transaction-inline-editor-row");
+    const target = Array.from(document.querySelectorAll("tr.transaction-row")).find((row) =>
+      row.textContent?.includes(targetText)
+    );
+    const editorBox = editor?.getBoundingClientRect();
+    const targetBox = target?.getBoundingClientRect();
+    return {
+      editorBottom: editorBox?.bottom ?? null,
+      targetTop: targetBox?.top ?? null,
+    };
+  }, targetMemo);
+  expect(aboveGeometry.editorBottom, `insert-above editor should be measurable: ${JSON.stringify(aboveGeometry)}`).not.toBeNull();
+  expect(aboveGeometry.targetTop, `target row should be measurable: ${JSON.stringify(aboveGeometry)}`).not.toBeNull();
+  expect(
+    aboveGeometry.editorBottom,
+    `insert-above editor should render before the selected row: ${JSON.stringify(aboveGeometry)}`
+  ).toBeLessThanOrEqual((aboveGeometry.targetTop ?? 0) + 1);
+  await aboveEditor.getByLabel("금액").fill("7101");
+  await aboveEditor.getByLabel("메모").fill(aboveMemo);
+  await aboveEditor.getByRole("button", { name: "저장" }).click();
+  await expect(page.locator("tr.transaction-row", { hasText: aboveMemo }).first()).toBeVisible({ timeout: 20_000 });
+
+  if (await page.getByTestId("transaction-selection-summary").isVisible().catch(() => false)) {
+    await clearTransactionSelection(page);
+  }
+  await selectTransactionRowForToolbar(page, targetRow);
+  const belowMemo = `${memoPrefix}-insert-below`;
+  await selectionToolbar.getByTestId("transaction-selection-insert-below").click();
+  const belowEditor = page.locator("tr.transaction-inline-editor-row").first();
+  await expect(belowEditor).toBeVisible();
+  const belowGeometry = await page.evaluate((targetText) => {
+    const editor = document.querySelector("tr.transaction-inline-editor-row");
+    const target = Array.from(document.querySelectorAll("tr.transaction-row")).find((row) =>
+      row.textContent?.includes(targetText)
+    );
+    const editorBox = editor?.getBoundingClientRect();
+    const targetBox = target?.getBoundingClientRect();
+    return {
+      editorTop: editorBox?.top ?? null,
+      targetBottom: targetBox?.bottom ?? null,
+    };
+  }, targetMemo);
+  expect(belowGeometry.editorTop, `insert-below editor should be measurable: ${JSON.stringify(belowGeometry)}`).not.toBeNull();
+  expect(belowGeometry.targetBottom, `target row should be measurable: ${JSON.stringify(belowGeometry)}`).not.toBeNull();
+  expect(
+    belowGeometry.editorTop,
+    `insert-below editor should render after the selected row: ${JSON.stringify(belowGeometry)}`
+  ).toBeGreaterThanOrEqual((belowGeometry.targetBottom ?? 0) - 1);
+  await belowEditor.getByLabel("금액").fill("7102");
+  await belowEditor.getByLabel("메모").fill(belowMemo);
+  await belowEditor.getByRole("button", { name: "저장" }).click();
+  await expect(page.locator("tr.transaction-row", { hasText: belowMemo }).first()).toBeVisible({ timeout: 20_000 });
+
+  const ledgerOrder = await page.locator("tr.transaction-row").evaluateAll(
+    (rows, expectedMemos) =>
+      rows
+        .map((row) => row.textContent || "")
+        .filter((text) => expectedMemos.some((memo) => text.includes(memo)))
+        .map((text) => expectedMemos.find((memo) => text.includes(memo))),
+    [aboveMemo, targetMemo, belowMemo]
+  );
+  expect(ledgerOrder).toEqual([aboveMemo, targetMemo, belowMemo]);
   await expectNoHorizontalOverflow(page, 12);
-  await capture(page, "issue-227-1024-transaction-actions-visible");
+  await capture(page, "issue-227-1024-transaction-toolbar-actions-visible");
+});
+
+test("transaction selection toolbar bulk deletes multiple rows in one request", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("tx-bulk-delete-ui")}@example.com`;
+  const displayName = unique("tx-bulk-delete-owner");
+  const memoPrefix = unique("tx-bulk-delete-row");
+  const category = await registerAndVerify(page, { email, displayName }).then(() =>
+    createCategoryViaApi(page, {
+      major: unique("일괄삭제"),
+      minor: unique("선택툴바"),
+    })
+  );
+  const memos = [`${memoPrefix}-a`, `${memoPrefix}-b`];
+  for (const [index, memo] of memos.entries()) {
+    await createTransactionViaApi(page, {
+      memo,
+      amount: String(6200 + index),
+      categoryId: category.id,
+      ownerName: displayName,
+    });
+  }
+  const requestCounts = { bulkDelete: 0, singleDelete: 0 };
+  page.on("request", (request) => {
+    const url = request.url();
+    if (request.method() === "POST" && url.includes("/api/v1/transactions/bulk-delete")) {
+      requestCounts.bulkDelete += 1;
+    }
+    if (request.method() === "DELETE" && /\/api\/v1\/transactions\/[^/]+$/.test(url)) {
+      requestCounts.singleDelete += 1;
+    }
+  });
+
+  await page.reload();
+  await page.setViewportSize({ width: 1280, height: 820 });
+  await openTab(page, "거래");
+  await page.waitForLoadState("networkidle");
+
+  for (const memo of memos) {
+    const row = page.locator("tr.transaction-row", { hasText: memo }).first();
+    await expect(row).toBeVisible({ timeout: 20_000 });
+    await row.locator(".transaction-col-select input[type='checkbox']").check({ force: true });
+    await expect(row).toHaveAttribute("data-row-selected", "true");
+  }
+  await expectTransactionSelectionSummary(page, 2);
+  await page.getByTestId("transaction-selection-delete").click();
+  const confirmDialog = page.locator(".confirm-dialog");
+  await expect(confirmDialog).toBeVisible();
+  await expect(confirmDialog).toContainText("2건을 한 번에 삭제합니다.");
+  await confirmDialog.getByRole("button", { name: "선택 삭제" }).click();
+  await expect(page.getByText("선택한 거래를 삭제했습니다.")).toBeVisible();
+  for (const memo of memos) {
+    await expect(page.locator("tr.transaction-row", { hasText: memo })).toHaveCount(0);
+  }
+  expect(requestCounts.bulkDelete).toBe(1);
+  expect(requestCounts.singleDelete).toBe(0);
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "transactions-selection-bulk-delete");
+});
+
+test("transaction ledger selection toolbar stays overflow-free at 820px and 1100px", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("tx-boundary-width")}@example.com`;
+  const displayName = unique("tx-boundary-width-owner-long");
+  const memo = `${unique("tx-boundary-width-memo")}-긴메모-abcdefghijklmnopqrstuvwxyz`;
+  const category = await registerAndVerify(page, { email, displayName }).then(() =>
+    createCategoryViaApi(page, {
+      major: unique("경계폭"),
+      minor: unique("오버플로"),
+    })
+  );
+  await createTransactionViaApi(page, {
+    memo,
+    amount: "8201100",
+    categoryId: category.id,
+    ownerName: displayName,
+  });
+  await page.reload();
+
+  for (const width of [820, 1100]) {
+    await page.setViewportSize({ width, height: 860 });
+    await openTab(page, "거래");
+    await page.waitForLoadState("networkidle");
+    const row = page.locator("tr.transaction-row", { hasText: memo }).first();
+    await selectTransactionRowForToolbar(page, row);
+    await expect(page.getByTestId("transaction-selection-edit")).toBeVisible();
+    await expect(page.getByTestId("transaction-selection-delete")).toBeVisible();
+    const metrics = await page.evaluate(() => {
+      const scroller = document.querySelector(".transactions-surface-scroll");
+      const toolbar = document.querySelector("[data-testid='transaction-sticky-toolbar']");
+      const toolbarBox = toolbar?.getBoundingClientRect();
+      return {
+        documentOverflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        scrollerOverflowX: scroller ? scroller.scrollWidth - scroller.clientWidth : 0,
+        toolbarRight: toolbarBox?.right ?? 0,
+        viewportWidth: window.innerWidth,
+      };
+    });
+    expect(metrics.documentOverflowX, `${width}px document should not overflow: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
+    expect(metrics.scrollerOverflowX, `${width}px transaction scroller should not overflow: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
+    expect(metrics.toolbarRight, `${width}px toolbar should stay inside viewport: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(
+      metrics.viewportWidth + 1
+    );
+    await expectNoHorizontalOverflow(page, 12);
+    await capture(page, `transactions-boundary-width-${width}`);
+    if (await page.getByTestId("transaction-selection-summary").isVisible().catch(() => false)) {
+      await clearTransactionSelection(page);
+    }
+  }
 });
 
 test("issue 228: mobile transaction filters use ledger headers without duplicate generic toggle", async ({ page }) => {
@@ -4367,7 +4670,7 @@ test("transactions flow: create, inline edit, delete, responsive", async ({ page
   await expect(createdRow).toContainText(memo);
   await capture(page, "transactions-created");
 
-  await clickDesktopTransactionRowAction(createdRow, "수정");
+  await clickTransactionSelectionToolbarAction(page, createdRow, "수정");
   const editorRow = page.locator("tr.transaction-inline-editor-row").first();
   await expect(editorRow).toBeVisible();
 
@@ -4425,7 +4728,7 @@ test("transactions flow: create, inline edit, delete, responsive", async ({ page
   }
   await expect(editedRow).toBeVisible();
 
-  await clickDesktopTransactionRowAction(editedRow, "삭제");
+  await clickTransactionSelectionToolbarAction(page, editedRow, "삭제");
   const confirmDialog = page.locator(".confirm-dialog");
   await expect(confirmDialog).toBeVisible();
   await confirmDialog.getByRole("button", { name: "삭제" }).click();
@@ -4510,12 +4813,10 @@ test("transaction date controls use unambiguous ISO text fields", async ({ page 
 
   const mobileRow = page.locator("tr.transaction-row", { hasText: memo }).first();
   await expect(mobileRow).toBeVisible();
-  await mobileRow.locator(".mobile-toggle-btn").first().click();
-  const expandedActionRow = mobileRow.locator(
-    "xpath=following-sibling::tr[1][contains(@class,'transaction-mobile-expanded-actions-row')]",
-  );
-  await expect(expandedActionRow).toBeVisible();
-  await expandedActionRow.getByRole("button", { name: "수정" }).click();
+  await mobileRow.locator(".transaction-col-memo").click();
+  await expect(mobileRow).toHaveAttribute("data-row-selected", "true");
+  await expectTransactionSelectionSummary(page, 1);
+  await page.getByTestId("transaction-selection-edit").click();
   const editorRow = page.locator("tr.transaction-inline-editor-row").first();
   await expect(editorRow).toBeVisible();
   const inlineEditDate = editorRow.getByLabel("일자");
@@ -4547,12 +4848,10 @@ test("issue 219: mobile inline transaction date edit uses numeric ISO assistance
 
   const mobileRow = page.locator("tr.transaction-row", { hasText: memo }).first();
   await expect(mobileRow).toBeVisible({ timeout: 20_000 });
-  await mobileRow.locator(".mobile-toggle-btn").first().click();
-  const expandedActionRow = mobileRow.locator(
-    "xpath=following-sibling::tr[1][contains(@class,'transaction-mobile-expanded-actions-row')]",
-  );
-  await expect(expandedActionRow).toBeVisible();
-  await expandedActionRow.getByRole("button", { name: "수정" }).click();
+  await mobileRow.locator(".transaction-col-memo").click();
+  await expect(mobileRow).toHaveAttribute("data-row-selected", "true");
+  await expectTransactionSelectionSummary(page, 1);
+  await page.getByTestId("transaction-selection-edit").click();
 
   const editorRow = page.locator("tr.transaction-inline-editor-row").first();
   await expect(editorRow).toBeVisible();
@@ -4675,9 +4974,10 @@ test("mobile transaction expanded row keeps details readable with filter panel o
 
   const metrics = await mobileRow.evaluate((row) => {
     const rowBox = row.getBoundingClientRect();
-    const actionBox = row.nextElementSibling?.classList.contains("transaction-mobile-expanded-actions-row")
-      ? row.nextElementSibling.getBoundingClientRect()
+    const actionRow = row.nextElementSibling?.classList.contains("transaction-mobile-expanded-actions-row")
+      ? row.nextElementSibling
       : null;
+    const actionBox = actionRow?.getBoundingClientRect() || null;
     const detailCells = Array.from(row.querySelectorAll(".transaction-mobile-detail-cell")).map((cell) => {
       const box = cell.getBoundingClientRect();
       return {
@@ -4695,7 +4995,8 @@ test("mobile transaction expanded row keeps details readable with filter panel o
       rowClientHeight: row.clientHeight,
       rowScrollHeight: row.scrollHeight,
       rowHasVerticalOverflow: row.scrollHeight > row.clientHeight + 1,
-      actionStartsAfterRow: Boolean(actionBox && actionBox.top >= rowBox.bottom - 1),
+      actionRowCount: actionRow ? 1 : 0,
+      actionStartsAfterRow: !actionBox || actionBox.top >= rowBox.bottom - 1,
       detailCells,
       categoryValue: categoryValue
         ? {
@@ -4717,7 +5018,8 @@ test("mobile transaction expanded row keeps details readable with filter panel o
   });
 
   expect(metrics.rowHasVerticalOverflow, `expanded row should not clip details: ${JSON.stringify(metrics)}`).toBe(false);
-  expect(metrics.actionStartsAfterRow, `expanded actions should start after row details: ${JSON.stringify(metrics)}`).toBe(true);
+  expect(metrics.actionStartsAfterRow, `expanded details should not overlap removed row actions: ${JSON.stringify(metrics)}`).toBe(true);
+  expect(metrics.actionRowCount, `expanded row actions should be moved to the toolbar: ${JSON.stringify(metrics)}`).toBe(0);
   expect(metrics.detailCells.length).toBeGreaterThanOrEqual(3);
   for (const cell of metrics.detailCells) {
     expect(
@@ -4898,7 +5200,7 @@ test("transactions inline edit rejects decimal KRW amount before rounding can oc
 
   await registerAndVerify(page, { email, displayName });
   const createdRow = await createBasicTransaction(page, { memo, amount: "12000" });
-  await clickDesktopTransactionRowAction(createdRow, "수정");
+  await clickTransactionSelectionToolbarAction(page, createdRow, "수정");
 
   const editorRow = page.locator("tr.transaction-inline-editor-row").first();
   await expect(editorRow).toBeVisible();
@@ -5546,9 +5848,7 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
     "clip",
   );
   const expandedActionRow = mobileRow.locator("xpath=following-sibling::tr[1][contains(@class,'transaction-mobile-expanded-actions-row')]");
-  await expect(expandedActionRow).toBeVisible();
-  await expect(expandedActionRow.getByRole("button", { name: "수정" })).toBeVisible();
-  await expect(expandedActionRow.getByRole("button", { name: "삭제" })).toBeVisible();
+  await expect(expandedActionRow).toHaveCount(0);
   await expect(mobileRow.locator(".transaction-mobile-detail-label")).toHaveText([
     "카테고리",
     "거래자명",
@@ -5556,9 +5856,10 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   ]);
   const expandedDetailMetrics = await mobileRow.evaluate((row) => {
     const rowBox = row.getBoundingClientRect();
-    const actionBox = row.nextElementSibling?.classList.contains("transaction-mobile-expanded-actions-row")
-      ? row.nextElementSibling.getBoundingClientRect()
+    const actionRow = row.nextElementSibling?.classList.contains("transaction-mobile-expanded-actions-row")
+      ? row.nextElementSibling
       : null;
+    const actionBox = actionRow?.getBoundingClientRect() || null;
     const detailCells = Array.from(
       row.querySelectorAll(".transaction-col-category, .transaction-col-owner, .transaction-col-updated"),
     ).map((cell) => {
@@ -5576,7 +5877,8 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
       scrollHeight: row.scrollHeight,
       renderedHeight: rowBox.height,
       hasVerticalOverflow: row.scrollHeight > row.clientHeight + 1,
-      actionStartsAfterRow: Boolean(actionBox && actionBox.top >= rowBox.bottom - 1),
+      actionRowCount: actionRow ? 1 : 0,
+      actionStartsAfterRow: !actionBox || actionBox.top >= rowBox.bottom - 1,
       detailCells,
     };
   });
@@ -5586,12 +5888,22 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   ).toBe(false);
   expect(
     expandedDetailMetrics.actionStartsAfterRow,
-    `expanded action row should not overlap details: ${JSON.stringify(expandedDetailMetrics)}`,
+    `expanded detail area should not overlap removed row actions: ${JSON.stringify(expandedDetailMetrics)}`,
   ).toBe(true);
+  expect(expandedDetailMetrics.actionRowCount, `expanded row actions should be moved to the toolbar: ${JSON.stringify(expandedDetailMetrics)}`).toBe(0);
   for (const cell of expandedDetailMetrics.detailCells) {
     expect(cell.hasVerticalOverflow, `${cell.className} should not clip detail text`).toBe(false);
   }
-  await expect(mobileRow.locator(".transaction-col-actions .row-delete-btn")).toBeVisible();
+  await expect(mobileRow.locator(".transaction-col-actions .row-delete-btn")).toHaveCount(0);
+  if ((await mobileRow.getAttribute("data-row-selected")) !== "true") {
+    await mobileRow.locator(".transaction-col-memo").click();
+  }
+  await expect(mobileRow).toHaveAttribute("data-row-selected", "true");
+  await expectTransactionSelectionSummary(page, 1);
+  await expect(page.getByTestId("transaction-selection-edit")).toBeVisible();
+  await expect(page.getByTestId("transaction-selection-insert-above")).toBeVisible();
+  await expect(page.getByTestId("transaction-selection-insert-below")).toBeVisible();
+  await expect(page.getByTestId("transaction-selection-delete")).toBeVisible();
   await mobileRow.locator("td").last().getByRole("button", { name: "거래 세부 접기" }).click();
   await expect(mobileRow).not.toHaveClass(/mobile-row-expanded/);
   const compactFlowSummaryLines = page.getByTestId("tx-flow-summary-line");
@@ -5613,10 +5925,14 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   await page.setViewportSize({ width: 1366, height: 960 });
   await openTab(page, "거래");
   for (const cleanupMemo of [memo, incomeMemo, investmentMemo, ownerlessMemo, ...extraMemos]) {
+    await clearTransactionSelection(page);
     const cleanupRow = page.locator("tr.transaction-row", { hasText: cleanupMemo }).first();
     await cleanupRow.evaluate((row) => row.scrollIntoView({ block: "center", inline: "nearest" }));
     await page.waitForTimeout(50);
-    await cleanupRow.locator("td").last().getByRole("button", { name: "삭제" }).evaluate((button) => button.click());
+    await cleanupRow.locator(".transaction-col-memo").click();
+    await expect(cleanupRow).toHaveAttribute("data-row-selected", "true");
+    await expectTransactionSelectionSummary(page, 1);
+    await page.getByTestId("transaction-selection-delete").click();
     const confirmDialog = page.locator(".confirm-dialog");
     await expect(confirmDialog).toBeVisible();
     await confirmDialog.getByRole("button", { name: "삭제" }).click();
