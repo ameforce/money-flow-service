@@ -808,6 +808,26 @@ function formatGroupedNumber(value) {
   return `${sign}${body.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}`;
 }
 
+async function bringInputIntoView(locator) {
+  const scrolled = await locator
+    .scrollIntoViewIfNeeded({ timeout: 4_000 })
+    .then(() => true)
+    .catch(() => false);
+  if (!scrolled) {
+    await locator
+      .evaluate((element) => {
+        element.scrollIntoView({ block: "center", inline: "nearest" });
+      })
+      .catch(() => undefined);
+  }
+}
+
+async function expectInputReady(locator, fieldName) {
+  await bringInputIntoView(locator);
+  await expect(locator, `${fieldName} 표시 확인`).toBeVisible();
+  await expect(locator, `${fieldName} 활성 확인`).toBeEnabled();
+}
+
 async function ensureTransactionFormValues(container, { memo, amount, occurredOn = "" }) {
   const amountInput = labeledField(container, "금액", "input");
   const memoInput = labeledField(container, "메모", "input");
@@ -816,18 +836,10 @@ async function ensureTransactionFormValues(container, { memo, amount, occurredOn
 
   await expect(container.locator("form.transactions-form-grid, form.transaction-quick-form").first()).toBeVisible();
   if (dateInput) {
-    await dateInput.scrollIntoViewIfNeeded();
+    await expectInputReady(dateInput, "거래 일자");
   }
-  await amountInput.scrollIntoViewIfNeeded();
-  await memoInput.scrollIntoViewIfNeeded();
-  if (dateInput) {
-    await expect(dateInput).toBeVisible();
-    await expect(dateInput).toBeEnabled();
-  }
-  await expect(amountInput).toBeVisible();
-  await expect(memoInput).toBeVisible();
-  await expect(amountInput).toBeEnabled();
-  await expect(memoInput).toBeEnabled();
+  await expectInputReady(amountInput, "거래 금액");
+  await expectInputReady(memoInput, "거래 메모");
 
   if (dateInput) {
     await fillInputUntilValue(dateInput, occurredOn, occurredOn, "거래 일자");
@@ -928,7 +940,7 @@ async function fillInputUntilValue(locator, inputValue, expectedValue, fieldName
       return;
     }
 
-    await locator.scrollIntoViewIfNeeded();
+    await bringInputIntoView(locator);
     await locator.fill("");
     await locator.fill(inputValue);
 
