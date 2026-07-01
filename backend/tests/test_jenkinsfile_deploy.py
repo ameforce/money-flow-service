@@ -106,6 +106,15 @@ def test_deploy_execute_shell_avoids_groovy_invalid_backslash_escapes() -> None:
     assert "\\/" not in deploy_stage
 
 
+def test_jenkins_pipefail_shell_blocks_use_bash_shebang() -> None:
+    source = _jenkinsfile_source()
+
+    assert "sh '''\nset -euo pipefail" not in source
+    assert "script: '''\nset -euo pipefail" not in source
+    assert "sh '''#!/usr/bin/env bash\nset -euo pipefail" in source
+    assert "script: '''#!/usr/bin/env bash\nset -euo pipefail" in source
+
+
 def test_remote_deploy_wrapper_avoids_nounset_status_capture() -> None:
     source = _jenkinsfile_source()
     deploy_stage = source[source.index("stage('Deploy Execute')") :]

@@ -406,7 +406,7 @@ uv run --extra dev python -m pytest -q
                 "ASYNC_EVIDENCE_FILE=deploy-evidence.json",
                 "BUILD_BRANCH=${deployBranch}"
               ]) {
-                sh '''
+                sh '''#!/usr/bin/env bash
 set -euo pipefail
 
 if [ -z "${DEPLOY_SSH_KEY:-}" ] || [ ! -r "$DEPLOY_SSH_KEY" ]; then
@@ -756,7 +756,7 @@ done
               "DEPLOY_SSH_OPTS=${params.DEPLOY_SSH_OPTS}",
               "ASYNC_MARKER_FILE=${asyncMarkerPath}"
             ]) {
-              remoteAsyncMarkerStatus = sh(returnStdout: true, script: '''
+              remoteAsyncMarkerStatus = sh(returnStdout: true, script: '''#!/usr/bin/env bash
 set -euo pipefail
 if [ -z "${DEPLOY_SSH_KEY:-}" ] || [ ! -r "$DEPLOY_SSH_KEY" ]; then
   echo "[deploy] DEPLOY_SSH_KEY credential is missing or unreadable." >&2
@@ -785,7 +785,7 @@ ssh $SSH_OPTS "$REMOTE" "set -e; if [ -f '$remote_marker' ]; then echo present; 
                 "DEPLOY_SSH_OPTS=${params.DEPLOY_SSH_OPTS}",
                 "ASYNC_MARKER_FILE=${asyncMarkerPath}"
               ]) {
-                sh '''
+                sh '''#!/usr/bin/env bash
 set -euo pipefail
 rm -f "$ASYNC_MARKER_FILE"
 tmp_key_dir="$(mktemp -d)"
