@@ -54,9 +54,10 @@
   4. Jenkins every pushed SHA check must pass for the release: the hotfix/task branch SHA, the `main` merge/tag SHA, and the develop back-merge SHA, unless the user explicitly supplied a different release procedure that omits `develop`.
   5. Main/prod deployment is never implied by a tag or `main` build alone; when prod deployment is explicitly requested, Jenkins must run with `ALLOW_PROD_DEPLOY=true` and verify the exact `vX.Y.Z` tag (exact vX.Y.Z tag) on `main` HEAD.
   6. Deployment reflects the expected pushed SHA/version, and `dev.moneyflow.enmsoftware.com` is directly verified after deployment.
-  7. A GitHub PR exists or is updated, links the relevant GitHub issues or RCA evidence, and includes purpose, affected areas, verification commands, Jenkins/dev deployment evidence, and screenshots for UI changes.
-  8. The PR is merged or otherwise explicitly closed by the requested release procedure (PR merged/closed); an open PR is not hotfix/release completion unless the user explicitly asks for PR-only delivery.
-  9. Temporary release branches, merged hotfix/task branches, and generated recovery artifacts are cleaned up or explicitly preserved with a reason.
+  7. When production deployment is explicitly requested, run `uv run python scripts/prod_email_smoke.py --verification-mode browser` and record real mailbox receipt plus same-cookie verification of the actual prod hash link.
+  8. A GitHub PR exists or is updated, links the relevant GitHub issues or RCA evidence, and includes purpose, affected areas, verification commands, Jenkins/dev deployment evidence, prod email smoke evidence when production is deployed, and screenshots for UI changes.
+  9. The PR is merged or otherwise explicitly closed by the requested release procedure (PR merged/closed); an open PR is not hotfix/release completion unless the user explicitly asks for PR-only delivery.
+  10. Temporary release branches, merged hotfix/task branches, and generated recovery artifacts are cleaned up or explicitly preserved with a reason.
 - Do not report a hotfix/release as complete without a PR URL and merge/closure status unless the user explicitly says PR creation or PR merge is not required.
 - For non-`main` branch commit/push work, use `$enm-jenkins` and `$enm-server-ops` to confirm Jenkins builds, deploys, and reflects correctly at `dev.moneyflow.enmsoftware.com`.
 
