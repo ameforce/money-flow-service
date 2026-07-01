@@ -600,7 +600,34 @@ def test_quality_gate_uses_ci_node_after_user_local_uv_path_on_jenkins_agent() -
 
     assert 'export PATH="$HOME/.local/bin:$PATH"' in quality_gate_stage
     assert 'export PATH="$HOME/.local/bin:$PATH"\n. ./scripts/ci/ensure-node.sh\nif command -v npm' in quality_gate_stage
-    assert "npm run ci:quality:gate" in quality_gate_stage
+    assert "npm run ci:quality:gate" not in quality_gate_stage
+    assert "uv run --extra dev python -m pytest -q" in quality_gate_stage
+    assert "RUN_DEPLOY=true deploy-blocking pytest only" in quality_gate_stage
+    assert "RUN_DEPLOY=true 경로에서는 Quality Gate 우회가 허용되지 않습니다" in quality_gate_stage
+    assert "uv is required on the Jenkins agent for RUN_DEPLOY=true deploy-blocking Quality Gate" in quality_gate_stage
+
+
+def test_deploy_path_blocks_uncleared_async_failure_marker() -> None:
+    root = Path(__file__).resolve().parents[2]
+    source = (root / "Jenkinsfile").read_text(encoding="utf-8")
+    deploy_plan_stage = source[source.index("stage('Deploy Plan (Approval Gate)')") :]
+    next_stage_index = deploy_plan_stage.find("\n    stage(", len("stage('Deploy Plan (Approval Gate)')"))
+    if next_stage_index != -1:
+        deploy_plan_stage = deploy_plan_stage[:next_stage_index]
+
+    marker_check = "fileExists(asyncMarkerPath)"
+    assert marker_check in deploy_plan_stage
+    assert "ASYNC_FAILURE_RCA_LINK" in deploy_plan_stage
+    assert "remoteAsyncMarkerStatus" in deploy_plan_stage
+    assert "DEPLOY_SSH_CREDENTIALS_ID" in deploy_plan_stage
+    assert "remote_marker=\"${REMOTE_DEPLOY_PATH%/}/${ASYNC_MARKER_FILE}\"" in deploy_plan_stage
+    assert "ssh $SSH_OPTS \"$REMOTE\"" in deploy_plan_stage
+    assert "locally or on remote deploy path" in deploy_plan_stage
+    assert "clearing async failure marker after RCA link" in deploy_plan_stage
+    assert 'rm -f "$ASYNC_MARKER_FILE"' in deploy_plan_stage
+    assert "rm -f '$remote_marker'" in deploy_plan_stage
+    assert deploy_plan_stage.index(marker_check) < deploy_plan_stage.index("input(")
+    assert deploy_plan_stage.index("remoteAsyncMarkerStatus = sh") < deploy_plan_stage.index("input(")
 
 
 def test_jenkinsfile_uses_ci_node_for_frontend_and_smoke_steps() -> None:
