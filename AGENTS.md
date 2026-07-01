@@ -38,17 +38,24 @@
 - Do **not** commit directly to `main` or `develop`.
 - When implementation is complete, always work from a dedicated `hotfix/*` or task branch before finalizing. If the current branch is `main` or `develop`, create a dedicated branch first, then commit and push there.
 - Before reusing an existing `hotfix/*` branch, verify that the branch scope, active PR, and linked issues match the current task. If they do not clearly match, create a new task branch instead of stacking unrelated fixes.
+- Hotfix/release completion means Git-flow closure, not branch CI. Do **not** report a hotfix or release complete while the work exists only on a pushed `hotfix/*` or task branch.
+- Complete hotfix/release Git-flow in this repository as follows unless the user explicitly gives a different release procedure:
+  1. Verify the completed hotfix/task branch and confirm its scope.
+  2. Merge the hotfix/task branch into `main` with `--no-ff`.
+  3. Create an annotated version tag on the `main` merge commit.
+  4. Merge that tag back into `develop` with `--no-ff`.
+  5. Push `main`, `develop`, and the tag.
+  6. Delete only branches that are confirmed merged into both `main` and `develop`; keep unmerged work.
 - Hotfix completion is a hard gate. Do **not** report hotfix completion until all of the following are true:
   1. Branch scope is confirmed and the work is on a dedicated `hotfix/*` or task branch.
-  2. Only intended files are staged and committed; any remaining dirty worktree state is explicitly classified as unrelated, generated evidence, or a blocker.
-  3. The branch is pushed to origin.
-  4. Jenkins build for the pushed SHA succeeds.
-  5. Deployment reflects the pushed SHA/version.
-  6. `dev.moneyflow.enmsoftware.com` is directly verified after deployment.
-  7. A GitHub PR exists or is updated for the branch.
-  8. The PR links the relevant GitHub issues or RCA evidence.
-  9. The PR includes purpose, affected areas, verification commands, Jenkins/dev deployment evidence, and screenshots for UI changes.
-- Do not report a hotfix as complete without a PR URL unless the user explicitly says PR creation is not required.
+  2. Only intended files are staged and committed; any remaining dirty state in every linked worktree is explicitly classified as unrelated, generated evidence, or a blocker.
+  3. The branch is pushed to origin and the Git-flow merge/tag/back-merge graph above is complete.
+  4. Jenkins succeeds for every pushed SHA that matters to the release: the hotfix/task branch SHA, the `main` merge/tag SHA, and the `develop` back-merge SHA when present.
+  5. Deployment reflects the expected pushed SHA/version, and `dev.moneyflow.enmsoftware.com` is directly verified after deployment.
+  6. A GitHub PR exists or is updated, links the relevant GitHub issues or RCA evidence, and includes purpose, affected areas, verification commands, Jenkins/dev deployment evidence, and screenshots for UI changes.
+  7. The PR is merged or otherwise explicitly closed by the requested release procedure; an open PR is not hotfix completion unless the user explicitly asks for PR-only delivery.
+  8. Temporary release branches, merged hotfix/task branches, and generated recovery artifacts are cleaned up or explicitly preserved with a reason.
+- Do not report a hotfix as complete without a PR URL and merge/closure status unless the user explicitly says PR creation or PR merge is not required.
 - For non-`main` branch commit/push work, use `$enm-jenkins` and `$enm-server` to confirm Jenkins builds, deploys, and reflects correctly at `dev.moneyflow.enmsoftware.com`.
 
 ## Security & Configuration Tips
