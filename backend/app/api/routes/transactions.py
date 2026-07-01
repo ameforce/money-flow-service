@@ -550,7 +550,8 @@ def create_transaction(
     )
     memo = payload.memo.strip()
     currency = payload.currency.upper()
-    if not source_ref:
+    has_insert_intent = bool(payload.anchor_transaction_id or payload.insert_position)
+    if not source_ref and not has_insert_intent:
         existing_id = _recent_matching_transaction_id(
             db,
             household_id=str(household.id),
