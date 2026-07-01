@@ -5634,8 +5634,16 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   const transactionEntryCard = page.locator(".transaction-entry-card").first();
   const transactionTopActionButton = page.locator(".transaction-entry-card").getByRole("button", { name: /거래 추가|카테고리 관리/ }).first();
   const transactionListCard = page.locator(".transaction-list-card").first();
-  await page.evaluate(() => window.scrollTo(0, 0));
-  await page.waitForTimeout(250);
+  await page.waitForFunction(
+    () => {
+      window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+      const ledgerHead = document.querySelector(".transactions-mobile-ledger-head");
+      const scrollY = window.scrollY || window.pageYOffset || 0;
+      return scrollY <= 16 && ledgerHead?.getAttribute("data-sticky-active") === "false";
+    },
+    null,
+    { timeout: 15_000 }
+  );
   await expect(transactionEntryCard).toBeHidden();
   await expect(transactionTopActionButton).toBeHidden();
   await expect(transactionFab).toBeVisible();
