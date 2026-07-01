@@ -36,6 +36,7 @@ def test_jenkins_post_deploy_runs_deployed_browser_flows() -> None:
     jenkinsfile = (ROOT / "Jenkinsfile").read_text(encoding="utf-8")
     post_deploy = jenkinsfile.split("stage('Post-Deploy E2E Smoke')", maxsplit=1)[1]
 
+    assert "env.SKIP_POST_DEPLOY_E2E_FOR_BRANCH = isMainBranch ? 'true' : 'false'" in jenkinsfile
     assert "e2e/specs/post-deploy-smoke.spec.js" in post_deploy
     assert 'E2E_POST_DEPLOY_EMAIL="jenkins-upload-probe-${BUILD_NUMBER:-manual}@example.com"' in post_deploy
     assert 'E2E_POST_DEPLOY_PASSWORD="UploadProbe123!"' in post_deploy
@@ -73,6 +74,7 @@ def test_jenkins_upload_limit_probe_requires_authenticated_app_response() -> Non
     jenkinsfile = (ROOT / "Jenkinsfile").read_text(encoding="utf-8")
     deploy_stage = jenkinsfile.split("stage('Deploy Execute')", maxsplit=1)[1]
 
+    assert 'if [ "$DEPLOY_TARGET_ENV" = "dev" ]; then' in deploy_stage
     assert "UPLOAD_LIMIT_PROBE_OK_APP_REACHED" in deploy_stage
     assert 'tmp_probe_cookies="$(mktemp)"' in deploy_stage
     assert '-c "$tmp_probe_cookies"' in deploy_stage
@@ -84,6 +86,8 @@ def test_jenkins_upload_limit_probe_requires_authenticated_app_response() -> Non
     assert "x-debug-token-opt-in" not in deploy_stage
     assert "scripts/deploy/seed_upload_probe_user.py" in deploy_stage
     assert "400|401|403)" not in deploy_stage
+    assert "dev-only probe seeding is not allowed" in deploy_stage
+    assert "invalid DEPLOY_TARGET_ENV for upload-limit probe" in deploy_stage
 
 
 def test_jenkins_dev_predeploy_recovery_message_is_explicit() -> None:
