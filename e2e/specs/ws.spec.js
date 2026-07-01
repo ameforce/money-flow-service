@@ -25,29 +25,42 @@ function previousMonthDateIso() {
 // parallel local project runs after the assertions have passed.
 test.use({ trace: "off", video: "off" });
 
-async function clickTransactionRowAction(row, actionName) {
-  const inlineAction = row.locator("td").last().getByRole("button", { name: actionName }).first();
-  if (await inlineAction.isVisible().catch(() => false)) {
-    await row.evaluate((element) => element.scrollIntoView({ block: "center", inline: "nearest" }));
-    await inlineAction.evaluate((button) => button.click());
-    return;
-  }
+async function expectTransactionSelectionSummary(page, count) {
+  const summary = page.getByTestId("transaction-sticky-toolbar").getByTestId("transaction-selection-summary");
+  await expect(summary).toBeVisible();
+  await expect(summary).toContainText(`선택 ${count}건`);
+  return summary;
+}
 
-  const mobileExpand = row.getByRole("button", { name: /거래 세부 보기|거래 세부 접기/ }).first();
-  if (await mobileExpand.isVisible().catch(() => false)) {
-    const expanded = await mobileExpand.getAttribute("aria-expanded").catch(() => "");
-    if (expanded !== "true") {
-      await mobileExpand.click();
+async function selectTransactionRowForToolbar(page, row) {
+  await expect(row).toBeVisible();
+  await row.evaluate((element) => element.scrollIntoView({ block: "center", inline: "nearest" }));
+  if ((await row.getAttribute("data-row-selected")) !== "true") {
+    const checkbox = row.locator(".transaction-col-select input[type='checkbox']").first();
+    if (await checkbox.isVisible().catch(() => false)) {
+      await checkbox.check({ force: true });
+    } else {
+      await row.locator(".transaction-col-memo").click();
     }
-  } else {
-    await row.click();
   }
+  await expect(row).toHaveAttribute("data-row-selected", "true");
+  await expectTransactionSelectionSummary(page, 1);
+}
 
-  const expandedActions = row.locator(
-    "xpath=following-sibling::tr[contains(concat(' ', normalize-space(@class), ' '), ' transaction-mobile-expanded-actions-row ')][1]"
-  );
-  await expect(expandedActions).toBeVisible();
-  await expandedActions.getByRole("button", { name: actionName }).click();
+async function clickTransactionRowAction(page, row, actionName) {
+  await selectTransactionRowForToolbar(page, row);
+  const actionTestIds = new Map([
+    ["수정", "transaction-selection-edit"],
+    ["삭제", "transaction-selection-delete"],
+    ["위에 삽입", "transaction-selection-insert-above"],
+    ["아래에 삽입", "transaction-selection-insert-below"],
+  ]);
+  const testId = actionTestIds.get(actionName);
+  const actionButton = testId
+    ? page.getByTestId(testId)
+    : page.getByTestId("transaction-sticky-toolbar").getByRole("button", { name: actionName }).first();
+  await expect(actionButton).toBeVisible();
+  await actionButton.click();
 }
 
 test("ws flow: connected state and cross-session transaction sync", async ({ browser }) => {
@@ -84,7 +97,7 @@ test("ws flow: connected state and cross-session transaction sync", async ({ bro
     await capture(firstPage, "ws-primary-received-update");
 
     const secondaryRow = secondPage.locator("tr.transaction-row", { hasText: txMemo }).first();
-    await clickTransactionRowAction(secondaryRow, "수정");
+    await clickTransactionRowAction(secondPage, secondaryRow, "수정");
     const editorRow = secondPage.locator("tr.transaction-inline-editor-row").first();
     await expect(editorRow).toBeVisible();
     await editorRow.getByLabel("메모").fill(editedMemo);
@@ -95,7 +108,7 @@ test("ws flow: connected state and cross-session transaction sync", async ({ bro
     await capture(firstPage, "ws-primary-received-edit");
 
     const editedSecondaryRow = secondPage.locator("tr.transaction-row", { hasText: editedMemo }).first();
-    await clickTransactionRowAction(editedSecondaryRow, "삭제");
+    await clickTransactionRowAction(secondPage, editedSecondaryRow, "삭제");
     const confirmDialog = secondPage.locator(".confirm-dialog");
     await expect(confirmDialog).toBeVisible();
     await confirmDialog.getByRole("button", { name: "삭제" }).click();
