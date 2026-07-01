@@ -45,16 +45,18 @@
   3. Create an annotated version tag on the `main` merge commit.
   4. Merge that tag back into `develop` with `--no-ff` (tag back into develop).
   5. Push `main`, `develop`, and the tag.
-  6. Before cleanup, inspect `git worktree list --porcelain`, then delete only branches that are confirmed merged into both `main` and `develop`; keep unmerged work.
+  6. Confirm `main` HEAD resolves to the exact `vX.Y.Z` tag before any main/prod deploy.
+  7. Before cleanup, inspect `git worktree list --porcelain`, then delete only branches that are confirmed merged into both `main` and `develop`; keep unmerged work.
 - Hotfix/release completion is a hard gate. Do **not** report hotfix/release completion until all of the following are true:
   1. Branch scope is confirmed and the work is on a dedicated `hotfix/*` or task branch.
   2. Only intended files are staged and committed; any remaining dirty state in every linked worktree is explicitly classified as unrelated, generated evidence, or a blocker.
   3. The branch is pushed to origin and the Git-flow merge/tag/back-merge graph above is complete.
   4. Jenkins every pushed SHA check must pass for the release: the hotfix/task branch SHA, the `main` merge/tag SHA, and the develop back-merge SHA, unless the user explicitly supplied a different release procedure that omits `develop`.
-  5. Deployment reflects the expected pushed SHA/version, and `dev.moneyflow.enmsoftware.com` is directly verified after deployment.
-  6. A GitHub PR exists or is updated, links the relevant GitHub issues or RCA evidence, and includes purpose, affected areas, verification commands, Jenkins/dev deployment evidence, and screenshots for UI changes.
-  7. The PR is merged or otherwise explicitly closed by the requested release procedure (PR merged/closed); an open PR is not hotfix/release completion unless the user explicitly asks for PR-only delivery.
-  8. Temporary release branches, merged hotfix/task branches, and generated recovery artifacts are cleaned up or explicitly preserved with a reason.
+  5. Main/prod deployment is never implied by a tag or `main` build alone; when prod deployment is explicitly requested, Jenkins must run with `ALLOW_PROD_DEPLOY=true` and verify the exact `vX.Y.Z` tag on `main` HEAD.
+  6. Deployment reflects the expected pushed SHA/version, and `dev.moneyflow.enmsoftware.com` is directly verified after deployment.
+  7. A GitHub PR exists or is updated, links the relevant GitHub issues or RCA evidence, and includes purpose, affected areas, verification commands, Jenkins/dev deployment evidence, and screenshots for UI changes.
+  8. The PR is merged or otherwise explicitly closed by the requested release procedure (PR merged/closed); an open PR is not hotfix/release completion unless the user explicitly asks for PR-only delivery.
+  9. Temporary release branches, merged hotfix/task branches, and generated recovery artifacts are cleaned up or explicitly preserved with a reason.
 - Do not report a hotfix/release as complete without a PR URL and merge/closure status unless the user explicitly says PR creation or PR merge is not required.
 - For non-`main` branch commit/push work, use `$enm-jenkins` and `$enm-server-ops` to confirm Jenkins builds, deploys, and reflects correctly at `dev.moneyflow.enmsoftware.com`.
 
