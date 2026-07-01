@@ -1337,8 +1337,25 @@ function createRepeatTransactionForm(previousForm, fallbackOccurredOn = todayIso
     category_id: previousForm?.category_id || "",
     owner_user_id: previousForm?.owner_user_id || "",
     owner_name: previousForm?.owner_name || "",
-    anchor_transaction_id: previousForm?.anchor_transaction_id || "",
-    insert_position: previousForm?.insert_position || "",
+  };
+}
+
+function hasTransactionInsertAnchor(form) {
+  return Boolean(form?.anchor_transaction_id || form?.insert_position || form?.anchor_id || form?.mode === "insert");
+}
+
+function clearTransactionInsertAnchor(form) {
+  if (!hasTransactionInsertAnchor(form)) {
+    return form;
+  }
+  return {
+    ...form,
+    id: "",
+    version: 0,
+    anchor_id: "",
+    anchor_transaction_id: "",
+    insert_position: "",
+    mode: "",
   };
 }
 
@@ -3946,6 +3963,11 @@ function App() {
     clearTransactionEntryValidationFeedback();
     setTxEntrySheetStep(nextStep);
     setShowTransactionForm(true);
+  }
+
+  function openNormalTransactionEntrySheet(nextStep = "form") {
+    setTxForm((previous) => clearTransactionInsertAnchor(previous));
+    openTransactionEntrySheet(nextStep);
   }
 
   const closeTransactionEntrySheet = useCallback(async ({ skipDraftGuard = false } = {}) => {
@@ -7341,7 +7363,7 @@ function App() {
     dismissOnboardingGuide();
     setShowTransactionEntryBanner(true);
     setTab("transactions");
-    openTransactionEntrySheet("form");
+    openNormalTransactionEntrySheet("form");
   }
 
   async function copyImportReportCsv() {
@@ -10865,7 +10887,7 @@ function App() {
                     className="primary surface-heading-action transaction-desktop-add-action"
                     data-testid="transactions-desktop-add-action"
                     disabled={loading}
-                    onClick={() => openTransactionEntrySheet("form")}
+                    onClick={() => openNormalTransactionEntrySheet("form")}
                   >
                     <span aria-hidden="true">＋</span>
                     <span>거래 추가</span>
@@ -11155,7 +11177,7 @@ function App() {
               data-testid="transactions-fab"
               aria-label="거래 추가"
               disabled={loading}
-              onClick={() => openTransactionEntrySheet("form")}
+              onClick={() => openNormalTransactionEntrySheet("form")}
             >
               <span aria-hidden="true">＋</span>
             </button>

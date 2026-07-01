@@ -461,6 +461,59 @@ def test_toss_apply_uses_preview_source_ref_after_user_edits() -> None:
             assert stored.memo == "12:07 | 사용자가 수정한 급여"
 
 
+def test_toss_apply_appends_same_day_transactions_after_existing_rows() -> None:
+    with TestClient(app) as client:
+        token = _auth(client, f"toss-order-key-{uuid.uuid4().hex}@example.com")
+        existing = client.post(
+            "/api/v1/transactions",
+            headers=_headers(token),
+            json={
+                "occurred_on": "2026-05-22",
+                "flow_type": "expense",
+                "amount": "1000",
+                "currency": "KRW",
+                "memo": "manual-before-toss",
+            },
+        )
+        assert existing.status_code == 201
+
+        applied = client.post(
+            "/api/v1/imports/toss-screenshots/apply",
+            headers=_headers(token),
+            json={
+                "rows": [
+                    {
+                        "row_id": "same-day-toss-row",
+                        "source_image_name": "toss.png",
+                        "source_image_index": 0,
+                        "occurred_on": "2026-05-22",
+                        "time": "12:07",
+                        "item_name": "토스카페",
+                        "detail": "",
+                        "amount": "4500",
+                        "signed_amount": "-4500",
+                        "balance": "10000",
+                        "flow_type": "expense",
+                        "category_id": None,
+                        "category_recommendation": None,
+                        "included": True,
+                        "duplicate_group_id": None,
+                        "exclusion_reason": None,
+                        **_toss_source_ref_fields("toss:same-day-order"),
+                    }
+                ]
+            },
+        )
+        assert applied.status_code == 200
+        assert applied.json()["applied_transactions"] == 1
+
+        listed = client.get("/api/v1/transactions?year=2026&month=5", headers=_headers(token))
+        assert listed.status_code == 200
+        same_day = [item for item in listed.json() if item["occurred_on"] == "2026-05-22"]
+        assert [item["memo"] for item in same_day[:2]] == ["manual-before-toss", "12:07 | 토스카페"]
+        assert [item["order_key"] for item in same_day[:2]] == [1024, 2048]
+
+
 def test_toss_apply_rejects_tampered_source_ref_signature() -> None:
     with TestClient(app) as client:
         token = _auth(client, f"toss-signature-{uuid.uuid4().hex}@example.com")

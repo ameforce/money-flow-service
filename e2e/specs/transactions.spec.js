@@ -3723,6 +3723,63 @@ test("issue 198: mobile collapsed transaction row keeps key details and actions 
   await expect(page.getByTestId("transaction-selection-delete")).toBeVisible();
 });
 
+test("mobile normal add clears stale anchored insert fields after cancelled insert", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("tx-mobile-anchor-clear")}@example.com`;
+  const displayName = unique("tx-mobile-anchor-clear-owner");
+  const memoPrefix = unique("tx-mobile-anchor-clear-row");
+  const targetMemo = `${memoPrefix}-target`;
+  const afterMemo = `${memoPrefix}-after`;
+  const normalMemo = `${memoPrefix}-normal`;
+
+  await registerAndVerify(page, { email, displayName });
+  await createTransactionViaApi(page, {
+    memo: targetMemo,
+    amount: "22001",
+    ownerName: displayName,
+    sourceRef: `${memoPrefix}-source-target`,
+  });
+  await createTransactionViaApi(page, {
+    memo: afterMemo,
+    amount: "22002",
+    ownerName: displayName,
+    sourceRef: `${memoPrefix}-source-after`,
+  });
+  await page.reload();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openTab(page, "거래");
+  await page.waitForLoadState("networkidle");
+
+  const targetRow = page.locator("tr.transaction-row", { hasText: targetMemo }).first();
+  await expect(targetRow).toBeVisible({ timeout: 20_000 });
+  await selectTransactionRowForToolbar(page, targetRow);
+  await page.getByTestId("transaction-selection-insert-below").click();
+
+  const transactionSheet = page.getByTestId("transaction-entry-sheet");
+  await expect(transactionSheet).toBeVisible();
+  await page.getByTestId("transaction-entry-sheet-close").click();
+  await expect(transactionSheet).toBeHidden();
+
+  await page.getByTestId("transactions-fab").click();
+  await expect(transactionSheet).toBeVisible();
+  await page.getByTestId("transaction-quick-amount").fill("22003");
+  await labeledField(transactionSheet, "메모", "input").fill(normalMemo);
+  await page.getByTestId("transaction-quick-save").click();
+  await expect(page.locator("tr.transaction-row", { hasText: normalMemo }).first()).toBeVisible({ timeout: 20_000 });
+
+  const ledgerOrder = await page.locator("tr.transaction-row").evaluateAll(
+    (rows, expectedMemos) =>
+      rows
+        .map((row) => row.textContent || "")
+        .filter((text) => expectedMemos.some((memo) => text.includes(memo)))
+        .map((text) => expectedMemos.find((memo) => text.includes(memo))),
+    [targetMemo, afterMemo, normalMemo]
+  );
+  expect(ledgerOrder).toEqual([targetMemo, afterMemo, normalMemo]);
+  await capture(page, "transactions-mobile-anchor-clear-normal-add");
+});
+
 test("issue 220: mobile collapsed transaction row scans as one ledger line", async ({ page }) => {
   test.setTimeout(120_000);
 
