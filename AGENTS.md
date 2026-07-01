@@ -45,12 +45,13 @@
   3. Create an annotated version tag on the `main` merge commit.
   4. Merge that tag back into `develop` with `--no-ff` (tag back into develop).
   5. Push `main`, `develop`, and the tag.
-  6. Confirm `main` HEAD resolves to the exact `vX.Y.Z` tag (exact vX.Y.Z tag) before any main/prod deploy.
-  7. Before cleanup, inspect `git worktree list --porcelain`, then delete only branches that are confirmed merged into both `main` and `develop`; keep unmerged work.
+  6. Record explicit Git evidence for the release graph because Jenkins does not prove every step: `git cat-file -t vX.Y.Z` returns `tag`, `git rev-parse vX.Y.Z^{}` equals `main` HEAD, and `git merge-base --is-ancestor vX.Y.Z develop` succeeds after the tag-back merge.
+  7. Confirm `main` HEAD resolves to the exact `vX.Y.Z` tag (exact vX.Y.Z tag) before any main/prod deploy.
+  8. Before cleanup, inspect `git worktree list --porcelain`, then delete only branches that are confirmed merged into both `main` and `develop`; keep unmerged work.
 - Hotfix/release completion is a hard gate. Do **not** report hotfix/release completion until all of the following are true:
   1. Branch scope is confirmed and the work is on a dedicated `hotfix/*` or task branch.
   2. Only intended files are staged and committed; any remaining dirty state in every linked worktree is explicitly classified as unrelated, generated evidence, or a blocker.
-  3. The branch is pushed to origin and the Git-flow merge/tag/back-merge graph above is complete.
+  3. The branch is pushed to origin, the Git-flow merge/tag/back-merge graph above is complete, and explicit annotated-tag/develop-containment Git evidence is recorded.
   4. Jenkins every pushed SHA check must pass for the release: the hotfix/task branch SHA, the `main` merge/tag SHA, and the develop back-merge SHA, unless the user explicitly supplied a different release procedure that omits `develop`.
   5. Main/prod deployment is never implied by a tag or `main` build alone; when prod deployment is explicitly requested, Jenkins must run with `ALLOW_PROD_DEPLOY=true` and verify the exact `vX.Y.Z` tag (exact vX.Y.Z tag) on `main` HEAD.
   6. When production deployment is explicitly requested, Jenkins must use `moneyflow-prod-smtp-env-file`, overlay only `SMTP_*` values, run `scripts/deploy/validate_smtp_route.py` before `docker compose up`, and fail closed on `mailpit`, `enm-mail-smtp`, `moneyflow-smtp-local`, localhost/loopback, port `1025`, `EMAIL_DELIVERY_MODE=log`, missing auth, wrong `SMTP_ACCOUNT_LABEL`, or invalid TLS; record only the redacted route summary, never SMTP secrets.
