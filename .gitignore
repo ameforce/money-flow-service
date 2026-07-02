@@ -60,6 +60,7 @@ jenkins-crumb.json
 *.stderr.txt
 
 # Local temp/session artifacts (do not commit)
+.gjc/
 session-summary.md
 tmpx.txt
 backend/tests/tmp_check.txt
