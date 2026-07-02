@@ -18,6 +18,7 @@ import {
   labeledField,
   openTab,
   registerAndVerify,
+  selectFirstNonEmptyOption,
   unique,
 } from "../support/helpers";
 
@@ -32,6 +33,18 @@ function isoDaysFromToday(days) {
 function yearMonthFromIso(value) {
   const [year, month] = String(value || "").split("-").map((part) => Number(part));
   return { year, month };
+}
+
+function isMonthlyTransactionsResponse(response, targetYearMonth) {
+  if (response.request().method() !== "GET") {
+    return false;
+  }
+  const url = new URL(response.url());
+  return (
+    url.pathname.endsWith("/api/v1/transactions") &&
+    url.searchParams.get("year") === String(targetYearMonth.year) &&
+    url.searchParams.get("month") === String(targetYearMonth.month)
+  );
 }
 
 async function expectQuickCategoryLayoutStable(page, expectedHint = "추천 카테고리를 탭하면 바로 연결됩니다.") {
@@ -468,6 +481,49 @@ async function expectTransactionFabBottomRightReachable(page, label = "transacti
   expect(metrics.overlapsLedgerHead, `${label} should not cover the mobile ledger head: ${JSON.stringify(metrics)}`).toBe(false);
 }
 
+async function expectDesktopTransactionAddActionReachable(page, label = "desktop transaction add action") {
+  await expect(page.getByTestId("transactions-fab"), `${label} should not use a fixed FAB on desktop`).toHaveCount(0);
+  const action = page.getByTestId("transactions-desktop-add-action");
+  await expect(action, `${label} visible`).toBeVisible();
+  await expect(action, `${label} enabled`).toBeEnabled();
+  const metrics = await action.evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    const centerX = box.left + box.width / 2;
+    const centerY = box.top + box.height / 2;
+    const topElement = document.elementFromPoint(centerX, centerY);
+    const style = getComputedStyle(element);
+    return {
+      position: style.position,
+      display: style.display,
+      visibility: style.visibility,
+      box: {
+        left: box.left,
+        right: box.right,
+        top: box.top,
+        bottom: box.bottom,
+        width: box.width,
+        height: box.height,
+      },
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+      hitTargetIsAction: topElement === element || element.contains(topElement),
+    };
+  });
+  expect(metrics.display, `${label} should be displayed: ${JSON.stringify(metrics)}`).not.toBe("none");
+  expect(metrics.visibility, `${label} should be visible: ${JSON.stringify(metrics)}`).toBe("visible");
+  expect(metrics.position, `${label} should be docked in document flow: ${JSON.stringify(metrics)}`).not.toBe("fixed");
+  expect(metrics.box.height, `${label} should keep a desktop hit target: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(40);
+  expect(metrics.box.right, `${label} should stay inside viewport: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(
+    metrics.viewportWidth - 8
+  );
+  expect(metrics.box.top, `${label} should stay in viewport: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(0);
+  expect(metrics.box.bottom, `${label} should stay in viewport: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(
+    metrics.viewportHeight
+  );
+  expect(metrics.hitTargetIsAction, `${label} should be topmost at its center: ${JSON.stringify(metrics)}`).toBe(true);
+  return action;
+}
+
 async function expectDesktopTransactionMonthStepperSticky(page) {
   const viewport = page.viewportSize();
   if ((viewport?.width ?? 0) <= 820) {
@@ -482,6 +538,266 @@ async function expectMobileTransactionMonthStepperSticky(page) {
     return;
   }
   await expectTransactionMonthStepperSticky(page, "mobile transaction month stepper");
+}
+
+async function expectTransactionSelectionSummary(page, count, expectedAmountText = null) {
+  const summary = page.getByTestId("transaction-sticky-toolbar").getByTestId("transaction-selection-summary");
+  await expect(summary).toBeVisible();
+  await expect(summary).toContainText(`선택 ${count}건`);
+  await expect(summary).toContainText("선택 합계");
+  if (expectedAmountText) {
+    await expect(summary).toContainText(expectedAmountText);
+  }
+  await expect(page.locator(".transaction-list-card > .message", { hasText: "선택" })).toHaveCount(0);
+  return summary;
+}
+
+async function clearTransactionSelection(page) {
+  const summary = page.getByTestId("transaction-sticky-toolbar").getByTestId("transaction-selection-summary");
+  await expect(summary).toBeVisible();
+  const clearButton = summary.getByRole("button", { name: "선택 해제" });
+  if (await clearButton.isEnabled().catch(() => false)) {
+    await clearButton.click();
+  }
+  await expectTransactionSelectionSummary(page, 0, "0원");
+}
+
+async function clickDesktopTransactionRowAction(row, actionName) {
+  await expect(row).toBeVisible();
+  await row.evaluate((element) => element.scrollIntoView({ block: "center", inline: "nearest" }));
+  const actionButton = row.locator("td").last().getByRole("button", { name: actionName }).first();
+  await expect(actionButton).toBeVisible();
+  await actionButton.evaluate((button) => button.click());
+}
+
+async function scrollTransactionHeaderIntoStickyRange(page) {
+  await page.evaluate(() => {
+    const toolbar = document.querySelector('[data-testid="transaction-sticky-toolbar"]');
+    const header =
+      window.innerWidth <= 820
+        ? document.querySelector(".transactions-mobile-ledger-head")
+        : document.querySelector(".transactions-desktop-ledger-head") ||
+          document.querySelector(".transaction-list-card .transactions-surface-table thead");
+    if (!toolbar || !header) {
+      return;
+    }
+    const toolbarBox = toolbar.getBoundingClientRect();
+    const headerTop = header.getBoundingClientRect().top + window.scrollY;
+    const stickyReserve = Math.max(toolbarBox.height + 28, 96);
+    window.scrollTo(0, Math.max(0, headerTop - stickyReserve));
+  });
+  await page.waitForTimeout(300);
+}
+
+async function readTransactionStickyHeaderGeometry(page) {
+  return page.evaluate(() => {
+    const boxOf = (element) => {
+      const box = element?.getBoundingClientRect();
+      return box
+        ? {
+            top: box.top,
+            bottom: box.bottom,
+            left: box.left,
+            right: box.right,
+            width: box.width,
+            height: box.height,
+          }
+        : null;
+    };
+    const toolbar = document.querySelector('[data-testid="transaction-sticky-toolbar"]');
+    const desktopHead =
+      document.querySelector(".transactions-desktop-ledger-head") ||
+      document.querySelector(".transaction-list-card .transactions-surface-table thead");
+    const mobileHead = document.querySelector(".transactions-mobile-ledger-head");
+    const header = window.innerWidth <= 820 ? mobileHead : desktopHead;
+    const firstVisibleRow = Array.from(document.querySelectorAll("tr.transaction-row")).find((row) => {
+      const box = row.getBoundingClientRect();
+      return box.bottom > 0 && box.top < window.innerHeight;
+    });
+    const toolbarBox = boxOf(toolbar);
+    const headerBox = boxOf(header);
+    const toolbarStyle = toolbar ? getComputedStyle(toolbar) : null;
+    const headerStyle = header ? getComputedStyle(header) : null;
+    const listCard = document.querySelector(".transaction-list-card");
+    const listStyle = listCard ? getComputedStyle(listCard) : null;
+    const fabBox = boxOf(document.querySelector('[data-testid="transactions-fab"]'));
+    const intersects = (left, right) =>
+      Boolean(
+        left &&
+          right &&
+          left.left < right.right &&
+          left.right > right.left &&
+          left.top < right.bottom &&
+          left.bottom > right.top,
+      );
+    return {
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+      scrollY: window.scrollY,
+      toolbar: {
+        box: toolbarBox,
+        position: toolbarStyle?.position || "",
+        topCss: toolbarStyle?.top || "",
+      },
+      header: {
+        box: headerBox,
+        position: headerStyle?.position || "",
+        topCss: headerStyle?.top || "",
+        display: headerStyle?.display || "",
+      },
+      firstVisibleRow: boxOf(firstVisibleRow),
+      gap: toolbarBox && headerBox ? headerBox.top - toolbarBox.bottom : null,
+      headerOverlapsToolbar: intersects(toolbarBox, headerBox),
+      headerOverlapsFab: intersects(headerBox, fabBox),
+      firstRowUnderHeader: Boolean(headerBox && firstVisibleRow && firstVisibleRow.getBoundingClientRect().top >= headerBox.bottom - 2),
+      cssVars: {
+        toolbarHeight: listStyle?.getPropertyValue("--transaction-toolbar-sticky-height").trim() || "",
+        columnHeadTop: listStyle?.getPropertyValue("--transaction-column-head-top").trim() || "",
+        ledgerTop: listStyle?.getPropertyValue("--surface-ledger-sticky-top").trim() || "",
+      },
+    };
+  });
+}
+
+async function expectTransactionStickyHeaderGeometry(page, label) {
+  await scrollTransactionHeaderIntoStickyRange(page);
+  const geometry = await readTransactionStickyHeaderGeometry(page);
+  expect(geometry.toolbar.box, `${label} toolbar should be measurable: ${JSON.stringify(geometry)}`).not.toBeNull();
+  expect(geometry.header.box, `${label} header should be measurable: ${JSON.stringify(geometry)}`).not.toBeNull();
+  expect(["sticky", "fixed"], `${label} toolbar sticky state: ${JSON.stringify(geometry)}`).toContain(
+    geometry.toolbar.position,
+  );
+  expect(geometry.header.position, `${label} column/ledger header sticky state: ${JSON.stringify(geometry)}`).toBe("sticky");
+  expect(geometry.header.display, `${label} header should be displayed: ${JSON.stringify(geometry)}`).not.toBe("none");
+  expect(geometry.header.box?.top ?? -1, `${label} header should remain in viewport: ${JSON.stringify(geometry)}`).toBeGreaterThanOrEqual(0);
+  expect(geometry.headerOverlapsToolbar, `${label} header should not overlap toolbar: ${JSON.stringify(geometry)}`).toBe(false);
+  expect(geometry.headerOverlapsFab, `${label} header should not overlap FAB: ${JSON.stringify(geometry)}`).toBe(false);
+  expect(geometry.gap ?? Number.NEGATIVE_INFINITY, `${label} header should sit below toolbar: ${JSON.stringify(geometry)}`).toBeGreaterThanOrEqual(-2);
+  return geometry;
+}
+
+async function expectDesktopTransactionColumnHeaderLabels(page, label) {
+  const header = page.locator(".transactions-desktop-ledger-head").first();
+  await expect(header, `${label} desktop ledger header visible`).toBeVisible();
+  for (const columnLabel of ["일자", "유형", "카테고리", "메모", "금액", "거래자명", "최종 수정일", "동작"]) {
+    await expect(header, `${label} should include ${columnLabel}`).toContainText(columnLabel);
+  }
+  const metrics = await header.evaluate((element) => {
+    const toolbar = document.querySelector('[data-testid="transaction-sticky-toolbar"]');
+    const toolbarBox = toolbar?.getBoundingClientRect();
+    const box = element.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    return {
+      position: style.position,
+      display: style.display,
+      topCss: style.top,
+      box: {
+        top: box.top,
+        bottom: box.bottom,
+        width: box.width,
+        height: box.height,
+      },
+      toolbarBox: toolbarBox
+        ? {
+            top: toolbarBox.top,
+            bottom: toolbarBox.bottom,
+            height: toolbarBox.height,
+          }
+        : null,
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+      scrollY: window.scrollY,
+    };
+  });
+  expect(metrics.position, `${label} desktop ledger header sticky metrics: ${JSON.stringify(metrics)}`).toBe("sticky");
+  expect(metrics.display, `${label} desktop ledger header display: ${JSON.stringify(metrics)}`).not.toBe("none");
+  expect(metrics.topCss, `${label} desktop ledger header top css: ${JSON.stringify(metrics)}`).not.toBe("auto");
+  expect(metrics.box.top, `${label} desktop ledger header should stay in viewport: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(0);
+  expect(metrics.box.bottom, `${label} desktop ledger header should stay in viewport: ${JSON.stringify(metrics)}`).toBeLessThan(
+    metrics.viewportHeight,
+  );
+  if (metrics.toolbarBox) {
+    expect(
+      metrics.box.top,
+      `${label} desktop ledger header should follow toolbar, not overlap it: ${JSON.stringify(metrics)}`,
+    ).toBeGreaterThanOrEqual(metrics.toolbarBox.bottom - 2);
+  }
+}
+
+async function sweepSelectRows(page, rows) {
+  await page.evaluate(() => window.getSelection()?.removeAllRanges());
+  const boxes = [];
+  for (const row of rows) {
+    await expect(row).toBeVisible();
+    const box = await row.boundingBox();
+    expect(box, "sweep row should have a bounding box").not.toBeNull();
+    boxes.push(box);
+  }
+  const pointFor = (box) => ({
+    x: Math.round(box.x + box.width * 0.42),
+    y: Math.round(box.y + box.height / 2),
+  });
+  const firstPoint = pointFor(boxes[0]);
+  await page.mouse.move(firstPoint.x, firstPoint.y);
+  await page.mouse.down();
+  for (const box of boxes.slice(1)) {
+    const point = pointFor(box);
+    await page.mouse.move(point.x, point.y, { steps: 8 });
+    await expectNoActiveTextSelection(page, "row sweep selection during drag");
+  }
+  await page.mouse.up();
+}
+
+async function sweepFromRowToViewportEdge(page, row, direction = "down", holdMs = 900) {
+  await page.evaluate(() => window.getSelection()?.removeAllRanges());
+  await expect(row).toBeVisible();
+  const box = await row.boundingBox();
+  expect(box, "edge sweep row should have a bounding box").not.toBeNull();
+  const viewport = page.viewportSize();
+  expect(viewport, "edge sweep viewport should exist").not.toBeNull();
+  const start = {
+    x: Math.round((box?.x ?? 0) + (box?.width ?? 0) * 0.42),
+    y: Math.round((box?.y ?? 0) + (box?.height ?? 0) / 2),
+  };
+  const endY = direction === "up" ? 24 : Math.max(48, (viewport?.height ?? 0) - 24);
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await page.mouse.move(start.x, start.y + (direction === "up" ? -14 : 14), { steps: 2 });
+  await expectNoActiveTextSelection(page, `row edge sweep ${direction} after activation`);
+  await page.mouse.move(start.x, endY, { steps: 16 });
+  await page.waitForTimeout(holdMs);
+  await expectNoActiveTextSelection(page, `row edge sweep ${direction} during auto-scroll`);
+  await page.mouse.up();
+  await page.waitForTimeout(250);
+}
+
+async function expectNoActiveTextSelection(page, label) {
+  const selectedText = await page.evaluate(() => window.getSelection()?.toString() || "");
+  expect(selectedText.trim(), `${label} should not leave browser text selected`).toBe("");
+}
+
+async function performTouchScrollGestureOnRow(page, row, deltaY = 260) {
+  await expect(row).toBeVisible();
+  const box = await row.boundingBox();
+  expect(box, "touch scroll row should have a bounding box").not.toBeNull();
+  const x = Math.round((box?.x ?? 0) + Math.min(Math.max((box?.width ?? 0) * 0.42, 24), (box?.width ?? 0) - 12));
+  const startY = Math.round((box?.y ?? 0) + Math.min(Math.max((box?.height ?? 0) * 0.5, 18), (box?.height ?? 0) - 8));
+  const endY = Math.max(16, startY - Math.abs(deltaY));
+  const beforeScrollY = await page.evaluate(() => window.scrollY);
+  const client = await page.context().newCDPSession(page);
+  await client.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 1 });
+  const touchPoint = (y) => [{ x, y, radiusX: 6, radiusY: 6, force: 0.6 }];
+  await client.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: touchPoint(startY) });
+  await page.waitForTimeout(40);
+  await client.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: touchPoint(Math.round((startY + endY) / 2)) });
+  await page.waitForTimeout(40);
+  await client.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: touchPoint(endY) });
+  await page.waitForTimeout(40);
+  await client.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await page.waitForTimeout(350);
+  const afterScrollY = await page.evaluate(() => window.scrollY);
+  const touchAction = await row.evaluate((element) => getComputedStyle(element).touchAction);
+  return { beforeScrollY, afterScrollY, touchAction, x, startY, endY };
 }
 
 async function expectDesktopTransactionRowsSingleLine(page) {
@@ -581,6 +897,62 @@ async function openMobileTransactionQuickEntry(page) {
   await transactionFab.click();
   await expect(transactionSheet).toBeVisible();
   return transactionSheet;
+}
+
+async function openTransactionEntrySheet(page, viewport = { width: 1440, height: 900 }) {
+  await page.setViewportSize(viewport);
+  await openTab(page, "거래");
+  await page.waitForLoadState("networkidle");
+  const transactionAddAction =
+    (viewport?.width ?? 0) > 820 ? page.getByTestId("transactions-desktop-add-action") : page.getByTestId("transactions-fab");
+  const transactionSheet = page.getByTestId("transaction-entry-sheet");
+  await expect(transactionAddAction).toBeVisible();
+  await expect(transactionAddAction).toBeEnabled();
+  await transactionAddAction.click();
+  await expect(transactionSheet).toBeVisible();
+  return transactionSheet;
+}
+
+async function openTransactionQuickDetails(transactionSheet, summaryText) {
+  const details = transactionSheet.locator("details.transaction-quick-details", { hasText: summaryText }).first();
+  await expect(details.locator("summary")).toBeVisible();
+  const isOpen = await details.evaluate((element) => element.open);
+  if (!isOpen) {
+    await details.locator("summary").click();
+  }
+  await expect(details).toHaveJSProperty("open", true);
+  return details;
+}
+
+async function selectTransactionFormCategory(container, category) {
+  const majorSelect = labeledField(container, "카테고리 그룹", "select");
+  await expect(majorSelect).toBeVisible();
+  await majorSelect.selectOption(category.major);
+  const categorySelect = container
+    .locator("label")
+    .filter({ hasText: /^\s*카테고리\s*\(/ })
+    .locator("select")
+    .first();
+  await expect(categorySelect).toBeEnabled();
+  await categorySelect.selectOption(String(category.id));
+  return { majorSelect, categorySelect };
+}
+
+async function createTransactionCategoryFromQuickPicker(picker, category) {
+  const majorInput = picker.getByTestId("transaction-category-create-major");
+  const minorInput = picker.getByTestId("transaction-category-create-minor");
+  const submitButton = picker.getByTestId("transaction-category-create-submit");
+
+  await expect(majorInput).toBeVisible();
+  await expect(minorInput).toBeVisible();
+  await expect(async () => {
+    await majorInput.fill(category.major);
+    await minorInput.fill(category.minor);
+    await expect(majorInput).toHaveValue(category.major);
+    await expect(minorInput).toHaveValue(category.minor);
+    await expect(submitButton).toBeEnabled();
+  }).toPass({ timeout: 15_000 });
+  await submitButton.click();
 }
 
 async function expectMobileQuickEntryDefaults(page, transactionSheet) {
@@ -783,6 +1155,526 @@ test("mobile quick entry creates an expense through amount-first chip path", asy
   await expect(createdRow).toBeVisible({ timeout: 20_000 });
 });
 
+test("desktop transaction entry keeps repeat context after save", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("tx-repeat-desktop")}@example.com`;
+  const displayName = unique("tx-repeat-desktop-name");
+  const category = await (async () => {
+    await registerAndVerify(page, { email, displayName });
+    return createCategoryViaApi(page, {
+      major: unique("반복입력"),
+      minor: unique("영수증"),
+    });
+  })();
+  await page.reload();
+  await page.waitForLoadState("networkidle");
+  const firstMemo = unique("tx-repeat-desktop-first");
+  const secondMemo = unique("tx-repeat-desktop-second");
+  const occurredOn = currentE2EHistoryDateIso(-2);
+
+  const transactionSheet = await openTransactionEntrySheet(page, { width: 1440, height: 900 });
+  const amountInput = labeledField(transactionSheet, "금액", "input");
+  const memoInput = labeledField(transactionSheet, "메모", "input");
+  const dateInput = labeledField(transactionSheet, "일자", "input");
+  const typeSelect = labeledField(transactionSheet, "유형", "select");
+  const ownerSelect = labeledField(transactionSheet, "거래자", "select");
+
+  await dateInput.fill(occurredOn);
+  await typeSelect.selectOption("expense");
+  const { majorSelect, categorySelect } = await selectTransactionFormCategory(transactionSheet, category);
+  await selectFirstNonEmptyOption(ownerSelect);
+  const ownerValue = await ownerSelect.inputValue();
+  await amountInput.fill("12345");
+  await memoInput.fill(firstMemo);
+  await capture(page, "transactions-repeat-desktop-before-save");
+
+  await transactionSheet.getByRole("button", { name: "거래 등록" }).click();
+  await expect(page.locator("tr.transaction-row", { hasText: firstMemo }).first()).toBeVisible({ timeout: 20_000 });
+
+  await expect(transactionSheet).toBeVisible();
+  await expect(amountInput).toHaveValue("");
+  await expect(memoInput).toHaveValue("");
+  await expect(dateInput).toHaveValue(occurredOn);
+  await expect(typeSelect).toHaveValue("expense");
+  await expect(majorSelect).toHaveValue(category.major);
+  await expect(categorySelect).toHaveValue(String(category.id));
+  await expect(ownerSelect).toHaveValue(ownerValue);
+  await expect(amountInput).toBeFocused();
+  await capture(page, "transactions-repeat-desktop-context-preserved");
+
+  await amountInput.fill("23456");
+  await memoInput.fill(secondMemo);
+  await transactionSheet.getByRole("button", { name: "거래 등록" }).click();
+  await expect(page.locator("tr.transaction-row", { hasText: secondMemo }).first()).toBeVisible({ timeout: 20_000 });
+});
+
+test("issue 193: desktop transaction entry searches category in one step", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("tx-cat-entry")}@example.com`;
+  const displayName = unique("tx-cat-entry-name");
+  const targetCategory = {
+    major: unique("빠른분류"),
+    minor: unique("검색항목"),
+  };
+
+  await registerAndVerify(page, { email, displayName });
+  const category = await createCategoryViaApi(page, targetCategory);
+  await page.reload();
+  await page.waitForLoadState("networkidle");
+
+  const transactionSheet = await openTransactionEntrySheet(page, { width: 1440, height: 900 });
+  const picker = transactionSheet.getByTestId("transaction-category-quick-picker");
+  await expect(picker).toBeVisible();
+
+  const searchInput = picker.getByTestId("transaction-category-search");
+  await expect(searchInput).toBeVisible();
+  await searchInput.fill(targetCategory.minor);
+
+  const option = picker.getByTestId("transaction-category-option").filter({ hasText: targetCategory.minor }).first();
+  await expect(option).toBeVisible();
+  await option.click();
+
+  await expect(labeledField(transactionSheet, "카테고리 그룹", "select")).toHaveValue(targetCategory.major);
+  const categorySelect = transactionSheet
+    .locator("label")
+    .filter({ hasText: /^\s*카테고리\s*\(/ })
+    .locator("select")
+    .first();
+  await expect(categorySelect).toHaveValue(String(category.id));
+  await capture(page, "issue-193-desktop-category-one-step-entry");
+});
+
+test("issue 193: inline transaction edit searches category in one step", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("tx-cat-inline")}@example.com`;
+  const displayName = unique("tx-cat-inline-name");
+  const memo = unique("tx-cat-inline-memo");
+  const sourceCategory = {
+    major: unique("기존분류"),
+    minor: unique("기존항목"),
+  };
+  const targetCategory = {
+    major: unique("수정분류"),
+    minor: unique("수정항목"),
+  };
+
+  await registerAndVerify(page, { email, displayName });
+  const [source, target] = await Promise.all([
+    createCategoryViaApi(page, sourceCategory),
+    createCategoryViaApi(page, targetCategory),
+  ]);
+  await createTransactionViaApi(page, {
+    memo,
+    amount: "12000",
+    categoryId: source.id,
+    occurredOn: currentE2EHistoryDateIso(),
+  });
+  await page.reload();
+  await page.waitForLoadState("networkidle");
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openTab(page, "거래");
+
+  const row = page.locator("tr.transaction-row", { hasText: memo }).first();
+  await expect(row).toBeVisible({ timeout: 20_000 });
+  await clickDesktopTransactionRowAction(row, "수정");
+  const editorRow = page.locator("tr.transaction-inline-editor-row").first();
+  await expect(editorRow).toBeVisible();
+
+  const picker = editorRow.getByTestId("transaction-category-quick-picker");
+  await expect(picker).toBeVisible();
+
+  const searchInput = picker.getByTestId("transaction-category-search");
+  await expect(searchInput).toBeVisible();
+  await searchInput.fill(targetCategory.minor);
+
+  const option = picker.getByTestId("transaction-category-option").filter({ hasText: targetCategory.minor }).first();
+  await expect(option).toBeVisible();
+  await option.click();
+
+  await expect(editorRow.getByLabel("카테고리 그룹", { exact: true })).toHaveValue(targetCategory.major);
+  await expect(editorRow.getByLabel("카테고리", { exact: true })).toHaveValue(String(target.id));
+  await capture(page, "issue-193-inline-category-one-step-edit");
+});
+
+test("issue 194: desktop transaction entry creates and applies a missing category inline", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("tx-cat-create-entry")}@example.com`;
+  const displayName = unique("tx-cat-create-entry-name");
+  const targetCategory = {
+    major: unique("즉시분류"),
+    minor: unique("즉시항목"),
+  };
+
+  await registerAndVerify(page, { email, displayName });
+
+  const transactionSheet = await openTransactionEntrySheet(page, { width: 1440, height: 900 });
+  const picker = transactionSheet.getByTestId("transaction-category-quick-picker");
+  await expect(picker).toBeVisible();
+  await createTransactionCategoryFromQuickPicker(picker, targetCategory);
+
+  await expect(labeledField(transactionSheet, "카테고리 그룹", "select")).toHaveValue(targetCategory.major);
+  const categorySelect = transactionSheet
+    .locator("label")
+    .filter({ hasText: /^\s*카테고리\s*\(/ })
+    .locator("select")
+    .first();
+  await expect(categorySelect).not.toHaveValue("");
+  await expect(categorySelect.locator("option:checked")).toContainText(targetCategory.minor);
+  await capture(page, "issue-194-desktop-inline-category-create");
+});
+
+test("issue 194: inline transaction edit creates and applies a missing category inline", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("tx-cat-create-inline")}@example.com`;
+  const displayName = unique("tx-cat-create-inline-name");
+  const memo = unique("tx-cat-create-inline-memo");
+  const sourceCategory = {
+    major: unique("기존즉시분류"),
+    minor: unique("기존즉시항목"),
+  };
+  const targetCategory = {
+    major: unique("수정즉시분류"),
+    minor: unique("수정즉시항목"),
+  };
+
+  await registerAndVerify(page, { email, displayName });
+  const source = await createCategoryViaApi(page, sourceCategory);
+  await createTransactionViaApi(page, {
+    memo,
+    amount: "12000",
+    categoryId: source.id,
+    occurredOn: currentE2EHistoryDateIso(),
+  });
+  await page.reload();
+  await page.waitForLoadState("networkidle");
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openTab(page, "거래");
+
+  const row = page.locator("tr.transaction-row", { hasText: memo }).first();
+  await expect(row).toBeVisible({ timeout: 20_000 });
+  await clickDesktopTransactionRowAction(row, "수정");
+  const editorRow = page.locator("tr.transaction-inline-editor-row").first();
+  await expect(editorRow).toBeVisible();
+
+  const picker = editorRow.getByTestId("transaction-category-quick-picker");
+  await expect(picker).toBeVisible();
+  await createTransactionCategoryFromQuickPicker(picker, targetCategory);
+
+  await expect(editorRow.getByLabel("카테고리 그룹", { exact: true })).toHaveValue(targetCategory.major);
+  await expect(editorRow.getByLabel("카테고리", { exact: true }).locator("option:checked")).toContainText(targetCategory.minor);
+  await capture(page, "issue-194-inline-category-create");
+});
+
+test("issue 195: transaction entry keeps a compatible category when type changes", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("tx-flow-compatible")}@example.com`;
+  const displayName = unique("tx-flow-compatible-name");
+  const categoryPair = {
+    major: unique("유형공유분류"),
+    minor: unique("유형공유항목"),
+  };
+
+  await registerAndVerify(page, { email, displayName });
+  const expenseCategory = await createCategoryViaApi(page, {
+    ...categoryPair,
+    flowType: "expense",
+  });
+  const incomeCategory = await createCategoryViaApi(page, {
+    ...categoryPair,
+    flowType: "income",
+  });
+  await page.reload();
+  await page.waitForLoadState("networkidle");
+
+  const transactionSheet = await openTransactionEntrySheet(page, { width: 1440, height: 900 });
+  await selectTransactionFormCategory(transactionSheet, expenseCategory);
+  await labeledField(transactionSheet, "유형", "select").selectOption("income");
+
+  await expect(labeledField(transactionSheet, "카테고리 그룹", "select")).toHaveValue(categoryPair.major);
+  await expect(
+    transactionSheet
+      .locator("label")
+      .filter({ hasText: /^\s*카테고리\s*\(/ })
+      .locator("select")
+      .first()
+  ).toHaveValue(String(incomeCategory.id));
+  await expect(transactionSheet.getByTestId("transaction-category-restore-notice")).toHaveCount(0);
+  await capture(page, "issue-195-entry-compatible-category-kept");
+});
+
+test("issue 195: transaction entry offers a category restore when type clears selection", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("tx-flow-restore")}@example.com`;
+  const displayName = unique("tx-flow-restore-name");
+  const category = {
+    major: unique("유형복구분류"),
+    minor: unique("유형복구항목"),
+  };
+
+  await registerAndVerify(page, { email, displayName });
+  const expenseCategory = await createCategoryViaApi(page, category);
+  await page.reload();
+  await page.waitForLoadState("networkidle");
+
+  const transactionSheet = await openTransactionEntrySheet(page, { width: 1440, height: 900 });
+  await selectTransactionFormCategory(transactionSheet, expenseCategory);
+  const typeSelect = labeledField(transactionSheet, "유형", "select");
+  await typeSelect.selectOption("income");
+
+  const restoreNotice = transactionSheet.getByTestId("transaction-category-restore-notice");
+  await expect(restoreNotice).toContainText("카테고리 선택을 비웠습니다.");
+  await expect(restoreNotice).toContainText(category.minor);
+  await expect(
+    transactionSheet
+      .locator("label")
+      .filter({ hasText: /^\s*카테고리\s*\(/ })
+      .locator("select")
+      .first()
+  ).toHaveValue("");
+
+  await transactionSheet.getByTestId("transaction-category-restore-button").click();
+  await expect(typeSelect).toHaveValue("expense");
+  await expect(labeledField(transactionSheet, "카테고리 그룹", "select")).toHaveValue(category.major);
+  await expect(
+    transactionSheet
+      .locator("label")
+      .filter({ hasText: /^\s*카테고리\s*\(/ })
+      .locator("select")
+      .first()
+  ).toHaveValue(String(expenseCategory.id));
+  await capture(page, "issue-195-entry-category-restored");
+});
+
+test("issue 195: inline transaction edit restores the original category after type change", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("tx-flow-inline")}@example.com`;
+  const displayName = unique("tx-flow-inline-name");
+  const memo = unique("tx-flow-inline-memo");
+  const category = {
+    major: unique("인라인복구분류"),
+    minor: unique("인라인복구항목"),
+  };
+
+  await registerAndVerify(page, { email, displayName });
+  const expenseCategory = await createCategoryViaApi(page, category);
+  await createTransactionViaApi(page, {
+    memo,
+    amount: "12000",
+    categoryId: expenseCategory.id,
+    occurredOn: currentE2EHistoryDateIso(),
+  });
+  await page.reload();
+  await page.waitForLoadState("networkidle");
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openTab(page, "거래");
+
+  const row = page.locator("tr.transaction-row", { hasText: memo }).first();
+  await expect(row).toBeVisible({ timeout: 20_000 });
+  await clickDesktopTransactionRowAction(row, "수정");
+  const editorRow = page.locator("tr.transaction-inline-editor-row").first();
+  await expect(editorRow).toBeVisible();
+
+  const typeSelect = editorRow.getByLabel("유형", { exact: true });
+  await typeSelect.selectOption("income");
+  const restoreNotice = editorRow.getByTestId("tx-inline-category-restore-notice");
+  await expect(restoreNotice).toContainText("원래 카테고리를 잃을 수 있습니다.");
+  await expect(restoreNotice).toContainText(category.minor);
+  await expect(editorRow.getByLabel("카테고리", { exact: true })).toHaveValue("");
+
+  await editorRow.getByTestId("tx-inline-category-restore-button").click();
+  await expect(typeSelect).toHaveValue("expense");
+  await expect(editorRow.getByLabel("카테고리 그룹", { exact: true })).toHaveValue(category.major);
+  await expect(editorRow.getByLabel("카테고리", { exact: true })).toHaveValue(String(expenseCategory.id));
+  await capture(page, "issue-195-inline-original-category-restored");
+});
+
+test("issue 196: transaction save clears hiding filters and reveals the saved row", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("tx-save-filter")}@example.com`;
+  const displayName = unique("tx-save-filter-name");
+  const seedMemo = unique("tx-save-filter-seed");
+  const savedMemo = unique("tx-save-filter-saved");
+  const occurredOn = currentE2EHistoryDateIso();
+  const categoryPair = {
+    major: unique("저장필터분류"),
+    minor: unique("저장필터항목"),
+  };
+
+  await registerAndVerify(page, { email, displayName });
+  const incomeCategory = await createCategoryViaApi(page, {
+    ...categoryPair,
+    flowType: "income",
+  });
+  const expenseCategory = await createCategoryViaApi(page, categoryPair);
+  await createTransactionViaApi(page, {
+    memo: seedMemo,
+    amount: "12000",
+    flowType: "income",
+    categoryId: incomeCategory.id,
+    occurredOn,
+  });
+  await page.reload();
+  await page.waitForLoadState("networkidle");
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openTab(page, "거래");
+
+  const listCard = page.locator(".transaction-list-card").first();
+  await expect(listCard).toBeVisible();
+  await expect(page.locator("tr.transaction-row", { hasText: seedMemo }).first()).toBeVisible({ timeout: 20_000 });
+  await page.getByTestId("transaction-sticky-toolbar").getByRole("button", { name: "필터 열기" }).click();
+  await expect(listCard.locator(".tx-header-filters")).toBeVisible();
+  await listCard.locator(".tx-header-filter-search input").fill(seedMemo);
+  await listCard.locator(".tx-header-filter-type select").selectOption("income");
+  await expect(page.locator("tr.transaction-row", { hasText: seedMemo }).first()).toBeVisible();
+  await capture(page, "issue-196-active-filter-before-save");
+
+  const transactionSheet = await openTransactionEntrySheet(page, { width: 1440, height: 900 });
+  await labeledField(transactionSheet, "일자", "input").fill(occurredOn);
+  await labeledField(transactionSheet, "유형", "select").selectOption("expense");
+  await selectTransactionFormCategory(transactionSheet, expenseCategory);
+  await selectFirstNonEmptyOption(labeledField(transactionSheet, "거래자", "select"));
+  await labeledField(transactionSheet, "금액", "input").fill("34567");
+  await labeledField(transactionSheet, "메모", "input").fill(savedMemo);
+  await capture(page, "issue-196-save-with-hiding-filter");
+  await transactionSheet.getByRole("button", { name: "거래 등록" }).click();
+
+  const savedRow = page.locator("tr.transaction-row", { hasText: savedMemo }).first();
+  await expect(savedRow).toBeVisible({ timeout: 20_000 });
+  await expect(savedRow).toHaveAttribute("data-save-highlight", "true");
+  await expect(listCard.locator(".surface-control-strip")).toContainText("필터 기본");
+  await expect(listCard.locator(".tx-header-filter-search input")).toHaveValue("");
+  await expect(listCard.locator(".tx-header-filter-type select")).toHaveValue("all");
+  await capture(page, "issue-196-saved-row-visible-after-filter-clear");
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(savedRow).toBeVisible();
+  await expect(savedRow).toHaveAttribute("data-save-highlight", "true");
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "issue-196-mobile-saved-row-visible-after-filter-clear");
+});
+
+test("issue 212: mobile transaction quick amount requests a numeric keypad", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("tx-mobile-amount-keypad")}@example.com`;
+  const displayName = unique("tx-mobile-amount-keypad-name");
+
+  await registerAndVerify(page, { email, displayName });
+
+  const transactionSheet = await openMobileTransactionQuickEntry(page);
+  const quickAmount = page.getByTestId("transaction-quick-amount");
+  await expect(quickAmount).toBeVisible();
+  await expect(quickAmount).toBeFocused();
+  await expect(quickAmount, "quick entry amount keeps text formatting support").toHaveAttribute("type", "text");
+  await expect(quickAmount, "quick entry amount requests mobile numeric keypad").toHaveAttribute("inputmode", "numeric");
+  await expect(quickAmount, "quick entry amount advances to the next field").toHaveAttribute("enterkeyhint", "next");
+  const quickAttributes = await quickAmount.evaluate((input) => ({
+    type: input.getAttribute("type"),
+    inputMode: input.getAttribute("inputmode"),
+    pattern: input.getAttribute("pattern"),
+    placeholder: input.getAttribute("placeholder"),
+  }));
+  expect(quickAttributes).toEqual({
+    type: "text",
+    inputMode: "numeric",
+    pattern: null,
+    placeholder: "0",
+  });
+  await capture(page, "issue-212-mobile-quick-amount-numeric-keypad");
+
+  await expect(transactionSheet).toContainText("현재 위치를 유지한 채 새 거래를 추가합니다.");
+});
+
+test("mobile quick entry keeps repeat context and returns focus to amount", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("tx-repeat-mobile")}@example.com`;
+  const displayName = unique("tx-repeat-mobile-name");
+  await registerAndVerify(page, { email, displayName });
+  const category = await createCategoryViaApi(page, {
+    major: unique("반복모바일"),
+    minor: unique("영수증"),
+  });
+  await page.reload();
+  await page.waitForLoadState("networkidle");
+  const firstMemo = unique("tx-repeat-mobile-first");
+  const secondMemo = unique("tx-repeat-mobile-second");
+  const occurredOn = currentE2EHistoryDateIso(-1);
+
+  const transactionSheet = await openMobileTransactionQuickEntry(page);
+  const quickAmount = page.getByTestId("transaction-quick-amount");
+  const memoInput = labeledField(transactionSheet, "메모", "input");
+
+  await openTransactionQuickDetails(transactionSheet, "추가 입력");
+  const dateInput = labeledField(transactionSheet, "일자", "input");
+  const typeSelect = labeledField(transactionSheet, "유형", "select");
+  const ownerSelect = labeledField(transactionSheet, "거래자", "select");
+  await dateInput.fill(occurredOn);
+  await typeSelect.selectOption("expense");
+  await selectFirstNonEmptyOption(ownerSelect);
+  const ownerValue = await ownerSelect.inputValue();
+  await openTransactionQuickDetails(transactionSheet, "전체 카테고리");
+  const { majorSelect, categorySelect } = await selectTransactionFormCategory(transactionSheet, category);
+  await quickAmount.fill("12345");
+  await memoInput.fill(firstMemo);
+  await capture(page, "transactions-repeat-mobile-before-save");
+
+  await page.getByTestId("transaction-quick-save").click();
+  await expect(page.locator("tr.transaction-row", { hasText: firstMemo }).first()).toBeVisible({ timeout: 20_000 });
+
+  await expect(transactionSheet).toBeVisible();
+  await expect(quickAmount).toHaveValue("");
+  await expect(memoInput).toHaveValue("");
+  await expect(dateInput).toHaveValue(occurredOn);
+  await expect(typeSelect).toHaveValue("expense");
+  await expect(majorSelect).toHaveValue(category.major);
+  await expect(categorySelect).toHaveValue(String(category.id));
+  await expect(ownerSelect).toHaveValue(ownerValue);
+  await expect(quickAmount).toBeFocused();
+  await capture(page, "transactions-repeat-mobile-context-preserved");
+
+  await quickAmount.fill("23456");
+  await memoInput.fill(secondMemo);
+  await page.getByTestId("transaction-quick-save").click();
+  await expect(page.locator("tr.transaction-row", { hasText: secondMemo }).first()).toBeVisible({ timeout: 20_000 });
+});
+
+test("mobile quick entry rejects decimal KRW amount immediately", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("tx-quick-decimal")}@example.com`;
+  const displayName = unique("tx-quick-decimal-name");
+  const memo = unique("tx-quick-decimal-memo");
+
+  await registerAndVerify(page, { email, displayName });
+
+  const transactionSheet = await openMobileTransactionQuickEntry(page);
+  const quickAmount = page.getByTestId("transaction-quick-amount");
+  await expect(quickAmount).toBeVisible();
+  await expect(quickAmount).toHaveAttribute("inputmode", "numeric");
+  await quickAmount.click();
+  await quickAmount.fill("");
+  await quickAmount.pressSequentially("123.6");
+  await expect(quickAmount).toHaveValue("123.6");
+
+  const appMessage = page.locator(".message").first();
+  await expect(appMessage).toContainText("원화 금액은 소수 없이 정수로 입력해 주세요.");
+  await labeledField(transactionSheet, "메모", "input").fill(memo);
+  await page.getByTestId("transaction-quick-save").click();
+  await expect(appMessage).toContainText("원화 금액은 소수 없이 정수로 입력해 주세요.");
+  await expect(page.locator("tr.transaction-row", { hasText: memo })).toHaveCount(0);
+  await capture(page, "transactions-quick-decimal-rejected");
+});
+
 test("mobile quick entry selected category chip remains readable while hovered", async ({ page }) => {
   test.setTimeout(180_000);
 
@@ -961,6 +1853,58 @@ test("mobile transaction month stepper keeps usable touch targets", async ({ pag
   expectTransactionMonthTouchTargets(layout, "320px transaction month stepper");
   await expectNoHorizontalOverflow(page, 12);
   await capture(page, "transactions-mobile-month-touch-targets");
+});
+
+test("issue 197: transaction month direct input clearly marks unapplied changes until Enter", async ({ page }) => {
+  test.setTimeout(150_000);
+
+  const email = `${unique("tx-month-apply")}@example.com`;
+  const displayName = unique("tx-month-apply-name");
+  const currentMemo = unique("tx-month-apply-current");
+  const previousMemo = unique("tx-month-apply-previous");
+  const currentDate = currentE2EHistoryDateIso();
+  const previousDate = currentE2EHistoryDateIso(-35);
+  const previousMonth = yearMonthFromIso(previousDate);
+
+  await registerAndVerify(page, { email, displayName });
+  await createTransactionViaApi(page, { memo: currentMemo, amount: "12000", occurredOn: currentDate });
+  await createTransactionViaApi(page, { memo: previousMemo, amount: "34000", occurredOn: previousDate });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openTab(page, "거래");
+
+  const listCard = page.locator(".transaction-list-card").first();
+  await expect(listCard).toBeVisible();
+  await expect(page.locator("tr.transaction-row", { hasText: currentMemo }).first()).toBeVisible({ timeout: 20_000 });
+  await page.waitForLoadState("networkidle");
+
+  const previousMonthRequests = [];
+  page.on("response", (response) => {
+    if (isMonthlyTransactionsResponse(response, previousMonth)) {
+      previousMonthRequests.push(response.url());
+    }
+  });
+
+  await listCard.getByLabel("연도").fill(String(previousMonth.year));
+  await listCard.getByLabel("월").fill(String(previousMonth.month));
+  const pendingStatus = page.getByTestId("transaction-month-pending-status");
+  await expect(pendingStatus).toBeVisible();
+  await expect(pendingStatus).toContainText("변경됨");
+  await expect(pendingStatus).toContainText("Enter");
+  await expect(page.locator("tr.transaction-row", { hasText: currentMemo }).first()).toBeVisible();
+  await page.waitForTimeout(500);
+  expect(previousMonthRequests, "direct month edits should not reload monthly transactions before Enter").toHaveLength(0);
+  await capture(page, "issue-197-month-input-unapplied");
+  await expect(pendingStatus).toBeVisible();
+
+  const appliedResponse = page.waitForResponse(
+    (response) => isMonthlyTransactionsResponse(response, previousMonth),
+    { timeout: 20_000 }
+  );
+  await listCard.getByLabel("월").press("Enter");
+  await appliedResponse;
+  await expect(pendingStatus).toHaveCount(0);
+  await expect(page.locator("tr.transaction-row", { hasText: previousMemo }).first()).toBeVisible({ timeout: 20_000 });
+  await capture(page, "issue-197-month-input-applied");
 });
 
 test("mobile transaction category flow summaries wrap long leading labels", async ({ page }) => {
@@ -1250,7 +2194,7 @@ test("transaction ledger stays readable in landscape compact width", async ({ pa
   await capture(page, "transactions-landscape-compact-ledger");
 });
 
-test("mobile quick entry preserves a closed draft and clears it only through reset", async ({ page }) => {
+test("issue 192: mobile quick entry asks before closing a dirty draft and preserves it", async ({ page }) => {
   test.setTimeout(180_000);
 
   const email = `${unique("tx-quick-draft")}@example.com`;
@@ -1296,6 +2240,18 @@ test("mobile quick entry preserves a closed draft and clears it only through res
   }
 
   await page.getByTestId("transaction-entry-sheet-close").click();
+  const closeDraftDialog = page.getByRole("alertdialog");
+  await expect(closeDraftDialog.getByRole("heading", { name: "거래 입력을 닫을까요?" })).toBeVisible();
+  await expect(closeDraftDialog).toContainText("작성 중인 거래 초안은 보존됩니다.");
+  await closeDraftDialog.getByRole("button", { name: "취소" }).click();
+  await expect(closeDraftDialog).toBeHidden();
+  await expect(transactionSheet).toBeVisible();
+  await expect(page.getByTestId("transaction-quick-amount")).toHaveValue("11,223");
+  await expect(labeledField(transactionSheet, "메모", "input")).toHaveValue(draftMemo);
+
+  await page.getByTestId("transaction-entry-sheet-close").click();
+  await expect(closeDraftDialog.getByRole("heading", { name: "거래 입력을 닫을까요?" })).toBeVisible();
+  await closeDraftDialog.getByRole("button", { name: "입력 닫기" }).click();
   await expect(transactionSheet).toBeHidden();
 
   transactionSheet = await openMobileTransactionQuickEntry(page);
@@ -1469,6 +2425,30 @@ test("mobile quick entry defaults owner to current user over recent other member
   await capture(page, "transactions-quick-entry-current-owner");
 });
 
+test("desktop transaction entry defaults owner and exposes quick member selection", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("tx-owner-default-desktop")}@example.com`;
+  const displayName = "댕";
+  await registerAndVerify(page, { email, displayName });
+  const currentUser = await page.evaluate(async () => {
+    const response = await fetch("/api/v1/auth/me", { credentials: "include" });
+    return response.json();
+  });
+
+  const transactionSheet = await openTransactionEntrySheet(page, { width: 1440, height: 900 });
+  const ownerSelect = labeledField(transactionSheet, "거래자", "select");
+  await expect(ownerSelect).toHaveValue(currentUser.id);
+  await expect(ownerSelect.locator("option:checked")).toContainText(displayName);
+
+  const ownerQuickSelect = transactionSheet.getByTestId("transaction-owner-quick-select");
+  await expect(ownerQuickSelect).toBeVisible();
+  const currentUserChip = ownerQuickSelect.getByRole("button", { name: `${displayName} 거래자 선택` });
+  await expect(currentUserChip).toBeVisible();
+  await expect(currentUserChip).toHaveAttribute("aria-pressed", "true");
+  await capture(page, "issue-201-transaction-owner-quick-select");
+});
+
 test("mobile quick entry keeps owner override and filters ordered category chips", async ({ page }) => {
   test.setTimeout(180_000);
 
@@ -1555,6 +2535,61 @@ test("mobile quick entry keeps owner override and filters ordered category chips
   await staleHistoryFixture.unroute();
 });
 
+test("issue 82: mobile quick category guidance and chips stay readable at 320px", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("tx-issue-82")}@example.com`;
+  const displayName = unique("tx-issue-82-name");
+  const memo = unique("tx-issue-82-memo");
+  const category = {
+    major: unique("지출"),
+    minor: unique("테스트긴분류명"),
+  };
+
+  await registerAndVerify(page, { email, displayName });
+  const createdCategory = await createCategoryViaApi(page, category);
+  await createTransactionViaApi(page, {
+    memo,
+    amount: "82000",
+    categoryId: createdCategory.id,
+    ownerName: displayName,
+  });
+  await page.reload();
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.addStyleTag({
+    content: 'html, body, button, input, select, textarea { font-family: "Malgun Gothic", "Noto Sans KR", sans-serif !important; }',
+  });
+
+  await openMobileTransactionQuickEntry(page);
+  await expect(page.getByTestId("transaction-quick-form")).toBeVisible();
+  await expect(page.getByTestId("transaction-quick-category-chip").first()).toBeVisible();
+  await expectQuickCategoryLayoutStable(page);
+
+  const issueMetrics = await page.locator(".transaction-quick-category-panel").evaluate((panel) => {
+    const hint = panel.querySelector(".transaction-quick-section-title small");
+    const chips = Array.from(panel.querySelectorAll("[data-testid='transaction-quick-category-chip']"));
+    return {
+      hintText: hint?.textContent?.trim() || "",
+      hintClientWidth: hint?.clientWidth || 0,
+      hintScrollWidth: hint?.scrollWidth || 0,
+      hintClientHeight: hint?.clientHeight || 0,
+      hintScrollHeight: hint?.scrollHeight || 0,
+      chipHeights: chips.map((chip) => chip.getBoundingClientRect().height),
+      chipTexts: chips.map((chip) => chip.textContent?.trim() || ""),
+    };
+  });
+
+  expect(issueMetrics.hintText).toBe("추천 카테고리를 탭하면 바로 연결됩니다.");
+  expect(issueMetrics.hintScrollWidth, JSON.stringify(issueMetrics)).toBeLessThanOrEqual(issueMetrics.hintClientWidth + 1);
+  expect(issueMetrics.hintScrollHeight, JSON.stringify(issueMetrics)).toBeLessThanOrEqual(issueMetrics.hintClientHeight + 1);
+  expect(issueMetrics.chipHeights.every((height) => height >= 44), JSON.stringify(issueMetrics)).toBe(true);
+  expect(issueMetrics.chipTexts.join(" ")).toContain(category.minor);
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "issue-82-mobile-category-guidance-fit");
+  await page.getByTestId("transaction-quick-category-chip").first().scrollIntoViewIfNeeded();
+  await capture(page, "issue-82-mobile-category-chip-fit");
+});
+
 test("mobile quick entry stays usable across viewport and Korean font fallbacks", async ({ page }) => {
   test.setTimeout(180_000);
 
@@ -1597,6 +2632,311 @@ test("mobile quick entry stays usable across viewport and Korean font fallbacks"
     await capture(page, `transactions-quick-entry-${scenario.slug}`);
     await page.getByTestId("transaction-entry-sheet-close").click();
     await expect(transactionSheet).toBeHidden();
+  }
+});
+
+
+test("desktop transaction row click and sweep selection keep toolbar summary stable", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("tx-row-select")}@example.com`;
+  const displayName = unique("tx-row-select-name");
+  const memoPrefix = unique("tx-row-select-memo");
+  const amounts = [12345, 23456, 34567, 45678, 56789, 67890];
+  const memos = amounts.map((_, index) => `${memoPrefix}-${String(index).padStart(2, "0")}`);
+
+  await registerAndVerify(page, { email, displayName });
+  for (const [index, memo] of memos.entries()) {
+    await createTransactionViaApi(page, {
+      memo,
+      amount: String(amounts[index]),
+      ownerName: displayName,
+      sourceRef: `${memoPrefix}-source-${index}`,
+    });
+  }
+  await page.reload();
+  await page.setViewportSize({ width: 1366, height: 960 });
+  await openTab(page, "거래");
+  await page.waitForLoadState("networkidle");
+
+  const rows = page.locator("tr.transaction-row[data-transaction-id]");
+  await expect(rows.nth(2)).toBeVisible({ timeout: 20_000 });
+  await expectTransactionSelectionSummary(page, 0, "0원");
+  await expectTransactionStickyHeaderGeometry(page, "desktop transaction sticky header before selection");
+
+  const targetRow = page.locator("tr.transaction-row", { hasText: memos[0] }).first();
+  await targetRow.evaluate((element) => element.scrollIntoView({ block: "center", inline: "nearest" }));
+  await page.waitForTimeout(150);
+  const targetTopBefore = await targetRow.evaluate((row) => row.getBoundingClientRect().top);
+  const headerBeforeClick = await readTransactionStickyHeaderGeometry(page);
+  await targetRow.locator(".transaction-col-memo").click();
+  await expect(targetRow).toHaveAttribute("data-row-selected", "true");
+  await expect(targetRow).toHaveAttribute("aria-selected", "true");
+  await expectTransactionSelectionSummary(page, 1, `${amounts[0].toLocaleString("ko-KR")}원`);
+  const targetTopAfter = await targetRow.evaluate((row) => row.getBoundingClientRect().top);
+  expect(Math.abs(targetTopAfter - targetTopBefore), "first row selection should not insert a flow banner that moves rows").toBeLessThanOrEqual(1.5);
+  const headerAfterClick = await readTransactionStickyHeaderGeometry(page);
+  expect(
+    Math.abs((headerAfterClick.header.box?.top ?? 0) - (headerBeforeClick.header.box?.top ?? 0)),
+    `desktop header should not jump after toolbar summary update: ${JSON.stringify({ headerBeforeClick, headerAfterClick })}`,
+  ).toBeLessThanOrEqual(4);
+
+  await clearTransactionSelection(page);
+  await expect(targetRow).toHaveAttribute("data-row-selected", "false");
+  await targetRow.locator("td").first().locator("input[type='checkbox']").check();
+  await expect(targetRow).toHaveAttribute("data-row-selected", "true");
+  await expectTransactionSelectionSummary(page, 1, `${amounts[0].toLocaleString("ko-KR")}원`);
+  await clearTransactionSelection(page);
+
+  const headerCheckbox = page.getByLabel("표시된 거래 전체 선택");
+  await headerCheckbox.check();
+  const selectedAfterHeaderCheck = await page.locator("tr.transaction-row[data-row-selected='true']").count();
+  expect(selectedAfterHeaderCheck, "header checkbox should select at least this test's visible seeded rows").toBeGreaterThanOrEqual(
+    memos.length,
+  );
+  await expectTransactionSelectionSummary(page, selectedAfterHeaderCheck);
+  await headerCheckbox.uncheck();
+  await expectTransactionSelectionSummary(page, 0, "0원");
+
+  const sweepRows = [memos[1], memos[2], memos[3]].map((memo) =>
+    page.locator("tr.transaction-row", { hasText: memo }).first(),
+  );
+  await sweepRows[0].evaluate((element) => element.scrollIntoView({ block: "center", inline: "nearest" }));
+  await page.waitForTimeout(150);
+  await sweepSelectRows(page, sweepRows);
+  await expectNoActiveTextSelection(page, "desktop row sweep selection");
+  for (const row of sweepRows) {
+    await expect(row).toHaveAttribute("data-row-selected", "true");
+    await expect(row).toHaveAttribute("data-row-expanded", "false");
+  }
+  const selectedAfterSweep = await page.locator("tr.transaction-row[data-row-selected='true']").count();
+  expect(selectedAfterSweep, "sweep should select at least the rows that the pointer passed over").toBeGreaterThanOrEqual(3);
+  await expectTransactionSelectionSummary(page, selectedAfterSweep);
+
+  const toolbar = page.getByTestId("transaction-sticky-toolbar");
+  await toolbar.getByRole("button", { name: "필터 열기" }).click();
+  await expect(toolbar.locator(".tx-header-filters")).toBeVisible();
+  await expectTransactionSelectionSummary(page, selectedAfterSweep);
+  await toolbar.getByRole("button", { name: "필터 닫기" }).click();
+  await expect(toolbar.locator(".tx-header-filters")).toBeHidden();
+  await capture(page, "transactions-row-selection-desktop");
+});
+
+test("issue 233: desktop transaction selection checkboxes expose a 32px hit target", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("tx-checkbox-hitarea")}@example.com`;
+  const displayName = unique("tx-checkbox-hitarea-name");
+  const memo = unique("tx-checkbox-hitarea-memo");
+
+  await registerAndVerify(page, { email, displayName });
+  await createTransactionViaApi(page, {
+    memo,
+    amount: "23300",
+    ownerName: displayName,
+  });
+  await page.reload();
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await openTab(page, "거래");
+  await page.waitForLoadState("networkidle");
+
+  const headerCheckbox = page.getByLabel("표시된 거래 전체 선택");
+  const targetRow = page.locator("tr.transaction-row", { hasText: memo }).first();
+  const rowCheckbox = targetRow.locator(".transaction-col-select input[type='checkbox']").first();
+  await expect(rowCheckbox).toBeVisible({ timeout: 20_000 });
+  const checkboxMetrics = await Promise.all(
+    [headerCheckbox, rowCheckbox].map((locator) =>
+      locator.evaluate((input) => {
+        const rect = input.getBoundingClientRect();
+        const cellRect = input.closest(".transaction-col-select")?.getBoundingClientRect();
+        return {
+          width: rect.width,
+          height: rect.height,
+          cellWidth: cellRect?.width || 0,
+          cellHeight: cellRect?.height || 0,
+        };
+      }),
+    ),
+  );
+  for (const metric of checkboxMetrics) {
+    expect(metric.width, "desktop transaction checkbox width should be at least 32px").toBeGreaterThanOrEqual(32);
+    expect(metric.height, "desktop transaction checkbox height should be at least 32px").toBeGreaterThanOrEqual(32);
+    expect(metric.cellWidth, "desktop transaction selection cell should contain the checkbox target").toBeGreaterThanOrEqual(32);
+  }
+
+  await rowCheckbox.check();
+  await expect(targetRow).toHaveAttribute("data-row-selected", "true");
+  await expectTransactionSelectionSummary(page, 1, "23,300원");
+  await capture(page, "issue-233-desktop-transaction-checkbox-hitarea");
+});
+
+test("desktop transaction sticky column titles and sweep auto-scroll selection toggle work", async ({ page }) => {
+  test.setTimeout(240_000);
+
+  const email = `${unique("tx-row-sweep-scroll")}@example.com`;
+  const displayName = unique("tx-row-sweep-scroll-name");
+  const memoPrefix = unique("tx-row-sweep-scroll-memo");
+  const rowCount = 52;
+  const amounts = Array.from({ length: rowCount }, (_, index) => 1000 + index * 111);
+  const memos = amounts.map((_, index) => `${memoPrefix}-${String(index).padStart(2, "0")}`);
+
+  await registerAndVerify(page, { email, displayName });
+  for (const [index, memo] of memos.entries()) {
+    await createTransactionViaApi(page, {
+      memo,
+      amount: String(amounts[index]),
+      ownerName: displayName,
+      sourceRef: `${memoPrefix}-source-${index}`,
+    });
+  }
+  await page.reload();
+  await page.setViewportSize({ width: 1366, height: 620 });
+  await openTab(page, "거래");
+  await page.waitForLoadState("networkidle");
+  await expect(page.locator("tr.transaction-row", { hasText: memos[2] }).first()).toBeVisible({ timeout: 20_000 });
+
+  await page.evaluate(() => window.scrollTo(0, Math.min(document.documentElement.scrollHeight - window.innerHeight, 520)));
+  await page.waitForTimeout(250);
+  await expectTransactionStickyHeaderGeometry(page, "desktop sticky column titles after page scroll");
+  await expectDesktopTransactionColumnHeaderLabels(page, "desktop sticky column titles after page scroll");
+
+  const startScrollY = await page.evaluate(() => window.scrollY);
+  const startRow = page.locator("tr.transaction-row", { hasText: memos[4] }).first();
+  await startRow.evaluate((element) => element.scrollIntoView({ block: "center", inline: "nearest" }));
+  await page.waitForTimeout(150);
+  await sweepFromRowToViewportEdge(page, startRow, "down", 1200);
+  await expectNoActiveTextSelection(page, "desktop auto-scroll sweep selection");
+  const afterDownScrollY = await page.evaluate(() => window.scrollY);
+  expect(afterDownScrollY, "dragging near the lower viewport edge should auto-scroll the ledger").toBeGreaterThan(
+    startScrollY + 80,
+  );
+  const selectedAfterAutoScroll = await page.locator("tr.transaction-row[data-row-selected='true']").count();
+  expect(selectedAfterAutoScroll, "auto-scroll sweep should select multiple rows while the page scrolls").toBeGreaterThanOrEqual(5);
+  await expectTransactionSelectionSummary(page, selectedAfterAutoScroll);
+  await expect(page.locator("tr.transaction-row[data-row-expanded='true']")).toHaveCount(0);
+  await expectTransactionStickyHeaderGeometry(page, "desktop sticky column titles after auto-scroll select");
+  await expectDesktopTransactionColumnHeaderLabels(page, "desktop sticky column titles after auto-scroll select");
+
+  const selectedRowsBeforeDeselect = selectedAfterAutoScroll;
+  const selectedRows = page.locator("tr.transaction-row[data-row-selected='true']");
+  await selectedRows.first().evaluate((element) => element.scrollIntoView({ block: "center", inline: "nearest" }));
+  await page.waitForTimeout(150);
+  await sweepSelectRows(page, [
+    selectedRows.nth(0),
+    selectedRows.nth(1),
+    selectedRows.nth(2),
+  ]);
+  await expectNoActiveTextSelection(page, "desktop sweep deselection without scroll");
+  const selectedAfterDeselectSweep = await page.locator("tr.transaction-row[data-row-selected='true']").count();
+  expect(
+    selectedAfterDeselectSweep,
+    "starting a sweep on selected rows should deselect visited rows",
+  ).toBeLessThanOrEqual(selectedRowsBeforeDeselect - 2);
+  await expectTransactionSelectionSummary(page, selectedAfterDeselectSweep);
+  await expect(page.locator("tr.transaction-row[data-row-expanded='true']")).toHaveCount(0);
+
+  const selectedForUpwardDeselect = page.locator("tr.transaction-row[data-row-selected='true']").last();
+  await selectedForUpwardDeselect.evaluate((element) => element.scrollIntoView({ block: "center", inline: "nearest" }));
+  await page.waitForTimeout(150);
+  const beforeUpDeselectY = await page.evaluate(() => window.scrollY);
+  const selectedBeforeUpDeselect = await page.locator("tr.transaction-row[data-row-selected='true']").count();
+  await sweepFromRowToViewportEdge(page, selectedForUpwardDeselect, "up", 900);
+  await expectNoActiveTextSelection(page, "desktop upward auto-scroll sweep deselection");
+  const afterUpDeselectY = await page.evaluate(() => window.scrollY);
+  expect(afterUpDeselectY, "dragging near the upper viewport edge should auto-scroll upward").toBeLessThan(
+    beforeUpDeselectY - 20,
+  );
+  const selectedAfterUpDeselect = await page.locator("tr.transaction-row[data-row-selected='true']").count();
+  expect(
+    selectedAfterUpDeselect,
+    "auto-scroll deselection sweep should reduce selected rows",
+  ).toBeLessThan(selectedBeforeUpDeselect);
+  await expectTransactionSelectionSummary(page, selectedAfterUpDeselect);
+  await expect(page.locator("tr.transaction-row[data-row-expanded='true']")).toHaveCount(0);
+  await expectTransactionStickyHeaderGeometry(page, "desktop sticky column titles after sweep deselect");
+  await capture(page, "transactions-row-selection-autoscroll-toggle");
+});
+
+test("mobile transaction row selection, touch scroll, and sticky ledger head survive Korean font viewports", async ({ page }) => {
+  test.setTimeout(240_000);
+
+  const email = `${unique("tx-mobile-row-select")}@example.com`;
+  const displayName = unique("tx-mobile-row-select-name");
+  const memoPrefix = unique("tx-mobile-row-select-memo");
+  const amounts = Array.from({ length: 24 }, (_, index) => 11000 + index * 777);
+  const memos = amounts.map((_, index) => `${memoPrefix}-${String(index).padStart(2, "0")}`);
+  const scenarios = [
+    { label: "390px Apple SD Gothic Neo", width: 390, height: 844, font: "Apple SD Gothic Neo", targetIndex: 2, scrollIndex: 13 },
+    { label: "320px Malgun Gothic", width: 320, height: 568, font: "Malgun Gothic", targetIndex: 4, scrollIndex: 15 },
+    { label: "432px Noto Sans KR", width: 432, height: 936, font: "Noto Sans KR", targetIndex: 6, scrollIndex: 17 },
+  ];
+
+  await registerAndVerify(page, { email, displayName });
+  for (const [index, memo] of memos.entries()) {
+    await createTransactionViaApi(page, {
+      memo,
+      amount: String(amounts[index]),
+      ownerName: displayName,
+      sourceRef: `${memoPrefix}-source-${index}`,
+    });
+  }
+
+  for (const scenario of scenarios) {
+    await page.reload();
+    await page.setViewportSize({ width: scenario.width, height: scenario.height });
+    await page.addStyleTag({
+      content: `html, body, button, input, select, textarea { font-family: "${scenario.font}", "Noto Sans KR", sans-serif !important; }`,
+    });
+    await openTab(page, "거래");
+    await page.waitForLoadState("networkidle");
+    await expect(page.locator("tr.transaction-row", { hasText: memos[scenario.targetIndex] }).first()).toBeVisible({
+      timeout: 20_000,
+    });
+    await expectNoHorizontalOverflow(page, 12);
+    await expectTransactionSelectionSummary(page, 0, "0원");
+
+    const stickyBeforeSelection = await expectTransactionStickyHeaderGeometry(page, `${scenario.label} sticky ledger before selection`);
+    const targetRow = page.locator("tr.transaction-row", { hasText: memos[scenario.targetIndex] }).first();
+    await targetRow.evaluate((element) => element.scrollIntoView({ block: "center", inline: "nearest" }));
+    await page.waitForTimeout(150);
+    const headerBeforeClick = await readTransactionStickyHeaderGeometry(page);
+    await targetRow.locator(".transaction-col-memo").click();
+    await expect(targetRow).toHaveAttribute("data-row-selected", "true");
+    await expect(targetRow).toHaveClass(/mobile-row-expanded/);
+    await expect(
+      targetRow.locator("xpath=following-sibling::tr[1][contains(@class,'transaction-mobile-expanded-actions-row')]"),
+    ).toBeVisible();
+    await expectTransactionSelectionSummary(
+      page,
+      1,
+      `${amounts[scenario.targetIndex].toLocaleString("ko-KR")}원`,
+    );
+    const headerAfterClick = await expectTransactionStickyHeaderGeometry(page, `${scenario.label} sticky ledger after row selection`);
+    expect(
+      Math.abs((headerAfterClick.gap ?? 0) - (stickyBeforeSelection.gap ?? 0)),
+      `${scenario.label} ledger head gap should remain stable after row selection: ${JSON.stringify({
+        stickyBeforeSelection,
+        headerBeforeClick,
+        headerAfterClick,
+      })}`,
+    ).toBeLessThanOrEqual(8);
+
+    await clearTransactionSelection(page);
+    const scrollRow = page.locator("tr.transaction-row", { hasText: memos[scenario.scrollIndex] }).first();
+    await scrollRow.evaluate((element) => element.scrollIntoView({ block: "center", inline: "nearest" }));
+    await page.waitForTimeout(150);
+    const touchMetrics = await performTouchScrollGestureOnRow(page, scrollRow);
+    expect(touchMetrics.touchAction, `${scenario.label} rows should preserve vertical touch scrolling`).toBe("pan-y");
+    expect(
+      touchMetrics.afterScrollY,
+      `${scenario.label} touch-like vertical drag should scroll the page: ${JSON.stringify(touchMetrics)}`,
+    ).toBeGreaterThan(touchMetrics.beforeScrollY + 8);
+    await expect(scrollRow).toHaveAttribute("data-row-selected", "false");
+    await expect(scrollRow).not.toHaveClass(/mobile-row-expanded/);
+    await expectTransactionSelectionSummary(page, 0, "0원");
+    await expectTransactionStickyHeaderGeometry(page, `${scenario.label} sticky ledger after touch scroll`);
+    await expectNoHorizontalOverflow(page, 12);
+    await capture(page, `transactions-row-selection-mobile-${scenario.width}`);
   }
 });
 
@@ -1647,7 +2987,7 @@ test("transaction FAB and sticky toolbar stay reachable after ledger scroll", as
   expect(toolbarMetrics.box.bottom, `desktop toolbar should stay within viewport: ${JSON.stringify(toolbarMetrics)}`).toBeLessThan(
     toolbarMetrics.viewportHeight,
   );
-  await expectTransactionFabBottomRightReachable(page, "desktop transaction FAB after ledger scroll");
+  const desktopAddAction = await expectDesktopTransactionAddActionReachable(page, "desktop transaction add action after ledger scroll");
 
   await toolbar.getByRole("button", { name: "필터 열기" }).click();
   await expect(toolbar.locator(".tx-header-filters")).toBeVisible();
@@ -1656,12 +2996,12 @@ test("transaction FAB and sticky toolbar stay reachable after ledger scroll", as
   await expect(toolbar.locator(".tx-header-filters")).toBeHidden();
 
   const desktopScrollBeforeSheet = await page.evaluate(() => window.scrollY);
-  await page.getByTestId("transactions-fab").evaluate((element) => element.click());
+  await desktopAddAction.click();
   await expect(page.getByRole("dialog", { name: "거래 추가 레이어" })).toBeVisible();
   await expect(labeledField(page.getByTestId("transaction-entry-sheet"), "금액", "input")).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("transaction-entry-sheet")).toBeHidden();
-  await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute("data-testid") || "")).toBe("transactions-fab");
+  await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute("data-testid") || "")).toBe("transactions-desktop-add-action");
   const desktopScrollAfterSheet = await page.evaluate(() => window.scrollY);
   expect(Math.abs(desktopScrollAfterSheet - desktopScrollBeforeSheet)).toBeLessThanOrEqual(16);
 
@@ -1688,6 +3028,957 @@ test("transaction FAB and sticky toolbar stay reachable after ledger scroll", as
   expect(Math.abs(mobileScrollAfterSheet - mobileScrollBeforeSheet)).toBeLessThanOrEqual(16);
 });
 
+test("issue 211: transaction add opens a visible sheet from a scrolled list", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("tx-add-visible")}@example.com`;
+  const displayName = unique("tx-add-visible-name");
+  const memoPrefix = unique("tx-add-visible-row");
+
+  await registerAndVerify(page, { email, displayName });
+  for (let index = 0; index < 32; index += 1) {
+    await createTransactionViaApi(page, {
+      memo: `${memoPrefix}-${String(index).padStart(2, "0")}`,
+      amount: String(9000 + index),
+      ownerName: displayName,
+      sourceRef: `${memoPrefix}-source-${index}`,
+    });
+  }
+
+  await page.setViewportSize({ width: 1366, height: 960 });
+  await openTab(page, "거래");
+  await page.waitForLoadState("networkidle");
+  await expect(page.locator("tr.transaction-row", { hasText: `${memoPrefix}-00` }).first()).toBeVisible();
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  await page.waitForTimeout(250);
+
+  const scrollBeforeSheet = await page.evaluate(() => window.scrollY);
+  const transactionAddAction = await expectDesktopTransactionAddActionReachable(page, "issue 211 desktop transaction add action");
+  await capture(page, "issue-211-scrolled-list-before-add");
+
+  await transactionAddAction.click();
+  const transactionSheet = page.getByTestId("transaction-entry-sheet");
+  await expect(page.getByRole("dialog", { name: "거래 추가 레이어" })).toBeVisible();
+  await expect(labeledField(transactionSheet, "금액", "input")).toBeVisible();
+  const sheetMetrics = await transactionSheet.evaluate((sheet) => {
+    const backdrop = sheet.closest(".transaction-entry-sheet-backdrop");
+    const sheetBox = sheet.getBoundingClientRect();
+    const backdropStyle = backdrop ? getComputedStyle(backdrop) : null;
+    return {
+      backdropPosition: backdropStyle?.position || "",
+      backdropZIndex: Number.parseInt(backdropStyle?.zIndex || "0", 10),
+      sheetTop: sheetBox.top,
+      sheetBottom: sheetBox.bottom,
+      viewportHeight: window.innerHeight,
+      viewportWidth: window.innerWidth,
+    };
+  });
+  expect(sheetMetrics.backdropPosition, JSON.stringify(sheetMetrics)).toBe("fixed");
+  expect(sheetMetrics.backdropZIndex, JSON.stringify(sheetMetrics)).toBeGreaterThan(50);
+  expect(sheetMetrics.sheetTop, JSON.stringify(sheetMetrics)).toBeGreaterThanOrEqual(0);
+  expect(sheetMetrics.sheetBottom, JSON.stringify(sheetMetrics)).toBeLessThanOrEqual(sheetMetrics.viewportHeight);
+  const scrollAfterSheet = await page.evaluate(() => window.scrollY);
+  expect(Math.abs(scrollAfterSheet - scrollBeforeSheet)).toBeLessThanOrEqual(16);
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "issue-211-transaction-add-sheet-visible");
+
+  await page.keyboard.press("Escape");
+  await expect(transactionSheet).toBeHidden();
+  await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute("data-testid") || "")).toBe("transactions-desktop-add-action");
+});
+
+test("issue 213: mobile transaction add inherits the visible month date context", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("tx-add-month-context")}@example.com`;
+  const displayName = unique("tx-add-month-context-name");
+  const monthContextDate = isoDaysFromToday(-75);
+  const { year, month } = yearMonthFromIso(monthContextDate);
+  const monthPrefix = `${year}-${String(month).padStart(2, "0")}`;
+  const monthMemo = unique("tx-add-month-context-row");
+
+  await registerAndVerify(page, { email, displayName });
+  await createTransactionViaApi(page, {
+    memo: monthMemo,
+    amount: "21300",
+    occurredOn: monthContextDate,
+    ownerName: displayName,
+    sourceRef: `${monthMemo}-source`,
+  });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openTab(page, "거래");
+  await jumpTransactionListToMonth(page, monthContextDate);
+  await expect(page.locator("tr.transaction-row", { hasText: monthMemo }).first()).toBeVisible({ timeout: 30_000 });
+  await expectTransactionMonthControls(page, monthContextDate, "issue 213 visible month context");
+  await capture(page, "issue-213-mobile-month-context-before-add");
+
+  const transactionFab = page.getByTestId("transactions-fab");
+  await expect(transactionFab).toBeVisible();
+  await transactionFab.click();
+  const transactionSheet = page.getByTestId("transaction-entry-sheet");
+  await expect(page.getByRole("dialog", { name: "거래 추가 레이어" })).toBeVisible();
+  await expect(transactionSheet).toContainText("현재 위치를 유지한 채 새 거래를 추가합니다.");
+
+  const details = await openTransactionQuickDetails(transactionSheet, "추가 입력");
+  const dateInput = labeledField(details, "일자", "input");
+  await expect(dateInput).toBeVisible();
+  await expect(dateInput).toHaveValue(new RegExp(`^${monthPrefix}-`));
+  await capture(page, "issue-213-mobile-add-date-in-visible-month-context");
+});
+
+test("issue 234: mobile transaction add first screen shows the saved context", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("tx-add-context-first-screen")}@example.com`;
+  const displayName = unique("tx-add-context-first-screen-name");
+
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 320, height: 568 });
+  const transactionSheet = await openMobileTransactionQuickEntry(page);
+  await expect(page.getByRole("dialog", { name: "거래 추가 레이어" })).toBeVisible();
+  await expect(page.getByTestId("transaction-quick-save")).toBeVisible();
+
+  const contextSummary = page.getByTestId("transaction-quick-context-summary");
+  await expect(contextSummary).toBeVisible();
+  const contextItems = [
+    ["transaction-quick-context-flow", "유형"],
+    ["transaction-quick-context-date", "일자"],
+    ["transaction-quick-context-owner", "거래자"],
+    ["transaction-quick-context-category", "카테고리"],
+  ];
+  for (const [testId, label] of contextItems) {
+    await expect(page.getByTestId(testId)).toContainText(label);
+  }
+
+  const metrics = await contextSummary.evaluate((summary) => {
+    const sheet = summary.closest("[data-testid='transaction-entry-sheet']");
+    const recommendation = sheet?.querySelector(".transaction-quick-category-panel");
+    const saveButton = sheet?.querySelector("[data-testid='transaction-quick-save']");
+    const summaryRect = summary.getBoundingClientRect();
+    const recommendationRect = recommendation?.getBoundingClientRect();
+    const saveRect = saveButton?.getBoundingClientRect();
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+    const itemRects = Array.from(summary.querySelectorAll(".transaction-quick-context-item")).map((item) => {
+      const rect = item.getBoundingClientRect();
+      return {
+        text: item.textContent?.replace(/\s+/g, " ").trim() || "",
+        top: rect.top,
+        bottom: rect.bottom,
+        width: rect.width,
+      };
+    });
+    return {
+      viewportHeight,
+      summaryTop: summaryRect.top,
+      summaryBottom: summaryRect.bottom,
+      recommendationTop: recommendationRect?.top || 0,
+      saveTop: saveRect?.top || 0,
+      saveBottom: saveRect?.bottom || 0,
+      itemRects,
+    };
+  });
+
+  expect(metrics.summaryTop, JSON.stringify(metrics)).toBeGreaterThanOrEqual(0);
+  expect(metrics.summaryBottom, JSON.stringify(metrics)).toBeLessThanOrEqual(metrics.viewportHeight);
+  expect(metrics.recommendationTop, "recommendation should remain below the context summary").toBeGreaterThan(
+    metrics.summaryBottom
+  );
+  expect(metrics.saveTop, JSON.stringify(metrics)).toBeLessThan(metrics.viewportHeight);
+  expect(metrics.itemRects.every((item) => item.bottom <= metrics.viewportHeight && item.width > 0), JSON.stringify(metrics)).toBe(
+    true
+  );
+  await expect(transactionSheet.locator("details.transaction-quick-details[open]")).toHaveCount(0);
+  await capture(page, "issue-234-mobile-add-context-first-screen");
+});
+
+test("issue 237: mobile transaction edit keeps completion controls in the first viewport", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("tx-mobile-edit-save-flow")}@example.com`;
+  const displayName = unique("tx-mobile-edit-save-flow-name");
+  const memo = unique("tx-mobile-edit-save-flow-memo");
+  const occurredOn = currentE2EHistoryDateIso();
+
+  await registerAndVerify(page, { email, displayName });
+  await createTransactionViaApi(page, {
+    memo,
+    amount: "23700",
+    occurredOn,
+    ownerName: displayName,
+  });
+  await page.reload();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openTab(page, "거래");
+  await page.waitForLoadState("networkidle");
+
+  const mobileRow = page.locator("tr.transaction-row", { hasText: memo }).first();
+  await expect(mobileRow).toBeVisible({ timeout: 20_000 });
+  await mobileRow.locator(".mobile-toggle-btn").first().click();
+  const expandedActionRow = mobileRow.locator(
+    "xpath=following-sibling::tr[1][contains(@class,'transaction-mobile-expanded-actions-row')]",
+  );
+  await expect(expandedActionRow).toBeVisible();
+  await expandedActionRow.getByRole("button", { name: "수정" }).click();
+
+  const editorRow = page.locator("tr.transaction-inline-editor-row").first();
+  await expect(editorRow).toBeVisible();
+  const actions = editorRow.locator(".tx-inline-editor-actions");
+  await expect(actions.getByRole("button", { name: "저장" })).toBeVisible();
+  await expect(actions.getByRole("button", { name: "취소" })).toBeVisible();
+
+  const metrics = await editorRow.evaluate((row) => {
+    const actionsElement = row.querySelector(".tx-inline-editor-actions");
+    const firstField = row.querySelector(".tx-inline-date-field");
+    const amountField = row.querySelector(".tx-inline-amount-field");
+    const actionsBox = actionsElement?.getBoundingClientRect();
+    const firstFieldBox = firstField?.getBoundingClientRect();
+    const amountFieldBox = amountField?.getBoundingClientRect();
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+    return {
+      viewportHeight,
+      actionsTop: actionsBox?.top ?? null,
+      actionsBottom: actionsBox?.bottom ?? null,
+      firstFieldTop: firstFieldBox?.top ?? null,
+      amountFieldBottom: amountFieldBox?.bottom ?? null,
+    };
+  });
+  expect(metrics.actionsTop, `edit actions should be measurable: ${JSON.stringify(metrics)}`).not.toBeNull();
+  expect(metrics.actionsTop, `edit actions should stay in the initial viewport: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(0);
+  expect(metrics.actionsBottom, `edit actions should stay in the initial viewport: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(
+    metrics.viewportHeight - 8,
+  );
+  expect(metrics.firstFieldTop, `first edit field should be measurable: ${JSON.stringify(metrics)}`).not.toBeNull();
+  expect(
+    metrics.actionsTop,
+    `completion controls should be presented before edit fields on mobile: ${JSON.stringify(metrics)}`,
+  ).toBeLessThanOrEqual(metrics.firstFieldTop + 1);
+  await expect(page.getByTestId("transactions-fab")).toHaveCount(0);
+  await capture(page, "issue-237-mobile-edit-save-flow-first-screen");
+});
+
+test("issue 198: mobile collapsed transaction row keeps key details and actions visible", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("tx-mobile-row-action")}@example.com`;
+  const displayName = unique("tx-mobile-row-action-name");
+  const memo = unique("tx-mobile-row-action-memo");
+  const category = await registerAndVerify(page, { email, displayName }).then(() =>
+    createCategoryViaApi(page, {
+      major: unique("행요약"),
+      minor: unique("즉시수정"),
+    })
+  );
+
+  await createTransactionViaApi(page, {
+    memo,
+    amount: "19800",
+    categoryId: category.id,
+    ownerName: displayName,
+  });
+  await page.reload();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openTab(page, "거래");
+  await page.waitForLoadState("networkidle");
+
+  const mobileRow = page.locator("tr.transaction-row", { hasText: memo }).first();
+  await expect(mobileRow).toBeVisible({ timeout: 20_000 });
+  await expect(mobileRow).not.toHaveClass(/mobile-row-expanded/);
+
+  const metrics = await mobileRow.evaluate((row, expectedOwner) => {
+    const visible = (selector) => {
+      const element = row.querySelector(selector);
+      if (!element) {
+        return null;
+      }
+      const box = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return {
+        text: element.textContent?.replace(/\s+/g, " ").trim() || "",
+        ariaLabel: element.getAttribute("aria-label") || "",
+        display: style.display,
+        visibility: style.visibility,
+        width: box.width,
+        height: box.height,
+        hidden: style.display === "none" || style.visibility === "hidden" || box.width <= 0 || box.height <= 0,
+      };
+    };
+    const rowBox = row.getBoundingClientRect();
+    const actions = Array.from(row.querySelectorAll(".transaction-col-actions button")).map((button) => {
+      const box = button.getBoundingClientRect();
+      const style = getComputedStyle(button);
+      return {
+        text: button.textContent?.replace(/\s+/g, " ").trim() || button.getAttribute("aria-label") || "",
+        ariaLabel: button.getAttribute("aria-label") || "",
+        display: style.display,
+        visibility: style.visibility,
+        width: box.width,
+        height: box.height,
+        hidden: style.display === "none" || style.visibility === "hidden" || box.width <= 0 || box.height <= 0,
+      };
+    });
+    return {
+      row: {
+        width: rowBox.width,
+        height: rowBox.height,
+        expanded: row.getAttribute("data-row-expanded"),
+      },
+      category: visible(".transaction-mobile-category-cue"),
+      memo: visible(".transaction-memo-text"),
+      owner: visible(".transaction-owner-summary"),
+      actions,
+      pageOverflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      expectedOwner,
+    };
+  }, displayName);
+
+  expect(metrics.row.expanded, `row should stay collapsed: ${JSON.stringify(metrics)}`).toBe("false");
+  expect(metrics.category?.hidden, `collapsed category summary should be visible: ${JSON.stringify(metrics)}`).toBe(false);
+  expect(metrics.category?.text || "", `collapsed category summary should name the category: ${JSON.stringify(metrics)}`).toContain(
+    "즉시수정",
+  );
+  expect(metrics.memo?.hidden, `collapsed memo should stay visible: ${JSON.stringify(metrics)}`).toBe(false);
+  expect(metrics.memo?.text || "", `collapsed memo should keep the memo text: ${JSON.stringify(metrics)}`).toBe(memo);
+  expect(metrics.owner?.hidden, `collapsed owner summary should be visible: ${JSON.stringify(metrics)}`).toBe(false);
+  expect(metrics.owner?.text || "", `collapsed owner summary should use the full owner label: ${JSON.stringify(metrics)}`).toBe(displayName);
+  for (const label of ["수정", "삭제", "거래 세부 보기"]) {
+    const button = metrics.actions.find((action) => action.text === label || action.ariaLabel === label);
+    expect(button, `${label} action should exist in the collapsed row: ${JSON.stringify(metrics)}`).toBeTruthy();
+    expect(button?.hidden, `${label} action should be directly visible in the collapsed row: ${JSON.stringify(metrics)}`).toBe(false);
+    expect(button?.height ?? 0, `${label} action should keep a touchable height: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(32);
+  }
+  expect(metrics.row.height, `collapsed row should stay compact enough for scanning: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(96);
+  expect(metrics.pageOverflowX, `collapsed row should not cause horizontal overflow: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "issue-198-mobile-row-key-details-actions");
+});
+
+test("issue 220: mobile collapsed transaction row scans as one ledger line", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("tx-one-line-row")}@example.com`;
+  const displayName = unique("tx-one-line-owner");
+  const memo = unique("tx-one-line-memo");
+  const category = await registerAndVerify(page, { email, displayName }).then(() =>
+    createCategoryViaApi(page, {
+      major: unique("한줄요약"),
+      minor: unique("스캔"),
+    })
+  );
+
+  await createTransactionViaApi(page, {
+    memo,
+    amount: "22000",
+    categoryId: category.id,
+    ownerName: displayName,
+  });
+  await page.reload();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openTab(page, "거래");
+  await page.waitForLoadState("networkidle");
+
+  const mobileRow = page.locator("tr.transaction-row", { hasText: memo }).first();
+  await expect(mobileRow).toBeVisible({ timeout: 20_000 });
+  await expect(mobileRow).not.toHaveClass(/mobile-row-expanded/);
+
+  const metrics = await mobileRow.evaluate((row) => {
+    const read = (selector) => {
+      const element = row.querySelector(selector);
+      if (!element) {
+        return null;
+      }
+      const box = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      const hidden = style.display === "none" || style.visibility === "hidden" || box.width <= 0 || box.height <= 0;
+      return {
+        text: element.textContent?.replace(/\s+/g, " ").trim() || element.getAttribute("aria-label") || "",
+        ariaLabel: element.getAttribute("aria-label") || "",
+        top: box.top,
+        bottom: box.bottom,
+        center: box.top + box.height / 2,
+        width: box.width,
+        height: box.height,
+        hidden,
+      };
+    };
+    const rowBox = row.getBoundingClientRect();
+    const buttons = Array.from(row.querySelectorAll(".transaction-col-actions button")).map((button) => {
+      const box = button.getBoundingClientRect();
+      const style = getComputedStyle(button);
+      return {
+        text: button.textContent?.replace(/\s+/g, " ").trim() || button.getAttribute("aria-label") || "",
+        ariaLabel: button.getAttribute("aria-label") || "",
+        top: box.top,
+        bottom: box.bottom,
+        center: box.top + box.height / 2,
+        width: box.width,
+        height: box.height,
+        hidden: style.display === "none" || style.visibility === "hidden" || box.width <= 0 || box.height <= 0,
+      };
+    });
+    const lineItems = [
+      read(".mobile-date-text"),
+      read(".transaction-flow-short"),
+      read(".transaction-mobile-category-cue"),
+      read(".transaction-memo-text"),
+      read(".transaction-owner-summary"),
+      read(".transaction-amount-text"),
+      ...buttons,
+    ].filter((item) => item && !item.hidden);
+    const centers = lineItems.map((item) => item.center);
+    const centerBandCount = new Set(lineItems.map((item) => Math.round(item.center / 4) * 4)).size;
+    return {
+      row: {
+        height: rowBox.height,
+        expanded: row.getAttribute("data-row-expanded"),
+      },
+      lineItems,
+      buttons,
+      centerBandCount,
+      centerSpread: Math.max(...centers) - Math.min(...centers),
+      pageOverflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    };
+  });
+
+  expect(metrics.row.expanded, `row should stay collapsed: ${JSON.stringify(metrics)}`).toBe("false");
+  expect(metrics.row.height, `collapsed row should fit a one-line ledger scan: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(58);
+  expect(metrics.centerBandCount, `collapsed row should not split visible content into stacked center lines: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(2);
+  expect(metrics.centerSpread, `date/type/memo/amount/actions should share one scan line: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(12);
+  for (const label of ["수정", "삭제", "거래 세부 보기"]) {
+    const button = metrics.buttons.find((action) => action.text === label || action.ariaLabel === label);
+    expect(button, `${label} action should remain direct in the one-line row: ${JSON.stringify(metrics)}`).toBeTruthy();
+    expect(button?.hidden, `${label} action should remain visible in the one-line row: ${JSON.stringify(metrics)}`).toBe(false);
+    expect(button?.height ?? 0, `${label} action should keep a touchable height: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(32);
+  }
+  expect(metrics.pageOverflowX, `one-line row should not cause horizontal overflow: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "issue-220-mobile-row-one-line-summary");
+});
+
+test("issue 221: mobile transaction status chips keep clear action in viewport", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("tx-status-chip-row")}@example.com`;
+  const displayName = unique("tx-status-chip-owner");
+
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openTab(page, "거래");
+  await page.waitForLoadState("networkidle");
+
+  const toolbar = page.getByTestId("transaction-sticky-toolbar");
+  const controlStrip = toolbar.locator(".surface-control-strip").first();
+  const clearButton = controlStrip.getByRole("button", { name: "선택 해제" });
+  await expect(controlStrip).toBeVisible();
+  await expect(clearButton).toBeVisible();
+
+  const metrics = await controlStrip.evaluate((strip) => {
+    const stripBox = strip.getBoundingClientRect();
+    const stripStyle = getComputedStyle(strip);
+    const items = Array.from(strip.querySelectorAll(".surface-chip, .transaction-selection-clear")).map((item) => {
+      const box = item.getBoundingClientRect();
+      const style = getComputedStyle(item);
+      return {
+        text: item.textContent?.replace(/\s+/g, " ").trim() || item.getAttribute("aria-label") || "",
+        left: box.left,
+        right: box.right,
+        width: box.width,
+        height: box.height,
+        hidden: style.display === "none" || style.visibility === "hidden" || box.width <= 0 || box.height <= 0,
+      };
+    });
+    const visibleItems = items.filter((item) => !item.hidden);
+    return {
+      viewportWidth: document.documentElement.clientWidth,
+      strip: {
+        left: stripBox.left,
+        right: stripBox.right,
+        clientWidth: strip.clientWidth,
+        scrollWidth: strip.scrollWidth,
+        overflowX: stripStyle.overflowX,
+        flexWrap: stripStyle.flexWrap,
+      },
+      visibleItems,
+      clippedItems: visibleItems.filter(
+        (item) =>
+          item.left < stripBox.left - 1 ||
+          item.right > stripBox.right + 1 ||
+          item.left < -1 ||
+          item.right > document.documentElement.clientWidth + 1
+      ),
+    };
+  });
+
+  expect(metrics.strip.flexWrap, `status chips should wrap instead of hiding overflow: ${JSON.stringify(metrics)}`).toBe("wrap");
+  expect(metrics.strip.scrollWidth, `status chip strip should not require hidden horizontal scroll: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(
+    metrics.strip.clientWidth + 1
+  );
+  expect(metrics.clippedItems, `status chips and clear action should stay in the viewport: ${JSON.stringify(metrics)}`).toEqual([]);
+  expect(metrics.visibleItems.map((item) => item.text).join(" ")).toContain("선택 해제");
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "issue-221-mobile-status-chips-visible");
+});
+
+test("issue 222: mobile transaction add FAB does not cover bottom ledger rows", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("tx-fab-clearance")}@example.com`;
+  const displayName = unique("tx-fab-clearance-owner");
+  const memoPrefix = unique("tx-fab-clearance-row");
+  const category = await registerAndVerify(page, { email, displayName }).then(() =>
+    createCategoryViaApi(page, {
+      major: unique("FAB겹침"),
+      minor: unique("하단행"),
+    })
+  );
+
+  for (let index = 0; index < 18; index += 1) {
+    await createTransactionViaApi(page, {
+      memo: `${memoPrefix}-${String(index).padStart(2, "0")}`,
+      amount: String(1200 + index),
+      categoryId: category.id,
+      ownerName: displayName,
+    });
+  }
+
+  await page.reload();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openTab(page, "거래");
+  await page.waitForLoadState("networkidle");
+
+  const transactionFab = page.getByTestId("transactions-fab");
+  await expect(transactionFab).toBeVisible();
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  await page.waitForTimeout(300);
+
+  const metrics = await page.evaluate(() => {
+    const fab = document.querySelector("[data-testid='transactions-fab']");
+    const fabBox = fab?.getBoundingClientRect();
+    const intersects = (left, right, inset = 0) =>
+      Boolean(
+        left &&
+          right &&
+          left.left + inset < right.right &&
+          left.right - inset > right.left &&
+          left.top + inset < right.bottom &&
+          left.bottom - inset > right.top
+      );
+    const boxOf = (element) => {
+      if (!element) {
+        return null;
+      }
+      const box = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      const hidden = style.display === "none" || style.visibility === "hidden" || box.width <= 0 || box.height <= 0;
+      return {
+        text: element.textContent?.replace(/\s+/g, " ").trim() || element.getAttribute("aria-label") || "",
+        left: box.left,
+        right: box.right,
+        top: box.top,
+        bottom: box.bottom,
+        width: box.width,
+        height: box.height,
+        hidden,
+      };
+    };
+    const rows = Array.from(document.querySelectorAll("tr.transaction-row"))
+      .map((row) => {
+        const rowBox = row.getBoundingClientRect();
+        const targets = [
+          ".mobile-date-text",
+          ".transaction-flow-short",
+          ".transaction-mobile-category-cue",
+          ".transaction-memo-text",
+          ".transaction-owner-summary",
+          ".transaction-amount-text",
+        ]
+          .map((selector) => boxOf(row.querySelector(selector)))
+          .concat(Array.from(row.querySelectorAll(".transaction-col-actions button")).map((button) => boxOf(button)))
+          .filter((target) => target && !target.hidden);
+        return {
+          text: row.textContent?.replace(/\s+/g, " ").trim() || "",
+          row: {
+            left: rowBox.left,
+            right: rowBox.right,
+            top: rowBox.top,
+            bottom: rowBox.bottom,
+            width: rowBox.width,
+            height: rowBox.height,
+          },
+          targets,
+          coveredTargets: targets.filter((target) => intersects(target, fabBox, 1)),
+          rowIntersectsFab: intersects(rowBox, fabBox, 1),
+        };
+      })
+      .filter((row) => row.row.top < window.innerHeight && row.row.bottom > 0);
+    return {
+      scrollY: window.scrollY,
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+      fab: fabBox
+        ? {
+            left: fabBox.left,
+            right: fabBox.right,
+            top: fabBox.top,
+            bottom: fabBox.bottom,
+            width: fabBox.width,
+            height: fabBox.height,
+          }
+        : null,
+      visibleRows: rows.map((row) => ({
+        text: row.text,
+        row: row.row,
+        rowIntersectsFab: row.rowIntersectsFab,
+        coveredTargets: row.coveredTargets,
+      })),
+      coveredRows: rows.filter((row) => row.coveredTargets.length > 0),
+      visibleRowCount: rows.length,
+      lowestVisibleRowBottom: rows.reduce((maxBottom, row) => Math.max(maxBottom, row.row.bottom), 0),
+      bottomFabClearance: fabBox ? fabBox.top - rows.reduce((maxBottom, row) => Math.max(maxBottom, row.row.bottom), 0) : null,
+      pageOverflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    };
+  });
+
+  expect(metrics.fab, `transaction FAB should have geometry: ${JSON.stringify(metrics)}`).toBeTruthy();
+  expect(metrics.visibleRowCount, `test should exercise visible ledger rows: ${JSON.stringify(metrics)}`).toBeGreaterThan(0);
+  expect(metrics.bottomFabClearance, `bottom rows should stop above the fixed FAB safe zone: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(16);
+  expect(metrics.coveredRows, `FAB should not cover readable or tappable row content: ${JSON.stringify(metrics)}`).toEqual([]);
+  expect(metrics.pageOverflowX, `FAB clearance should not create horizontal overflow: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "issue-222-mobile-fab-bottom-row-clearance");
+});
+
+test("issue 223: desktop transaction add action does not cover bottom row actions", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("tx-desktop-fab-clearance")}@example.com`;
+  const displayName = unique("tx-desktop-fab-owner");
+  const memoPrefix = unique("tx-desktop-fab-row");
+  const category = await registerAndVerify(page, { email, displayName }).then(() =>
+    createCategoryViaApi(page, {
+      major: unique("DesktopFAB"),
+      minor: unique("동작열"),
+    })
+  );
+
+  for (let index = 0; index < 36; index += 1) {
+    await createTransactionViaApi(page, {
+      memo: `${memoPrefix}-${String(index).padStart(2, "0")}`,
+      amount: String(3200 + index),
+      categoryId: category.id,
+      ownerName: displayName,
+    });
+  }
+
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await openTab(page, "거래");
+  await page.waitForLoadState("networkidle");
+
+  await page.evaluate(() => {
+    const fab = document.querySelector("[data-testid='transactions-fab']");
+    const row = Array.from(document.querySelectorAll("tr.transaction-row"))[Math.min(28, document.querySelectorAll("tr.transaction-row").length - 1)];
+    const actionButton = row?.querySelector(".transaction-col-actions button");
+    const fabBox = fab?.getBoundingClientRect();
+    const actionBox = actionButton?.getBoundingClientRect();
+    if (!fabBox || !actionBox) {
+      window.scrollTo(0, document.documentElement.scrollHeight);
+      return;
+    }
+    const actionCenterY = actionBox.top + window.scrollY + actionBox.height / 2;
+    const fabCenterY = fabBox.top + fabBox.height / 2;
+    window.scrollTo(0, Math.max(0, actionCenterY - fabCenterY));
+  });
+  await page.waitForTimeout(300);
+
+  const metrics = await page.evaluate(() => {
+    const fixedFab = document.querySelector("[data-testid='transactions-fab']");
+    const desktopAdd = document.querySelector("[data-testid='transactions-desktop-add-action']");
+    const boxOf = (element) => {
+      if (!element) {
+        return null;
+      }
+      const box = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return {
+        text: element.textContent?.replace(/\s+/g, " ").trim() || element.getAttribute("aria-label") || "",
+        left: box.left,
+        right: box.right,
+        top: box.top,
+        bottom: box.bottom,
+        width: box.width,
+        height: box.height,
+        display: style.display,
+        position: style.position,
+        visibility: style.visibility,
+      };
+    };
+    const intersects = (left, right, inset = 0) =>
+      Boolean(
+        left &&
+          right &&
+          left.left + inset < right.right &&
+          left.right - inset > right.left &&
+          left.top + inset < right.bottom &&
+          left.bottom - inset > right.top
+      );
+    const fabBox = boxOf(fixedFab);
+    const actionTargets = Array.from(document.querySelectorAll("tr.transaction-row .transaction-col-actions button"))
+      .map((button) => {
+        const box = boxOf(button);
+        if (!box) {
+          return null;
+        }
+        const centerX = box.left + box.width / 2;
+        const centerY = box.top + box.height / 2;
+        const topElement = document.elementFromPoint(centerX, centerY);
+        return {
+          ...box,
+          centerX,
+          centerY,
+          centerCoveredByFab: Boolean(
+            fabBox &&
+              centerX >= fabBox.left &&
+              centerX <= fabBox.right &&
+              centerY >= fabBox.top &&
+              centerY <= fabBox.bottom
+          ),
+          hitVisible: Boolean(topElement && (topElement === button || button.contains(topElement))),
+        };
+      })
+      .filter((target) => target && target.top < window.innerHeight && target.bottom > 0);
+    return {
+      scrollY: window.scrollY,
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+      fixedFab: fabBox,
+      desktopAdd: boxOf(desktopAdd),
+      coveredActionTargets: actionTargets.filter((target) => intersects(target, fabBox, 1)),
+      centerCoveredActionTargets: actionTargets.filter((target) => target.centerCoveredByFab && !target.hitVisible),
+      visibleActionTargetCount: actionTargets.length,
+      pageOverflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    };
+  });
+
+  expect(metrics.visibleActionTargetCount, `test should exercise visible row action targets: ${JSON.stringify(metrics)}`).toBeGreaterThan(0);
+  expect(metrics.coveredActionTargets, `desktop add affordance should not cover row action boxes: ${JSON.stringify(metrics)}`).toEqual([]);
+  expect(metrics.centerCoveredActionTargets, `desktop row action centers should remain directly hittable: ${JSON.stringify(metrics)}`).toEqual([]);
+  expect(metrics.desktopAdd, `desktop add action should be docked in the toolbar: ${JSON.stringify(metrics)}`).toBeTruthy();
+  expect(metrics.desktopAdd.display, `desktop add action should be visible: ${JSON.stringify(metrics)}`).not.toBe("none");
+  expect(metrics.desktopAdd.visibility, `desktop add action should be visible: ${JSON.stringify(metrics)}`).toBe("visible");
+  expect(metrics.pageOverflowX, `desktop add clearance should not create horizontal overflow: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "issue-223-desktop-add-action-row-clearance");
+});
+
+test("issue 224: desktop transaction row edit and delete targets stay comfortable", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("tx-desktop-row-actions")}@example.com`;
+  const displayName = unique("tx-desktop-row-actions-owner");
+  const memoPrefix = unique("tx-desktop-row-actions-row");
+  const category = await registerAndVerify(page, { email, displayName }).then(() =>
+    createCategoryViaApi(page, {
+      major: unique("DesktopActions"),
+      minor: unique("정리작업"),
+    })
+  );
+
+  for (let index = 0; index < 18; index += 1) {
+    await createTransactionViaApi(page, {
+      memo: `${memoPrefix}-${String(index).padStart(2, "0")}`,
+      amount: String(4200 + index),
+      categoryId: category.id,
+      ownerName: displayName,
+    });
+  }
+
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await openTab(page, "거래");
+  await page.waitForLoadState("networkidle");
+  await page.locator(".transaction-list-card").first().evaluate((element) => element.scrollIntoView({ block: "start" }));
+  await page.locator("tr.transaction-row", { hasText: memoPrefix }).first().scrollIntoViewIfNeeded();
+  await page.waitForTimeout(150);
+
+  const metrics = await page.evaluate(() => {
+    const boxOf = (element) => {
+      const box = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      const centerX = box.left + box.width / 2;
+      const centerY = box.top + box.height / 2;
+      const topElement = document.elementFromPoint(centerX, centerY);
+      return {
+        text: element.textContent?.replace(/\s+/g, " ").trim() || element.getAttribute("aria-label") || "",
+        left: box.left,
+        right: box.right,
+        top: box.top,
+        bottom: box.bottom,
+        width: box.width,
+        height: box.height,
+        display: style.display,
+        visibility: style.visibility,
+        hitVisible: Boolean(topElement && (topElement === element || element.contains(topElement))),
+      };
+    };
+    const visibleTargets = Array.from(document.querySelectorAll("tr.transaction-row .transaction-col-actions button:not(.mobile-toggle-btn)"))
+      .map((button) => boxOf(button))
+      .filter((target) => target.display !== "none" && target.visibility === "visible" && target.width > 0 && target.height > 0)
+      .filter((target) => target.top >= 0 && target.bottom <= window.innerHeight);
+    return {
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+      visibleTargets,
+      undersizedTargets: visibleTargets.filter((target) => target.width < 44 || target.height < 36),
+      hiddenHitTargets: visibleTargets.filter((target) => !target.hitVisible),
+      pageOverflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    };
+  });
+
+  expect(metrics.visibleTargets.length, `test should exercise visible desktop row action targets: ${JSON.stringify(metrics)}`).toBeGreaterThan(4);
+  expect(metrics.undersizedTargets, `desktop edit/delete targets should be at least 44x36px: ${JSON.stringify(metrics)}`).toEqual([]);
+  expect(metrics.hiddenHitTargets, `desktop edit/delete target centers should be directly clickable: ${JSON.stringify(metrics)}`).toEqual([]);
+  expect(metrics.pageOverflowX, `larger desktop row actions should not create horizontal overflow: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "issue-224-desktop-row-action-target-size");
+});
+
+test("issue 227: 1024px transaction row actions stay inside the viewport", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("tx-1024-actions")}@example.com`;
+  const displayName = unique("tx-1024-actions-owner");
+  const memoPrefix = unique("tx-1024-actions-row");
+  const category = await registerAndVerify(page, { email, displayName }).then(() =>
+    createCategoryViaApi(page, {
+      major: unique("Desktop1024"),
+      minor: unique("동작열"),
+    })
+  );
+
+  for (let index = 0; index < 6; index += 1) {
+    await createTransactionViaApi(page, {
+      memo: `${memoPrefix}-${String(index).padStart(2, "0")}`,
+      amount: String(5227 + index),
+      categoryId: category.id,
+      ownerName: displayName,
+    });
+  }
+
+  await page.reload();
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await openTab(page, "거래");
+  await page.waitForLoadState("networkidle");
+
+  const targetRow = page.locator("tr.transaction-row", { hasText: memoPrefix }).first();
+  await expect(targetRow).toBeVisible({ timeout: 20_000 });
+  await page.locator(".transaction-list-card").first().evaluate((element) => element.scrollIntoView({ block: "start" }));
+  await targetRow.evaluate((element) => element.scrollIntoView({ block: "center", inline: "nearest" }));
+  await page.locator(".transactions-surface-scroll").first().evaluate((element) => {
+    element.scrollLeft = 0;
+  });
+  await page.waitForTimeout(150);
+
+  const metrics = await page.evaluate((rowMemoPrefix) => {
+    const boxOf = (element) => {
+      if (!element) {
+        return null;
+      }
+      const box = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      const centerX = box.left + box.width / 2;
+      const centerY = box.top + box.height / 2;
+      const topElement = document.elementFromPoint(centerX, centerY);
+      return {
+        text: element.textContent?.replace(/\s+/g, " ").trim() || element.getAttribute("aria-label") || "",
+        left: box.left,
+        right: box.right,
+        top: box.top,
+        bottom: box.bottom,
+        width: box.width,
+        height: box.height,
+        display: style.display,
+        visibility: style.visibility,
+        hitVisible: Boolean(topElement && (topElement === element || element.contains(topElement))),
+      };
+    };
+    const viewportWidth = window.innerWidth;
+    const scroller = document.querySelector(".transactions-surface-scroll");
+    const table = document.querySelector(".transactions-surface-table");
+    const headerAction = document.querySelector(".transactions-desktop-ledger-head .transaction-col-actions");
+    const target = Array.from(document.querySelectorAll("tr.transaction-row")).find((row) =>
+      row.textContent?.includes(rowMemoPrefix)
+    );
+    const actionCell = target?.querySelector(".transaction-col-actions");
+    const actionButtons = Array.from(actionCell?.querySelectorAll("button:not(.mobile-toggle-btn)") || [])
+      .map((button) => boxOf(button))
+      .filter((targetBox) => targetBox && targetBox.display !== "none" && targetBox.visibility === "visible" && targetBox.width > 0 && targetBox.height > 0);
+    const trackedBoxes = [boxOf(headerAction), boxOf(actionCell), ...actionButtons].filter(Boolean);
+    return {
+      viewport: { width: viewportWidth, height: window.innerHeight },
+      pageOverflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      scroller: {
+        ...boxOf(scroller),
+        clientWidth: scroller?.clientWidth || 0,
+        scrollWidth: scroller?.scrollWidth || 0,
+        scrollLeft: scroller?.scrollLeft || 0,
+        scrollOverflowX: scroller ? scroller.scrollWidth - scroller.clientWidth : 0,
+      },
+      table: boxOf(table),
+      headerAction: boxOf(headerAction),
+      actionCell: boxOf(actionCell),
+      actionButtons,
+      outsideViewport: trackedBoxes.filter((targetBox) => targetBox.left < -1 || targetBox.right > viewportWidth + 1),
+      hiddenHitTargets: actionButtons.filter((targetBox) => !targetBox.hitVisible),
+      undersizedTargets: actionButtons.filter((targetBox) => targetBox.width < 44 || targetBox.height < 36),
+    };
+  }, memoPrefix);
+
+  expect(metrics.headerAction, `desktop action header should exist: ${JSON.stringify(metrics)}`).toBeTruthy();
+  expect(metrics.actionCell, `target row action cell should exist: ${JSON.stringify(metrics)}`).toBeTruthy();
+  expect(metrics.actionButtons.length, `test should exercise edit/delete targets: ${JSON.stringify(metrics)}`).toBe(2);
+  expect(metrics.pageOverflowX, `1024px desktop page should not overflow horizontally: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
+  expect(metrics.scroller.scrollOverflowX, `1024px transaction table should not hide actions behind horizontal scroll: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
+  expect(metrics.outsideViewport, `desktop action header/cell/buttons should stay inside viewport: ${JSON.stringify(metrics)}`).toEqual([]);
+  expect(metrics.undersizedTargets, `desktop edit/delete targets should remain at least 44x36px: ${JSON.stringify(metrics)}`).toEqual([]);
+  expect(metrics.hiddenHitTargets, `desktop edit/delete centers should remain directly clickable: ${JSON.stringify(metrics)}`).toEqual([]);
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "issue-227-1024-transaction-actions-visible");
+});
+
+test("issue 228: mobile transaction filters use ledger headers without duplicate generic toggle", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("tx-filter-affordance")}@example.com`;
+  const displayName = unique("tx-filter-affordance-owner");
+
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openTab(page, "거래");
+  await page.waitForLoadState("networkidle");
+
+  const toolbar = page.getByTestId("transaction-sticky-toolbar");
+  const genericFilterToggle = toolbar.getByRole("button", { name: "필터 열기", exact: true });
+  const mobileLedgerHead = page.locator(".transactions-mobile-ledger-head").first();
+  const memoFilterTrigger = mobileLedgerHead.getByRole("button", { name: "메모 필터 열기" });
+
+  await expect(mobileLedgerHead).toBeVisible();
+  await expect(genericFilterToggle).toHaveCount(0);
+  await expect(mobileLedgerHead.getByRole("button", { name: "일자 필터 열기" })).toBeVisible();
+  await expect(memoFilterTrigger).toBeVisible();
+  await expect(mobileLedgerHead.getByRole("button", { name: "금액 필터 열기" })).toBeVisible();
+  await expect(mobileLedgerHead.getByRole("button", { name: "유형 필터 열기" })).toBeVisible();
+  await capture(page, "issue-228-mobile-header-filter-primary");
+
+  await memoFilterTrigger.click();
+  const mobileFilterPanel = page.getByTestId("tx-ledger-filter-panel");
+  await expect(mobileFilterPanel).toContainText("메모 필터");
+  await expect(mobileFilterPanel.getByPlaceholder("메모 검색")).toBeVisible();
+  await expect(toolbar.getByRole("button", { name: "필터 닫기", exact: true })).toHaveCount(0);
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "issue-228-mobile-memo-filter-direct");
+
+  await mobileFilterPanel.getByRole("button", { name: "닫기" }).click();
+  await expect(mobileFilterPanel).toBeHidden();
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "issue-228-mobile-filter-closed");
+});
+
 test("transactions flow: create, inline edit, delete, responsive", async ({ page }) => {
   test.setTimeout(240_000);
 
@@ -1705,8 +3996,7 @@ test("transactions flow: create, inline edit, delete, responsive", async ({ page
   await expect(createdRow).toContainText(memo);
   await capture(page, "transactions-created");
 
-  const actionCell = createdRow.locator("td").last();
-  await actionCell.getByRole("button", { name: "수정" }).click();
+  await clickDesktopTransactionRowAction(createdRow, "수정");
   const editorRow = page.locator("tr.transaction-inline-editor-row").first();
   await expect(editorRow).toBeVisible();
 
@@ -1764,7 +4054,7 @@ test("transactions flow: create, inline edit, delete, responsive", async ({ page
   }
   await expect(editedRow).toBeVisible();
 
-  await editedRow.locator("td").last().getByRole("button", { name: "삭제" }).click();
+  await clickDesktopTransactionRowAction(editedRow, "삭제");
   const confirmDialog = page.locator(".confirm-dialog");
   await expect(confirmDialog).toBeVisible();
   await confirmDialog.getByRole("button", { name: "삭제" }).click();
@@ -1797,16 +4087,18 @@ test("transaction date controls use unambiguous ISO text fields", async ({ page 
   await openTab(page, "거래");
   await page.waitForLoadState("networkidle");
 
-  const desktopTransactionFab = page.getByTestId("transactions-fab");
   const desktopTransactionSheet = page.getByTestId("transaction-entry-sheet");
-  await expectTransactionFabBottomRightReachable(page, "desktop transaction FAB for ISO date entry");
-  await desktopTransactionFab.evaluate((element) => element.click());
+  const desktopTransactionAddAction = await expectDesktopTransactionAddActionReachable(page, "desktop transaction add action for ISO date entry");
+  await desktopTransactionAddAction.click();
   await expect(desktopTransactionSheet).toBeVisible();
   const desktopEntryDate = labeledField(desktopTransactionSheet, "일자", "input");
   await expectIsoDateInput(desktopEntryDate, "desktop transaction entry date");
   await desktopEntryDate.fill("20260502");
   await expect(desktopEntryDate).toHaveValue("2026-05-02");
   await page.getByTestId("transaction-entry-sheet-close").click();
+  const closeDateDraftDialog = page.getByRole("alertdialog");
+  await expect(closeDateDraftDialog.getByRole("heading", { name: "거래 입력을 닫을까요?" })).toBeVisible();
+  await closeDateDraftDialog.getByRole("button", { name: "입력 닫기" }).click();
   await expect(desktopTransactionSheet).toBeHidden();
 
   const desktopFilterPanel = page.locator("#transaction-filter-panel");
@@ -1859,6 +4151,120 @@ test("transaction date controls use unambiguous ISO text fields", async ({ page 
   await inlineEditDate.fill("20260503");
   await expect(inlineEditDate).toHaveValue("2026-05-03");
   await capture(page, "transactions-date-iso-mobile-edit");
+});
+
+test("issue 219: mobile inline transaction date edit uses numeric ISO assistance", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("tx-mobile-date-edit")}@example.com`;
+  const displayName = unique("tx-mobile-date-edit-name");
+  const memo = unique("tx-mobile-date-edit-memo");
+  const occurredOn = currentE2EHistoryDateIso();
+
+  await registerAndVerify(page, { email, displayName });
+  await createTransactionViaApi(page, {
+    memo,
+    amount: "21900",
+    occurredOn,
+    ownerName: displayName,
+  });
+  await page.reload();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openTab(page, "거래");
+  await page.waitForLoadState("networkidle");
+
+  const mobileRow = page.locator("tr.transaction-row", { hasText: memo }).first();
+  await expect(mobileRow).toBeVisible({ timeout: 20_000 });
+  await mobileRow.locator(".mobile-toggle-btn").first().click();
+  const expandedActionRow = mobileRow.locator(
+    "xpath=following-sibling::tr[1][contains(@class,'transaction-mobile-expanded-actions-row')]",
+  );
+  await expect(expandedActionRow).toBeVisible();
+  await expandedActionRow.getByRole("button", { name: "수정" }).click();
+
+  const editorRow = page.locator("tr.transaction-inline-editor-row").first();
+  await expect(editorRow).toBeVisible();
+  const inlineEditDate = editorRow.getByLabel("일자");
+  await expectIsoDateInput(inlineEditDate, "issue 219 mobile inline edit date", occurredOn);
+  const dateAttributes = await inlineEditDate.evaluate((input) => ({
+    type: input.getAttribute("type"),
+    inputMode: input.getAttribute("inputmode"),
+    pattern: input.getAttribute("pattern"),
+    maxLength: input.getAttribute("maxlength"),
+    placeholder: input.getAttribute("placeholder"),
+  }));
+  expect(dateAttributes).toEqual({
+    type: "text",
+    inputMode: "numeric",
+    pattern: "[0-9]{4}-[0-9]{2}-[0-9]{2}",
+    maxLength: "10",
+    placeholder: "YYYY-MM-DD",
+  });
+  await inlineEditDate.fill("20260301");
+  await expect(inlineEditDate).toHaveValue("2026-03-01");
+  await capture(page, "issue-219-mobile-inline-date-numeric-iso-assistance");
+});
+
+test("issue 230: narrow mobile transaction date filters keep ISO placeholders readable", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("tx-mobile-date-filter-width")}@example.com`;
+  const displayName = unique("tx-mobile-date-filter-width-name");
+
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 320, height: 568 });
+  await openTab(page, "거래");
+  await page.waitForLoadState("networkidle");
+
+  await page
+    .locator(".transactions-mobile-ledger-head")
+    .first()
+    .getByRole("button", { name: "일자 필터 열기" })
+    .click();
+
+  const mobileFilterPanel = page.getByTestId("tx-ledger-filter-panel");
+  await expect(mobileFilterPanel).toContainText("일자 필터");
+  const startInput = mobileFilterPanel.getByLabel("시작일");
+  const endInput = mobileFilterPanel.getByLabel("종료일");
+  await expectIsoDateInput(startInput, "issue 230 narrow mobile start filter");
+  await expectIsoDateInput(endInput, "issue 230 narrow mobile end filter");
+
+  const metrics = await mobileFilterPanel.locator(".tx-ledger-filter-date-grid").evaluate((grid) => {
+    const fields = Array.from(grid.querySelectorAll(".tx-ledger-filter-field"));
+    const inputs = fields.map((field) => field.querySelector("input"));
+    const inputMetrics = inputs.map((input) => {
+      const style = window.getComputedStyle(input);
+      const canvas = document.createElement("canvas");
+      const context = canvas.getContext("2d");
+      if (context) {
+        context.font = style.font;
+      }
+      const placeholder = input.getAttribute("placeholder") || "";
+      const placeholderWidth = context ? context.measureText(placeholder).width : placeholder.length * 9;
+      const horizontalPadding = Number.parseFloat(style.paddingLeft || "0") + Number.parseFloat(style.paddingRight || "0");
+      return {
+        clientWidth: input.clientWidth,
+        requiredWidth: Math.ceil(placeholderWidth + horizontalPadding + 2),
+      };
+    });
+    const rects = fields.map((field) => field.getBoundingClientRect());
+
+    return {
+      columns: window.getComputedStyle(grid).gridTemplateColumns,
+      startBottom: rects[0]?.bottom || 0,
+      endTop: rects[1]?.top || 0,
+      inputs: inputMetrics,
+    };
+  });
+  expect(metrics.endTop, "end date filter should stack below start date filter at 320px").toBeGreaterThan(
+    metrics.startBottom,
+  );
+  for (const input of metrics.inputs) {
+    expect(input.clientWidth, "ISO placeholder should fit inside the narrow mobile date input").toBeGreaterThanOrEqual(
+      input.requiredWidth,
+    );
+  }
+  await capture(page, "issue-230-mobile-date-filter-placeholder-readable");
 });
 
 test("mobile transaction expanded row keeps details readable with filter panel open", async ({ page }) => {
@@ -2029,6 +4435,7 @@ test("transactions form keeps grouped number format", async ({ page }) => {
   const transactionCard = page.locator("article.card", {
     has: page.getByRole("heading", { name: "거래 입력" }),
   });
+  const desktopTransactionAddAction = page.getByTestId("transactions-desktop-add-action");
   const transactionFab = page.getByTestId("transactions-fab");
   const transactionSheet = page.getByTestId("transaction-entry-sheet");
   let transactionContainer = transactionCard;
@@ -2039,6 +4446,10 @@ test("transactions form keeps grouped number format", async ({ page }) => {
     if (txToggleText.includes("거래 추가")) {
       await txToggleButton.click();
     }
+  } else if (await desktopTransactionAddAction.isVisible().catch(() => false)) {
+    await desktopTransactionAddAction.click();
+    await expect(transactionSheet).toBeVisible();
+    transactionContainer = transactionSheet;
   } else if (await transactionFab.isVisible().catch(() => false)) {
     await transactionFab.click();
     await expect(transactionSheet).toBeVisible();
@@ -2051,6 +4462,83 @@ test("transactions form keeps grouped number format", async ({ page }) => {
   await memoInput.fill("빠른 메모 입력");
   await expect(amountInput).toHaveValue("123,456,789");
   await expect(memoInput).toHaveValue("빠른 메모 입력");
+});
+
+test("transactions form rejects decimal KRW amount before rounding can occur", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("tx-decimal")}@example.com`;
+  const displayName = unique("tx-decimal-name");
+  const memo = unique("tx-decimal-memo");
+
+  await registerAndVerify(page, { email, displayName });
+
+  await openTab(page, "거래");
+  const transactionCard = page.locator("article.card", {
+    has: page.getByRole("heading", { name: "거래 입력" }),
+  });
+  const desktopTransactionAddAction = page.getByTestId("transactions-desktop-add-action");
+  const transactionFab = page.getByTestId("transactions-fab");
+  const transactionSheet = page.getByTestId("transaction-entry-sheet");
+  let transactionContainer = transactionCard;
+  const txToggleButton = transactionCard.getByRole("button", { name: /거래 추가|입력 닫기/ }).first();
+  const txToggleVisible = await txToggleButton.isVisible().catch(() => false);
+  if (txToggleVisible) {
+    const txToggleText = String((await txToggleButton.textContent()) || "");
+    if (txToggleText.includes("거래 추가")) {
+      await txToggleButton.click();
+    }
+  } else if (await desktopTransactionAddAction.isVisible().catch(() => false)) {
+    await desktopTransactionAddAction.click();
+    await expect(transactionSheet).toBeVisible();
+    transactionContainer = transactionSheet;
+  } else if (await transactionFab.isVisible().catch(() => false)) {
+    await transactionFab.click();
+    await expect(transactionSheet).toBeVisible();
+    transactionContainer = transactionSheet;
+  }
+
+  const amountInput = labeledField(transactionContainer, "금액", "input");
+  const memoInput = labeledField(transactionContainer, "메모", "input");
+  await amountInput.click();
+  await amountInput.fill("");
+  await amountInput.pressSequentially("123.6");
+  await expect(amountInput).toHaveValue("123.6");
+  const appMessage = page.locator(".message").first();
+  await expect(appMessage).toContainText("원화 금액은 소수 없이 정수로 입력해 주세요.");
+  await memoInput.fill(memo);
+  await transactionContainer.getByRole("button", { name: /저장|등록/ }).first().click();
+  await expect(appMessage).toContainText("원화 금액은 소수 없이 정수로 입력해 주세요.");
+  await expect(page.locator("tr.transaction-row", { hasText: memo })).toHaveCount(0);
+  await capture(page, "transactions-form-decimal-rejected");
+});
+
+test("transactions inline edit rejects decimal KRW amount before rounding can occur", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("tx-inline-decimal")}@example.com`;
+  const displayName = unique("tx-inline-decimal-name");
+  const memo = unique("tx-inline-decimal-memo");
+
+  await registerAndVerify(page, { email, displayName });
+  const createdRow = await createBasicTransaction(page, { memo, amount: "12000" });
+  await clickDesktopTransactionRowAction(createdRow, "수정");
+
+  const editorRow = page.locator("tr.transaction-inline-editor-row").first();
+  await expect(editorRow).toBeVisible();
+  const amountInput = editorRow.getByLabel("금액");
+  await expect(amountInput).toHaveAttribute("inputmode", "numeric");
+  await amountInput.click();
+  await amountInput.fill("");
+  await amountInput.pressSequentially("123.6");
+  await expect(amountInput).toHaveValue("123.6");
+
+  const appMessage = page.locator(".message").first();
+  await expect(appMessage).toContainText("원화 금액은 소수 없이 정수로 입력해 주세요.");
+  await editorRow.getByRole("button", { name: "저장" }).click();
+  await expect(appMessage).toContainText("원화 금액은 소수 없이 정수로 입력해 주세요.");
+  await expect(page.locator("tr.transaction-row", { hasText: "124원" })).toHaveCount(0);
+  await capture(page, "transactions-inline-decimal-rejected");
 });
 
 test("transactions history shows compact date groups with fixed chronological order", async ({ page }) => {
@@ -2268,15 +4756,14 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   await expect(page.locator(".tx-header-filters").first()).toBeHidden();
 
   await expect(page.locator(".transaction-entry-card")).toHaveCount(0);
-  const desktopTransactionFab = page.getByTestId("transactions-fab");
   const desktopTransactionSheet = page.getByTestId("transaction-entry-sheet");
-  await expectTransactionFabBottomRightReachable(page, "desktop transaction FAB in list affordance flow");
-  await desktopTransactionFab.evaluate((element) => element.click());
+  const desktopTransactionAddAction = await expectDesktopTransactionAddActionReachable(page, "desktop transaction add action in list affordance flow");
+  await desktopTransactionAddAction.click();
   await expect(desktopTransactionSheet).toBeVisible();
   await expect(labeledField(desktopTransactionSheet, "금액", "input")).toBeVisible();
   await page.getByTestId("transaction-entry-sheet-close").click();
   await expect(desktopTransactionSheet).toBeHidden();
-  await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute("data-testid") || "")).toBe("transactions-fab");
+  await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute("data-testid") || "")).toBe("transactions-desktop-add-action");
 
   const createdRow = await createBasicTransaction(page, { memo, amount: "22222" });
   await expect(createdRow).toBeVisible();
@@ -2302,7 +4789,8 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
     await expect(extraRow).toBeVisible();
   }
 
-  const headerTexts = await page.getByRole("columnheader").evaluateAll((nodes) =>
+  await expectDesktopTransactionColumnHeaderLabels(page, "transactions list affordance column header");
+  const headerTexts = await page.locator(".transactions-desktop-ledger-head [role='columnheader']").evaluateAll((nodes) =>
     nodes.map((node) => String(node.innerText || node.textContent || "").replace(/\s+/g, " ").trim())
   );
   const findHeaderIndex = (label) => headerTexts.findIndex((text) => text.includes(label));
@@ -2312,16 +4800,14 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   expect(findHeaderIndex("메모")).toBeGreaterThan(findHeaderIndex("카테고리"));
   expect(findHeaderIndex("금액")).toBeGreaterThan(findHeaderIndex("메모"));
 
-  const staticDateSort = page.locator("th .sort-header-static").first();
+  const staticDateSort = page.locator(".transactions-desktop-ledger-head .sort-header-static").first();
   await expect(staticDateSort).toBeVisible();
   await expect(staticDateSort).toHaveAttribute("aria-label", /연속 내역순 고정/);
-  await expect(page.locator("th button.sort-header")).toHaveCount(0);
+  await expect(page.locator(".transactions-desktop-ledger-head button.sort-header")).toHaveCount(0);
   await expectDesktopTransactionRowsSingleLine(page);
 
   await createdRow.locator("td").first().locator("input[type='checkbox']").check();
-  const selectedSummaryBanner = page.locator(".message", { hasText: "선택 1건" }).first();
-  await expect(selectedSummaryBanner).toBeVisible();
-  await expect(selectedSummaryBanner).toContainText("합계");
+  await expectTransactionSelectionSummary(page, 1, "22,222원");
 
   const supportDetails = page.locator("details.compact-support-card").first();
   const supportCard =
@@ -2491,9 +4977,9 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   await expect(mobileRow).toBeVisible();
   await expect(mobileRow).not.toHaveClass(/mobile-row-expanded/);
   await expect(mobileRow.getByText(memo, { exact: true })).toBeVisible();
-  await expectCompactLedgerRow(mobileRow, 56);
+  await expectCompactLedgerRow(mobileRow, 96);
   await expectSingleLineText(mobileRow.locator(".transaction-memo-text").first());
-  await expect(mobileRow.locator(".transaction-mobile-category-cue").first()).toBeHidden();
+  await expect(mobileRow.locator(".transaction-mobile-category-cue").first()).toBeVisible();
   const collapsedRowMetrics = await page.locator("tr.transaction-row").evaluateAll((rows) =>
     rows.slice(0, 8).map((row) => {
       const box = row.getBoundingClientRect();
@@ -2501,13 +4987,15 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
     })
   );
   expect(
-    collapsedRowMetrics.every((row) => row.expanded !== "true" && row.height <= 56),
-    `mobile ledger rows should stay Excel-like one-line rows: ${JSON.stringify(collapsedRowMetrics)}`
+    collapsedRowMetrics.every((row) => row.expanded !== "true" && row.height <= 96),
+    `mobile ledger rows should stay compact while showing key details and actions: ${JSON.stringify(collapsedRowMetrics)}`
   ).toBe(true);
   await expectBackgroundNotPlainWhite(mobileRow);
   await expectTransparentBackground(mobileRow.locator(".transaction-col-memo").first());
   await expect(mobileRow.locator(".transaction-owner-chip").first()).toHaveText(displayName.slice(0, 1));
   await expect(mobileRow.locator(".transaction-owner-chip").first()).toBeVisible();
+  await expect(mobileRow.locator(".transaction-owner-summary").first()).toHaveText(displayName);
+  await expect(mobileRow.locator(".transaction-owner-summary").first()).toBeVisible();
   await expect(mobileRow.locator(".transaction-flow-short").first()).toBeVisible();
   const mobileOwnerlessRow = page.locator("tr.transaction-row", { hasText: ownerlessMemo }).first();
   await expect(mobileOwnerlessRow).toBeVisible();
@@ -2624,8 +5112,8 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   const transactionToggleBox = await mobileToggleButton.boundingBox();
   expect(transactionToggleBox, "mobile transaction detail toggle should have a bounding box").not.toBeNull();
   expect(
-    (transactionToggleBox?.width ?? 0) >= 40 && (transactionToggleBox?.height ?? 0) >= 40,
-    `mobile transaction detail toggle should keep a 40px hit target: ${JSON.stringify(transactionToggleBox)}`,
+    (transactionToggleBox?.width ?? 0) >= 44 && (transactionToggleBox?.height ?? 0) >= 44,
+    `mobile transaction detail toggle should keep a 44px hit target: ${JSON.stringify(transactionToggleBox)}`,
   ).toBe(true);
   await expectStableButtonPosition(mobileToggleButton, async () => {
     await mobileToggleButton.evaluate((element) => element.click());
@@ -2711,7 +5199,7 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   for (const cell of expandedDetailMetrics.detailCells) {
     expect(cell.hasVerticalOverflow, `${cell.className} should not clip detail text`).toBe(false);
   }
-  await expect(mobileRow.locator(".transaction-col-actions .row-delete-btn")).toBeHidden();
+  await expect(mobileRow.locator(".transaction-col-actions .row-delete-btn")).toBeVisible();
   await mobileRow.locator("td").last().getByRole("button", { name: "거래 세부 접기" }).click();
   await expect(mobileRow).not.toHaveClass(/mobile-row-expanded/);
   const compactFlowSummaryLines = page.getByTestId("tx-flow-summary-line");
@@ -2734,7 +5222,9 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   await openTab(page, "거래");
   for (const cleanupMemo of [memo, incomeMemo, investmentMemo, ownerlessMemo, ...extraMemos]) {
     const cleanupRow = page.locator("tr.transaction-row", { hasText: cleanupMemo }).first();
-    await cleanupRow.locator("td").last().getByRole("button", { name: "삭제" }).click();
+    await cleanupRow.evaluate((row) => row.scrollIntoView({ block: "center", inline: "nearest" }));
+    await page.waitForTimeout(50);
+    await cleanupRow.locator("td").last().getByRole("button", { name: "삭제" }).evaluate((button) => button.click());
     const confirmDialog = page.locator(".confirm-dialog");
     await expect(confirmDialog).toBeVisible();
     await confirmDialog.getByRole("button", { name: "삭제" }).click();
