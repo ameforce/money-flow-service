@@ -162,6 +162,20 @@ cmd /c docker compose up -d --build
   - [ ] Jenkins 멀티브랜치 Job에서 브랜치 빌드 후 `RUN_DEPLOY` 승인 시 최신 빌드가 반영되는지 확인
   - [ ] `main` 이외 브랜치는 `dev.moneyflow.enmsoftware.com`로 dev 배포가 되는지 확인
 
+### 일회성: dev PostgreSQL 데이터를 운영 DB로 복사
+
+운영 DB(`moneyflow` 등) **기존 데이터를 삭제**하고, 같은 호스트의 dev Postgres(`moneyflow_dev` 등) 내용으로 덮어쓴다. **1회 운영 절차**이며, 자동 배포에는 포함되지 않는다.
+
+1. `enm-server`에서 Jenkins와 동일한 배포 디렉터리로 이동한다(예: `/home/ameforce/money-flow-service`).
+2. dev·prod 스택의 Postgres가 떠 있는지 확인한다.
+3. 아래를 실행한다.
+
+```bash
+I_CONFIRM_ONE_SHOT_DEV_PG_TO_PROD_DB=1 bash scripts/deploy/one-shot-dev-pg-to-prod.sh
+```
+
+스크립트는 prod `app`만 잠시 중지한 뒤, 운영 DB를 `DROP ... WITH (FORCE)`로 비우고 `pg_dump`(dev) → `psql`(prod) 스트리밍 복원, `.env`의 `POSTGRES_PASSWORD`로 역할 비밀번호 정렬, `schema_upgrade`, prod `app` 기동까지 수행한다. 옵션은 `scripts/deploy/one-shot-dev-pg-to-prod.sh` 상단 주석을 참고한다.
+
 ### enm-server nginx reverse proxy(금액관리 서비스: moneyflow.enmsoftware.com)
  - 이 프로젝트의 배포 실행은 Jenkinsfile을 통해 정의합니다.
  - Nginx vhost, TLS, Cloudflare 오리진 정책, 도메인 라우팅은 운영 기준 환경에서 별도 관리합니다.

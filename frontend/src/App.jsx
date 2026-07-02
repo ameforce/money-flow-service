@@ -364,12 +364,15 @@ function isFormDataBody(body) {
 }
 
 async function api(path, options = {}, token = null, allowRefresh = true, allowHouseholdRetry = true) {
-  const method = String(options.method || "GET").toUpperCase();
-  const headers = { ...(options.headers || {}) };
+  const requestOptions = { ...(options || {}) };
+  const responseType = String(requestOptions.responseType || "json").trim().toLowerCase();
+  delete requestOptions.responseType;
+  const method = String(requestOptions.method || "GET").toUpperCase();
+  const headers = { ...(requestOptions.headers || {}) };
   const pathText = String(path || "");
   const activeHouseholdId = getActiveHouseholdId();
   const hasHouseholdHeader = Boolean(activeHouseholdId && shouldAttachHouseholdHeader(pathText));
-  if (!isFormDataBody(options.body)) {
+  if (!isFormDataBody(requestOptions.body)) {
     headers["Content-Type"] = "application/json";
   }
   if (hasHouseholdHeader) {
@@ -382,7 +385,10 @@ async function api(path, options = {}, token = null, allowRefresh = true, allowH
   if (shouldAttachDebugTokenOptInHeader(pathText, method)) {
     headers[DEBUG_TOKEN_OPT_IN_HEADER] = "true";
   }
-  const response = await fetch(pathText, { ...options, method, headers, credentials: "include" });
+  const response = await fetch(pathText, { ...requestOptions, method, headers, credentials: "include" });
+  if (response.ok && responseType === "blob") {
+    return response;
+  }
   const text = await response.text();
   let data = null;
   if (text) {
@@ -440,6 +446,9 @@ async function api(path, options = {}, token = null, allowRefresh = true, allowH
     error.context = payload?.context ?? null;
     error.detail = data?.detail ?? null;
     throw error;
+  }
+  if (responseType === "text") {
+    return text;
   }
   return data;
 }
@@ -1381,6 +1390,33 @@ function formatApiError(error, context) {
     }
     return uiGuideMessage("가져오기 처리 중 오류가 발생했습니다.", "파일 구조를 확인한 뒤 다시 시도해 주세요.");
   }
+  if (context.startsWith("migration_")) {
+    if (code === "MIGRATION_PACKAGE_EXTENSION_INVALID") {
+      return uiGuideMessage("이식 패키지 형식이 올바르지 않습니다.", "dev에서 내려받은 ZIP 파일을 다시 선택해 주세요.");
+    }
+    if (
+      code === "MIGRATION_PACKAGE_INVALID_ARCHIVE" ||
+      code === "MIGRATION_PACKAGE_INVALID_MANIFEST" ||
+      code === "MIGRATION_PACKAGE_INVALID" ||
+      code === "MIGRATION_PACKAGE_SCHEMA_UNSUPPORTED" ||
+      code === "MIGRATION_PACKAGE_HASH_MISMATCH"
+    ) {
+      return uiGuideMessage("이식 패키지 검증에 실패했습니다.", "패키지를 다시 추출해 업로드해 주세요.");
+    }
+    if (code === "MIGRATION_PACKAGE_ARCHIVE_TOO_COMPLEX") {
+      return uiGuideMessage("이식 패키지 압축 구조가 복잡해 처리할 수 없습니다.", "패키지를 다시 추출해 업로드해 주세요.");
+    }
+    if (code === "MIGRATION_APPLY_REPLACE_REQUIRED") {
+      return uiGuideMessage("적용 전 기존 데이터 교체 확인이 필요합니다.", "교체 확인 후 다시 적용해 주세요.");
+    }
+    if (code === "IMPORT_ALREADY_RUNNING" || status === 429) {
+      return uiGuideMessage("다른 가져오기/이식 작업이 진행 중입니다.", "잠시 기다린 뒤 다시 시도해 주세요.");
+    }
+    if (status === 413 || code === "MIGRATION_PACKAGE_TOO_LARGE") {
+      return uiGuideMessage("이식 패키지 크기가 제한을 초과했습니다.", "패키지 크기를 줄이거나 분리해서 다시 시도해 주세요.");
+    }
+    return uiGuideMessage("이식 패키지 처리 중 오류가 발생했습니다.", "파일과 권한을 확인한 뒤 다시 시도해 주세요.");
+  }
   if (context === "prices_refresh") {
     if (code === "AUTH_TOKEN_MISSING" || code === "AUTH_TOKEN_INVALID" || status === 401) {
       return uiGuideMessage("시세 갱신 요청에 실패했습니다.", "다시 로그인한 뒤 시도해 주세요.");
@@ -1440,6 +1476,14 @@ function formatAuthError(error, mode) {
 
 function formatImportError(error, mode) {
   const context = mode === "apply" ? "import_apply" : "import_dry_run";
+  return formatApiError(error, context);
+}
+
+function formatMigrationError(error, mode) {
+  if (mode === "export") {
+    return formatApiError(error, "migration_export");
+  }
+  const context = mode === "apply" ? "migration_apply" : "migration_dry_run";
   return formatApiError(error, context);
 }
 
@@ -1628,13 +1672,17 @@ function App() {
   const [holdings, setHoldings] = useState([]);
   const [priceStatus, setPriceStatus] = useState(null);
   const [importReport, setImportReport] = useState(null);
+  const [migrationReport, setMigrationReport] = useState(null);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [dashboardLoading, setDashboardLoading] = useState(false);
   const [dashboardLoaded, setDashboardLoaded] = useState(false);
   const [importLoadingMode, setImportLoadingMode] = useState("");
+  const [migrationLoadingMode, setMigrationLoadingMode] = useState("");
+  const [migrationExporting, setMigrationExporting] = useState(false);
   const [priceRefreshPolling, setPriceRefreshPolling] = useState(false);
   const importFileInputRef = useRef(null);
+  const migrationPackageInputRef = useRef(null);
   const dashboardRequestCountRef = useRef(0);
   const wsTicketMethodRef = useRef("POST");
   const wsRefreshTimerRef = useRef(null);
@@ -1699,6 +1747,7 @@ function App() {
   const [txInlineEdit, setTxInlineEdit] = useState(null);
 
   const [importFile, setImportFile] = useState(null);
+  const [migrationPackageFile, setMigrationPackageFile] = useState(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const txDateInputRef = useRef(null);
   const txAmountInputRef = useRef(null);
@@ -2380,6 +2429,10 @@ function App() {
   const importIssuePreview = useMemo(
     () => (importReport?.issues || []).slice(0, IMPORT_ISSUE_PREVIEW_LIMIT),
     [importReport]
+  );
+  const migrationIssuePreview = useMemo(
+    () => (migrationReport?.issues || []).slice(0, IMPORT_ISSUE_PREVIEW_LIMIT),
+    [migrationReport]
   );
 
   useEffect(() => {
@@ -3432,6 +3485,10 @@ function App() {
     setRecentInviteIds([]);
     receivedInviteIdsRef.current = new Set();
     setImportReport(null);
+    setMigrationReport(null);
+    setMigrationPackageFile(null);
+    setMigrationLoadingMode("");
+    setMigrationExporting(false);
   }, [household?.id]);
 
   useEffect(() => {
@@ -5107,6 +5164,95 @@ function App() {
     }
   }
 
+  async function exportMigrationPackage() {
+    if (!canEditRecords) {
+      setMessage(uiGuideMessage("현재 권한으로는 이식 패키지를 추출할 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
+      return;
+    }
+    setMigrationExporting(true);
+    setLoading(true);
+    setMessage("이식 패키지를 생성하는 중입니다. 잠시만 기다려 주세요.");
+    try {
+      const path = `${API_PREFIX}/imports/migration-package/export`;
+      const response = await api(
+        path,
+        {
+          method: "GET",
+          responseType: "blob",
+        },
+        token
+      );
+      const blob = await response.blob();
+      const disposition = String(response.headers.get("content-disposition") || "");
+      const match = disposition.match(/filename="?([^";]+)"?/i);
+      const filename = String(match?.[1] || "").trim() || `moneyflow-transfer-${Date.now()}.zip`;
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+      URL.revokeObjectURL(url);
+      setMessage(uiGuideMessage("이식 패키지를 다운로드했습니다.", "운영 환경에서 패키지 업로드로 dry-run 후 적용할 수 있습니다."));
+    } catch (error) {
+      setMessage(formatMigrationError(error, "export"));
+    } finally {
+      setMigrationExporting(false);
+      setLoading(false);
+    }
+  }
+
+  async function doMigrationImport(mode) {
+    if (!canEditRecords) {
+      setMessage(uiGuideMessage("현재 권한으로는 이식 패키지를 적용할 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
+      return;
+    }
+    if (!migrationPackageFile) {
+      setMessage("업로드할 이식 패키지 파일(.zip)을 먼저 선택해 주세요.");
+      return;
+    }
+    let replaceExisting = false;
+    if (mode === "apply") {
+      const confirmed = await requestConfirmDialog({
+        title: "현재 가계 데이터를 이식 패키지로 교체할까요?",
+        action: "적용 시 현재 거래/보유/카테고리 데이터가 교체됩니다.",
+        confirmLabel: "교체 적용",
+      });
+      if (!confirmed) {
+        return;
+      }
+      replaceExisting = true;
+    }
+
+    setMigrationLoadingMode(mode);
+    setLoading(true);
+    setMessage(`${IMPORT_MODE_LABELS[mode] || mode} 요청을 처리 중입니다. 잠시만 기다려 주세요.`);
+    try {
+      const formData = new FormData();
+      formData.append("file", migrationPackageFile);
+      const report = await api(
+        `${API_PREFIX}/imports/migration-package/upload?mode=${mode}&replace_existing=${replaceExisting ? "true" : "false"}`,
+        {
+          method: "POST",
+          body: formData,
+        },
+        token
+      );
+      setMigrationReport(report);
+      if (mode === "apply") {
+        await loadAuthContext(token);
+        await refreshData(false);
+      }
+      setMessage(`${IMPORT_MODE_LABELS[mode] || mode} 완료`);
+    } catch (error) {
+      setMessage(formatMigrationError(error, mode));
+    } finally {
+      setMigrationLoadingMode("");
+      setLoading(false);
+    }
+  }
+
   async function refreshPriceNow() {
     setLoading(true);
     try {
@@ -5806,6 +5952,10 @@ function App() {
     setImportReport(null);
     setImportFile(null);
     setImportLoadingMode("");
+    setMigrationReport(null);
+    setMigrationPackageFile(null);
+    setMigrationLoadingMode("");
+    setMigrationExporting(false);
     setMessage(logoutWarning);
     setPriceRefreshPolling(false);
     setDashboardLoading(false);
@@ -6513,6 +6663,13 @@ function App() {
     : importReport
       ? "최근 결과 표시"
       : "파일 대기";
+  const migrationStateLabel = migrationExporting
+    ? "패키지 추출 중"
+    : migrationLoadingMode
+      ? `${IMPORT_MODE_LABELS[migrationLoadingMode] || "이식"} 진행 중`
+      : migrationReport
+        ? "최근 결과 표시"
+        : "패키지 대기";
   const dashboardImportStatus = importLoadingMode
     ? `${IMPORT_MODE_LABELS[importLoadingMode] || "가져오기"} 처리 중`
     : importReport
@@ -9755,6 +9912,105 @@ function App() {
                 </details>
               </section>
             )}
+            <section className="import-report">
+              <div className="secondary-table-heading import-report-heading">
+                <div className="work-surface-title">
+                  <span className="surface-eyebrow">환경 이식 패키지</span>
+                  <h3>데이터 추출/업로드</h3>
+                </div>
+                <p className="table-summary">{migrationStateLabel}</p>
+              </div>
+              <p className="table-summary">
+                계정 자체는 이식하지 않습니다. 대상 환경에서 로그인한 현재 가계에 거래/보유/카테고리와 가계 설정을 반영합니다.
+              </p>
+              <div className="inline import-action-row">
+                <button
+                  type="button"
+                  disabled={migrationExporting || Boolean(migrationLoadingMode) || !canEditRecords}
+                  onClick={exportMigrationPackage}
+                >
+                  {migrationExporting ? "패키지 추출 중..." : "현재 가계 패키지 추출"}
+                </button>
+              </div>
+              <div
+                className="file-drop-area"
+                onClick={() => {
+                  if (!migrationLoadingMode && !migrationExporting && canEditRecords) {
+                    migrationPackageInputRef.current?.click();
+                  }
+                }}
+              >
+                <input
+                  ref={migrationPackageInputRef}
+                  type="file"
+                  accept=".zip"
+                  onChange={(e) => setMigrationPackageFile(e.target.files?.[0] || null)}
+                  style={{ display: "none" }}
+                  aria-label="이식 패키지 업로드"
+                  disabled={Boolean(migrationLoadingMode) || migrationExporting || !canEditRecords}
+                />
+                {migrationPackageFile ? (
+                  <div className="upload-file-name">선택된 패키지: {migrationPackageFile.name}</div>
+                ) : (
+                  <div className="upload-placeholder">추출한 패키지(.zip) 파일을 클릭하여 업로드하세요.</div>
+                )}
+              </div>
+              <div className="inline import-action-row">
+                <button
+                  type="button"
+                  disabled={Boolean(migrationLoadingMode) || migrationExporting || !canEditRecords}
+                  onClick={() => doMigrationImport("dry_run")}
+                >
+                  {migrationLoadingMode === "dry_run" ? "미리 검증 중..." : "패키지 미리 검증"}
+                </button>
+                <button
+                  type="button"
+                  disabled={Boolean(migrationLoadingMode) || migrationExporting || !canEditRecords}
+                  onClick={() => doMigrationImport("apply")}
+                >
+                  {migrationLoadingMode === "apply" ? "적용 중..." : "패키지 적용"}
+                </button>
+              </div>
+              {migrationLoadingMode && (
+                <div className="import-progress">이식 패키지를 검증/적용하는 중입니다. 완료까지 잠시만 기다려 주세요.</div>
+              )}
+              {migrationReport && (
+                <>
+                  <div className="import-summary-grid">
+                    <div className="import-summary-item"><strong>패키지</strong><span>{migrationReport.package_name}</span></div>
+                    <div className="import-summary-item"><strong>원본 환경</strong><span>{migrationReport.source_env || "-"}</span></div>
+                    <div className="import-summary-item"><strong>원본 가계</strong><span>{migrationReport.source_household_name || "-"}</span></div>
+                    <div className="import-summary-item"><strong>카테고리 행</strong><span>{fmt(migrationReport.category_rows)}</span></div>
+                    <div className="import-summary-item"><strong>거래 행</strong><span>{fmt(migrationReport.transaction_rows)}</span></div>
+                    <div className="import-summary-item"><strong>보유 행</strong><span>{fmt(migrationReport.holding_rows)}</span></div>
+                    <div className="import-summary-item"><strong>적용 카테고리</strong><span>{fmt(migrationReport.applied_categories)}</span></div>
+                    <div className="import-summary-item"><strong>적용 거래</strong><span>{fmt(migrationReport.applied_transactions)}</span></div>
+                    <div className="import-summary-item"><strong>적용 보유</strong><span>{fmt(migrationReport.applied_holdings)}</span></div>
+                  </div>
+                  <section>
+                    <h3>이슈 ({fmt((migrationReport.issues || []).length)})</h3>
+                    {migrationIssuePreview.length === 0 ? (
+                      <p className="table-summary">검출된 이슈가 없습니다.</p>
+                    ) : (
+                      <ul className="compact-list">
+                        {migrationIssuePreview.map((issue, index) => (
+                          <li key={`${issue.code}-${issue.sheet || "none"}-${issue.row || 0}-${index}`}>
+                            [{issue.severity}] {issue.message}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {(migrationReport.issues || []).length > migrationIssuePreview.length && (
+                      <p className="table-summary">+{(migrationReport.issues || []).length - migrationIssuePreview.length}건 더 있음</p>
+                    )}
+                  </section>
+                  <details className="report-raw">
+                    <summary>이식 리포트 JSON 보기</summary>
+                    <pre className="report">{JSON.stringify(migrationReport, null, 2)}</pre>
+                  </details>
+                </>
+              )}
+            </section>
           </article>
         </section>
       )}

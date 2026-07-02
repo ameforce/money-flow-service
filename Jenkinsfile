@@ -488,8 +488,8 @@ done
              "docker compose -p ${env.DEPLOY_COMPOSE_PROJECT_RESOLVED} -f ${env.DEPLOY_COMPOSE_FILE_RESOLVED} --env-file ${env.DEPLOY_ENV_FILE_NAME} build --no-cache",
              "docker compose -p ${env.DEPLOY_COMPOSE_PROJECT_RESOLVED} -f ${env.DEPLOY_COMPOSE_FILE_RESOLVED} --env-file ${env.DEPLOY_ENV_FILE_NAME} up -d postgres",
              "docker exec <postgres-container> sh -lc 'psql ... ALTER USER ...'",
-             "docker compose -p ${env.DEPLOY_COMPOSE_PROJECT_RESOLVED} -f ${env.DEPLOY_COMPOSE_FILE_RESOLVED} --env-file ${env.DEPLOY_ENV_FILE_NAME} run --rm --no-deps app env PYTHONPATH=backend python -c 'from app.db.init_db import create_schema; create_schema()'",
-             "docker compose -p ${env.DEPLOY_COMPOSE_PROJECT_RESOLVED} -f ${env.DEPLOY_COMPOSE_FILE_RESOLVED} --env-file ${env.DEPLOY_ENV_FILE_NAME} run --rm --no-deps app env PYTHONPATH=backend python -m app.db.schema_upgrade",
+             "docker compose -p ${env.DEPLOY_COMPOSE_PROJECT_RESOLVED} -f ${env.DEPLOY_COMPOSE_FILE_RESOLVED} --env-file ${env.DEPLOY_ENV_FILE_NAME} run --rm app env PYTHONPATH=backend python -c 'from app.db.init_db import create_schema; create_schema()'",
+             "docker compose -p ${env.DEPLOY_COMPOSE_PROJECT_RESOLVED} -f ${env.DEPLOY_COMPOSE_FILE_RESOLVED} --env-file ${env.DEPLOY_ENV_FILE_NAME} run --rm app env PYTHONPATH=backend python -m app.db.schema_upgrade",
              "echo SCHEMA_UPGRADE_OK",
              "docker compose -p ${env.DEPLOY_COMPOSE_PROJECT_RESOLVED} -f ${env.DEPLOY_COMPOSE_FILE_RESOLVED} --env-file ${env.DEPLOY_ENV_FILE_NAME} up -d app",
              "curl -fsS -H 'Host: ${env.DEPLOY_DOMAIN_FOR_BRANCH}' ${env.DEPLOY_HEALTHCHECK_URL_RESOLVED}"
@@ -1135,9 +1135,9 @@ echo '[deploy] postgres password synchronized with env'
 docker exec "$postgres_container" sh -lc 'case "$POSTGRES_DB" in ""|*[!A-Za-z0-9_]*) echo "invalid POSTGRES_DB: $POSTGRES_DB" >&2; exit 1;; esac; if ! psql -U "$POSTGRES_USER" -d postgres -Atc "SELECT datname FROM pg_database" | grep -Fxq "$POSTGRES_DB"; then createdb -U "$POSTGRES_USER" "$POSTGRES_DB"; fi'
 echo '[deploy] postgres database presence verified'
 echo '[deploy] ensuring schema exists before schema upgrade'
-docker compose -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" --env-file "$ENV_FILE_PATH" run --rm --no-deps app env PYTHONPATH=backend python -c "from app.db.init_db import create_schema; create_schema()"
+docker compose -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" --env-file "$ENV_FILE_PATH" run --rm app env PYTHONPATH=backend python -c "from app.db.init_db import create_schema; create_schema()"
 echo '[deploy] running schema upgrade before app exposure'
-docker compose -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" --env-file "$ENV_FILE_PATH" run --rm --no-deps app env PYTHONPATH=backend python -m app.db.schema_upgrade
+docker compose -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" --env-file "$ENV_FILE_PATH" run --rm app env PYTHONPATH=backend python -m app.db.schema_upgrade
 echo '[deploy] SCHEMA_UPGRADE_OK'
 echo '[deploy] starting app after schema upgrade'
 docker compose -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" --env-file "$ENV_FILE_PATH" up -d app
