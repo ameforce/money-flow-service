@@ -538,6 +538,19 @@ export function hexToRgb(hex) {
 
 export async function openTab(page, label) {
   const tabButton = page.getByRole("button", { name: label, exact: true }).first();
+  const isAlreadyActive = await tabButton
+    .evaluate((element) => element.classList.contains("active"))
+    .catch(() => false);
+  if (isAlreadyActive) {
+    return;
+  }
+
+  const openTransactionSheet = page.getByTestId("transaction-entry-sheet");
+  if (await openTransactionSheet.isVisible().catch(() => false)) {
+    await page.getByTestId("transaction-entry-sheet-close").click();
+    await expect(openTransactionSheet).toBeHidden({ timeout: 20_000 });
+  }
+
   for (let attempt = 0; attempt < 4; attempt += 1) {
     await tabButton.click();
     const isActive = await tabButton
@@ -750,6 +763,67 @@ async function expandQuickTransactionDetails(container) {
   }
 }
 
+export async function openTransactionEntryForm(page) {
+  await openTab(page, "거래");
+
+  const transactionSheet = page.getByTestId("transaction-entry-sheet");
+  if (await transactionSheet.isVisible().catch(() => false)) {
+    await expect(transactionSheet.locator("form.transactions-form-grid, form.transaction-quick-form").first()).toBeVisible();
+    return {
+      container: transactionSheet,
+      mode: "sheet",
+      close: async () => {
+        if (await transactionSheet.isVisible().catch(() => false)) {
+          await page.getByTestId("transaction-entry-sheet-close").click();
+          await expect(transactionSheet).toBeHidden({ timeout: 20_000 });
+        }
+      },
+    };
+  }
+
+  const transactionCard = page.locator("article.card", {
+    has: page.getByRole("heading", { name: "거래 입력" }),
+  });
+  const txToggleButton = transactionCard.getByRole("button", { name: /거래 추가|입력 닫기/ }).first();
+  const txToggleVisible = await txToggleButton.isVisible().catch(() => false);
+  if (txToggleVisible) {
+    const txToggleText = String((await txToggleButton.textContent()) || "");
+    if (txToggleText.includes("거래 추가")) {
+      await expect(txToggleButton).toBeEnabled();
+      await txToggleButton.click();
+    }
+    await expect(transactionCard.locator("form.transactions-form-grid").first()).toBeVisible();
+    return {
+      container: transactionCard,
+      mode: "card",
+      close: async () => {
+        const currentToggleText = String((await txToggleButton.textContent().catch(() => "")) || "");
+        if (currentToggleText.includes("입력 닫기")) {
+          await txToggleButton.click();
+          await expect(transactionCard.locator("form.transactions-form-grid")).toHaveCount(0, { timeout: 20_000 });
+        }
+      },
+    };
+  }
+
+  const transactionFab = page.getByTestId("transactions-fab");
+  await expect(transactionFab).toBeVisible();
+  await expect(transactionFab).toBeEnabled();
+  await transactionFab.click();
+  await expect(transactionSheet).toBeVisible();
+  await expect(transactionSheet.locator("form.transactions-form-grid, form.transaction-quick-form").first()).toBeVisible();
+  return {
+    container: transactionSheet,
+    mode: "sheet",
+    close: async () => {
+      if (await transactionSheet.isVisible().catch(() => false)) {
+        await page.getByTestId("transaction-entry-sheet-close").click();
+        await expect(transactionSheet).toBeHidden({ timeout: 20_000 });
+      }
+    },
+  };
+}
+
 async function fillInputUntilValue(locator, inputValue, expectedValue, fieldName) {
   for (let attempt = 0; attempt < 4; attempt += 1) {
     if ((await locator.inputValue().catch(() => "")) === expectedValue) {
@@ -779,30 +853,9 @@ export async function createBasicTransaction(
   page,
   { memo, amount = "12000", flowType = "", ownerless = false, occurredOn = currentE2EHistoryDateIso() }
 ) {
-  await openTab(page, "거래");
   const effectiveOccurredOn = occurredOn || currentE2EHistoryDateIso();
-  const transactionCard = page.locator("article.card", {
-    has: page.getByRole("heading", { name: "거래 입력" }),
-  });
-  const transactionFab = page.getByTestId("transactions-fab");
+  const { container: transactionContainer, mode: transactionEntryMode } = await openTransactionEntryForm(page);
   const transactionSheet = page.getByTestId("transaction-entry-sheet");
-  let transactionContainer = transactionCard;
-
-  const txToggleButton = transactionCard.getByRole("button", { name: /거래 추가|입력 닫기/ }).first();
-  const txToggleVisible = await txToggleButton.isVisible().catch(() => false);
-  if (txToggleVisible) {
-    const txToggleText = String((await txToggleButton.textContent()) || "");
-    if (txToggleText.includes("거래 추가")) {
-      await expect(txToggleButton).toBeEnabled();
-      await txToggleButton.click();
-    }
-    await expect(transactionCard.locator("form.transactions-form-grid").first()).toBeVisible();
-  } else if (await transactionFab.isVisible().catch(() => false)) {
-    await expect(transactionFab).toBeEnabled();
-    await transactionFab.click();
-    await expect(transactionSheet).toBeVisible();
-    transactionContainer = transactionSheet;
-  }
   await expandQuickTransactionDetails(transactionContainer);
 
   if (flowType) {
@@ -862,10 +915,14 @@ export async function createBasicTransaction(
     }
   }
   await expect(row).toBeVisible();
-  if (txToggleVisible) {
+  if (transactionEntryMode === "card") {
+    const transactionCard = page.locator("article.card", {
+      has: page.getByRole("heading", { name: "거래 입력" }),
+    });
+    const txToggleButton = transactionCard.getByRole("button", { name: /거래 추가|입력 닫기/ }).first();
     await expect(txToggleButton).toContainText("거래 추가", { timeout: 20_000 });
     await expect(txToggleButton).toBeEnabled();
-  } else if ((await transactionSheet.count()) > 0) {
+  } else {
     await expect(transactionSheet).toBeHidden({ timeout: 20_000 });
   }
   return row;

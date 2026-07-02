@@ -9,6 +9,7 @@ import {
   expectNoHorizontalOverflow,
   expectWithinViewport,
   labeledField,
+  openTransactionEntryForm,
   openTab,
   registerAndVerify,
   selectFirstNonEmptyOption,
@@ -415,25 +416,17 @@ test("settings flow: profile, household, colors, categories CRUD", async ({ page
   await page.setViewportSize({ width: 1366, height: 960 });
   await assertResponsiveShell(page);
   const usageMemo = unique("usage-memo");
-  await openTab(page, "거래");
-  const transactionCard = page.locator("article.card", {
-    has: page.getByRole("heading", { name: "거래 입력" }),
-  });
-  const txToggleButton = transactionCard.getByRole("button", { name: /거래 추가|입력 닫기/ }).first();
-  await expect(txToggleButton).toContainText("거래 추가");
-  await expect(transactionCard.locator("form.transactions-form-grid")).toHaveCount(0);
-  await txToggleButton.click();
-  await expect(transactionCard.locator("form.transactions-form-grid")).toHaveCount(1);
-  await labeledField(transactionCard, "유형", "select").selectOption("expense");
-  await labeledField(transactionCard, "일자", "input").fill(currentE2EHistoryDateIso());
-  await labeledField(transactionCard, "금액", "input").fill("77777");
-  await labeledField(transactionCard, "메모", "input").fill(usageMemo);
-  await selectFirstNonEmptyOption(labeledField(transactionCard, "거래자", "select"));
-  const txMajorSelectNew = labeledField(transactionCard, "카테고리 그룹", "select");
+  const { container: transactionEntry } = await openTransactionEntryForm(page);
+  await labeledField(transactionEntry, "유형", "select").selectOption("expense");
+  await labeledField(transactionEntry, "일자", "input").fill(currentE2EHistoryDateIso());
+  await labeledField(transactionEntry, "금액", "input").fill("77777");
+  await labeledField(transactionEntry, "메모", "input").fill(usageMemo);
+  await selectFirstNonEmptyOption(labeledField(transactionEntry, "거래자", "select"));
+  const txMajorSelectNew = labeledField(transactionEntry, "카테고리 그룹", "select");
   const txHasNewCategoryLabels = (await txMajorSelectNew.count()) > 0;
   const txMajorSelect = txHasNewCategoryLabels
     ? txMajorSelectNew
-    : labeledField(transactionCard, "대분류", "select");
+    : labeledField(transactionEntry, "대분류", "select");
   const txMajorValue = await txMajorSelect.locator("option").evaluateAll(
     (nodes, targetMajor) => {
       const matched = nodes.find((node) => String(node.textContent || "").includes(targetMajor));
@@ -444,13 +437,13 @@ test("settings flow: profile, household, colors, categories CRUD", async ({ page
   expect(txMajorValue).not.toBe("");
   await txMajorSelect.selectOption(txMajorValue);
   const txMinorSelect = txHasNewCategoryLabels
-    ? transactionCard.locator("form.transactions-form-grid select").nth(2)
-    : labeledField(transactionCard, "중분류", "select");
+    ? transactionEntry.locator("form.transactions-form-grid select").nth(2)
+    : labeledField(transactionEntry, "중분류", "select");
   await expect(txMinorSelect).toBeEnabled();
   await expect.poll(async () => txMinorSelect.locator("option").count()).toBeGreaterThan(1);
   await txMinorSelect.selectOption({ index: 1 });
   await expect(txMinorSelect.locator("option:checked")).toContainText(minorSeed);
-  await transactionCard.getByRole("button", { name: "거래 등록" }).click();
+  await transactionEntry.getByRole("button", { name: "거래 등록" }).click();
   await expect(page.locator("tr.transaction-row", { hasText: usageMemo }).first()).toBeVisible();
   await openTab(page, "설정");
   await page.setViewportSize({ width: 390, height: 844 });

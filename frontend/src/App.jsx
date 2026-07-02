@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, Fragment } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, Fragment } from "react";
 import {
   ArcElement,
   CategoryScale,
@@ -1644,6 +1644,7 @@ function App() {
   const [showOnboardingGuide, setShowOnboardingGuide] = useState(false);
   const [showTransactionEntryBanner, setShowTransactionEntryBanner] = useState(false);
   const [showTransactionForm, setShowTransactionForm] = useState(false);
+  const [showTransactionFilterPanel, setShowTransactionFilterPanel] = useState(false);
   const [transactionSupportOpen, setTransactionSupportOpen] = useState(false);
   const [txEntrySheetStep, setTxEntrySheetStep] = useState("form");
   const [showTransactionQuickResume, setShowTransactionQuickResume] = useState(false);
@@ -1852,6 +1853,7 @@ function App() {
   const transactionSupportDetailsRef = useRef(null);
   const transactionListHeadingRef = useRef(null);
   const transactionListCardRef = useRef(null);
+  const transactionFabRef = useRef(null);
   const transactionSheetScrollYRef = useRef(0);
   const holdingSheetScrollYRef = useRef(0);
   const holdingSummaryCardRef = useRef(null);
@@ -2929,31 +2931,52 @@ function App() {
     setTxSortDirection((prev) => (prev === "asc" ? "desc" : "asc"));
   }
 
+  const clearTransactionQuickFocusScrollTimers = useCallback(() => {
+    if (typeof window === "undefined") {
+      txQuickFocusScrollTimersRef.current = [];
+      return;
+    }
+    for (const timerId of txQuickFocusScrollTimersRef.current) {
+      window.clearTimeout(timerId);
+    }
+    txQuickFocusScrollTimersRef.current = [];
+  }, []);
+
   function openTransactionEntrySheet(nextStep = "form") {
     if (loading) {
       return;
     }
-    if (!isCompactViewport) {
-      setShowTransactionForm(true);
-      return;
-    }
-    transactionSheetScrollYRef.current = window.scrollY;
+    transactionSheetScrollYRef.current = typeof window !== "undefined" ? window.scrollY : 0;
     setTxEntrySheetStep(nextStep);
     setShowTransactionForm(true);
   }
 
-  function closeTransactionEntrySheet() {
+  const closeTransactionEntrySheet = useCallback(() => {
+    const restoreScrollY = transactionSheetScrollYRef.current;
     setShowTransactionForm(false);
     setTxEntrySheetStep("form");
     setShowTransactionQuickResume(false);
     clearTransactionQuickFocusScrollTimers();
-    if (!isCompactViewport) {
-      return;
-    }
     window.setTimeout(() => {
-      window.scrollTo({ top: transactionSheetScrollYRef.current, behavior: "auto" });
+      window.scrollTo({ top: restoreScrollY, behavior: "auto" });
+      transactionFabRef.current?.focus?.({ preventScroll: true });
     }, 0);
-  }
+  }, [clearTransactionQuickFocusScrollTimers]);
+
+  useEffect(() => {
+    if (!showTransactionForm) {
+      return undefined;
+    }
+    const handleTransactionEntryEscape = (event) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+      event.preventDefault();
+      closeTransactionEntrySheet();
+    };
+    document.addEventListener("keydown", handleTransactionEntryEscape);
+    return () => document.removeEventListener("keydown", handleTransactionEntryEscape);
+  }, [showTransactionForm, closeTransactionEntrySheet]);
 
   function resetTransactionDraft() {
     setTxForm(createTransactionForm(normalizeIsoDateKey(transactionHistoryToday, todayIso())));
@@ -2984,17 +3007,6 @@ function App() {
       element.matches(MOBILE_FORM_FIELD_SELECTOR) &&
       isFocusableFormField(element)
     );
-  }
-
-  function clearTransactionQuickFocusScrollTimers() {
-    if (typeof window === "undefined") {
-      txQuickFocusScrollTimersRef.current = [];
-      return;
-    }
-    for (const timerId of txQuickFocusScrollTimersRef.current) {
-      window.clearTimeout(timerId);
-    }
-    txQuickFocusScrollTimersRef.current = [];
   }
 
   function keepTransactionQuickFieldVisible(element) {
@@ -3851,8 +3863,7 @@ function App() {
     return (
       [
         "header.topbar",
-        ".transaction-list-card > .surface-list-heading",
-        ".transaction-list-card > .table-header-group",
+        ".transaction-list-card > .transaction-sticky-toolbar",
         ".transactions-mobile-ledger-head",
       ].reduce((bottom, selector) => {
         const box = document.querySelector(selector)?.getBoundingClientRect();
@@ -8547,180 +8558,153 @@ function App() {
       )}
 
       {tab === "transactions" && (
-        <section className="grid-1">
-          <article className="card surface-entry-card transaction-entry-card">
-            <div className="work-surface-header">
-              <div className="work-surface-title">
-                <span className="surface-eyebrow">빠른 입력</span>
-                <h2>거래 입력</h2>
+        <section className="grid-1 transaction-page-section">
+          <article ref={transactionListCardRef} className="card table-card surface-list-card transaction-list-card">
+            <div className="transaction-sticky-toolbar" data-testid="transaction-sticky-toolbar">
+              <div ref={transactionListHeadingRef} className="surface-list-heading">
+                <div className="work-surface-title">
+                  <span className="surface-eyebrow">작업 원장</span>
+                  <h2>거래 목록</h2>
+                </div>
+                <p className="table-summary surface-count-summary">
+                  {transactionHistoryInitialized ? "불러온" : "총"} {transactionLedgerItems.length}건 중 {sortedTransactions.length}건 표시
+                </p>
               </div>
-              <div className="inline category-entry-toolbar">
-                <button type="button" className="secondary" onClick={() => toggleTransactionCategoryManager()}>
-                  {showTxCategoryManager ? "카테고리 관리 닫기" : "카테고리 관리"}
-                </button>
+              <div className="surface-control-strip" aria-label="거래 목록 상태">
+                <span className="surface-chip surface-chip-strong">{transactionSortSummary}</span>
+                {transactionHistoryInitialized && (
+                  <span className="surface-chip surface-chip-muted">
+                    기준 {transactionHistoryAnchorDate || transactionHistoryToday}
+                  </span>
+                )}
+                <span className={`surface-chip${isTransactionFilterActive ? " surface-chip-strong" : " surface-chip-muted"}`}>
+                  필터 {isTransactionFilterActive ? "적용됨" : "기본"}
+                </span>
+                <span className="surface-chip">선택 {selectedTransactionSummary.count}건</span>
+              </div>
+              <div className="table-header-group">
+                <div className="month-stepper-inline">
+                  <div className="month-stepper">
+                    <button
+                      type="button"
+                      className="icon-btn"
+                      aria-label="이전 달"
+                      disabled={isPrevMonthDisabled}
+                      onClick={() => handleShiftYearMonth(-1)}
+                    >
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+                    </button>
+                    <div className="date-inputs">
+                      <span className="month-value-group">
+                        <input
+                          type="number"
+                          aria-label="연도"
+                          value={yearMonth.year}
+                          onChange={(event) => updateYearMonthInput("year", event.target.value)}
+                          onBlur={handleYearMonthInputBlur}
+                          onKeyDown={handleYearMonthInputKeyDown}
+                          enterKeyHint="done"
+                        />
+                        <span aria-hidden="true">년</span>
+                      </span>
+                      <span className="month-value-group month-value-group-month">
+                        <input
+                          type="number"
+                          min="1"
+                          max="12"
+                          aria-label="월"
+                          value={yearMonth.month}
+                          onChange={(event) => updateYearMonthInput("month", event.target.value)}
+                          onBlur={handleYearMonthInputBlur}
+                          onKeyDown={handleYearMonthInputKeyDown}
+                          enterKeyHint="done"
+                        />
+                        <span aria-hidden="true">월</span>
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      className="icon-btn"
+                      aria-label="다음 달"
+                      disabled={isNextMonthDisabled}
+                      onClick={() => handleShiftYearMonth(1)}
+                    >
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                    </button>
+                    <button type="button" className="text-btn" onClick={handleMoveToCurrentMonth}>
+                      이번 달
+                    </button>
+                  </div>
+                  <p className="table-summary">
+                    조회 가능 월: {toYearMonthKey(minMonth)} ~ {toYearMonthKey(maxMonth)}
+                  </p>
+                </div>
+              </div>
+              <div className="transaction-filter-actions" aria-label="거래 필터 빠른 조작">
                 <button
                   type="button"
                   className="secondary"
-                  onClick={() => setShowTransactionForm((prev) => !prev)}
-                  disabled={loading}
+                  aria-expanded={showTransactionFilterPanel ? "true" : "false"}
+                  aria-controls="transaction-filter-panel"
+                  onClick={() => setShowTransactionFilterPanel((prev) => !prev)}
                 >
-                  {showTransactionForm ? "입력 닫기" : "거래 추가"}
+                  {showTransactionFilterPanel ? "필터 닫기" : "필터 열기"}
                 </button>
+                {isTransactionFilterActive && (
+                  <button type="button" className="secondary tx-header-filter-reset" onClick={clearTxListFilter}>
+                    필터 초기화
+                  </button>
+                )}
+                <span className="table-summary">현재 불러온 거래 목록 기준 필터입니다.</span>
               </div>
-            </div>
-            <p className="table-summary">
-              {isCompactViewport
-                ? "모바일에서는 + 버튼으로 거래 추가와 카테고리 관리를 엽니다."
-                : "필요할 때만 입력창을 엽니다."}
-            </p>
-            <div className="surface-control-strip" aria-label="거래 입력 상태">
-              <span className="surface-chip surface-chip-strong">{canEditRecords ? "편집 가능" : "읽기 전용"}</span>
-              <span className="surface-chip">거래자·카테고리 우선 입력</span>
-              <span className="surface-chip surface-chip-muted">모바일 시트 지원</span>
-            </div>
-            {!canEditRecords && (
-              <p className="table-summary">거래 등록/수정/삭제는 편집자 이상 권한에서만 가능합니다.</p>
-            )}
-            {!isCompactViewport && transactionEntryBanner}
-            {!isCompactViewport && showTransactionForm && renderTransactionFormFields()}
-          </article>
-          <article ref={transactionListCardRef} className="card table-card surface-list-card transaction-list-card">
-            <div ref={transactionListHeadingRef} className="surface-list-heading">
-              <div className="work-surface-title">
-                <span className="surface-eyebrow">작업 원장</span>
-                <h2>거래 목록</h2>
-              </div>
-              {isCompactViewport && (
-                <button
-                  type="button"
-                  className="transactions-fab transactions-fab-inline surface-heading-action"
-                  data-testid="transactions-fab"
-                  aria-label="거래 추가"
-                  disabled={loading}
-                  onClick={() => openTransactionEntrySheet("form")}
-                >
-                  <span aria-hidden="true">＋</span>
-                </button>
-              )}
-              <p className="table-summary surface-count-summary">
-                {transactionHistoryInitialized ? "불러온" : "총"} {transactionLedgerItems.length}건 중 {sortedTransactions.length}건 표시
-              </p>
-            </div>
-            <div className="surface-control-strip" aria-label="거래 목록 상태">
-              <span className="surface-chip surface-chip-strong">{transactionSortSummary}</span>
-              {transactionHistoryInitialized && (
-                <span className="surface-chip surface-chip-muted">
-                  기준 {transactionHistoryAnchorDate || transactionHistoryToday}
-                </span>
-              )}
-              <span className={`surface-chip${isTransactionFilterActive ? " surface-chip-strong" : " surface-chip-muted"}`}>
-                필터 {isTransactionFilterActive ? "적용됨" : "기본"}
-              </span>
-              <span className="surface-chip">선택 {selectedTransactionSummary.count}건</span>
-            </div>
-            <div className="table-header-group">
-              <div className="month-stepper-inline">
-                <div className="month-stepper">
+              {showTransactionFilterPanel && (
+                <div id="transaction-filter-panel" className="tx-header-filters" aria-label="거래 제목행 필터">
+                  <label className="tx-header-filter tx-header-filter-search">
+                    <span>메모</span>
+                    <input
+                      placeholder="검색"
+                      value={txListFilter.keyword}
+                      onChange={(e) => setTxListFilter({ ...txListFilter, keyword: e.target.value })}
+                      enterKeyHint="search"
+                    />
+                  </label>
+                  <label className="tx-header-filter tx-header-filter-type">
+                    <span>유형</span>
+                    <select
+                      value={txListFilter.flow_type}
+                      onChange={(e) => setTxListFilter({ ...txListFilter, flow_type: e.target.value })}
+                    >
+                      <option value="all">전체</option>
+                      {FLOW_TYPE_OPTIONS.map((item) => (
+                        <option key={item.value} value={item.value}>
+                          {item.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="tx-header-filter">
+                    <span>시작</span>
+                    <IsoDateInput
+                      value={txListFilter.start}
+                      onValueChange={(value) => setTxListFilter({ ...txListFilter, start: value })}
+                    />
+                  </label>
+                  <label className="tx-header-filter">
+                    <span>종료</span>
+                    <IsoDateInput
+                      value={txListFilter.end}
+                      onValueChange={(value) => setTxListFilter({ ...txListFilter, end: value })}
+                    />
+                  </label>
                   <button
                     type="button"
-                    className="icon-btn"
-                    aria-label="이전 달"
-                    disabled={isPrevMonthDisabled}
-                    onClick={() => handleShiftYearMonth(-1)}
+                    className="secondary tx-header-filter-reset"
+                    onClick={clearTxListFilter}
                   >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
-                  </button>
-                  <div className="date-inputs">
-                    <span className="month-value-group">
-                      <input
-                        type="number"
-                        aria-label="연도"
-                        value={yearMonth.year}
-                        onChange={(event) => updateYearMonthInput("year", event.target.value)}
-                        onBlur={handleYearMonthInputBlur}
-                        onKeyDown={handleYearMonthInputKeyDown}
-                        enterKeyHint="done"
-                      />
-                      <span aria-hidden="true">년</span>
-                    </span>
-                    <span className="month-value-group month-value-group-month">
-                      <input
-                        type="number"
-                        min="1"
-                        max="12"
-                        aria-label="월"
-                        value={yearMonth.month}
-                        onChange={(event) => updateYearMonthInput("month", event.target.value)}
-                        onBlur={handleYearMonthInputBlur}
-                        onKeyDown={handleYearMonthInputKeyDown}
-                        enterKeyHint="done"
-                      />
-                      <span aria-hidden="true">월</span>
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    className="icon-btn"
-                    aria-label="다음 달"
-                    disabled={isNextMonthDisabled}
-                    onClick={() => handleShiftYearMonth(1)}
-                  >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
-                  </button>
-                  <button type="button" className="text-btn" onClick={handleMoveToCurrentMonth}>
-                    이번 달
+                    초기화
                   </button>
                 </div>
-                <p className="table-summary">
-                  조회 가능 월: {toYearMonthKey(minMonth)} ~ {toYearMonthKey(maxMonth)}
-                </p>
-              </div>
-            </div>
-            <div className="tx-header-filters" aria-label="거래 제목행 필터">
-              <label className="tx-header-filter tx-header-filter-search">
-                <span>메모</span>
-                <input
-                  placeholder="검색"
-                  value={txListFilter.keyword}
-                  onChange={(e) => setTxListFilter({ ...txListFilter, keyword: e.target.value })}
-                  enterKeyHint="search"
-                />
-              </label>
-              <label className="tx-header-filter tx-header-filter-type">
-                <span>유형</span>
-                <select
-                  value={txListFilter.flow_type}
-                  onChange={(e) => setTxListFilter({ ...txListFilter, flow_type: e.target.value })}
-                >
-                  <option value="all">전체</option>
-                  {FLOW_TYPE_OPTIONS.map((item) => (
-                    <option key={item.value} value={item.value}>
-                      {item.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="tx-header-filter">
-                <span>시작</span>
-                <IsoDateInput
-                  value={txListFilter.start}
-                  onValueChange={(value) => setTxListFilter({ ...txListFilter, start: value })}
-                />
-              </label>
-              <label className="tx-header-filter">
-                <span>종료</span>
-                <IsoDateInput
-                  value={txListFilter.end}
-                  onValueChange={(value) => setTxListFilter({ ...txListFilter, end: value })}
-                />
-              </label>
-              <button
-                type="button"
-                className="secondary tx-header-filter-reset"
-                onClick={clearTxListFilter}
-              >
-                초기화
-              </button>
+              )}
             </div>
             {selectedTransactionSummary.count > 0 && (
               <div className="message" role="status">
@@ -8800,6 +8784,17 @@ function App() {
               toCategoryMinorLabel={toCategoryMinorLabel}
             />
           </article>
+          <button
+            ref={transactionFabRef}
+            type="button"
+            className="transactions-fab transaction-add-fab"
+            data-testid="transactions-fab"
+            aria-label="거래 추가"
+            disabled={loading}
+            onClick={() => openTransactionEntrySheet("form")}
+          >
+            <span aria-hidden="true">＋</span>
+          </button>
           <details
             ref={transactionSupportDetailsRef}
             className="card compact-support-card transaction-support-card surface-support-card"
@@ -8930,69 +8925,74 @@ function App() {
               )}
             </div>
           </details>
-          {isCompactViewport && (
-            <>
-              {showTransactionForm && (
-                <div className="transaction-entry-sheet-backdrop" role="presentation" onClick={closeTransactionEntrySheet}>
-                  <section
-                    className="transaction-entry-sheet"
-                    data-testid="transaction-entry-sheet"
-                    aria-modal="true"
-                    role="dialog"
-                    aria-label="거래 추가 레이어"
-                    onClick={(event) => event.stopPropagation()}
+          {showTransactionForm && (
+            <div
+              className={`transaction-entry-sheet-backdrop${isCompactViewport ? " transaction-entry-sheet-backdrop-compact" : " transaction-entry-sheet-backdrop-desktop"}`}
+              role="presentation"
+              onClick={closeTransactionEntrySheet}
+            >
+              <section
+                className={`transaction-entry-sheet${isCompactViewport ? " transaction-entry-sheet-compact" : " transaction-entry-sheet-desktop"}`}
+                data-testid="transaction-entry-sheet"
+                aria-modal="true"
+                role="dialog"
+                aria-label={txEntrySheetStep === "category" ? "거래 카테고리 관리 레이어" : "거래 추가 레이어"}
+                onClick={(event) => event.stopPropagation()}
+              >
+                <div className="transaction-entry-sheet-header">
+                  <div>
+                    <h3>{txEntrySheetStep === "category" ? "카테고리 관리" : "거래 추가"}</h3>
+                    <p className="table-summary">
+                      {txEntrySheetStep === "category"
+                        ? "같은 레이어 안에서 카테고리를 정리합니다."
+                        : "현재 위치를 유지한 채 새 거래를 추가합니다."}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="secondary"
+                    data-testid="transaction-entry-sheet-close"
+                    onClick={closeTransactionEntrySheet}
                   >
-                    <div className="transaction-entry-sheet-header">
-                      <div>
-                        <h3>{txEntrySheetStep === "category" ? "카테고리 관리" : "거래 추가"}</h3>
-                        <p className="table-summary">
-                          {txEntrySheetStep === "category"
-                            ? "같은 레이어 안에서 카테고리를 정리합니다."
-                            : "현재 탭을 벗어나지 않고 새 거래를 추가합니다."}
-                        </p>
-                      </div>
+                    닫기
+                  </button>
+                </div>
+                {!canEditRecords && (
+                  <p className="table-summary transaction-entry-readonly-note">
+                    거래 등록/수정/삭제는 편집자 이상 권한에서만 가능합니다.
+                  </p>
+                )}
+                {txEntrySheetStep === "category" ? (
+                  <>
+                    <div className="transaction-entry-sheet-actions">
                       <button
                         type="button"
                         className="secondary"
-                        data-testid="transaction-entry-sheet-close"
-                        onClick={closeTransactionEntrySheet}
+                        onClick={() => setTxEntrySheetStep("form")}
                       >
-                        닫기
+                        거래 입력으로 돌아가기
                       </button>
                     </div>
-                    {txEntrySheetStep === "category" ? (
-                      <>
-                        <div className="transaction-entry-sheet-actions">
-                          <button
-                            type="button"
-                            className="secondary"
-                            onClick={() => setTxEntrySheetStep("form")}
-                          >
-                            거래 입력으로 돌아가기
-                          </button>
-                        </div>
-                        {renderTransactionCategoryManagerContent({ sheetMode: true })}
-                      </>
-                    ) : (
-                      <>
-                        {transactionEntryBanner}
-                        <div className="transaction-entry-sheet-actions">
-                          <button
-                            type="button"
-                            className="secondary"
-                            data-testid="transaction-entry-category-manage"
-                            onClick={() => setTxEntrySheetStep("category")}
-                          >
-                            카테고리 관리
-                          </button>
-                        </div>
-                        {renderTransactionFormFields({ sheetMode: true })}
-                      </>
-                    )}
-                  </section>
-                </div>
-              )}
-            </>
+                    {renderTransactionCategoryManagerContent({ sheetMode: true })}
+                  </>
+                ) : (
+                  <>
+                    {transactionEntryBanner}
+                    <div className="transaction-entry-sheet-actions">
+                      <button
+                        type="button"
+                        className="secondary"
+                        data-testid="transaction-entry-category-manage"
+                        onClick={() => setTxEntrySheetStep("category")}
+                      >
+                        카테고리 관리
+                      </button>
+                    </div>
+                    {renderTransactionFormFields({ sheetMode: true })}
+                  </>
+                )}
+              </section>
+            </div>
           )}
         </section>
       )}

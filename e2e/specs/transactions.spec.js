@@ -194,8 +194,7 @@ async function captureVisibleHistoryAnchor(page) {
     const threshold =
       [
         "header.topbar",
-        ".transaction-list-card > .surface-list-heading",
-        ".transaction-list-card > .table-header-group",
+        ".transaction-list-card > .transaction-sticky-toolbar",
         ".transactions-mobile-ledger-head",
       ].reduce((bottom, selector) => {
         const box = document.querySelector(selector)?.getBoundingClientRect();
@@ -378,19 +377,19 @@ async function expectDesktopSidebarSticky(page) {
 
 async function expectTransactionMonthStepperSticky(page, label = "transaction month stepper") {
   const viewport = page.viewportSize();
-  const headerGroup = page.locator(".transaction-list-card > .table-header-group").first();
+  const stickyToolbar = page.getByTestId("transaction-sticky-toolbar").first();
   const stepper = page.locator(".transaction-list-card .month-stepper").first();
-  await expect(headerGroup).toBeVisible();
+  await expect(stickyToolbar).toBeVisible();
   await expect(stepper).toBeVisible();
-  const state = await headerGroup.evaluate((element) => {
-    const headerBox = element.getBoundingClientRect();
+  const state = await stickyToolbar.evaluate((element) => {
+    const toolbarBox = element.getBoundingClientRect();
     const stepperBox = element.querySelector(".month-stepper")?.getBoundingClientRect();
     const style = getComputedStyle(element);
     return {
       position: style.position,
       top: style.top,
-      headerTop: headerBox.top,
-      headerBottom: headerBox.bottom,
+      toolbarTop: toolbarBox.top,
+      toolbarBottom: toolbarBox.bottom,
       stepperTop: stepperBox?.top ?? null,
       stepperBottom: stepperBox?.bottom ?? null,
       scrollY: window.scrollY,
@@ -406,6 +405,67 @@ async function expectTransactionMonthStepperSticky(page, label = "transaction mo
   expect(state.stepperBottom ?? Number.POSITIVE_INFINITY, `${label} sticky state: ${JSON.stringify(state)}`).toBeLessThanOrEqual(
     (viewport?.height ?? 0) - bottomReserve
   );
+}
+
+async function expectTransactionFabBottomRightReachable(page, label = "transaction FAB") {
+  const fab = page.getByTestId("transactions-fab");
+  await expect(fab, `${label} visible`).toBeVisible();
+  await expect(fab, `${label} enabled`).toBeEnabled();
+  const metrics = await fab.evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    const centerX = box.left + box.width / 2;
+    const centerY = box.top + box.height / 2;
+    const topElement = document.elementFromPoint(centerX, centerY);
+    const style = getComputedStyle(element);
+    const toolbar = document.querySelector('[data-testid="transaction-sticky-toolbar"]');
+    const ledgerHead = document.querySelector(".transactions-mobile-ledger-head");
+    const toolbarBox = toolbar?.getBoundingClientRect();
+    const ledgerBox = ledgerHead?.getBoundingClientRect();
+    const intersects = (left, right) =>
+      Boolean(
+        left &&
+          right &&
+          left.left < right.right &&
+          left.right > right.left &&
+          left.top < right.bottom &&
+          left.bottom > right.top,
+      );
+    return {
+      position: style.position,
+      zIndex: Number.parseInt(style.zIndex || "0", 10),
+      box: {
+        left: box.left,
+        right: box.right,
+        top: box.top,
+        bottom: box.bottom,
+        width: box.width,
+        height: box.height,
+      },
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+      hitTargetIsFab: topElement === element || element.contains(topElement),
+      overlapsToolbar: intersects(box, toolbarBox),
+      overlapsLedgerHead: intersects(box, ledgerBox),
+      scrollY: window.scrollY,
+    };
+  });
+  expect(metrics.position, `${label} should be fixed: ${JSON.stringify(metrics)}`).toBe("fixed");
+  expect(metrics.zIndex, `${label} z-index should sit above sticky toolbar: ${JSON.stringify(metrics)}`).toBeGreaterThan(44);
+  expect(metrics.box.width, `${label} width should remain touch-friendly: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(48);
+  expect(metrics.box.height, `${label} height should remain touch-friendly: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(48);
+  expect(metrics.box.right, `${label} should stay inside right viewport edge: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(
+    metrics.viewportWidth - 8,
+  );
+  expect(metrics.box.left, `${label} should stay in the right half: ${JSON.stringify(metrics)}`).toBeGreaterThan(
+    metrics.viewportWidth * 0.5,
+  );
+  expect(metrics.box.bottom, `${label} should stay inside bottom viewport edge: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(
+    metrics.viewportHeight - 8,
+  );
+  expect(metrics.box.top, `${label} should remain reachable after scroll: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(0);
+  expect(metrics.hitTargetIsFab, `${label} should be topmost at its center: ${JSON.stringify(metrics)}`).toBe(true);
+  expect(metrics.overlapsToolbar, `${label} should not cover the sticky toolbar: ${JSON.stringify(metrics)}`).toBe(false);
+  expect(metrics.overlapsLedgerHead, `${label} should not cover the mobile ledger head: ${JSON.stringify(metrics)}`).toBe(false);
 }
 
 async function expectDesktopTransactionMonthStepperSticky(page) {
@@ -1540,6 +1600,94 @@ test("mobile quick entry stays usable across viewport and Korean font fallbacks"
   }
 });
 
+test("transaction FAB and sticky toolbar stay reachable after ledger scroll", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("tx-fab-sticky")}@example.com`;
+  const displayName = unique("tx-fab-sticky-name");
+  const memoPrefix = unique("tx-fab-sticky-row");
+
+  await registerAndVerify(page, { email, displayName });
+  for (let index = 0; index < 36; index += 1) {
+    await createTransactionViaApi(page, {
+      memo: `${memoPrefix}-${String(index).padStart(2, "0")}`,
+      amount: String(10000 + index),
+      ownerName: displayName,
+      sourceRef: `${memoPrefix}-source-${index}`,
+    });
+  }
+
+  await page.setViewportSize({ width: 1366, height: 960 });
+  await openTab(page, "거래");
+  await page.waitForLoadState("networkidle");
+  await expect(page.locator("tr.transaction-row", { hasText: `${memoPrefix}-00` }).first()).toBeVisible();
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  await page.waitForTimeout(250);
+
+  const toolbar = page.getByTestId("transaction-sticky-toolbar");
+  await expect(toolbar).toBeVisible();
+  const toolbarMetrics = await toolbar.evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    return {
+      position: style.position,
+      top: style.top,
+      box: {
+        top: box.top,
+        bottom: box.bottom,
+        height: box.height,
+      },
+      viewportHeight: window.innerHeight,
+    };
+  });
+  expect(["sticky", "fixed"], `desktop toolbar should remain sticky: ${JSON.stringify(toolbarMetrics)}`).toContain(
+    toolbarMetrics.position,
+  );
+  expect(toolbarMetrics.top, `desktop toolbar sticky top should be explicit: ${JSON.stringify(toolbarMetrics)}`).not.toBe("auto");
+  expect(toolbarMetrics.box.bottom, `desktop toolbar should stay within viewport: ${JSON.stringify(toolbarMetrics)}`).toBeLessThan(
+    toolbarMetrics.viewportHeight,
+  );
+  await expectTransactionFabBottomRightReachable(page, "desktop transaction FAB after ledger scroll");
+
+  await toolbar.getByRole("button", { name: "필터 열기" }).click();
+  await expect(toolbar.locator(".tx-header-filters")).toBeVisible();
+  await expect(toolbar.locator(".tx-header-filters").getByPlaceholder("검색")).toBeVisible();
+  await toolbar.getByRole("button", { name: "필터 닫기" }).click();
+  await expect(toolbar.locator(".tx-header-filters")).toBeHidden();
+
+  const desktopScrollBeforeSheet = await page.evaluate(() => window.scrollY);
+  await page.getByTestId("transactions-fab").evaluate((element) => element.click());
+  await expect(page.getByRole("dialog", { name: "거래 추가 레이어" })).toBeVisible();
+  await expect(labeledField(page.getByTestId("transaction-entry-sheet"), "금액", "input")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("transaction-entry-sheet")).toBeHidden();
+  await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute("data-testid") || "")).toBe("transactions-fab");
+  const desktopScrollAfterSheet = await page.evaluate(() => window.scrollY);
+  expect(Math.abs(desktopScrollAfterSheet - desktopScrollBeforeSheet)).toBeLessThanOrEqual(16);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.addStyleTag({
+    content: 'html, body, button, input, select, textarea { font-family: "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif !important; }',
+  });
+  await openTab(page, "거래");
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  await page.waitForTimeout(250);
+  await expectTransactionFabBottomRightReachable(page, "mobile transaction FAB after ledger scroll");
+  await expectMobileTransactionMonthStepperSticky(page);
+
+  const mobileScrollBeforeSheet = await page.evaluate(() => window.scrollY);
+  await page.getByTestId("transactions-fab").evaluate((element) => element.click());
+  const mobileSheet = page.getByTestId("transaction-entry-sheet");
+  await expect(mobileSheet).toBeVisible();
+  await expect(labeledField(mobileSheet, "금액", "input")).toBeVisible();
+  await capture(page, "transactions-fab-sticky-entry-sheet");
+  await page.getByTestId("transaction-entry-sheet-close").click();
+  await expect(mobileSheet).toBeHidden();
+  await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute("data-testid") || "")).toBe("transactions-fab");
+  const mobileScrollAfterSheet = await page.evaluate(() => window.scrollY);
+  expect(Math.abs(mobileScrollAfterSheet - mobileScrollBeforeSheet)).toBeLessThanOrEqual(16);
+});
+
 test("transactions flow: create, inline edit, delete, responsive", async ({ page }) => {
   test.setTimeout(240_000);
 
@@ -1649,16 +1797,23 @@ test("transaction date controls use unambiguous ISO text fields", async ({ page 
   await openTab(page, "거래");
   await page.waitForLoadState("networkidle");
 
-  const transactionEntryCard = page.getByRole("heading", { name: "거래 입력" }).locator("xpath=ancestor::article[1]");
-  await transactionEntryCard.getByRole("button", { name: "거래 추가" }).click();
-  await expect(transactionEntryCard.locator("form.transactions-form-grid").first()).toBeVisible();
-  const desktopEntryDate = labeledField(transactionEntryCard, "일자", "input");
+  const desktopTransactionFab = page.getByTestId("transactions-fab");
+  const desktopTransactionSheet = page.getByTestId("transaction-entry-sheet");
+  await expectTransactionFabBottomRightReachable(page, "desktop transaction FAB for ISO date entry");
+  await desktopTransactionFab.evaluate((element) => element.click());
+  await expect(desktopTransactionSheet).toBeVisible();
+  const desktopEntryDate = labeledField(desktopTransactionSheet, "일자", "input");
   await expectIsoDateInput(desktopEntryDate, "desktop transaction entry date");
   await desktopEntryDate.fill("20260502");
   await expect(desktopEntryDate).toHaveValue("2026-05-02");
+  await page.getByTestId("transaction-entry-sheet-close").click();
+  await expect(desktopTransactionSheet).toBeHidden();
 
-  const desktopStartFilter = page.locator(".tx-header-filter", { hasText: "시작" }).locator("input").first();
-  const desktopEndFilter = page.locator(".tx-header-filter", { hasText: "종료" }).locator("input").first();
+  const desktopFilterPanel = page.locator("#transaction-filter-panel");
+  await page.getByTestId("transaction-sticky-toolbar").getByRole("button", { name: "필터 열기" }).click();
+  await expect(desktopFilterPanel).toBeVisible();
+  const desktopStartFilter = desktopFilterPanel.locator(".tx-header-filter", { hasText: "시작" }).locator("input").first();
+  const desktopEndFilter = desktopFilterPanel.locator(".tx-header-filter", { hasText: "종료" }).locator("input").first();
   await expectIsoDateInput(desktopStartFilter, "desktop transaction start filter");
   await expectIsoDateInput(desktopEndFilter, "desktop transaction end filter");
   await desktopStartFilter.fill("20260501");
@@ -2106,14 +2261,22 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   await page.setViewportSize({ width: 1366, height: 960 });
   await openTab(page, "거래");
   await expect(page.locator(".transactions-mobile-ledger-head").first()).toBeHidden();
+  await expect(page.locator(".tx-header-filters").first()).toBeHidden();
+  await page.getByTestId("transaction-sticky-toolbar").getByRole("button", { name: "필터 열기" }).click();
   await expect(page.locator(".tx-header-filters").first()).toBeVisible();
+  await page.getByTestId("transaction-sticky-toolbar").getByRole("button", { name: "필터 닫기" }).click();
+  await expect(page.locator(".tx-header-filters").first()).toBeHidden();
 
-  const transactionCard = page.locator("article.card", {
-    has: page.getByRole("heading", { name: "거래 입력" }),
-  });
-  const txToggleButton = transactionCard.getByRole("button", { name: /거래 추가|입력 닫기/ }).first();
-  await expect(txToggleButton).toContainText("거래 추가");
-  await expect(transactionCard.locator("form.transactions-form-grid")).toHaveCount(0);
+  await expect(page.locator(".transaction-entry-card")).toHaveCount(0);
+  const desktopTransactionFab = page.getByTestId("transactions-fab");
+  const desktopTransactionSheet = page.getByTestId("transaction-entry-sheet");
+  await expectTransactionFabBottomRightReachable(page, "desktop transaction FAB in list affordance flow");
+  await desktopTransactionFab.evaluate((element) => element.click());
+  await expect(desktopTransactionSheet).toBeVisible();
+  await expect(labeledField(desktopTransactionSheet, "금액", "input")).toBeVisible();
+  await page.getByTestId("transaction-entry-sheet-close").click();
+  await expect(desktopTransactionSheet).toBeHidden();
+  await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute("data-testid") || "")).toBe("transactions-fab");
 
   const createdRow = await createBasicTransaction(page, { memo, amount: "22222" });
   await expect(createdRow).toBeVisible();
@@ -2267,24 +2430,30 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   }
   await page.setViewportSize({ width: 390, height: 844 });
   const mobileTopbarBox = await page.locator("header.topbar").boundingBox();
-  const transactionHeadingBox = await page.locator(".transaction-list-card > .surface-list-heading").first().boundingBox();
-  await expect(page.locator(".transaction-list-card > .surface-control-strip").first()).toBeHidden();
-  const transactionHeaderGroupBox = await page.locator(".transaction-list-card > .table-header-group").first().boundingBox();
+  const transactionStickyToolbar = page.getByTestId("transaction-sticky-toolbar");
+  const transactionToolbarBox = await transactionStickyToolbar.boundingBox();
+  const transactionHeadingBox = await transactionStickyToolbar.locator(".surface-list-heading").first().boundingBox();
+  await expect(transactionStickyToolbar.locator(".surface-control-strip").first()).toBeVisible();
+  const transactionControlStripBox = await transactionStickyToolbar.locator(".surface-control-strip").first().boundingBox();
+  const transactionHeaderGroupBox = await transactionStickyToolbar.locator(".table-header-group").first().boundingBox();
   const transactionLedgerBox = await page.locator(".transactions-mobile-ledger-head").boundingBox();
   const transactionTableBox = await page.locator(".transactions-surface-table").boundingBox();
   expect(mobileTopbarBox, "mobile topbar should have a bounding box").not.toBeNull();
+  expect(transactionToolbarBox, "transaction sticky toolbar should have a bounding box").not.toBeNull();
   expect(transactionHeadingBox, "transaction heading should have a bounding box").not.toBeNull();
+  expect(transactionControlStripBox, "transaction control strip should have a bounding box").not.toBeNull();
   expect(transactionHeaderGroupBox, "transaction header group should have a bounding box").not.toBeNull();
   expect(transactionLedgerBox, "transaction ledger head should have a bounding box").not.toBeNull();
   expect(transactionTableBox, "transaction table should have a bounding box").not.toBeNull();
   expect(mobileTopbarBox?.height ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(88);
-  expect(transactionHeadingBox?.y ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
+  expect(transactionToolbarBox?.y ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
     (mobileTopbarBox?.y ?? 0) + (mobileTopbarBox?.height ?? 0) + 112,
   );
-  expect(transactionHeaderGroupBox?.y ?? Number.NEGATIVE_INFINITY).toBeGreaterThanOrEqual(
-    (transactionHeadingBox?.y ?? 0) - 8,
-  );
+  expect(transactionHeadingBox?.y ?? Number.NEGATIVE_INFINITY).toBeGreaterThanOrEqual((transactionToolbarBox?.y ?? 0) - 2);
+  expect(transactionControlStripBox?.y ?? Number.NEGATIVE_INFINITY).toBeGreaterThanOrEqual((transactionHeadingBox?.y ?? 0) - 2);
+  expect(transactionHeaderGroupBox?.y ?? Number.NEGATIVE_INFINITY).toBeGreaterThanOrEqual((transactionHeadingBox?.y ?? 0) - 8);
   expect(transactionHeaderGroupBox?.y ?? Number.POSITIVE_INFINITY).toBeLessThan(transactionLedgerBox?.y ?? 0);
+  expect(transactionToolbarBox?.height ?? Number.POSITIVE_INFINITY).toBeLessThan(220);
   expect(transactionLedgerBox?.y ?? Number.POSITIVE_INFINITY).toBeLessThan(transactionTableBox?.y ?? 0);
   const mobileRow = page.locator("tr.transaction-row", { hasText: memo }).first();
   await expect(mobileRow).toBeVisible();
@@ -2355,14 +2524,22 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   const fabScrolledBox = await transactionFab.boundingBox();
   expect(fabScrolledBox, "transaction FAB should have a bounding box after scroll").not.toBeNull();
   expect(fabScrolledBox?.y ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(844);
-  const visibleRowActionBoxes = await page.locator(".transaction-row .transaction-col-actions .mobile-toggle-btn").evaluateAll((nodes) =>
+  const visibleRowActionBoxes = await page.locator(".transaction-row .transaction-col-actions .mobile-toggle-btn").evaluateAll((nodes, fabBox) =>
     nodes
       .map((node) => {
         const box = node.getBoundingClientRect();
         const centerX = box.x + box.width / 2;
         const centerY = box.y + box.height / 2;
         const topElement = document.elementFromPoint(centerX, centerY);
+        const centerInsideFab = Boolean(
+          fabBox &&
+            centerX >= fabBox.x &&
+            centerX <= fabBox.x + fabBox.width &&
+            centerY >= fabBox.y &&
+            centerY <= fabBox.y + fabBox.height
+        );
         return {
+          centerInsideFab,
           x: box.x,
           y: box.y,
           width: box.width,
@@ -2370,7 +2547,8 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
           hitVisible: Boolean(topElement && (topElement === node || node.contains(topElement))),
         };
       })
-      .filter((box) => box.hitVisible && box.y < window.innerHeight && box.y + box.height > 0)
+      .filter((box) => box.y < window.innerHeight && box.y + box.height > 0),
+    fabScrolledBox
   );
   const intersects = (left, right) =>
     Boolean(
@@ -2381,7 +2559,11 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
         left.y < right.y + right.height &&
         left.y + left.height > right.y
     );
-  expect(visibleRowActionBoxes.some((box) => intersects(fabScrolledBox, box))).toBe(false);
+  expect(visibleRowActionBoxes.some((box) => box.hitVisible), "at least one visible row action should remain directly hittable").toBe(true);
+  expect(
+    visibleRowActionBoxes.some((box) => box.centerInsideFab && !box.hitVisible),
+    `transaction FAB should not cover row action centers: ${JSON.stringify({ fabScrolledBox, visibleRowActionBoxes })}`
+  ).toBe(false);
   await transactionFab.evaluate((element) => element.click());
   await expect(transactionSheet).toBeVisible();
   await expect(page.locator("header.topbar")).toBeVisible();
@@ -2404,17 +2586,12 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   await expect(page.locator(".transactions-mobile-ledger-head")).toHaveAttribute("data-sticky-active", "true");
   await expectMobileTransactionMonthStepperSticky(page);
   await expectStickyStack(
-    page.locator(".transaction-list-card > .surface-list-heading").first(),
-    page.locator(".transaction-list-card > .table-header-group").first(),
-    { maxLedgerY: 128, gapAllowance: 4 }
-  );
-  await expectStickyStack(
-    page.locator(".transaction-list-card > .table-header-group").first(),
+    page.getByTestId("transaction-sticky-toolbar"),
     page.locator(".transactions-mobile-ledger-head"),
-    { maxLedgerY: 188, gapAllowance: 4 }
+    { maxLedgerY: 260, gapAllowance: 4 }
   );
   const stickyLedgerHead = page.locator(".transactions-mobile-ledger-head");
-  const stickyHeadingBox = await page.locator(".transaction-list-card > .surface-list-heading").first().boundingBox();
+  const stickyToolbarBox = await page.getByTestId("transaction-sticky-toolbar").boundingBox();
   const stickyLedgerBox = await stickyLedgerHead.boundingBox();
   const stickyLedgerBottom = (stickyLedgerBox?.y ?? 0) + (stickyLedgerBox?.height ?? 0);
   const stickyVisibleRowBox = await page.locator(".transaction-row").evaluateAll((nodes, ledgerBottom) => {
@@ -2432,13 +2609,13 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
       .find((box) => box.y >= ledgerBottom - 1 && box.y < viewportHeight);
   }, stickyLedgerBottom);
   const fabStickyBox = await transactionFab.boundingBox();
-  expect(stickyHeadingBox, "sticky transaction heading should have a bounding box").not.toBeNull();
+  expect(stickyToolbarBox, "sticky transaction toolbar should have a bounding box").not.toBeNull();
   expect(stickyLedgerBox, "sticky ledger head should have a bounding box").not.toBeNull();
   await expect(mobileHeaderFilters).toBeHidden();
   expect(stickyVisibleRowBox, "a mobile transaction row should remain visible below sticky stack").toBeTruthy();
-  expect(stickyHeadingBox?.y ?? Number.POSITIVE_INFINITY).toBeGreaterThanOrEqual(0);
-  expect(stickyHeadingBox?.y ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(18);
-  expect((stickyLedgerBox?.y ?? 0) - ((stickyHeadingBox?.y ?? 0) + (stickyHeadingBox?.height ?? 0))).toBeGreaterThanOrEqual(-4);
+  expect(stickyToolbarBox?.y ?? Number.POSITIVE_INFINITY).toBeGreaterThanOrEqual(0);
+  expect(stickyToolbarBox?.y ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(18);
+  expect((stickyLedgerBox?.y ?? 0) - ((stickyToolbarBox?.y ?? 0) + (stickyToolbarBox?.height ?? 0))).toBeGreaterThanOrEqual(-4);
   expect(stickyVisibleRowBox?.y ?? 0).toBeGreaterThanOrEqual(stickyLedgerBottom - 1);
   expect(intersects(fabStickyBox, stickyLedgerBox)).toBe(false);
   await page.evaluate(() => window.scrollTo(0, 0));
