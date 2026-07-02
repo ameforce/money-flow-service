@@ -17,6 +17,7 @@ from urllib.request import urlopen
 ROOT = Path(__file__).resolve().parents[1]
 SCREENSHOT_DIR = ROOT / "output" / "playwright" / "e2e-flow"
 SCREENSHOT_MANIFEST = SCREENSHOT_DIR / "latest-run.json"
+LOCAL_PLAYWRIGHT_LIB_DIR = ROOT / ".omx" / "local-libs" / "root" / "usr" / "lib" / "x86_64-linux-gnu"
 
 
 def pick_free_port() -> int:
@@ -44,16 +45,18 @@ def wait_until_up(backend_url: str, frontend_url: str, timeout_sec: int = 180) -
     return False
 
 
-def ensure_legacy_workbook_exists() -> bool:
-    legacy_dir = ROOT / "legacy"
-    if not legacy_dir.exists():
-        print(f"[e2e-runner] missing directory: {legacy_dir}", flush=True)
-        return False
-    has_workbook = any(path.is_file() and path.suffix.lower() == ".xlsx" for path in legacy_dir.iterdir())
-    if not has_workbook:
-        print("[e2e-runner] missing required file: legacy/*.xlsx", flush=True)
-        return False
-    return True
+def with_local_playwright_runtime(env: dict[str, str] | None = None) -> dict[str, str]:
+    resolved_env = dict(env or os.environ.copy())
+    if not LOCAL_PLAYWRIGHT_LIB_DIR.is_dir():
+        return resolved_env
+
+    existing = str(resolved_env.get("LD_LIBRARY_PATH") or "")
+    lib_dir = str(LOCAL_PLAYWRIGHT_LIB_DIR)
+    path_parts = [part for part in existing.split(os.pathsep) if part]
+    if lib_dir not in path_parts:
+        path_parts.insert(0, lib_dir)
+    resolved_env["LD_LIBRARY_PATH"] = os.pathsep.join(path_parts)
+    return resolved_env
 
 
 def start_orchestrator(db_url: str, backend_port: int, frontend_port: int) -> subprocess.Popen:
@@ -92,8 +95,9 @@ def start_orchestrator(db_url: str, backend_port: int, frontend_port: int) -> su
     )
 
 
-def run_playwright(frontend_port: int, backend_port: int) -> int:
-    env = os.environ.copy()
+def run_playwright(frontend_port: int, backend_port: int, playwright_args: list[str] | None = None) -> int:
+    resolved_playwright_args = list(playwright_args or [])
+    env = with_local_playwright_runtime()
     env["E2E_BASE_URL"] = f"http://127.0.0.1:{frontend_port}"
     env["E2E_API_BASE_URL"] = f"http://127.0.0.1:{backend_port}"
     SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
@@ -107,9 +111,9 @@ def run_playwright(frontend_port: int, backend_port: int) -> int:
     except Exception:
         pass
 
-    playwright_command = ["npx", "playwright", "test"]
+    playwright_command = ["npx", "playwright", "test", *resolved_playwright_args]
     if os.name == "nt":
-        playwright_command = ["cmd", "/c", "npx", "playwright", "test"]
+        playwright_command = ["cmd", "/c", "npx", "playwright", "test", *resolved_playwright_args]
     result = subprocess.run(playwright_command, cwd=ROOT, env=env)
     if int(result.returncode) != 0:
         return int(result.returncode)
@@ -124,6 +128,7 @@ def run_playwright(frontend_port: int, backend_port: int) -> int:
                 "generated_at": datetime.now(UTC).isoformat(),
                 "count": len(screenshots),
                 "files": sorted(path.name for path in screenshots),
+                "playwright_args": resolved_playwright_args,
             },
             ensure_ascii=False,
             indent=2,
@@ -154,10 +159,8 @@ def kill_process_tree(proc: subprocess.Popen) -> None:
             proc.kill()
 
 
-def main() -> int:
-    if not ensure_legacy_workbook_exists():
-        return 1
-
+def main(argv: list[str] | None = None) -> int:
+    playwright_args = list(argv if argv is not None else sys.argv[1:])
     backend_port = pick_free_port()
     frontend_port = pick_free_port()
     backend_health = f"http://127.0.0.1:{backend_port}/healthz"
@@ -174,7 +177,7 @@ def main() -> int:
         if not wait_until_up(backend_health, frontend_health, timeout_sec=180):
             print("[e2e-runner] service startup timed out", flush=True)
             return 1
-        return run_playwright(frontend_port, backend_port)
+        return run_playwright(frontend_port, backend_port, playwright_args)
     finally:
         print("[e2e-runner] stop orchestrator", flush=True)
         kill_process_tree(orchestrator_proc)
