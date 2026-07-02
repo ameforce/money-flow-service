@@ -1,0 +1,2 @@
+# Keep Linux/Jenkins shell scripts parseable after checkout.
+*.sh text eol=lf
