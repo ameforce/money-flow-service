@@ -12,6 +12,7 @@ import {
 } from "chart.js";
 import { Doughnut, Line } from "react-chartjs-2";
 import { IsoDateInput } from "./components/IsoDateInput";
+import { ChartBreakdownList, FlowTrendValueTable } from "./components/worksurface/ChartAccessibleSummary";
 import { HoldingSurfaceTable } from "./components/worksurface/HoldingSurfaceTable";
 import { TransactionCategoryQuickPicker } from "./components/worksurface/TransactionCategoryQuickPicker";
 import { TransactionSurfaceTable } from "./components/worksurface/TransactionSurfaceTable";
@@ -24,6 +25,7 @@ import {
   patchTossRowWithInference,
   recomputeTossDuplicateRows,
 } from "./tossImportUtils.js";
+import { displayImportFileName, formatTechnicalReportJson } from "./importReportUtils.js";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, ArcElement, Tooltip, Legend, Filler);
 
@@ -61,18 +63,87 @@ const TAB_LABELS = {
   import: "데이터 가져오기",
 };
 const TAB_NAV_META = {
-  dashboard: { icon: "⌂", helper: "요약", mobileLabel: "요약" },
-  transactions: { icon: "↔", helper: "흐름", mobileLabel: "거래" },
-  holdings: { icon: "◆", helper: "자산", mobileLabel: "자산" },
-  collaboration: { icon: "◉", helper: "공유", mobileLabel: "협업" },
-  import: { icon: "⇣", helper: "가져오기", mobileLabel: "가져\n오기" },
-  settings: { icon: "⚙", helper: "설정", mobileLabel: "설정" },
+  dashboard: { helper: "요약", mobileLabel: "요약" },
+  transactions: { helper: "흐름", mobileLabel: "거래" },
+  holdings: { helper: "자산", mobileLabel: "자산" },
+  collaboration: { helper: "공유", mobileLabel: "협업" },
+  import: { helper: "가져오기", mobileLabel: "가져\n오기" },
+  settings: { helper: "설정", mobileLabel: "설정" },
 };
 const TAB_GROUPS = {
   left: ["dashboard", "transactions", "holdings"],
   right: ["collaboration", "import", "settings"],
 };
 const TAB_IDS = new Set([...TAB_GROUPS.left, ...TAB_GROUPS.right]);
+
+function TabNavIcon({ tabId }) {
+  const commonProps = {
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: "1.9",
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+    focusable: "false",
+  };
+  if (tabId === "transactions") {
+    return (
+      <svg {...commonProps}>
+        <path d="M5 7h14" />
+        <path d="m15 3 4 4-4 4" />
+        <path d="M19 17H5" />
+        <path d="m9 13-4 4 4 4" />
+      </svg>
+    );
+  }
+  if (tabId === "holdings") {
+    return (
+      <svg {...commonProps}>
+        <path d="M12 3 4 8l8 5 8-5-8-5Z" />
+        <path d="m4 13 8 5 8-5" />
+      </svg>
+    );
+  }
+  if (tabId === "collaboration") {
+    return (
+      <svg {...commonProps}>
+        <path d="M8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" />
+        <path d="M16 12a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z" />
+        <path d="M3.5 20a4.5 4.5 0 0 1 9 0" />
+        <path d="M13.5 19a3.5 3.5 0 0 1 7 0" />
+      </svg>
+    );
+  }
+  if (tabId === "import") {
+    return (
+      <svg {...commonProps}>
+        <path d="M12 4v10" />
+        <path d="m8 10 4 4 4-4" />
+        <path d="M5 18h14" />
+      </svg>
+    );
+  }
+  if (tabId === "settings") {
+    return (
+      <svg {...commonProps}>
+        <path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z" />
+        <path d="M12 3v2" />
+        <path d="M12 19v2" />
+        <path d="M4.2 7.5 5.9 8.5" />
+        <path d="m18.1 15.5 1.7 1" />
+        <path d="m4.2 16.5 1.7-1" />
+        <path d="m18.1 8.5 1.7-1" />
+      </svg>
+    );
+  }
+  return (
+    <svg {...commonProps}>
+      <path d="M4 11.5 12 5l8 6.5" />
+      <path d="M6.5 10.5V19h11v-8.5" />
+      <path d="M10 19v-5h4v5" />
+    </svg>
+  );
+}
 const DISPLAY_NAME_MODE_OPTIONS = [
   { value: "real_name", label: "본명 우선" },
   { value: "nickname", label: "닉네임 우선" },
@@ -1259,6 +1330,13 @@ function createTransactionForm(defaultOccurredOn = todayIso()) {
   };
 }
 
+function createTransactionFormErrors() {
+  return {
+    occurred_on: "",
+    amount: "",
+  };
+}
+
 function createRepeatTransactionForm(previousForm, fallbackOccurredOn = todayIso()) {
   const normalizedDate = normalizeIsoDateKey(previousForm?.occurred_on, fallbackOccurredOn);
   return {
@@ -1387,6 +1465,20 @@ function compactHouseholdSelectOptionName(name, maxLength = 24) {
     return text;
   }
   return `${text.slice(0, Math.max(1, maxLength - 3)).trimEnd()}...`;
+}
+
+function renderBreakableInlineText(value, chunkLength = 8) {
+  const text = String(value || "").trim() || "-";
+  const chunks = [];
+  for (let index = 0; index < text.length; index += chunkLength) {
+    chunks.push(text.slice(index, index + chunkLength));
+  }
+  return chunks.map((chunk, index) => (
+    <Fragment key={`${chunk}-${index}`}>
+      {index > 0 && <wbr />}
+      {chunk}
+    </Fragment>
+  ));
 }
 
 function resolveHoldingCategoryOnTypeChange(currentCategory, previousType, nextType) {
@@ -1535,6 +1627,53 @@ function buildDonutSliceLabelMeta(items, { maxLabels = 6 } = {}) {
   return positionedItems
     .filter((item) => item.share >= 3 || positionedItems.length <= 3)
     .slice(0, maxLabels);
+}
+
+function buildPortfolioChartData(chartSource) {
+  if (!chartSource?.items?.length) {
+    return null;
+  }
+  const values = chartSource.items.map((item) => Number(item.value || 0));
+  const colors = categoryPalette(chartSource.items.length);
+  const isSingleVisibleSlice = values.filter((value) => Number.isFinite(value) && value > 0).length === 1;
+  return {
+    labels: chartSource.items.map((item) => item.label),
+    datasets: [
+      {
+        data: values,
+        backgroundColor: colors,
+        ...(isSingleVisibleSlice
+          ? {
+              borderColor: colors,
+              borderWidth: 0,
+              hoverBorderWidth: 0,
+              spacing: 0,
+            }
+          : {}),
+      },
+    ],
+  };
+}
+
+function buildPortfolioBreakdownItems(chartSource, keyPrefix = "portfolio") {
+  const items = chartSource?.items || [];
+  const total = items.reduce((sum, item) => sum + Number(item.value || 0), 0);
+  const colors = categoryPalette(items.length);
+  if (!items.length || total <= 0) {
+    return [];
+  }
+  return items.map((item, index) => {
+    const value = Number(item.value || 0);
+    const share = total > 0 ? (value / total) * 100 : 0;
+    return {
+      key: item.key || item.label || `${keyPrefix}-${index}`,
+      label: item.label,
+      value,
+      valueText: fmtKrw(value),
+      shareText: formatSharePercent(share),
+      color: colors[index],
+    };
+  });
 }
 
 function buildPortfolioChartSourceForMode(
@@ -2155,26 +2294,6 @@ function App() {
     return () => document.removeEventListener("keydown", handleMobileFormEnter, true);
   }, [isCompactViewport]);
 
-  useEffect(() => {
-    if (!isCompactViewport) {
-      return undefined;
-    }
-
-    const releaseTouchButtonFocus = () => {
-      const activeElement = document.activeElement;
-      if (activeElement instanceof HTMLElement && activeElement.matches("button, [role='button']")) {
-        activeElement.blur();
-      }
-    };
-
-    document.addEventListener("pointerup", releaseTouchButtonFocus, true);
-    document.addEventListener("touchend", releaseTouchButtonFocus, true);
-    return () => {
-      document.removeEventListener("pointerup", releaseTouchButtonFocus, true);
-      document.removeEventListener("touchend", releaseTouchButtonFocus, true);
-    };
-  }, [isCompactViewport]);
-
   const [overview, setOverview] = useState(null);
   const [portfolio, setPortfolio] = useState(null);
   const [transactions, setTransactions] = useState([]);
@@ -2286,6 +2405,7 @@ function App() {
   }, []);
 
   const [txForm, setTxForm] = useState(() => createTransactionForm());
+  const [txFormErrors, setTxFormErrors] = useState(() => createTransactionFormErrors());
   const [txCategoryMajor, setTxCategoryMajor] = useState("");
   const [txCategoryRestore, setTxCategoryRestore] = useState(null);
   const [txListFilter, setTxListFilter] = useState({
@@ -2341,6 +2461,8 @@ function App() {
   const transactionFabRef = useRef(null);
   const transactionSheetScrollYRef = useRef(0);
   const holdingSheetScrollYRef = useRef(0);
+  const holdingEntryActionRef = useRef(null);
+  const holdingEntryReturnFocusRef = useRef(null);
   const holdingSummaryCardRef = useRef(null);
   const receivedInviteSectionRef = useRef(null);
 
@@ -3369,30 +3491,55 @@ function App() {
     if (!topSentinel && !bottomSentinel) {
       return undefined;
     }
+    const isNearDocumentEnd = () => {
+      if (typeof document === "undefined" || typeof window === "undefined") {
+        return false;
+      }
+      const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+      const scrollY = window.scrollY || window.pageYOffset || 0;
+      return scrollY + viewportHeight >= document.documentElement.scrollHeight - 8;
+    };
+    const isSentinelWithinObserverMargin = (target) => {
+      if (!target || typeof window === "undefined" || typeof target.getBoundingClientRect !== "function") {
+        return false;
+      }
+      const rootMargin = Number.parseFloat(TRANSACTION_HISTORY_SENTINEL_ROOT_MARGIN) || 0;
+      const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+      const rect = target.getBoundingClientRect();
+      return rect.bottom >= -rootMargin && rect.top <= viewportHeight + rootMargin;
+    };
+    const maybeLoadHistoryEdge = (target) => {
+      const direction = transactionHistoryScrollDirectionRef.current;
+      if (
+        target === topSentinel &&
+        direction === "up" &&
+        transactionHistoryHasOlder &&
+        transactionHistoryOlderCursor &&
+        !transactionHistoryLoadingRef.current.older
+      ) {
+        loadOlderTransactionHistory().catch(() => undefined);
+      }
+      if (
+        target === bottomSentinel &&
+        (direction !== "up" || isNearDocumentEnd()) &&
+        transactionHistoryHasNewer &&
+        transactionHistoryNewerCursor &&
+        !transactionHistoryLoadingRef.current.newer
+      ) {
+        loadNewerTransactionHistory().catch(() => undefined);
+      }
+    };
+    const maybeLoadVisibleHistoryEdge = (target) => {
+      if (!isSentinelWithinObserverMargin(target) && !(target === bottomSentinel && isNearDocumentEnd())) {
+        return;
+      }
+      maybeLoadHistoryEdge(target);
+    };
     const observer = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
-          if (!entry.isIntersecting) {
-            continue;
-          }
-          const direction = transactionHistoryScrollDirectionRef.current;
-          if (
-            entry.target === topSentinel &&
-            direction === "up" &&
-            transactionHistoryHasOlder &&
-            transactionHistoryOlderCursor &&
-            !transactionHistoryLoadingRef.current.older
-          ) {
-            loadOlderTransactionHistory().catch(() => undefined);
-          }
-          if (
-            entry.target === bottomSentinel &&
-            direction !== "up" &&
-            transactionHistoryHasNewer &&
-            transactionHistoryNewerCursor &&
-            !transactionHistoryLoadingRef.current.newer
-          ) {
-            loadNewerTransactionHistory().catch(() => undefined);
+          if (entry.isIntersecting) {
+            maybeLoadHistoryEdge(entry.target);
           }
         }
       },
@@ -3404,7 +3551,23 @@ function App() {
     if (bottomSentinel) {
       observer.observe(bottomSentinel);
     }
-    return () => observer.disconnect();
+    const kickFrame =
+      typeof window === "undefined"
+        ? 0
+        : window.requestAnimationFrame(() => {
+            if (topSentinel) {
+              maybeLoadVisibleHistoryEdge(topSentinel);
+            }
+            if (bottomSentinel) {
+              maybeLoadVisibleHistoryEdge(bottomSentinel);
+            }
+          });
+    return () => {
+      if (kickFrame) {
+        window.cancelAnimationFrame(kickFrame);
+      }
+      observer.disconnect();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     household?.id,
@@ -3447,7 +3610,7 @@ function App() {
       return;
     }
     requestAnimationFrame(() => {
-      const focusTarget = isCompactViewport && txEntrySheetStep === "form" ? txAmountInputRef.current : txDateInputRef.current;
+      const focusTarget = txEntrySheetStep === "form" ? txAmountInputRef.current : txDateInputRef.current;
       focusTarget?.focus?.({ preventScroll: false });
       if (focusTarget === txAmountInputRef.current) {
         setShowTransactionQuickResume(false);
@@ -3738,11 +3901,26 @@ function App() {
     txQuickFocusScrollTimersRef.current = [];
   }, []);
 
+  const clearTransactionEntryValidationFeedback = useCallback(() => {
+    const validationMessages = new Set(
+      [txFormErrors.occurred_on, txFormErrors.amount]
+        .map((value) => String(value || "").trim())
+        .filter(Boolean)
+    );
+
+    setTxFormErrors(createTransactionFormErrors());
+    setMessage((prev) => {
+      const normalized = String(prev || "").trim();
+      return normalized && validationMessages.has(normalized) ? "" : prev;
+    });
+  }, [txFormErrors.amount, txFormErrors.occurred_on]);
+
   function openTransactionEntrySheet(nextStep = "form") {
     if (loading) {
       return;
     }
     transactionSheetScrollYRef.current = typeof window !== "undefined" ? window.scrollY : 0;
+    clearTransactionEntryValidationFeedback();
     setTxEntrySheetStep(nextStep);
     setShowTransactionForm(true);
   }
@@ -3759,6 +3937,7 @@ function App() {
       }
     }
     const restoreScrollY = transactionSheetScrollYRef.current;
+    clearTransactionEntryValidationFeedback();
     setShowTransactionForm(false);
     setTxEntrySheetStep("form");
     setShowTransactionQuickResume(false);
@@ -3769,7 +3948,14 @@ function App() {
       trigger?.focus?.({ preventScroll: true });
     }, 0);
     return true;
-  }, [clearTransactionQuickFocusScrollTimers, isCompactViewport, isTransactionEntryDraftDirty, requestConfirmDialog, txEntrySheetStep]);
+  }, [
+    clearTransactionEntryValidationFeedback,
+    clearTransactionQuickFocusScrollTimers,
+    isCompactViewport,
+    isTransactionEntryDraftDirty,
+    requestConfirmDialog,
+    txEntrySheetStep,
+  ]);
 
   useEffect(() => {
     if (!showTransactionForm) {
@@ -3788,6 +3974,7 @@ function App() {
 
   function resetTransactionDraft() {
     setTxForm(createTransactionForm(transactionEntryContextDate()));
+    setTxFormErrors(createTransactionFormErrors());
     setTxCategoryMajor("");
     setTxCategoryRestore(null);
     setTxDraftTouched(false);
@@ -3810,6 +3997,17 @@ function App() {
 
   function focusTransactionAmountForRepeatEntry() {
     setTxRepeatFocusRequest((current) => current + 1);
+  }
+
+  function clearTransactionFormError(field) {
+    setTxFormErrors((prev) => (prev[field] ? { ...prev, [field]: "" } : prev));
+  }
+
+  function focusFirstTransactionFormError(errors) {
+    const target = errors.occurred_on ? txDateInputRef.current : errors.amount ? txAmountInputRef.current : null;
+    requestAnimationFrame(() => {
+      target?.focus?.({ preventScroll: false });
+    });
   }
 
   function isTransactionQuickRestorableField(element) {
@@ -4112,9 +4310,15 @@ function App() {
     }, 0);
   }
 
-  function openHoldingEntrySheet() {
+  function openHoldingEntrySheet(event) {
     if (loading) {
       return;
+    }
+    const trigger = event?.currentTarget;
+    if (trigger?.focus) {
+      holdingEntryReturnFocusRef.current = trigger;
+    } else if (!holdingEntryReturnFocusRef.current) {
+      holdingEntryReturnFocusRef.current = holdingEntryActionRef.current;
     }
     if (isCompactViewport && typeof window !== "undefined") {
       holdingSheetScrollYRef.current = window.scrollY;
@@ -4122,7 +4326,7 @@ function App() {
     setShowHoldingForm(true);
   }
 
-  async function closeHoldingEntrySheet({ skipDraftGuard = false } = {}) {
+  const closeHoldingEntrySheet = useCallback(async ({ skipDraftGuard = false } = {}) => {
     if (!skipDraftGuard && isHoldingEntryDraftDirty) {
       const confirmed = await requestConfirmDialog({
         title: "자산 입력을 닫을까요?",
@@ -4134,14 +4338,35 @@ function App() {
       }
     }
     setShowHoldingForm(false);
-    if (!isCompactViewport || typeof window === "undefined") {
+    if (typeof window === "undefined") {
       return true;
     }
+    const restoreScrollY = holdingSheetScrollYRef.current;
     window.setTimeout(() => {
-      window.scrollTo({ top: holdingSheetScrollYRef.current, behavior: "auto" });
+      if (isCompactViewport) {
+        window.scrollTo({ top: restoreScrollY, behavior: "auto" });
+      }
+      const returnFocusTarget = holdingEntryReturnFocusRef.current || holdingEntryActionRef.current;
+      returnFocusTarget?.focus?.({ preventScroll: true });
+      holdingEntryReturnFocusRef.current = null;
     }, 0);
     return true;
-  }
+  }, [isCompactViewport, isHoldingEntryDraftDirty, requestConfirmDialog]);
+
+  useEffect(() => {
+    if (!showHoldingForm || !isCompactViewport) {
+      return undefined;
+    }
+    const handleHoldingEntryEscape = (event) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+      event.preventDefault();
+      closeHoldingEntrySheet();
+    };
+    document.addEventListener("keydown", handleHoldingEntryEscape);
+    return () => document.removeEventListener("keydown", handleHoldingEntryEscape);
+  }, [showHoldingForm, isCompactViewport, closeHoldingEntrySheet]);
 
   function scrollToHoldingSummary() {
     const summaryCard = holdingSummaryCardRef.current;
@@ -4737,7 +4962,7 @@ function App() {
 
   function resolveFilterQuery(override = null) {
     const activeFilterMode = override?.filterMode || filterModeRef.current;
-    const activeYearMonth = override?.yearMonth || yearMonthRef.current;
+    const activeYearMonth = override?.yearMonth || appliedYearMonthRef.current;
     const activeRange = override?.range || rangeRef.current;
     const txQuery =
       activeFilterMode === "month"
@@ -5372,15 +5597,6 @@ function App() {
     applyMonthFilter(yearMonthRef.current);
   }
 
-  function handleYearMonthInputBlur(event) {
-    const relatedTarget = event.relatedTarget;
-    const stepper = event.currentTarget.closest(".month-stepper");
-    if (relatedTarget instanceof HTMLElement && stepper?.contains(relatedTarget)) {
-      return;
-    }
-    handleApplyYearMonth();
-  }
-
   function applyRangeFilter(nextRange = range) {
     setFilterMode("range");
     filterModeRef.current = "range";
@@ -5428,7 +5644,7 @@ function App() {
       return;
     }
     event.preventDefault();
-    event.currentTarget.blur();
+    handleApplyYearMonth();
   }
 
   function handleMoveToCurrentMonth() {
@@ -5569,8 +5785,13 @@ function App() {
   }
 
   function handleTransactionEntryAmountInput(event) {
+    const rawValue = String(event.currentTarget.value || "");
     setTxDraftTouched(true);
     handleTransactionAmountInput(event, setTxForm);
+    setTxFormErrors((prev) => {
+      const amountMessage = hasDecimalSeparatorInput(rawValue) ? KRW_TRANSACTION_INTEGER_AMOUNT_MESSAGE : "";
+      return prev.amount === amountMessage ? prev : { ...prev, amount: amountMessage };
+    });
   }
 
   function handleHoldingEntryDecimalInput(event, field) {
@@ -5618,12 +5839,22 @@ function App() {
     return validateAuthEmail(form.email, "초대할 이메일");
   }
 
-  function validateTransactionForm(form) {
+  function getTransactionFormErrors(form) {
+    const errors = createTransactionFormErrors();
     const dateMessage = validateRequiredText(form.occurred_on, "일자를 입력해 주세요.");
     if (dateMessage) {
-      return dateMessage;
+      errors.occurred_on = dateMessage;
     }
-    return validateTransactionAmountInput(form.amount);
+    errors.amount = validateTransactionAmountInput(form.amount);
+    return errors;
+  }
+
+  function firstTransactionFormError(errors) {
+    return errors.occurred_on || errors.amount || "";
+  }
+
+  function validateTransactionForm(form) {
+    return firstTransactionFormError(getTransactionFormErrors(form));
   }
 
   function validateCategoryDraftForm() {
@@ -6186,9 +6417,12 @@ function App() {
       setMessage(uiGuideMessage("현재 권한으로는 거래를 저장할 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
       return;
     }
-    const validationMessage = validateTransactionForm(txForm);
+    const transactionErrors = getTransactionFormErrors(txForm);
+    const validationMessage = firstTransactionFormError(transactionErrors);
+    setTxFormErrors(transactionErrors);
     if (validationMessage) {
       setMessage(validationMessage);
+      focusFirstTransactionFormError(transactionErrors);
       return;
     }
     setLoading(true);
@@ -6209,6 +6443,7 @@ function App() {
         token
       );
       setTxForm(repeatForm);
+      setTxFormErrors(createTransactionFormErrors());
       setTxCategoryRestore(null);
       setTxDraftTouched(false);
       setShowTransactionEntryBanner(false);
@@ -8132,6 +8367,7 @@ function App() {
     setTxCategoryMajor("");
     closeTxInlineEdit();
     setTxForm(createTransactionForm());
+    setTxFormErrors(createTransactionFormErrors());
     setTxDraftTouched(false);
     setHoldingForm(createHoldingForm("cash"));
     setHoldingOwnerTouched(false);
@@ -8537,37 +8773,28 @@ function App() {
     });
   }, [dashboardPortfolioViewMode, holdingTypeTotals, overview?.totals]);
   const holdingPortfolioChartSource = holdingSummarySource;
-  const buildPortfolioChartData = (chartSource) => {
-    if (!chartSource?.items?.length) {
-      return null;
-    }
-    const values = chartSource.items.map((item) => Number(item.value || 0));
-    const colors = categoryPalette(chartSource.items.length);
-    const isSingleVisibleSlice = values.filter((value) => Number.isFinite(value) && value > 0).length === 1;
-    return {
-      labels: chartSource.items.map((item) => item.label),
-      datasets: [
-        {
-          data: values,
-          backgroundColor: colors,
-          ...(isSingleVisibleSlice
-            ? {
-                borderColor: colors,
-                borderWidth: 0,
-                hoverBorderWidth: 0,
-                spacing: 0,
-              }
-            : {}),
-        },
-      ],
-    };
-  };
   const dashboardPortfolioChartData = useMemo(() => {
     return buildPortfolioChartData(dashboardPortfolioChartSource);
   }, [dashboardPortfolioChartSource]);
   const holdingPortfolioChartData = useMemo(() => {
     return buildPortfolioChartData(holdingPortfolioChartSource);
   }, [holdingPortfolioChartSource]);
+  const dashboardFlowTrendRows = useMemo(() => {
+    const rows = Array.isArray(overview?.trend) ? overview.trend : [];
+    return rows.map((item) => ({
+      month: item.month,
+      income: Number(item.income || 0),
+      expense: Number(item.expense || 0),
+      investment: Number(item.investment || 0),
+    }));
+  }, [overview?.trend]);
+  const lineChartOptions = useMemo(
+    () => ({
+      responsive: true,
+      maintainAspectRatio: false,
+    }),
+    []
+  );
   const donutChartOptions = useMemo(
     () => ({
       responsive: true,
@@ -8583,7 +8810,9 @@ function App() {
     []
   );
   const dashboardPortfolioViewLabel = PORTFOLIO_VIEW_LABELS[dashboardPortfolioViewMode] || dashboardPortfolioViewMode;
+  const dashboardFlowChartDescription = "월별 수입, 지출, 투자 추이";
   const dashboardPortfolioChartDescription = `${dashboardPortfolioChartSource?.title || "차트"} 기준 ${dashboardPortfolioViewLabel}`;
+  const holdingPortfolioChartDescription = `${holdingPortfolioChartSource?.title || "자산 포트폴리오"} 기준 평가금액`;
   const dashboardPortfolioCenterLabel = useMemo(
     () => {
       if (dashboardPortfolioViewMode === "holding_type") {
@@ -8641,24 +8870,12 @@ function App() {
     return (gainLoss / invested) * 100;
   }, [portfolio?.total_gain_loss_krw, portfolio?.total_invested_krw]);
   const holdingPortfolioGainTone = Number(portfolio?.total_gain_loss_krw || 0) >= 0 ? "positive" : "negative";
+  const dashboardPortfolioBreakdownItems = useMemo(
+    () => buildPortfolioBreakdownItems(dashboardPortfolioChartSource, "dashboard-portfolio"),
+    [dashboardPortfolioChartSource]
+  );
   const holdingPortfolioBreakdownItems = useMemo(() => {
-    const items = holdingPortfolioChartSource?.items || [];
-    const total = items.reduce((sum, item) => sum + Number(item.value || 0), 0);
-    const colors = categoryPalette(items.length);
-    if (!items.length || total <= 0) {
-      return [];
-    }
-    return items.map((item, index) => {
-      const value = Number(item.value || 0);
-      const share = total > 0 ? (value / total) * 100 : 0;
-      return {
-        key: item.key || item.label || `asset-${index}`,
-        label: item.label,
-        value,
-        shareText: formatSharePercent(share),
-        color: colors[index],
-      };
-    });
+    return buildPortfolioBreakdownItems(holdingPortfolioChartSource, "asset");
   }, [holdingPortfolioChartSource]);
   const holdingPortfolioBreakdownCanFilter = holdingSummaryViewMode === "type";
   const txFlowSummaryTotal = useMemo(
@@ -8874,6 +9091,10 @@ function App() {
           Number(importReport.applied_holdings_added || 0) + Number(importReport.applied_holdings_updated || 0)
         )}건`
       : "대기 중";
+  const transactionInlineValidationMessage =
+    showTransactionForm && txEntrySheetStep === "form" ? firstTransactionFormError(txFormErrors) : "";
+  const shouldShowGlobalMessage =
+    Boolean(message) && !(transactionInlineValidationMessage && message === transactionInlineValidationMessage);
 
   useEffect(() => {
     if (canEditRecords) {
@@ -8885,7 +9106,7 @@ function App() {
 
   const transactionEntryBanner = showTransactionEntryBanner ? (
     <div className="tx-entry-banner" role="status">
-      <span>첫 거래를 바로 입력해 보세요. 거래자와 카테고리를 먼저 고르면 정리 속도가 빨라집니다.</span>
+      <span>금액과 카테고리만 정하면 바로 저장할 수 있습니다. 날짜와 거래자는 기본값을 사용합니다.</span>
       <button type="button" className="secondary" onClick={() => setShowTransactionEntryBanner(false)}>
         닫기
       </button>
@@ -8945,7 +9166,9 @@ function App() {
     const selectedCategoryId = String(txForm.category_id || "").trim();
     const selectedCategoryLabel = selectedCategoryId
       ? toCategoryPairLabel(categoryById.get(selectedCategoryId))
-      : "추천 카테고리를 탭하면 바로 연결됩니다.";
+      : transactionQuickCategoryChips.length > 0
+        ? "추천 카테고리를 탭하면 바로 연결됩니다."
+        : "미선택 저장 가능";
     const selectedCategoryContextLabel = selectedCategoryId
       ? toCategoryPairLabel(categoryById.get(selectedCategoryId))
       : "미선택";
@@ -8976,6 +9199,13 @@ function App() {
         value: selectedCategoryContextLabel,
       },
     ];
+    const transactionQuickSecondarySummary = [
+      FLOW_TYPE_LABELS[txForm.flow_type] || txForm.flow_type || "지출",
+      txForm.occurred_on || transactionEntryContextDate(),
+      selectedOwnerLabel,
+    ]
+      .filter(Boolean)
+      .join(" · ");
 
     return (
       <form
@@ -8988,39 +9218,75 @@ function App() {
         onKeyDownCapture={handleTransactionQuickFormKeyDown}
         onPointerDownCapture={rememberActiveTransactionQuickField}
       >
-        <label className="transaction-quick-amount-field">
-          <span>금액</span>
-          <input
-            ref={txAmountInputRef}
-            data-testid="transaction-quick-amount"
-            type="text"
-            inputMode="numeric"
-            enterKeyHint="next"
-            autoComplete="off"
-            placeholder="0"
-            value={txForm.amount}
-            onChange={handleTransactionEntryAmountInput}
-            onKeyDown={handleTransactionQuickAmountKeyDown}
-            disabled={transactionFormDisabled}
-            required
-          />
-        </label>
+        <div className="transaction-quick-primary-stack" data-testid="transaction-quick-primary-path">
+          <label className="transaction-quick-amount-field">
+            <span>금액</span>
+            <input
+              ref={txAmountInputRef}
+              data-testid="transaction-quick-amount"
+              type="text"
+              inputMode="numeric"
+              enterKeyHint="next"
+              autoComplete="off"
+              placeholder="0"
+              value={txForm.amount}
+              onChange={handleTransactionEntryAmountInput}
+              onKeyDown={handleTransactionQuickAmountKeyDown}
+              aria-invalid={txFormErrors.amount ? "true" : undefined}
+              aria-describedby={txFormErrors.amount ? "transaction-quick-amount-error" : undefined}
+              disabled={transactionFormDisabled}
+              required
+            />
+            {txFormErrors.amount && (
+              <p id="transaction-quick-amount-error" className="field-helper field-error" role="alert">
+                {txFormErrors.amount}
+              </p>
+            )}
+          </label>
 
-        <div
-          className="transaction-quick-context-strip"
-          data-testid="transaction-quick-context-summary"
-          aria-label="저장 컨텍스트 요약"
-        >
-          {transactionQuickContextItems.map((item) => (
-            <div
-              key={item.key}
-              className="transaction-quick-context-item"
-              data-testid={`transaction-quick-context-${item.key}`}
-            >
-              <span>{item.label}</span>
-              <strong title={item.value}>{item.value}</strong>
-            </div>
-          ))}
+          <TransactionCategoryQuickPicker
+            categories={categoryOptions}
+            quickOptions={transactionQuickCategoryChips}
+            selectedCategoryId={selectedCategoryId}
+            disabled={transactionFormDisabled}
+            allowCreate={canEditHouseholdData}
+            createDisabled={!canEditHouseholdData}
+            createMode="toggle"
+            createToggleLabel="새 카테고리"
+            createToggleVisibility="on-query"
+            maxOptions={6}
+            onSelect={selectTransactionQuickCategory}
+            onCreate={createAndApplyTransactionCategory}
+            title="카테고리"
+            selectedEmptyText={selectedCategoryLabel}
+            searchLabel="검색"
+            searchPlaceholder="추천 또는 검색"
+            searchMode="toggle"
+            searchToggleLabel="카테고리 선택"
+            rootClassName="transaction-quick-category-panel"
+            titleClassName="transaction-quick-section-title"
+            optionsClassName="transaction-quick-category-chips"
+            optionClassName="transaction-quick-category-chip"
+            optionTestId="transaction-quick-category-chip"
+            toCategoryMajorLabel={toCategoryMajorLabel}
+            toCategoryMinorLabel={toCategoryMinorLabel}
+          />
+
+          <label className="transaction-quick-memo-field">
+            메모
+            <input
+              ref={txQuickMemoInputRef}
+              enterKeyHint="done"
+              value={txForm.memo}
+              placeholder="선택 입력"
+              onChange={(e) => {
+                setTxDraftTouched(true);
+                setTxForm((prev) => ({ ...prev, memo: e.target.value }));
+              }}
+              onKeyDown={handleTransactionQuickMemoKeyDown}
+              disabled={transactionFormDisabled}
+            />
+          </label>
         </div>
 
         {showTransactionQuickResume && (
@@ -9035,52 +9301,85 @@ function App() {
           </button>
         )}
 
-        <TransactionCategoryQuickPicker
-          categories={categoryOptions}
-          quickOptions={transactionQuickCategoryChips}
-          selectedCategoryId={selectedCategoryId}
-          disabled={transactionFormDisabled}
-          allowCreate={canEditHouseholdData}
-          createDisabled={!canEditHouseholdData}
-          onSelect={selectTransactionQuickCategory}
-          onCreate={createAndApplyTransactionCategory}
-          title="추천 카테고리"
-          selectedEmptyText={selectedCategoryLabel}
-          searchPlaceholder="카테고리 검색"
-          rootClassName="transaction-quick-category-panel"
-          titleClassName="transaction-quick-section-title"
-          optionsClassName="transaction-quick-category-chips"
-          optionClassName="transaction-quick-category-chip"
-          optionTestId="transaction-quick-category-chip"
-          toCategoryMajorLabel={toCategoryMajorLabel}
-          toCategoryMinorLabel={toCategoryMinorLabel}
-        />
-
-        <label className="transaction-quick-memo-field">
-          메모
-          <input
-            ref={txQuickMemoInputRef}
-            enterKeyHint="done"
-            value={txForm.memo}
-            placeholder="선택 입력"
-            onChange={(e) => {
-              setTxDraftTouched(true);
-              setTxForm((prev) => ({ ...prev, memo: e.target.value }));
-            }}
-            onKeyDown={handleTransactionQuickMemoKeyDown}
-            disabled={transactionFormDisabled}
-          />
-        </label>
-
-        {transactionQuickOwnerSuggestion && (
-          <p className="transaction-quick-owner-hint">
-            거래자 기본값: {transactionQuickOwnerSuggestion.displayName || transactionQuickOwnerSuggestion.label}
-          </p>
-        )}
-
-        <details className="transaction-quick-details" onToggle={handleTransactionQuickDetailsToggle}>
-          <summary>전체 카테고리</summary>
-          <div className="transaction-quick-detail-grid">
+        <details className="transaction-quick-details transaction-quick-secondary-details" onToggle={handleTransactionQuickDetailsToggle}>
+          <summary>
+            <span>추가 설정</span>
+            <small>{transactionQuickSecondarySummary}</small>
+          </summary>
+          <div className="transaction-quick-detail-grid transaction-quick-detail-grid-secondary">
+            <div
+              className="transaction-quick-context-strip"
+              data-testid="transaction-quick-context-summary"
+              aria-label="저장 컨텍스트 요약"
+            >
+              {transactionQuickContextItems.map((item) => (
+                <div
+                  key={item.key}
+                  className="transaction-quick-context-item"
+                  data-testid={`transaction-quick-context-${item.key}`}
+                >
+                  <span>{item.label}</span>
+                  <strong title={item.value}>{item.value}</strong>
+                </div>
+              ))}
+            </div>
+            {transactionQuickOwnerSuggestion && (
+              <p className="transaction-quick-owner-hint">
+                거래자 기본값: {transactionQuickOwnerSuggestion.displayName || transactionQuickOwnerSuggestion.label}
+              </p>
+            )}
+            <label className="date-field">
+              일자
+              <div className="date-input-wrap">
+                <IsoDateInput
+                  ref={txDateInputRef}
+                  enterKeyHint="next"
+                  value={txForm.occurred_on}
+                  onValueChange={(value) => {
+                    clearTransactionFormError("occurred_on");
+                    setTxDraftTouched(true);
+                    setTxForm((prev) => ({ ...prev, occurred_on: value }));
+                  }}
+                  aria-invalid={txFormErrors.occurred_on ? "true" : undefined}
+                  aria-describedby={txFormErrors.occurred_on ? "transaction-quick-date-error" : undefined}
+                  disabled={transactionFormDisabled}
+                  required
+                />
+                <button
+                  type="button"
+                  className="secondary today-btn"
+                  onClick={() => {
+                    clearTransactionFormError("occurred_on");
+                    setTxDraftTouched(true);
+                    setTxForm((prev) => ({ ...prev, occurred_on: transactionEntryTodayDate() }));
+                  }}
+                  disabled={transactionFormDisabled}
+                >
+                  오늘
+                </button>
+              </div>
+              {txFormErrors.occurred_on && (
+                <p id="transaction-quick-date-error" className="field-helper field-error" role="alert">
+                  {txFormErrors.occurred_on}
+                </p>
+              )}
+            </label>
+            <label>
+              유형
+              <select
+                enterKeyHint="next"
+                value={txForm.flow_type}
+                disabled={transactionFormDisabled}
+                onChange={(e) => changeTransactionFlowType(e.target.value)}
+              >
+                {FLOW_TYPE_OPTIONS.map((item) => (
+                  <option key={item.value} value={item.value}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {renderTransactionCategoryRestoreNotice()}
             <label>
               카테고리 그룹
               <select
@@ -9122,55 +9421,6 @@ function App() {
                 ))}
               </select>
             </label>
-          </div>
-        </details>
-
-        <details className="transaction-quick-details" onToggle={handleTransactionQuickDetailsToggle}>
-          <summary>추가 입력</summary>
-          <div className="transaction-quick-detail-grid">
-            <label className="date-field">
-              일자
-              <div className="date-input-wrap">
-                <IsoDateInput
-                  ref={txDateInputRef}
-                  enterKeyHint="next"
-                  value={txForm.occurred_on}
-                  onValueChange={(value) => {
-                    setTxDraftTouched(true);
-                    setTxForm((prev) => ({ ...prev, occurred_on: value }));
-                  }}
-                  disabled={transactionFormDisabled}
-                  required
-                />
-                <button
-                  type="button"
-                  className="secondary today-btn"
-                  onClick={() => {
-                    setTxDraftTouched(true);
-                    setTxForm((prev) => ({ ...prev, occurred_on: transactionEntryTodayDate() }));
-                  }}
-                  disabled={transactionFormDisabled}
-                >
-                  오늘
-                </button>
-              </div>
-            </label>
-            <label>
-              유형
-              <select
-                enterKeyHint="next"
-                value={txForm.flow_type}
-                disabled={transactionFormDisabled}
-                onChange={(e) => changeTransactionFlowType(e.target.value)}
-              >
-                {FLOW_TYPE_OPTIONS.map((item) => (
-                  <option key={item.value} value={item.value}>
-                    {item.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {renderTransactionCategoryRestoreNotice()}
             <label>
               거래자
               <select
@@ -9236,7 +9486,7 @@ function App() {
 
   const renderTransactionFormFields = ({ sheetMode = false } = {}) => {
     const transactionFormDisabled = !canEditRecords || loading;
-    if (sheetMode && isCompactViewport) {
+    if (sheetMode) {
       return renderTransactionQuickEntryForm();
     }
     return (
@@ -9253,9 +9503,12 @@ function App() {
             enterKeyHint="next"
             value={txForm.occurred_on}
             onValueChange={(value) => {
+              clearTransactionFormError("occurred_on");
               setTxDraftTouched(true);
               setTxForm((prev) => ({ ...prev, occurred_on: value }));
             }}
+            aria-invalid={txFormErrors.occurred_on ? "true" : undefined}
+            aria-describedby={txFormErrors.occurred_on ? "transaction-form-date-error" : undefined}
             disabled={transactionFormDisabled}
             required
           />
@@ -9263,6 +9516,7 @@ function App() {
             type="button"
             className="secondary today-btn"
             onClick={() => {
+              clearTransactionFormError("occurred_on");
               setTxDraftTouched(true);
               setTxForm((prev) => ({ ...prev, occurred_on: transactionEntryTodayDate() }));
             }}
@@ -9271,6 +9525,11 @@ function App() {
             오늘
           </button>
         </div>
+        {txFormErrors.occurred_on && (
+          <p id="transaction-form-date-error" className="field-helper field-error" role="alert">
+            {txFormErrors.occurred_on}
+          </p>
+        )}
       </label>
       <label>
         유형
@@ -9297,9 +9556,16 @@ function App() {
           enterKeyHint="next"
           value={txForm.amount}
           onChange={handleTransactionEntryAmountInput}
+          aria-invalid={txFormErrors.amount ? "true" : undefined}
+          aria-describedby={txFormErrors.amount ? "transaction-form-amount-error" : undefined}
           disabled={transactionFormDisabled}
           required
         />
+        {txFormErrors.amount && (
+          <p id="transaction-form-amount-error" className="field-helper field-error" role="alert">
+            {txFormErrors.amount}
+          </p>
+        )}
       </label>
       <TransactionCategoryQuickPicker
         categories={categoryOptions}
@@ -9536,7 +9802,7 @@ function App() {
           </button>
         </div>
       </form>
-      <div className="form-grid settings-form-grid category-create-form" style={{ marginTop: "0.75rem" }}>
+      <div className="form-grid settings-form-grid category-create-form category-create-form-spaced">
         <div className="settings-preview category-manager-guide">
           <strong>기존 카테고리 빠른 정리</strong>
           <span>{categoryQuickActionText}</span>
@@ -9942,10 +10208,11 @@ function App() {
       <button
         key={item}
         aria-label={TAB_LABELS[item] || item}
+        aria-current={isActive ? "page" : undefined}
         className={`${isActive ? "active" : ""}${isCollaborationPulse ? " tab-invite-pulse" : ""}`}
         onClick={() => setTab(item)}
       >
-        <span className="tab-icon" aria-hidden="true">{meta.icon || "•"}</span>
+        <span className="tab-icon" aria-hidden="true"><TabNavIcon tabId={item} /></span>
         <span className="tab-text-break" aria-hidden="true">{"\n"}</span>
         <span className="tab-copy" data-helper={meta.helper || undefined} aria-hidden="true">
           <span className="tab-label" data-mobile-label={meta.mobileLabel || TAB_LABELS[item] || item}>
@@ -10024,7 +10291,7 @@ function App() {
       </nav>
 
       <div className="app-content">
-      {message && (
+      {shouldShowGlobalMessage && (
         <div className="message" role="status">
           <span>{message}</span>
           <button type="button" className="message-close secondary" onClick={dismissMessage}>
@@ -10131,7 +10398,6 @@ function App() {
                           aria-label="연도"
                           value={yearMonth.year}
                           onChange={(e) => updateYearMonthInput("year", e.target.value)}
-                          onBlur={handleYearMonthInputBlur}
                           onKeyDown={handleYearMonthInputKeyDown}
                           enterKeyHint="done"
                         />
@@ -10145,7 +10411,6 @@ function App() {
                           aria-label="월"
                           value={yearMonth.month}
                           onChange={(e) => updateYearMonthInput("month", e.target.value)}
-                          onBlur={handleYearMonthInputBlur}
                           onKeyDown={handleYearMonthInputKeyDown}
                           enterKeyHint="done"
                         />
@@ -10171,7 +10436,7 @@ function App() {
                     </div>
                     {isMonthFilterPending && (
                       <p className="filter-pending-status" data-testid="transaction-month-pending-status" aria-live="polite">
-                        변경됨 · Enter 또는 입력칸을 벗어나면 조회 적용
+                        변경됨 · Enter로 조회 적용
                       </p>
                     )}
                   </>
@@ -10228,11 +10493,12 @@ function App() {
                     <p>차트 데이터를 불러오는 중...</p>
                   </div>
                 ) : trendChartData ? (
-                  <Line data={trendChartData} options={{ responsive: true, maintainAspectRatio: false }} />
+                  <Line data={trendChartData} options={lineChartOptions} role="img" aria-label={dashboardFlowChartDescription} />
                 ) : (
                   <p className="dashboard-empty-state">데이터 없음</p>
                 )}
               </div>
+              <FlowTrendValueTable rows={dashboardFlowTrendRows} formatCurrency={fmtKrw} />
             </article>
 
             <article className="card chart-card dashboard-portfolio-card">
@@ -10268,7 +10534,7 @@ function App() {
                   </div>
                 ) : dashboardPortfolioChartData ? (
                   <>
-                    <Doughnut data={dashboardPortfolioChartData} options={donutChartOptions} />
+                    <Doughnut data={dashboardPortfolioChartData} options={donutChartOptions} role="img" aria-label={dashboardPortfolioChartDescription} />
                     {renderDonutSliceLabels(dashboardPortfolioChartSource.items, {
                       testId: "portfolio-donut-slice-label",
                       labelPrefix: dashboardPortfolioChartSource.title,
@@ -10282,6 +10548,12 @@ function App() {
                   <p className="dashboard-empty-state">데이터 없음</p>
                 )}
               </div>
+              <ChartBreakdownList
+                items={dashboardPortfolioBreakdownItems}
+                ariaLabel={`${dashboardPortfolioChartSource.title} 수치 대체 목록`}
+                testId="dashboard-portfolio-breakdown"
+                className="dashboard-portfolio-breakdown"
+              />
             </article>
           </div>
 
@@ -10478,7 +10750,6 @@ function App() {
                           aria-label="연도"
                           value={yearMonth.year}
                           onChange={(event) => updateYearMonthInput("year", event.target.value)}
-                          onBlur={handleYearMonthInputBlur}
                           onKeyDown={handleYearMonthInputKeyDown}
                           enterKeyHint="done"
                         />
@@ -10492,7 +10763,6 @@ function App() {
                           aria-label="월"
                           value={yearMonth.month}
                           onChange={(event) => updateYearMonthInput("month", event.target.value)}
-                          onBlur={handleYearMonthInputBlur}
                           onKeyDown={handleYearMonthInputKeyDown}
                           enterKeyHint="done"
                         />
@@ -10517,7 +10787,7 @@ function App() {
                   </p>
                   {isMonthFilterPending && (
                     <p className="filter-pending-status" data-testid="transaction-month-pending-status" aria-live="polite">
-                      변경됨 · Enter 또는 입력칸을 벗어나면 조회 적용
+                      변경됨 · Enter로 조회 적용
                     </p>
                   )}
                 </div>
@@ -10792,9 +11062,8 @@ function App() {
                   })}
                 </div>
               </section>
-              {!isCompactViewport && (
-                <section ref={txCategoryManagerRef} className="compact-support-section">
-                <div className="inline compact-support-header" style={{ justifyContent: "space-between", alignItems: "center" }}>
+              <section ref={txCategoryManagerRef} className="compact-support-section">
+                <div className="inline compact-support-header">
                   <h3>거래 탭 카테고리 관리</h3>
                   <button type="button" className="secondary" onClick={() => toggleTransactionCategoryManager()}>
                     {showTxCategoryManager ? "닫기" : "열기"}
@@ -10805,8 +11074,7 @@ function App() {
                 ) : (
                   <p className="table-summary compact-support-summary">필요할 때만 열어 추가·수정·삭제를 진행합니다.</p>
                 )}
-                </section>
-              )}
+              </section>
             </div>
           </details>
           {showTransactionForm && (
@@ -10825,11 +11093,11 @@ function App() {
               >
                 <div className="transaction-entry-sheet-header">
                   <div>
-                    <h3>{txEntrySheetStep === "category" ? "카테고리 관리" : "거래 추가"}</h3>
+                    <h3>{txEntrySheetStep === "category" ? "카테고리 관리" : "거래 등록"}</h3>
                     <p className="table-summary">
                       {txEntrySheetStep === "category"
                         ? "같은 레이어 안에서 카테고리를 정리합니다."
-                        : "현재 위치를 유지한 채 새 거래를 추가합니다."}
+                        : "금액, 카테고리, 메모 순서로 바로 저장합니다."}
                     </p>
                   </div>
                   <button
@@ -10862,16 +11130,6 @@ function App() {
                 ) : (
                   <>
                     {transactionEntryBanner}
-                    <div className="transaction-entry-sheet-actions">
-                      <button
-                        type="button"
-                        className="secondary"
-                        data-testid="transaction-entry-category-manage"
-                        onClick={() => setTxEntrySheetStep("category")}
-                      >
-                        카테고리 관리
-                      </button>
-                    </div>
                     {renderTransactionFormFields({ sheetMode: true })}
                   </>
                 )}
@@ -10906,8 +11164,9 @@ function App() {
               <button
                 type="button"
                 className="secondary"
+                ref={holdingEntryActionRef}
                 data-testid={isCompactViewport && showHoldingForm ? "holding-entry-sheet-close" : undefined}
-                onClick={() => (showHoldingForm ? closeHoldingEntrySheet() : openHoldingEntrySheet())}
+                onClick={(event) => (showHoldingForm ? closeHoldingEntrySheet() : openHoldingEntrySheet(event))}
               >
                 {showHoldingForm ? "입력 닫기" : "자산 추가"}
               </button>
@@ -11330,7 +11589,7 @@ function App() {
                 <div className={`chart-wrap compact-chart-wrap${holdingPortfolioChartData ? "" : " chart-wrap-empty"}`}>
                   {holdingPortfolioChartData ? (
                     <>
-                      <Doughnut data={holdingPortfolioChartData} options={donutChartOptions} />
+                      <Doughnut data={holdingPortfolioChartData} options={donutChartOptions} role="img" aria-label={holdingPortfolioChartDescription} />
                       {renderDonutSliceLabels(holdingPortfolioChartSource.items, {
                         testId: "portfolio-donut-slice-label",
                         labelPrefix: holdingPortfolioChartSource.title,
@@ -11344,38 +11603,17 @@ function App() {
                     <p>표시할 포트폴리오 데이터가 없습니다.</p>
                   )}
                 </div>
-                {holdingPortfolioBreakdownItems.length > 0 && (
-                  <ul className="portfolio-breakdown-list" aria-label={`${holdingPortfolioChartSource.title} 평가금액`}>
-                    {holdingPortfolioBreakdownItems.map((item) => {
-                      const rowContent = (
-                        <>
-                          <span className="portfolio-breakdown-name">
-                            <span className="portfolio-breakdown-dot" style={{ background: item.color }} aria-hidden="true" />
-                            {item.label}
-                          </span>
-                          <span className="portfolio-breakdown-value">{fmtKrw(item.value)}</span>
-                          <strong>{item.shareText}</strong>
-                        </>
-                      );
-                      return (
-                        <li key={item.key}>
-                          {holdingPortfolioBreakdownCanFilter ? (
-                            <button
-                              type="button"
-                              className={holdingTypeFilter === item.key ? "active" : ""}
-                              aria-label={`${item.label}만 보기`}
-                              onClick={() => setHoldingTypeFilter((current) => (current === item.key ? "all" : item.key))}
-                            >
-                              {rowContent}
-                            </button>
-                          ) : (
-                            <div className="portfolio-breakdown-row">{rowContent}</div>
-                          )}
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
+                <ChartBreakdownList
+                  items={holdingPortfolioBreakdownItems}
+                  ariaLabel={`${holdingPortfolioChartSource.title} 평가금액`}
+                  testId="holding-portfolio-breakdown"
+                  activeKey={holdingTypeFilter}
+                  onItemAction={
+                    holdingPortfolioBreakdownCanFilter
+                      ? (item) => setHoldingTypeFilter((current) => (current === item.key ? "all" : item.key))
+                      : undefined
+                  }
+                />
                 {holdingTypeFilter !== "all" && (
                   <button type="button" className="secondary portfolio-filter-reset" onClick={() => setHoldingTypeFilter("all")}>
                     자산 유형 필터 해제
@@ -11727,8 +11965,12 @@ function App() {
                   ))}
                 </select>
               </label>
-              <p className="table-summary" id="settings-household-select-summary">
-                현재 작업 가계: {household?.name || "-"} / 내 권한: {COLLAB_ROLE_LABELS[householdRole] || householdRole || "-"}
+              <p className="table-summary settings-household-current-summary" id="settings-household-select-summary">
+                <span className="settings-household-current-label">현재 작업 가계:</span>
+                <span className="settings-household-current-name">{renderBreakableInlineText(household?.name || "-")}</span>
+                <span className="settings-household-current-role">
+                  / 내 권한: {COLLAB_ROLE_LABELS[householdRole] || householdRole || "-"}
+                </span>
               </p>
             </div>
           </article>
@@ -11848,7 +12090,7 @@ function App() {
                 <button type="submit" disabled={!canEditHouseholdData}>카테고리 추가</button>
               </div>
             </form>
-            <div className="form-grid settings-form-grid category-create-form" style={{ marginTop: "0.75rem" }}>
+            <div className="form-grid settings-form-grid category-create-form category-create-form-spaced">
               <div className="settings-preview category-manager-guide">
                 <strong>기존 카테고리 빠른 정리</strong>
                 <span>{categoryQuickActionText}</span>
@@ -12536,7 +12778,7 @@ function App() {
                     type="file"
                     accept=".xlsx"
                     onChange={(e) => setImportFile(e.target.files?.[0] || null)}
-                    style={{ display: "none" }}
+                    className="visually-hidden-file-input"
                     aria-label="엑셀 파일 업로드"
                     disabled={importBusy || !canEditRecords}
                   />
@@ -12570,7 +12812,9 @@ function App() {
                   </button>
                 </div>
                 {importLoadingMode && (
-                  <div className="import-progress">서버에서 파일을 처리 중입니다. 완료까지 잠시만 기다려 주세요.</div>
+                  <div className="import-progress" role="status" aria-live="polite">
+                    서버에서 파일을 처리 중입니다. 완료까지 잠시만 기다려 주세요.
+                  </div>
                 )}
                 {importReport && (
                   <section className="import-report">
@@ -12584,7 +12828,7 @@ function App() {
                       </p>
                     </div>
                     <div className="import-summary-grid">
-                      <div className="import-summary-item"><strong>파일</strong><span>{importReport.workbook_path}</span></div>
+                      <div className="import-summary-item"><strong>파일</strong><span>{displayImportFileName(importReport.workbook_path)}</span></div>
                       <div className="import-summary-item"><strong>시트 수</strong><span>{fmt(importReport.sheets)}</span></div>
                       <div className="import-summary-item"><strong>거래 행</strong><span>{fmt(importReport.transaction_rows)}</span></div>
                       <div className="import-summary-item"><strong>보유 행</strong><span>{fmt(importReport.holding_rows)}</span></div>
@@ -12785,9 +13029,9 @@ function App() {
                         </div>
                       </section>
                     )}
-                    <details className="report-raw">
-                      <summary>원본 JSON 보기</summary>
-                      <pre className="report">{JSON.stringify(importReport, null, 2)}</pre>
+                    <details className="report-technical">
+                      <summary>기술 상세 보기</summary>
+                      <pre className="report technical-report-json">{formatTechnicalReportJson(importReport)}</pre>
                     </details>
                   </section>
                 )}
@@ -12823,7 +13067,7 @@ function App() {
                     accept={TOSS_IMAGE_ACCEPT}
                     multiple
                     onChange={(e) => setTossImportFiles(e.target.files)}
-                    style={{ display: "none" }}
+                    className="visually-hidden-file-input"
                     aria-label="토스 스크린샷 업로드"
                     disabled={importBusy || !canEditRecords}
                   />
@@ -13054,7 +13298,7 @@ function App() {
                   type="file"
                   accept=".zip"
                   onChange={(e) => setMigrationPackageFile(e.target.files?.[0] || null)}
-                  style={{ display: "none" }}
+                  className="visually-hidden-file-input"
                   aria-label="이식 패키지 업로드"
                   disabled={Boolean(migrationLoadingMode) || migrationExporting || !canEditRecords}
                 />
@@ -13087,13 +13331,15 @@ function App() {
                   {migrationLoadingMode === "apply" ? "적용 중..." : "패키지 적용"}
                 </button>
               </div>
-              {migrationLoadingMode && (
-                <div className="import-progress">이식 패키지를 검증/적용하는 중입니다. 완료까지 잠시만 기다려 주세요.</div>
-              )}
+                {migrationLoadingMode && (
+                  <div className="import-progress" role="status" aria-live="polite">
+                    이식 패키지를 검증/적용하는 중입니다. 완료까지 잠시만 기다려 주세요.
+                  </div>
+                )}
               {migrationReport && (
                 <>
                   <div className="import-summary-grid">
-                    <div className="import-summary-item"><strong>패키지</strong><span>{migrationReport.package_name}</span></div>
+                    <div className="import-summary-item"><strong>패키지</strong><span>{displayImportFileName(migrationReport.package_name)}</span></div>
                     <div className="import-summary-item"><strong>원본 환경</strong><span>{migrationReport.source_env || "-"}</span></div>
                     <div className="import-summary-item"><strong>원본 가계</strong><span>{migrationReport.source_household_name || "-"}</span></div>
                     <div className="import-summary-item"><strong>카테고리 행</strong><span>{fmt(migrationReport.category_rows)}</span></div>
@@ -13120,9 +13366,9 @@ function App() {
                       <p className="table-summary">+{(migrationReport.issues || []).length - migrationIssuePreview.length}건 더 있음</p>
                     )}
                   </section>
-                  <details className="report-raw">
-                    <summary>이식 리포트 JSON 보기</summary>
-                    <pre className="report">{JSON.stringify(migrationReport, null, 2)}</pre>
+                  <details className="report-technical">
+                    <summary>기술 상세 보기</summary>
+                    <pre className="report technical-report-json">{formatTechnicalReportJson(migrationReport)}</pre>
                   </details>
                 </>
               )}

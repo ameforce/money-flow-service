@@ -4,7 +4,6 @@ import {
   assertResponsiveShell,
   capture,
   createCategoryViaApi,
-  currentE2EHistoryDateIso,
   expectKeyboardReachableInOrder,
   expectNoHorizontalOverflow,
   expectWithinViewport,
@@ -12,7 +11,6 @@ import {
   openTransactionEntryForm,
   openTab,
   registerAndVerify,
-  selectFirstNonEmptyOption,
   unique,
 } from "../support/helpers";
 
@@ -467,32 +465,24 @@ test("settings flow: profile, household, colors, categories CRUD", async ({ page
   await assertResponsiveShell(page);
   const usageMemo = unique("usage-memo");
   const { container: transactionEntry } = await openTransactionEntryForm(page);
-  await labeledField(transactionEntry, "유형", "select").selectOption("expense");
-  await labeledField(transactionEntry, "일자", "input").fill(currentE2EHistoryDateIso());
-  await labeledField(transactionEntry, "금액", "input").fill("77777");
+  await transactionEntry.getByTestId("transaction-quick-amount").fill("77777");
   await labeledField(transactionEntry, "메모", "input").fill(usageMemo);
-  await selectFirstNonEmptyOption(labeledField(transactionEntry, "거래자", "select"));
-  const txMajorSelectNew = labeledField(transactionEntry, "카테고리 그룹", "select");
-  const txHasNewCategoryLabels = (await txMajorSelectNew.count()) > 0;
-  const txMajorSelect = txHasNewCategoryLabels
-    ? txMajorSelectNew
-    : labeledField(transactionEntry, "대분류", "select");
-  const txMajorValue = await txMajorSelect.locator("option").evaluateAll(
-    (nodes, targetMajor) => {
-      const matched = nodes.find((node) => String(node.textContent || "").includes(targetMajor));
-      return matched ? String(matched.value || "") : "";
-    },
-    majorSeed
-  );
-  expect(txMajorValue).not.toBe("");
-  await txMajorSelect.selectOption(txMajorValue);
-  const txMinorSelect = txHasNewCategoryLabels
-    ? transactionEntry.locator("form.transactions-form-grid select").nth(2)
-    : labeledField(transactionEntry, "중분류", "select");
-  await expect(txMinorSelect).toBeEnabled();
-  await expect.poll(async () => txMinorSelect.locator("option").count()).toBeGreaterThan(1);
-  await txMinorSelect.selectOption({ index: 1 });
-  await expect(txMinorSelect.locator("option:checked")).toContainText(minorSeed);
+  const quickCategoryPicker = transactionEntry.getByTestId("transaction-category-quick-picker");
+  await expect(quickCategoryPicker).toBeVisible();
+  let targetCategoryChip = quickCategoryPicker.getByTestId("transaction-quick-category-chip").filter({ hasText: minorSeed }).first();
+  if ((await targetCategoryChip.count()) === 0) {
+    const searchToggle = quickCategoryPicker.getByTestId("transaction-category-search-toggle");
+    if ((await searchToggle.count()) > 0 && (await searchToggle.isVisible().catch(() => false))) {
+      await searchToggle.click();
+    }
+    const categorySearch = quickCategoryPicker.getByTestId("transaction-category-search");
+    await expect(categorySearch).toBeVisible();
+    await categorySearch.fill(minorSeed);
+    targetCategoryChip = quickCategoryPicker.getByTestId("transaction-quick-category-chip").filter({ hasText: minorSeed }).first();
+  }
+  await expect(targetCategoryChip).toBeVisible();
+  await targetCategoryChip.click();
+  await expect(targetCategoryChip).toHaveAttribute("aria-pressed", "true");
   await transactionEntry.getByRole("button", { name: "거래 등록" }).click();
   await expect(page.locator("tr.transaction-row", { hasText: usageMemo }).first()).toBeVisible();
   await openTab(page, "설정");

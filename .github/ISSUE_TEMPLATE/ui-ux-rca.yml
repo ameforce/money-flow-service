@@ -1,0 +1,94 @@
+name: UI/UX RCA
+description: Track a UI/UX issue with evidence, root-cause hypothesis, and acceptance criteria.
+title: "[UI/UX RCA] "
+labels:
+  - uiux
+  - rca
+body:
+  - type: input
+    id: issue-key
+    attributes:
+      label: Issue key
+      description: Local tracking key, for example MFS-UIUX-001.
+      placeholder: MFS-UIUX-001
+    validations:
+      required: true
+  - type: input
+    id: severity
+    attributes:
+      label: Severity
+      description: Impact level such as high, medium, or low.
+    validations:
+      required: true
+  - type: input
+    id: surface
+    attributes:
+      label: Surface
+      description: Product area, route, file, or workflow affected.
+    validations:
+      required: true
+  - type: textarea
+    id: symptom
+    attributes:
+      label: Symptom
+      description: Observable UI/UX problem.
+    validations:
+      required: true
+  - type: textarea
+    id: direct-evidence
+    attributes:
+      label: Direct evidence
+      description: File references, test output, screenshots, or reproduction evidence.
+    validations:
+      required: true
+  - type: textarea
+    id: rca-hypothesis
+    attributes:
+      label: RCA hypothesis
+      description: Current root-cause hypothesis to validate before fixing.
+    validations:
+      required: true
+  - type: textarea
+    id: user-impact
+    attributes:
+      label: User impact
+      description: Who is affected and how the issue changes task success, clarity, speed, or trust.
+    validations:
+      required: true
+  - type: textarea
+    id: proposed-fix
+    attributes:
+      label: Proposed fix
+      description: Smallest expected correction.
+    validations:
+      required: true
+  - type: textarea
+    id: must-not-do
+    attributes:
+      label: Must-not-do
+      description: Scope guardrails and regressions that must be avoided.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance criteria
+      description: Agent-executable checks that prove the fix.
+    validations:
+      required: true
+  - type: input
+    id: qa-evidence-path
+    attributes:
+      label: QA evidence path
+      description: Expected path under .omo/evidence.
+      placeholder: .omo/evidence/task-N-surface.json
+    validations:
+      required: true
+  - type: input
+    id: labels
+    attributes:
+      label: Labels
+      description: Comma-separated labels for publication.
+      placeholder: uiux, rca, frontend
+    validations:
+      required: true
