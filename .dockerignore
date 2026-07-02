@@ -1,0 +1,14 @@
+.git
+.gitignore
+.cursor
+.venv
+node_modules
+frontend/node_modules
+frontend/dist
+test-results
+playwright-report
+tmp_import_uploads
+.runtime
+.env
+legacy
+*.db
