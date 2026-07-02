@@ -347,6 +347,7 @@ class TransactionCreate(BaseModel):
     memo: str = Field(default="", max_length=2000)
     owner_user_id: str | None = Field(default=None, max_length=36)
     owner_name: str | None = Field(default=None, max_length=80)
+    source_ref: str | None = Field(default=None, max_length=120)
 
     @field_validator("currency")
     @classmethod
@@ -367,6 +368,11 @@ class TransactionCreate(BaseModel):
     @field_validator("owner_name")
     @classmethod
     def normalize_owner_name(cls, value: str | None) -> str | None:
+        return normalize_optional_text(value)
+
+    @field_validator("source_ref")
+    @classmethod
+    def normalize_transaction_source_ref(cls, value: str | None) -> str | None:
         return normalize_optional_text(value)
 
 

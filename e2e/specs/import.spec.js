@@ -96,7 +96,7 @@ test("import flow: migration package export and upload", async ({ page }, testIn
   await download.saveAs(migrationPackagePath);
 
   const packageInput = page.getByLabel("이식 패키지 업로드");
-  const migrationReport = page.locator("section.import-report", { hasText: "환경 이식 패키지" });
+  const migrationReport = page.locator(".import-package-panel", { hasText: "환경 이식 패키지" });
   await expect(packageInput).toBeEnabled();
   await packageInput.setInputFiles(migrationPackagePath);
   await expect(page.getByText(path.basename(migrationPackagePath))).toBeVisible();

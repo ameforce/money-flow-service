@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { TEST_PASSWORD, capture, unique } from "../support/helpers";
+import { TEST_PASSWORD, capture, openTab, registerAndVerify, unique } from "../support/helpers";
 
 test("auth deep-link token policy: query token rejected", async ({ page }) => {
   test.setTimeout(60_000);
@@ -82,4 +82,49 @@ test("household invite deep-link token is surfaced before login", async ({ page 
   await expect(inviteTokenInput).toHaveAttribute("readonly", "");
   await expect.poll(() => page.url()).not.toContain("invite_token=invite-hash-token");
   await capture(page, "deeplink-invite-token-result");
+});
+
+test("household invite hash link refreshes after rejected query token in same tab", async ({ page }) => {
+  test.setTimeout(60_000);
+
+  await page.goto("/?verify_token=query-token");
+  await expect(page.getByRole("button", { name: "로그인하기" })).toBeVisible();
+  await expect(page.getByText("보안을 위해 URL query 토큰은 지원하지 않습니다.")).toBeVisible();
+  await expect.poll(() => page.url()).not.toContain("verify_token=query-token");
+
+  await page.goto("/#invite_token=invite-hash-token");
+  await expect(page.getByText("가계부 초대 링크를 확인했습니다.", { exact: true })).toBeVisible();
+  await expect(page.getByText("보안을 위해 URL query 토큰은 지원하지 않습니다.")).toHaveCount(0);
+  const inviteTokenInput = page.getByLabel("감지된 초대 토큰");
+  await expect(inviteTokenInput).toBeVisible();
+  await expect(inviteTokenInput).toHaveValue("invite-hash-token");
+  await expect(inviteTokenInput).toHaveAttribute("readonly", "");
+  await expect.poll(() => page.url()).not.toContain("invite_token=invite-hash-token");
+  await capture(page, "deeplink-invite-token-after-query-reject-result");
+});
+
+test("tab query overrides the previously saved active tab", async ({ page }) => {
+  test.setTimeout(90_000);
+
+  await registerAndVerify(page, {
+    email: `${unique("deeplink-tab-user")}@example.com`,
+    displayName: unique("deeplink-tab-name"),
+  });
+  await openTab(page, "설정");
+  await expect(page.getByRole("button", { name: "설정", exact: true }).first()).toHaveClass(/active/);
+
+  await page.goto("/?tab=holdings");
+  await expect(page.locator("main.app-shell")).toHaveAttribute("translate", "no");
+  await expect(page.getByRole("button", { name: "자산", exact: true }).first()).toHaveClass(/active/);
+  await expect(page.getByRole("button", { name: "설정", exact: true }).first()).not.toHaveClass(/active/);
+  await capture(page, "deeplink-tab-holdings-overrides-saved-settings");
+
+  await page.goto("/?tab=collaboration");
+  await expect(page.locator("main.app-shell")).toHaveAttribute("translate", "no");
+  await expect(page.getByRole("button", { name: "협업", exact: true }).first()).toHaveClass(/active/);
+  await capture(page, "deeplink-tab-collaboration-overrides-saved-settings");
+
+  await openTab(page, "설정");
+  await expect.poll(() => new URL(page.url()).searchParams.get("tab")).toBe("settings");
+  await capture(page, "deeplink-tab-query-stays-in-sync");
 });
