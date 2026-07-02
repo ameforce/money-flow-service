@@ -143,6 +143,7 @@ def test_upload_limit_probe_requires_authenticated_app_response() -> None:
     source = _jenkinsfile_source()
     deploy_stage = source[source.index("stage('Deploy Execute')") :]
 
+    assert 'if [ "$DEPLOY_TARGET_ENV" = "dev" ]; then' in deploy_stage
     assert "UPLOAD_LIMIT_PROBE_OK_APP_REACHED" in deploy_stage
     assert "scripts/deploy/seed_upload_probe_user.py" in deploy_stage
     assert ":/tmp/seed_upload_probe_user.py:ro" in deploy_stage
@@ -159,12 +160,15 @@ def test_upload_limit_probe_requires_authenticated_app_response() -> None:
     assert '-H "x-csrf-token: ${probe_csrf_token}"' in deploy_stage
     assert "upload-limit probe passed with HTTP $probe_status" not in deploy_stage
     assert "400|401|403)" not in deploy_stage
+    assert "dev-only probe seeding is not allowed" in deploy_stage
+    assert "invalid DEPLOY_TARGET_ENV for upload-limit probe" in deploy_stage
 
 
 def test_post_deploy_smoke_runs_representative_browser_flows() -> None:
     source = _jenkinsfile_source()
     post_deploy_stage = source[source.index("stage('Post-Deploy E2E Smoke')") :]
 
+    assert "env.SKIP_POST_DEPLOY_E2E_FOR_BRANCH = isMainBranch ? 'true' : 'false'" in source
     assert "e2e/specs/post-deploy-smoke.spec.js" in post_deploy_stage
     assert 'E2E_POST_DEPLOY_EMAIL="jenkins-upload-probe-${BUILD_NUMBER:-manual}@example.com"' in post_deploy_stage
     assert 'E2E_POST_DEPLOY_PASSWORD="UploadProbe123!"' in post_deploy_stage
