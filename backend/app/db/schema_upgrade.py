@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sys
+
 from sqlalchemy import inspect, select, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
@@ -10,6 +12,25 @@ from app.services.profile import normalize_holding_settings, normalize_transacti
 
 
 _LEGACY_NULL_OWNER_SENTINEL = "__legacy_null_owner__:"
+
+
+def _log_schema_upgrade_summary(engine: Engine) -> None:
+    dialect = str(engine.dialect.name).lower()
+    url = engine.url
+    host = str(url.host or "")
+    database = str(url.database or "")
+    try:
+        with engine.connect() as conn:
+            users = int(conn.execute(text("SELECT COUNT(*) FROM users")).scalar_one())
+            households = int(conn.execute(text("SELECT COUNT(*) FROM households")).scalar_one())
+    except Exception as exc:  # noqa: BLE001 — deploy diagnostics only
+        print(f"[schema_upgrade] summary query failed: {exc}", file=sys.stderr)
+        return
+    print(
+        f"[schema_upgrade] dialect={dialect} host={host!r} database={database!r} "
+        f"users={users} households={households}",
+        file=sys.stderr,
+    )
 
 
 def _column_names(bind, table_name: str) -> set[str]:
@@ -159,6 +180,11 @@ def upgrade_schema(bind_engine: Engine | None = None) -> None:
     active_engine = bind_engine or engine
     dialect_name = str(active_engine.dialect.name).lower()
     json_type_name = _json_type_name(dialect_name)
+    print(
+        f"[schema_upgrade] starting dialect={dialect_name} host={active_engine.url.host!r} "
+        f"database={active_engine.url.database!r}",
+        file=sys.stderr,
+    )
 
     with active_engine.begin() as conn:
         _add_column_if_missing(conn, "users", "real_name", "real_name VARCHAR(120)")
@@ -227,6 +253,8 @@ def upgrade_schema(bind_engine: Engine | None = None) -> None:
             household.holding_settings = normalize_holding_settings(household.holding_settings)
 
         db.commit()
+
+    _log_schema_upgrade_summary(active_engine)
 
 
 if __name__ == "__main__":

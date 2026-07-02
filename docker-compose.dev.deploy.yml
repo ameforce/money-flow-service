@@ -40,6 +40,13 @@ services:
       SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL:?SMTP_FROM_EMAIL required}
       SMTP_FROM_NAME: ${SMTP_FROM_NAME}
       SMTP_ACCOUNT_LABEL: ${SMTP_ACCOUNT_LABEL:?SMTP_ACCOUNT_LABEL required}
+    command:
+      - sh
+      - -c
+      - >-
+        PYTHONPATH=backend python -m app.db.schema_upgrade &&
+        exec uvicorn app.main:app --app-dir backend --host 0.0.0.0 --port 8000 --proxy-headers
+        --forwarded-allow-ips "${FORWARDED_ALLOW_IPS:-172.30.0.0/24,127.0.0.1,::1}"
     depends_on:
       postgres:
         condition: service_healthy
