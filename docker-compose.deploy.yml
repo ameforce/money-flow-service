@@ -13,6 +13,7 @@ services:
       timeout: 5s
       retries: 12
       start_period: 5s
+    restart: unless-stopped
 
   app:
     build:
