@@ -1151,6 +1151,7 @@ assert_frontend_asset_version() {
   local asset_path=''
   local asset_url=''
   local asset_body=''
+  local asset_attempt=1
 
   if [ -n "$host_header" ]; then
     root_html="$(curl -fsS -H "Host: $host_header" "${base_url%/}/")"
@@ -1167,16 +1168,22 @@ assert_frontend_asset_version() {
     /*) asset_url="${base_url%/}${asset_path}" ;;
     *) asset_url="${base_url%/}/${asset_path}" ;;
   esac
-  if [ -n "$host_header" ]; then
-    asset_body="$(curl -fsS -H "Host: $host_header" "$asset_url")"
-  else
-    asset_body="$(curl -fsS "$asset_url")"
-  fi
-  if ! printf '%s' "$asset_body" | grep -Fq "$expected_frontend_version"; then
-    echo "[deploy] frontend asset version mismatch: expected ${expected_frontend_version} at ${asset_url}"
-    exit 1
-  fi
-  echo "[deploy] frontend asset version matched: ${expected_frontend_version} (${asset_url})"
+  while [ "$asset_attempt" -le "$HEALTH_RETRY_MAX" ]; do
+    if [ -n "$host_header" ]; then
+      asset_body="$(curl -fsS -H "Host: $host_header" "$asset_url")"
+    else
+      asset_body="$(curl -fsS "$asset_url")"
+    fi
+    if printf '%s' "$asset_body" | grep -Fq "$expected_frontend_version"; then
+      echo "[deploy] frontend asset version matched: ${expected_frontend_version} (${asset_url})"
+      return 0
+    fi
+    echo "[deploy] waiting for frontend asset version (${asset_attempt}/${HEALTH_RETRY_MAX}): expected ${expected_frontend_version} at ${asset_url}"
+    asset_attempt=$((asset_attempt + 1))
+    sleep "$HEALTH_RETRY_INTERVAL"
+  done
+  echo "[deploy] frontend asset version mismatch: expected ${expected_frontend_version} at ${asset_url}"
+  exit 1
 }
 if ! curl --fail --retry-all-errors --retry "$HEALTH_RETRY_MAX" --retry-delay "$HEALTH_RETRY_INTERVAL" -H "Host: $DOMAIN" "$HEALTHCHECK_URL"; then
   echo '[deploy] health check failed after retries'
@@ -1200,6 +1207,7 @@ assert_frontend_asset_version() {
   local asset_path=''
   local asset_url=''
   local asset_body=''
+  local asset_attempt=1
 
   root_html="$(curl -fsS "${base_url%/}/")"
   asset_path="$(printf '%s' "$root_html" | grep -oE '/assets/[^"]+[.]js' | sed -n '1p' || true)"
@@ -1212,12 +1220,18 @@ assert_frontend_asset_version() {
     /*) asset_url="${base_url%/}${asset_path}" ;;
     *) asset_url="${base_url%/}/${asset_path}" ;;
   esac
-  asset_body="$(curl -fsS "$asset_url")"
-  if ! printf '%s' "$asset_body" | grep -Fq "$expected_frontend_version"; then
-    echo "[deploy] frontend asset version mismatch: expected ${expected_frontend_version} at ${asset_url}"
-    exit 1
-  fi
-  echo "[deploy] public frontend asset version matched: ${expected_frontend_version} (${asset_url})"
+  while [ "$asset_attempt" -le "$HEALTH_RETRY_MAX" ]; do
+    asset_body="$(curl -fsS "$asset_url")"
+    if printf '%s' "$asset_body" | grep -Fq "$expected_frontend_version"; then
+      echo "[deploy] public frontend asset version matched: ${expected_frontend_version} (${asset_url})"
+      return 0
+    fi
+    echo "[deploy] waiting for frontend asset version (${asset_attempt}/${HEALTH_RETRY_MAX}): expected ${expected_frontend_version} at ${asset_url}"
+    asset_attempt=$((asset_attempt + 1))
+    sleep "$HEALTH_RETRY_INTERVAL"
+  done
+  echo "[deploy] frontend asset version mismatch: expected ${expected_frontend_version} at ${asset_url}"
+  exit 1
 }
 assert_frontend_asset_version "$PUBLIC_BASE_URL" "$APP_VERSION"
 
