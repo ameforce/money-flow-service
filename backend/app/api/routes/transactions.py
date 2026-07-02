@@ -1,22 +1,38 @@
 from __future__ import annotations
 
-from datetime import date
+import base64
+from datetime import UTC, date, datetime
+import hashlib
+import hmac
+import json
+from typing import Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
-from sqlalchemy import desc, select
+from sqlalchemy import and_, asc, desc, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_household, get_current_user, require_editor_household
+from app.core.config import settings
 from app.core.errors import app_error
 from app.db.models import Category, Transaction, User
 from app.db.session import get_db
-from app.schemas import PatchConflict, TransactionCreate, TransactionPatch, TransactionRead
+from app.schemas import PatchConflict, TransactionCreate, TransactionHistoryPage, TransactionPatch, TransactionRead
 from app.services.merge import MergeConflictError, merge_patch_or_raise
+from app.services.owner_links import resolve_owner_fields
 from app.services.runtime import hub
 
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
+_HISTORY_CURSOR_VERSION = 1
+
+
+class _HistoryCursor:
+    def __init__(self, *, household_id: str, occurred_on: date, created_at: datetime, transaction_id: str) -> None:
+        self.household_id = household_id
+        self.occurred_on = occurred_on
+        self.created_at = created_at
+        self.transaction_id = transaction_id
 
 
 def _is_category_fk_violation(error: IntegrityError) -> bool:
@@ -35,6 +51,133 @@ def _ensure_category_flow_matches(category: Category, flow_type) -> None:
     )
 
 
+def _history_today() -> date:
+    return datetime.now(UTC).date()
+
+
+def _canonical_created_at(value: datetime) -> str:
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    else:
+        value = value.astimezone(UTC)
+    return value.isoformat().replace("+00:00", "Z")
+
+
+def _history_cursor_signature(payload: dict[str, object]) -> str:
+    signing_payload = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hmac.new(settings.secret_key.encode("utf-8"), signing_payload, hashlib.sha256).hexdigest()
+
+
+def _encode_history_cursor(transaction: Transaction, household_id: str) -> str:
+    payload: dict[str, object] = {
+        "v": _HISTORY_CURSOR_VERSION,
+        "household_id": str(household_id),
+        "occurred_on": transaction.occurred_on.isoformat(),
+        "created_at": _canonical_created_at(transaction.created_at),
+        "id": str(transaction.id),
+    }
+    payload["sig"] = _history_cursor_signature(payload)
+    token = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return base64.urlsafe_b64encode(token).decode("ascii").rstrip("=")
+
+
+def _decode_history_cursor(raw_cursor: str, household_id: str) -> _HistoryCursor:
+    try:
+        normalized = str(raw_cursor or "").strip()
+        if not normalized:
+            raise ValueError("empty cursor")
+        padded = normalized + ("=" * (-len(normalized) % 4))
+        payload = json.loads(base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError("cursor payload must be an object")
+        supplied_sig = str(payload.get("sig") or "")
+        unsigned = {key: value for key, value in payload.items() if key != "sig"}
+        expected_sig = _history_cursor_signature(unsigned)
+        if not supplied_sig or not hmac.compare_digest(supplied_sig, expected_sig):
+            raise ValueError("cursor signature mismatch")
+        if int(payload.get("v") or 0) != _HISTORY_CURSOR_VERSION:
+            raise ValueError("unsupported cursor version")
+        cursor_household_id = str(payload.get("household_id") or "")
+        if cursor_household_id != str(household_id):
+            raise ValueError("cursor household mismatch")
+        occurred_on = date.fromisoformat(str(payload.get("occurred_on") or ""))
+        created_raw = str(payload.get("created_at") or "")
+        created_at = datetime.fromisoformat(created_raw.replace("Z", "+00:00"))
+        if created_at.tzinfo is not None:
+            created_at = created_at.astimezone(UTC)
+        transaction_id = str(payload.get("id") or "").strip()
+        if not transaction_id:
+            raise ValueError("missing transaction id")
+    except Exception as exc:
+        raise app_error(
+            status_code=400,
+            code="TRANSACTION_HISTORY_CURSOR_INVALID",
+            message="거래 내역 커서가 유효하지 않습니다.",
+            action="목록을 새로고침한 뒤 다시 시도해 주세요.",
+        ) from exc
+    return _HistoryCursor(
+        household_id=str(household_id),
+        occurred_on=occurred_on,
+        created_at=created_at,
+        transaction_id=transaction_id,
+    )
+
+
+def _older_than_cursor(cursor: _HistoryCursor):
+    return or_(
+        Transaction.occurred_on < cursor.occurred_on,
+        and_(Transaction.occurred_on == cursor.occurred_on, Transaction.created_at < cursor.created_at),
+        and_(
+            Transaction.occurred_on == cursor.occurred_on,
+            Transaction.created_at == cursor.created_at,
+            Transaction.id < cursor.transaction_id,
+        ),
+    )
+
+
+def _newer_than_cursor(cursor: _HistoryCursor):
+    return or_(
+        Transaction.occurred_on > cursor.occurred_on,
+        and_(Transaction.occurred_on == cursor.occurred_on, Transaction.created_at > cursor.created_at),
+        and_(
+            Transaction.occurred_on == cursor.occurred_on,
+            Transaction.created_at == cursor.created_at,
+            Transaction.id > cursor.transaction_id,
+        ),
+    )
+
+
+def _to_transaction_read(transaction: Transaction, linked_owner_name: str | None = None) -> TransactionRead:
+    return TransactionRead(
+        id=str(transaction.id),
+        household_id=str(transaction.household_id),
+        category_id=str(transaction.category_id).strip() if str(transaction.category_id or "").strip() else None,
+        occurred_on=transaction.occurred_on,
+        flow_type=transaction.flow_type,
+        amount=transaction.amount,
+        currency=str(transaction.currency),
+        memo=str(transaction.memo or ""),
+        owner_user_id=str(transaction.owner_user_id).strip() if str(transaction.owner_user_id or "").strip() else None,
+        owner_name=str(linked_owner_name or transaction.owner_name or "").strip() or None,
+        source_ref=str(transaction.source_ref).strip() if str(transaction.source_ref or "").strip() else None,
+        version=int(transaction.version),
+        created_at=transaction.created_at,
+        updated_at=transaction.updated_at,
+    )
+
+
+def _load_transaction_read(db: Session, transaction_id: str) -> TransactionRead:
+    row = db.execute(
+        select(Transaction, User.display_name)
+        .outerjoin(User, User.id == Transaction.owner_user_id)
+        .where(Transaction.id == transaction_id)
+    ).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="transaction not found")
+    transaction, linked_owner_name = row
+    return _to_transaction_read(transaction, linked_owner_name)
+
+
 @router.get("", response_model=list[TransactionRead])
 def list_transactions(
     year: int | None = Query(default=None, ge=1970, le=2100),
@@ -46,7 +189,11 @@ def list_transactions(
     db: Session = Depends(get_db),
 ) -> list[TransactionRead]:
     household, _ = ctx
-    query = select(Transaction).where(Transaction.household_id == household.id)
+    query = (
+        select(Transaction, User.display_name)
+        .outerjoin(User, User.id == Transaction.owner_user_id)
+        .where(Transaction.household_id == household.id)
+    )
     if (start_date is None) != (end_date is None):
         raise HTTPException(status_code=400, detail="start_date and end_date must be provided together")
     if start_date and end_date:
@@ -62,8 +209,94 @@ def list_transactions(
     elif month is not None:
         raise HTTPException(status_code=400, detail="month filter requires year")
 
-    items = db.scalars(query.order_by(desc(Transaction.occurred_on), desc(Transaction.created_at)).limit(limit)).all()
-    return [TransactionRead.model_validate(item) for item in items]
+    rows = db.execute(
+        query.order_by(desc(Transaction.occurred_on), desc(Transaction.created_at)).limit(limit)
+    ).all()
+    return [_to_transaction_read(transaction, linked_owner_name) for transaction, linked_owner_name in rows]
+
+
+@router.get("/history", response_model=TransactionHistoryPage)
+def list_transaction_history(
+    anchor_date: date | None = Query(default=None),
+    direction: Literal["initial", "older", "newer"] = Query(default="initial"),
+    cursor: str | None = Query(default=None),
+    limit: int = Query(default=120, ge=1, le=500),
+    ctx=Depends(get_current_household),
+    db: Session = Depends(get_db),
+) -> TransactionHistoryPage:
+    household, _ = ctx
+    today = _history_today()
+    active_anchor = min(anchor_date or today, today)
+    base_query = (
+        select(Transaction, User.display_name)
+        .outerjoin(User, User.id == Transaction.owner_user_id)
+        .where(Transaction.household_id == household.id, Transaction.occurred_on <= today)
+    )
+
+    decoded_cursor = _decode_history_cursor(cursor, str(household.id)) if cursor else None
+    fetch_limit = limit + 1
+    if direction == "older":
+        if decoded_cursor is None:
+            raise app_error(
+                status_code=400,
+                code="TRANSACTION_HISTORY_CURSOR_REQUIRED",
+                message="이전 거래를 이어 보려면 커서가 필요합니다.",
+                action="목록을 새로고침한 뒤 다시 시도해 주세요.",
+            )
+        query = base_query.where(_older_than_cursor(decoded_cursor)).order_by(
+            desc(Transaction.occurred_on),
+            desc(Transaction.created_at),
+            desc(Transaction.id),
+        )
+        raw_rows = db.execute(query.limit(fetch_limit)).all()
+        has_more = len(raw_rows) > limit
+        page_rows = raw_rows[:limit]
+        page_rows = list(reversed(page_rows))
+        has_older = has_more
+        has_newer = True
+    elif direction == "newer":
+        if decoded_cursor is None:
+            raise app_error(
+                status_code=400,
+                code="TRANSACTION_HISTORY_CURSOR_REQUIRED",
+                message="다음 거래를 이어 보려면 커서가 필요합니다.",
+                action="목록을 새로고침한 뒤 다시 시도해 주세요.",
+            )
+        query = base_query.where(_newer_than_cursor(decoded_cursor)).order_by(
+            asc(Transaction.occurred_on),
+            asc(Transaction.created_at),
+            asc(Transaction.id),
+        )
+        raw_rows = db.execute(query.limit(fetch_limit)).all()
+        has_more = len(raw_rows) > limit
+        page_rows = raw_rows[:limit]
+        has_older = True
+        has_newer = has_more
+    else:
+        query = base_query.where(Transaction.occurred_on <= active_anchor).order_by(
+            desc(Transaction.occurred_on),
+            desc(Transaction.created_at),
+            desc(Transaction.id),
+        )
+        raw_rows = db.execute(query.limit(fetch_limit)).all()
+        has_more = len(raw_rows) > limit
+        page_rows = raw_rows[:limit]
+        page_rows = list(reversed(page_rows))
+        has_older = has_more
+        has_newer = active_anchor < today
+
+    items = [_to_transaction_read(transaction, linked_owner_name) for transaction, linked_owner_name in page_rows]
+    first_transaction = page_rows[0][0] if page_rows else None
+    last_transaction = page_rows[-1][0] if page_rows else None
+    return TransactionHistoryPage(
+        items=items,
+        older_cursor=_encode_history_cursor(first_transaction, str(household.id)) if first_transaction else None,
+        newer_cursor=_encode_history_cursor(last_transaction, str(household.id)) if last_transaction else None,
+        has_older=has_older,
+        has_newer=has_newer,
+        anchor_date=active_anchor,
+        today=today,
+    )
 
 
 @router.post("", response_model=TransactionRead, status_code=status.HTTP_201_CREATED)
@@ -81,7 +314,16 @@ def create_transaction(
             raise HTTPException(status_code=400, detail="invalid category_id")
         _ensure_category_flow_matches(category, payload.flow_type)
 
-    tx = Transaction(
+    owner_user_id, owner_name = resolve_owner_fields(
+        db,
+        household_id=str(household.id),
+        owner_user_id=payload.owner_user_id,
+        owner_name=payload.owner_name,
+        invalid_code="TRANSACTION_OWNER_INVALID",
+        invalid_message="거래자는 현재 가계 구성원만 선택할 수 있습니다.",
+        invalid_action="가계 구성원 목록에서 거래자를 다시 선택해 주세요.",
+    )
+    transaction = Transaction(
         household_id=household.id,
         category_id=payload.category_id,
         occurred_on=payload.occurred_on,
@@ -89,10 +331,11 @@ def create_transaction(
         amount=payload.amount,
         currency=payload.currency.upper(),
         memo=payload.memo.strip(),
-        owner_name=(payload.owner_name or "").strip() or None,
+        owner_user_id=owner_user_id,
+        owner_name=owner_name,
         created_by_user_id=user.id,
     )
-    db.add(tx)
+    db.add(transaction)
     try:
         db.commit()
     except IntegrityError as error:
@@ -105,17 +348,17 @@ def create_transaction(
                 action="가계 내 카테고리 ID를 확인해 주세요.",
             ) from error
         raise
-    db.refresh(tx)
+    db.refresh(transaction)
     background_tasks.add_task(
         hub.broadcast,
         household.id,
         {
             "event": "transaction.created",
-            "entity_id": tx.id,
-            "version": tx.version,
+            "entity_id": transaction.id,
+            "version": transaction.version,
         },
     )
-    return TransactionRead.model_validate(tx)
+    return _load_transaction_read(db, str(transaction.id))
 
 
 @router.patch("/{transaction_id}", response_model=TransactionRead)
@@ -128,7 +371,7 @@ def patch_transaction(
     db: Session = Depends(get_db),
 ) -> TransactionRead:
     household, _ = ctx
-    tx = db.scalar(
+    transaction = db.scalar(
         select(Transaction)
         .where(
             Transaction.id == transaction_id,
@@ -136,7 +379,7 @@ def patch_transaction(
         )
         .with_for_update()
     )
-    if tx is None:
+    if transaction is None:
         raise HTTPException(status_code=404, detail="transaction not found")
 
     fields_set = set(payload.model_fields_set)
@@ -156,22 +399,31 @@ def patch_transaction(
         patch_data["currency"] = str(patch_data["currency"]).upper()
     if "memo" in patch_data and patch_data["memo"] is not None:
         patch_data["memo"] = str(patch_data["memo"]).strip()
-    if "owner_name" in patch_data:
-        patch_data["owner_name"] = (patch_data["owner_name"] or "").strip() or None
-    next_flow_type = patch_data.get("flow_type", tx.flow_type)
-    next_category_id = patch_data.get("category_id", tx.category_id)
+    if "owner_user_id" in patch_data or "owner_name" in patch_data:
+        patch_data["owner_user_id"], patch_data["owner_name"] = resolve_owner_fields(
+            db,
+            household_id=str(household.id),
+            owner_user_id=patch_data.get("owner_user_id", transaction.owner_user_id),
+            owner_name=patch_data.get("owner_name", transaction.owner_name),
+            invalid_code="TRANSACTION_OWNER_INVALID",
+            invalid_message="거래자는 현재 가계 구성원만 선택할 수 있습니다.",
+            invalid_action="가계 구성원 목록에서 거래자를 다시 선택해 주세요.",
+        )
+
+    next_flow_type = patch_data.get("flow_type", transaction.flow_type)
+    next_category_id = patch_data.get("category_id", transaction.category_id)
     if next_category_id:
         category = db.get(Category, next_category_id)
         if category is None or category.household_id != household.id:
             raise HTTPException(status_code=400, detail="invalid category_id")
         _ensure_category_flow_matches(category, next_flow_type)
 
-    current_data = TransactionRead.model_validate(tx).model_dump(mode="json")
+    current_data = _load_transaction_read(db, str(transaction.id)).model_dump(mode="json")
     try:
         merged, changed_fields = merge_patch_or_raise(
             db=db,
             entity_type="transaction",
-            entity=tx,
+            entity=transaction,
             household_id=household.id,
             actor_user_id=user.id,
             base_version=payload.base_version,
@@ -191,7 +443,7 @@ def patch_transaction(
         ) from error
 
     if not changed_fields:
-        return TransactionRead.model_validate(tx)
+        return _load_transaction_read(db, str(transaction.id))
 
     try:
         db.commit()
@@ -205,19 +457,19 @@ def patch_transaction(
                 action="가계 내 카테고리 ID를 확인해 주세요.",
             ) from error
         raise
-    db.refresh(tx)
+    db.refresh(transaction)
     background_tasks.add_task(
         hub.broadcast,
         household.id,
         {
             "event": "transaction.patch.applied",
-            "entity_id": tx.id,
-            "version": tx.version,
+            "entity_id": transaction.id,
+            "version": transaction.version,
             "changed_fields": changed_fields,
             "merged": merged,
         },
     )
-    return TransactionRead.model_validate(tx)
+    return _load_transaction_read(db, str(transaction.id))
 
 
 @router.delete("/{transaction_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -228,10 +480,10 @@ def delete_transaction(
     db: Session = Depends(get_db),
 ) -> None:
     household, _ = ctx
-    tx = db.get(Transaction, transaction_id)
-    if tx is None or tx.household_id != household.id:
+    transaction = db.get(Transaction, transaction_id)
+    if transaction is None or transaction.household_id != household.id:
         raise HTTPException(status_code=404, detail="transaction not found")
-    db.delete(tx)
+    db.delete(transaction)
     db.commit()
     background_tasks.add_task(
         hub.broadcast,
@@ -241,4 +493,3 @@ def delete_transaction(
             "entity_id": transaction_id,
         },
     )
-

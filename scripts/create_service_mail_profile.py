@@ -85,7 +85,6 @@ def render_profile_content(
         f"# provider={provider}\n"
         "# Copy this file to a secret-only .env path and fill SMTP_PASS.\n"
         "# Do not commit real credentials.\n"
-        "EMAIL_DELIVERY_MODE=smtp\n"
         f"SMTP_HOST={smtp_preset.host}\n"
         f"SMTP_PORT={smtp_preset.port}\n"
         f"SMTP_USER={smtp_user}\n"
@@ -132,7 +131,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--from-name",
         default="",
-        help="override SMTP_FROM_NAME value; defaults to service slug",
+        help="override SMTP_FROM_NAME value; defaults to service slug (Money Flow Service for money-flow)",
     )
     parser.add_argument(
         "--account-label",
@@ -156,7 +155,8 @@ def main() -> int:
     inferred_email = infer_email(service_name, str(args.domain or ""))
     from_email = validate_email_like(args.from_email or inferred_email, "from-email")
     smtp_user = validate_smtp_user(args.smtp_user or from_email, provider)
-    from_name = str(args.from_name or service_name).strip()
+    default_from_name = "Money Flow Service" if service_name == "money-flow" else service_name
+    from_name = str(args.from_name or default_from_name).strip()
     account_label = str(args.account_label or service_name).strip()
     if not from_name:
         raise ValueError("from-name must not be empty")
