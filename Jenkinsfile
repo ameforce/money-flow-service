@@ -1129,7 +1129,7 @@ assert_frontend_asset_version() {
   else
     root_html="$(curl -fsS "${base_url%/}/")"
   fi
-  asset_path="$(printf '%s' "$root_html" | sed -n 's/.*src="\([^"]*\/assets\/[^"]*[.]js\)".*/\1/p' | sed -n '1p')"
+  asset_path="$(printf '%s' "$root_html" | grep -oE '/assets/[^"]+[.]js' | sed -n '1p' || true)"
   if [ -z "$asset_path" ]; then
     echo "[deploy] frontend asset path not found at ${base_url%/}/"
     exit 1
@@ -1174,7 +1174,7 @@ assert_frontend_asset_version() {
   local asset_body=''
 
   root_html="$(curl -fsS "${base_url%/}/")"
-  asset_path="$(printf '%s' "$root_html" | sed -n 's/.*src="\([^"]*\/assets\/[^"]*[.]js\)".*/\1/p' | sed -n '1p')"
+  asset_path="$(printf '%s' "$root_html" | grep -oE '/assets/[^"]+[.]js' | sed -n '1p' || true)"
   if [ -z "$asset_path" ]; then
     echo "[deploy] frontend asset path not found at ${base_url%/}/"
     exit 1
