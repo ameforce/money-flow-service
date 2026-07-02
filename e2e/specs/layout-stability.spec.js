@@ -621,6 +621,28 @@ test("auth landscape hides hero before headline creates orphan text", async ({ p
   }
 });
 
+test("global shell CSS baseline", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator(".auth-shell")).toBeVisible();
+
+  const baseline = await page.evaluate(() => {
+    const bodyStyle = getComputedStyle(document.body);
+    return {
+      bodyMargin: bodyStyle.margin,
+      bodyBackgroundColor: bodyStyle.backgroundColor,
+      hasAuthShell: Boolean(document.querySelector(".auth-shell")),
+      hasTableBody: Boolean(document.querySelector("tbody")),
+    };
+  });
+
+  expect(baseline.bodyMargin).toBe("0px");
+  expect(baseline.bodyBackgroundColor).not.toBe("rgba(0, 0, 0, 0)");
+  expect(baseline.bodyBackgroundColor).not.toBe("transparent");
+  expect(baseline.hasAuthShell).toBe(true);
+  expect(baseline.hasTableBody).toBe(false);
+  await capture(page, "global-shell-css-baseline");
+});
+
 test("mobile import navigation label stays readable at compact widths", async ({ page }) => {
   const email = `${unique("mobile-import-nav")}@example.com`;
   const displayName = unique("mobile-import-nav-user");

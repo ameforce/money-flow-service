@@ -1057,8 +1057,10 @@ test("dashboard flow: onboarding, portfolio coherence, summary visibility", asyn
   await expectNoRefreshNoteLayoutShift(page, mobileFilterCard.getByRole("button", { name: "이전 달" }), mobileFilterCard, "이전 달");
   await expectNoRefreshNoteLayoutShift(page, mobileFilterCard.getByRole("button", { name: "다음 달" }), mobileFilterCard, "다음 달");
   await expectNoRefreshNoteLayoutShift(page, mobileFilterCard.getByRole("button", { name: "이번 달" }), mobileFilterCard, "이번 달");
-  await expect(page.getByRole("heading", { name: "가져오기 & 상태" })).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: "협업 멤버" })).toHaveCount(0);
+  await expect(page.locator(".dashboard-status-card")).toBeVisible();
+  await expect(page.locator(".dashboard-members-card")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "가져오기 & 상태" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "협업 멤버" })).toBeVisible();
   const mobileTopbarBox = await page.locator("header.topbar").boundingBox();
   const mobileTopbarActions = await page.locator(".topbar-actions button").evaluateAll((buttons) =>
     buttons.map((button) => {

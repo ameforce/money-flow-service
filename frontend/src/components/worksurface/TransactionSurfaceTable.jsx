@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { IsoDateInput } from "../IsoDateInput";
 import { TransactionCategoryQuickPicker } from "./TransactionCategoryQuickPicker";
@@ -140,10 +140,62 @@ export function TransactionSurfaceTable({
   const transactionMobilePriority = (fieldKey) => getWorkSurfaceMobilePriority("transactions", fieldKey);
   const allCategoryOptions = Array.from(categoryById?.values?.() || []);
   const [mobileFilterKey, setMobileFilterKey] = useState("");
+  const mobileLedgerHeadRef = useRef(null);
+  const mobileFilterPanelRef = useRef(null);
   const rowPointerGestureRef = useRef(null);
   const suppressNextRowClickRef = useRef(false);
   const rowClickSuppressTimerRef = useRef(null);
   const rowSweepAutoScrollFrameRef = useRef(0);
+
+  useLayoutEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+    const ledgerHead = mobileLedgerHeadRef.current;
+    const listCard = ledgerHead?.closest?.(".transaction-list-card");
+    if (!ledgerHead || !listCard) {
+      return undefined;
+    }
+
+    let frameId = 0;
+    const measureElementHeight = (element) => {
+      const height = Math.ceil(element?.getBoundingClientRect?.().height || 0);
+      return Number.isFinite(height) && height > 0 ? height : 0;
+    };
+    const applyMeasuredStickyHeights = () => {
+      const ledgerHeadHeight = measureElementHeight(ledgerHead);
+      const filterPanelHeight = mobileFilterKey ? measureElementHeight(mobileFilterPanelRef.current) : 0;
+      listCard.style.setProperty("--surface-ledger-head-height", `${ledgerHeadHeight}px`);
+      listCard.style.setProperty("--tx-ledger-filter-panel-height", `${filterPanelHeight}px`);
+    };
+    const scheduleMeasuredStickyHeights = () => {
+      if (frameId) {
+        window.cancelAnimationFrame(frameId);
+      }
+      frameId = window.requestAnimationFrame(() => {
+        frameId = 0;
+        applyMeasuredStickyHeights();
+      });
+    };
+
+    applyMeasuredStickyHeights();
+
+    const resizeObserver =
+      typeof window.ResizeObserver === "function" ? new window.ResizeObserver(scheduleMeasuredStickyHeights) : null;
+    resizeObserver?.observe(ledgerHead);
+    if (mobileFilterPanelRef.current) {
+      resizeObserver?.observe(mobileFilterPanelRef.current);
+    }
+    window.addEventListener("resize", scheduleMeasuredStickyHeights);
+
+    return () => {
+      if (frameId) {
+        window.cancelAnimationFrame(frameId);
+      }
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", scheduleMeasuredStickyHeights);
+    };
+  }, [mobileFilterKey, mobileStickyActive, sortedTransactions.length]);
 
   useEffect(() => {
     const stopAutoScroll = () => {
@@ -421,8 +473,6 @@ export function TransactionSurfaceTable({
         <div
           key={field.key}
           className={`desktop-ledger-head-cell ${field.className}`}
-          role="columnheader"
-          aria-sort={txSortDirection === "asc" ? "ascending" : "descending"}
           data-field-key={field.key}
         >
           {historyMode ? (
@@ -451,7 +501,6 @@ export function TransactionSurfaceTable({
       <div
         key={field.key}
         className={`desktop-ledger-head-cell ${field.className}`}
-        role="columnheader"
         data-field-key={field.key}
       >
         {field.label}
@@ -462,6 +511,7 @@ export function TransactionSurfaceTable({
   return (
     <>
       <div
+        ref={mobileLedgerHeadRef}
         className="surface-ledger-mobile-head transactions-mobile-ledger-head"
         data-sticky-active={mobileStickyActive ? "true" : "false"}
         aria-label="거래 제목행 필터"
@@ -495,6 +545,7 @@ export function TransactionSurfaceTable({
       </div>
       {mobileFilterKey && (
         <div
+          ref={mobileFilterPanelRef}
           id="tx-ledger-filter-panel"
           className="tx-ledger-filter-panel"
           data-testid="tx-ledger-filter-panel"
@@ -596,8 +647,8 @@ export function TransactionSurfaceTable({
           </button>
         </div>
       )}
-      <div className="surface-ledger-desktop-head transactions-desktop-ledger-head" role="row" aria-label="거래 컬럼 제목">
-        <div className="desktop-ledger-head-cell transaction-col-select" role="columnheader">
+      <div className="surface-ledger-desktop-head transactions-desktop-ledger-head">
+        <div className="desktop-ledger-head-cell transaction-col-select">
           <input
             type="checkbox"
             aria-label="표시된 거래 전체 선택"
@@ -606,7 +657,7 @@ export function TransactionSurfaceTable({
           />
         </div>
         {TRANSACTION_SURFACE_FIELDS.map(renderDesktopColumnHead)}
-        <div className="desktop-ledger-head-cell transaction-col-actions" role="columnheader">동작</div>
+        <div className="desktop-ledger-head-cell transaction-col-actions">동작</div>
       </div>
       <div className="transactions-surface-scroll">
         <table
@@ -615,14 +666,7 @@ export function TransactionSurfaceTable({
         >
           <thead>
             <tr>
-              <th data-mobile-priority="hidden">
-                <input
-                  type="checkbox"
-                  aria-label="거래 표 숨김 전체 선택"
-                  checked={areAllFilteredTransactionsSelected}
-                  onChange={(event) => toggleAllFilteredTransactionSelection(Boolean(event.target.checked))}
-                />
-              </th>
+              <th data-mobile-priority="hidden">선택</th>
               {TRANSACTION_SURFACE_FIELDS.map((field) => {
                 if (field.key === "occurred_on") {
                   return (
@@ -633,25 +677,7 @@ export function TransactionSurfaceTable({
                       data-field-key={field.key}
                       data-mobile-priority={transactionMobilePriority(field.key)}
                     >
-                      {historyMode ? (
-                        <span
-                          className="sort-header active sort-header-static"
-                          aria-label="일자 정렬 연속 내역순 고정"
-                        >
-                          {field.label}
-                          <span className="sort-indicator" aria-hidden="true">↑</span>
-                        </span>
-                      ) : (
-                        <button
-                          type="button"
-                          className={`sort-header${txSortDirection ? " active" : ""}`}
-                          aria-label={`일자 정렬 ${txSortDirection === "asc" ? "내림차순으로 변경" : "오름차순으로 변경"}`}
-                          onClick={toggleTxSortDirection}
-                        >
-                          {field.label}
-                          <span className="sort-indicator" aria-hidden="true">{txSortDirection === "asc" ? "↑" : "↓"}</span>
-                        </button>
-                      )}
+                      {field.label}
                     </th>
                   );
                 }

@@ -37,9 +37,19 @@
 - Keep commit summaries short, usually Korean, e.g. `fix: 거래 구버전 폴백 보강`.
 - Do **not** commit directly to `main` or `develop`.
 - When implementation is complete, always work from a dedicated `hotfix/*` or task branch before finalizing. If the current branch is `main` or `develop`, create a dedicated branch first, then commit and push there.
-- After completing work, always follow this release verification flow before reporting done: `commit -> push -> Jenkins build 확인 -> 정상 배포 확인 -> dev.moneyflow.enmsoftware.com 직접 확인`.
+- Before reusing an existing `hotfix/*` branch, verify that the branch scope, active PR, and linked issues match the current task. If they do not clearly match, create a new task branch instead of stacking unrelated fixes.
+- Hotfix completion is a hard gate. Do **not** report hotfix completion until all of the following are true:
+  1. Branch scope is confirmed and the work is on a dedicated `hotfix/*` or task branch.
+  2. Only intended files are staged and committed; any remaining dirty worktree state is explicitly classified as unrelated, generated evidence, or a blocker.
+  3. The branch is pushed to origin.
+  4. Jenkins build for the pushed SHA succeeds.
+  5. Deployment reflects the pushed SHA/version.
+  6. `dev.moneyflow.enmsoftware.com` is directly verified after deployment.
+  7. A GitHub PR exists or is updated for the branch.
+  8. The PR links the relevant GitHub issues or RCA evidence.
+  9. The PR includes purpose, affected areas, verification commands, Jenkins/dev deployment evidence, and screenshots for UI changes.
+- Do not report a hotfix as complete without a PR URL unless the user explicitly says PR creation is not required.
 - For non-`main` branch commit/push work, use `$enm-jenkins` and `$enm-server` to confirm Jenkins builds, deploys, and reflects correctly at `dev.moneyflow.enmsoftware.com`.
-- PRs should include: purpose, affected areas, verification commands run, and screenshots for UI changes.
 
 ## Security & Configuration Tips
 - Do not commit secrets or copied `.env` files.
