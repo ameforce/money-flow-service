@@ -130,18 +130,22 @@ cmd /c docker compose up -d --build
 ## 배포 자동화 (Jenkins + enm-server Docker Container)
 - Jenkins가 있는 `enm-server`에서 이 레포를 Multi-pipeline(멀티 브랜치 파이프라인)으로 등록한 뒤, 이 레포의 루트 `Jenkinsfile`을 사용하면 됩니다.
 - 기본 동작은 다음과 같습니다.
-  - 빌드 후 `npm run ci:quality:gate` 수행
+  - 빌드 후 deploy-blocking Quality Gate로 `uv run --extra dev python -m pytest -q` 수행
+  - full `npm run ci:quality:gate`(전체 E2E, screenshot 검증, mojibake 검증)는 `RUN_ASYNC_QUALITY_GATE=true`일 때 온디맨드로 수행
   - Docker 이미지 빌드
+  - `RUN_PRE_DEPLOY_E2E=true`일 때 배포 전 live deep-link Playwright smoke를 온디맨드로 수행
   - `RUN_DEPLOY=true`일 때 배포 승인(필요 시 수동 승인) → enm-server SSH 전송 후 배포
-  - 원격 헬스체크(`/healthz`) 성공 확인
-  - `RUN_POST_DEPLOY_E2E=true`일 때 배포 후 경량 Playwright smoke 테스트 수행(기본: false)
+  - schema upgrade, 원격 헬스체크(`/healthz`), frontend asset version, upload-limit probe 성공 확인
+  - 실배포 후 `Post-Deploy E2E Smoke`를 항상 수행하고 실패 시 배포 실패 처리
+  - Async/full gate 실패 시 `.jenkins-async-deploy-block.json`을 Jenkins artifact와 원격 `DEPLOY_PATH`에 모두 남기며, `ASYNC_FAILURE_RCA_LINK` 없이 다음 실배포를 진행하지 않음
 - 권장 Credential
   - `enm-server-ssh-key`: enm-server SSH private key
   - `moneyflow-prod-env-file`: enm-server 실행 시 사용할 `.env` 파일(비밀값 보관용)
   - `moneyflow-prod-smtp-env-file`: `main`/prod 전용 SMTP Secret file. `SMTP_*` 값만 보관하며 Jenkins 배포가 `.env`에 오버레이한다.
 - Jenkinsfile 파라미터 기본값
   - `RUN_DEPLOY=true`, `DEPLOY_DRY_RUN=false`
-  - `RUN_POST_DEPLOY_E2E=false`
+  - `RUN_ASYNC_QUALITY_GATE=false`, `RUN_PRE_DEPLOY_E2E=false`
+  - `ASYNC_FAILURE_RCA_LINK=`
   - `POST_DEPLOY_E2E_URL=https://moneyflow.enmsoftware.com`
 - `NGINX_CLIENT_MAX_BODY_SIZE=20m` (도메인 업로드 제한을 초과한 요청 시 413 방지용)
   - `POST_DEPLOY_E2E_RETRY_COUNT=8`
@@ -151,6 +155,9 @@ cmd /c docker compose up -d --build
   - `DEPLOY_COMPOSE_FILE=docker-compose.deploy.yml`
   - `DEPLOY_PATH=/home/ameforce/money-flow-service`(원격 사용자 권한 확인)
   - `DEPLOY_HEALTHCHECK_TIMEOUT_SECONDS=120`, `DEPLOY_HEALTHCHECK_INTERVAL_SECONDS=5`
+- Jenkins 성능 증거
+  - `deploy-preview.txt`와 `deploy-evidence.json`을 artifact로 보존한다.
+  - Jenkins 개선 전/후 비교는 같은 branch, agent, parameter 조건에서 baseline 3회 + 변경 후 3회를 비교하고, total blocking duration, Deploy Execute duration, stage duration, guardrail/smoke status를 기록한다.
 - 운영 SMTP 배포 게이트
   - `main` 배포는 `moneyflow-prod-smtp-env-file`이 없거나 `SMTP_HOST=enm-mail-smtp/mailpit/localhost`, port `1025`, `EMAIL_DELIVERY_MODE=log`, `SMTP_ACCOUNT_LABEL!=money-flow-prod`이면 compose 교체 전에 실패한다.
   - `.env.previous`는 rollback backup일 뿐 prod `SMTP_*` source가 아니다.
