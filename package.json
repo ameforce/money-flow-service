@@ -6,6 +6,9 @@
     "dev:all": "cmd /c uv run python orchestrator.py",
     "frontend:dev": "npm run dev --prefix frontend",
     "frontend:build": "npm run build --prefix frontend",
+    "uiux:perf-budget": "node scripts/uiux_performance_budget.mjs",
+    "uiux:trust-matrix": "node scripts/verify_uiux_trust_matrix.mjs",
+    "uiux:rca-ledger": "node scripts/verify_uiux_rca_ledger.mjs",
     "e2e": "uv run python scripts/run_e2e_with_orchestrator.py",
     "e2e:report": "uv run python scripts/run_e2e_with_orchestrator.py --html-report",
     "e2e:matrix": "uv run python scripts/run_e2e_with_orchestrator.py --project-matrix",
@@ -27,6 +30,7 @@
     "quality:gate": "uv run --extra dev python -m pytest -q && npm run e2e && uv run python scripts/verify_e2e_screenshots.py && uv run python scripts/check_mojibake.py"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.12.1",
     "@playwright/test": "^1.58.2"
   }
 }
