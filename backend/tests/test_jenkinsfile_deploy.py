@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 
@@ -12,6 +13,21 @@ def _jenkinsfile_source() -> str:
 
 def _validate_smtp_route_source() -> str:
     return (ROOT / "scripts" / "deploy" / "validate_smtp_route.py").read_text(encoding="utf-8")
+
+
+def _package_scripts() -> dict[str, str]:
+    package = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
+    scripts = package["scripts"]
+    return {str(name): str(command) for name, command in scripts.items()}
+
+
+def _stage_source(source: str, stage_name: str) -> str:
+    marker = f"stage('{stage_name}')"
+    stage = source[source.index(marker) :]
+    next_stage_index = stage.find("\n    stage(", len(marker))
+    if next_stage_index != -1:
+        stage = stage[:next_stage_index]
+    return stage
 
 
 def test_prod_env_validation_script_compiles_and_is_invoked_by_jenkins() -> None:
@@ -90,6 +106,15 @@ def test_deploy_execute_shell_avoids_groovy_invalid_backslash_escapes() -> None:
     assert "\\/" not in deploy_stage
 
 
+def test_jenkins_pipefail_shell_blocks_use_bash_shebang() -> None:
+    source = _jenkinsfile_source()
+
+    assert "sh '''\nset -euo pipefail" not in source
+    assert "script: '''\nset -euo pipefail" not in source
+    assert "sh '''#!/usr/bin/env bash\nset -euo pipefail" in source
+    assert "script: '''#!/usr/bin/env bash\nset -euo pipefail" in source
+
+
 def test_remote_deploy_wrapper_avoids_nounset_status_capture() -> None:
     source = _jenkinsfile_source()
     deploy_stage = source[source.index("stage('Deploy Execute')") :]
@@ -118,16 +143,83 @@ def test_jenkins_does_not_pipe_remote_uv_installer() -> None:
     assert "uv is required on the Jenkins agent" in source
 
 
-def test_predeploy_recovery_skip_is_dev_only() -> None:
+def test_quality_gate_is_deploy_blocking_pytest_only_and_fail_closed() -> None:
     source = _jenkinsfile_source()
-    predeploy_stage = source[source.index("stage('Pre-Deploy E2E (Blocking)')") :]
-    next_stage_index = predeploy_stage.find("\n    stage(", len("stage('Pre-Deploy E2E (Blocking)')"))
-    if next_stage_index != -1:
-        predeploy_stage = predeploy_stage[:next_stage_index]
+    quality_gate_stage = _stage_source(source, "Quality Gate")
 
-    assert "DEPLOY_TARGET_ENV=${env.DEPLOY_TARGET_ENV}" in predeploy_stage
-    assert "[pre-deploy-e2e] dev recovery gate:" in predeploy_stage
-    assert "current dev health is not ready" in predeploy_stage
+    assert "npm run ci:quality:gate" not in quality_gate_stage
+    assert "npm run e2e" not in quality_gate_stage
+    assert "verify_e2e_screenshots.py" not in quality_gate_stage
+    assert "check_mojibake.py" not in quality_gate_stage
+    assert "uv run --extra dev python -m pytest" in quality_gate_stage
+    assert "RUN_DEPLOY=true" in quality_gate_stage
+    assert "SKIP_QUALITY_GATE" in quality_gate_stage
+
+
+def test_predeploy_live_smoke_is_on_demand_not_deploy_blocking() -> None:
+    source = _jenkinsfile_source()
+
+    assert "stage('Pre-Deploy E2E (Blocking)')" not in source
+    assert "RUN_PRE_DEPLOY_E2E" in source
+    assert "auth deep-link token policy: query token rejected" in source
+
+
+def test_async_quality_gate_surfaces_and_evidence_markers_are_exposed() -> None:
+    source = _jenkinsfile_source()
+    async_stage = _stage_source(source, "Async Quality Gate (On Demand)")
+    scripts = _package_scripts()
+
+    assert "RUN_ASYNC_QUALITY_GATE" in source
+    assert "RUN_PRE_DEPLOY_E2E" in source
+    assert ".jenkins-async-deploy-block.json" in source
+    assert "deploy-evidence.json" in source
+    assert "ASYNC_FAILURE_RCA_LINK" in source
+    assert '"jenkins_evidence_requirements"' in source
+    assert '"baseline_runs_required": 3' in source
+    assert '"post_change_runs_required": 3' in source
+    assert '"target_total_blocking_minutes": 20' in source
+    assert '"target_deploy_execute_minutes": 8' in source
+    assert '"post_deploy_smoke": "${postDeploySmokeStatus}"' in source
+    assert '"upload_limit_probe": "blocking"' in source
+    assert '"remote_path": "${params.DEPLOY_PATH}/.jenkins-async-deploy-block.json"' in source
+    assert "writeFile file: 'deploy-evidence.json'" in async_stage
+    assert async_stage.index("writeFile file: 'deploy-evidence.json'") < async_stage.index("if (!isUnix())")
+    assert async_stage.index("writeFile file: 'deploy-evidence.json'") < async_stage.index("DEPLOY_SSH_CREDENTIALS_ID")
+    assert "withCredentials(credentialBindings)" in async_stage
+    assert "remote_marker=\"${REMOTE_DEPLOY_PATH%/}/${ASYNC_MARKER_FILE}\"" in async_stage
+    assert "persist_async_marker()" in async_stage
+    assert "trap on_async_exit EXIT" in async_stage
+    assert "persist_async_marker || echo" not in async_stage
+    assert "if ! persist_async_marker; then" in async_stage
+    assert "refusing to treat async failure as recorded" in async_stage
+    assert 'write_async_marker "async_quality_setup_failed"' in async_stage
+    assert 'write_async_marker "npm_missing"' in async_stage
+    assert 'write_async_marker "ci_async_quality_failed"' in async_stage
+    assert async_stage.index("trap on_async_exit EXIT") < async_stage.index(". ./scripts/ci/ensure-node.sh")
+    assert "cat > '$remote_marker'" in async_stage
+    assert "remote_marker_state=" in async_stage
+    assert any("async" in name and "quality" in name for name in scripts)
+    assert any("pre" in name and "deploy" in name and "e2e" in name for name in scripts)
+
+
+def test_jenkins_docs_match_deploy_blocking_async_contract() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    feature_matrix = (ROOT / "e2e" / "feature-matrix.md").read_text(encoding="utf-8")
+    mail_docs = (ROOT / "docs" / "mail-delivery-troubleshooting-and-setup.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "RUN_POST_DEPLOY_E2E" not in readme
+    assert "deploy-blocking Quality Gate" in readme
+    assert "RUN_ASYNC_QUALITY_GATE=false" in readme
+    assert "RUN_PRE_DEPLOY_E2E=false" in readme
+    assert "deploy-evidence.json" in readme
+    assert "원격 `DEPLOY_PATH`" in readme
+    assert "baseline 3회 + 변경 후 3회" in readme
+    assert "pre-deploy Jenkins gates" not in feature_matrix
+    assert "async/on-demand Jenkins quality gates" in feature_matrix
+    assert "post-deploy-smoke.spec.js --project=desktop-chromium --workers=1" in mail_docs
+    assert "There is no `RUN_POST_DEPLOY_E2E` skip switch" in mail_docs
 
 
 def test_dev_deploy_keeps_debug_tokens_disabled_in_strict_dev() -> None:
@@ -141,7 +233,7 @@ def test_dev_deploy_keeps_debug_tokens_disabled_in_strict_dev() -> None:
 
 def test_upload_limit_probe_requires_authenticated_app_response() -> None:
     source = _jenkinsfile_source()
-    deploy_stage = source[source.index("stage('Deploy Execute')") :]
+    deploy_stage = _stage_source(source, "Deploy Execute")
 
     assert 'if [ "$DEPLOY_TARGET_ENV" = "dev" ]; then' in deploy_stage
     assert "UPLOAD_LIMIT_PROBE_OK_APP_REACHED" in deploy_stage
@@ -166,12 +258,14 @@ def test_upload_limit_probe_requires_authenticated_app_response() -> None:
 
 def test_post_deploy_smoke_runs_representative_browser_flows() -> None:
     source = _jenkinsfile_source()
-    post_deploy_stage = source[source.index("stage('Post-Deploy E2E Smoke')") :]
+    post_deploy_stage = _stage_source(source, "Post-Deploy E2E Smoke")
 
-    assert "env.SKIP_POST_DEPLOY_E2E_FOR_BRANCH = isMainBranch ? 'true' : 'false'" in source
+    assert "RUN_POST_DEPLOY_E2E" not in post_deploy_stage
+    assert "SKIP_POST_DEPLOY_E2E_FOR_BRANCH" not in post_deploy_stage
     assert "e2e/specs/post-deploy-smoke.spec.js" in post_deploy_stage
     assert 'E2E_POST_DEPLOY_EMAIL="jenkins-upload-probe-${BUILD_NUMBER:-manual}@example.com"' in post_deploy_stage
     assert 'E2E_POST_DEPLOY_PASSWORD="UploadProbe123!"' in post_deploy_stage
     assert "debug_verification_token" not in post_deploy_stage
     assert "x-debug-token-opt-in" not in post_deploy_stage
     assert "--project=desktop-chromium" in post_deploy_stage
+    assert "exit 1" in post_deploy_stage

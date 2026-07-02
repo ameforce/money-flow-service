@@ -36,18 +36,35 @@
 - Commit format: `<prefix>: <summary>` using only `fix`, `feat`, `chore`, or `refact`.
 - Keep commit summaries short, usually Korean, e.g. `fix: 거래 구버전 폴백 보강`.
 - Do **not** commit directly to `main` or `develop`.
-- When implementation is complete, always work from a dedicated `hotfix/*` or task branch before finalizing. If the current branch is `main` or `develop`, create a dedicated branch first, then commit and push there.
-- Before reusing an existing `hotfix/*` branch, verify that the branch scope, active PR, and linked issues match the current task. If they do not clearly match, create a new task branch instead of stacking unrelated fixes.
-- Hotfix/release completion means Git-flow closure, not branch CI. Do **not** report a hotfix or release complete while the work exists only on a pushed `hotfix/*` or task branch.
+- Default branch lanes:
+  1. New feature development starts from `develop`; create a dedicated `feat/*` branch and commit there.
+  2. Existing behavior fixes, improvements, and refactors start from `main`; create a versioned `hotfix/vX.Y.Z` branch, then create a scoped `fix/*` or `refact/*` branch from that hotfix branch and commit there.
+  3. Use `feat` commits on `feat/*`, `fix` commits on `fix/*`, and `refact` commits on `refact/*`. Use `chore` only for supporting repository/process changes that belong to the active lane.
+- Default PR/review lane:
+  1. When merging `feat/*`, `fix/*`, or `refact/*`, open a GitHub PR.
+  2. Request Codex bot review on the PR.
+  3. In parallel, run an independent self-review from another Codex thread or equivalent reviewer lane.
+  4. Merge and close the PR only after both reviews are clean or all findings are addressed.
+- Feature release flow:
+  1. Merge the completed `feat/*` branch into `develop` with a PR.
+  2. Create a `release/vX.Y.0` branch from `develop`, incrementing the minor version by 1 and resetting the patch version to 0.
+  3. Finish the release by merging the release branch back into both `develop` and `main` with `--no-ff`.
+  4. Create the annotated `vX.Y.0` tag on the `main` release merge commit, then verify tag containment from `develop`.
+- Existing-feature fix/refactor hotfix flow:
+  1. Start from `main` and create `hotfix/vX.Y.Z`.
+  2. Create `fix/*` or `refact/*` from that hotfix branch and commit only the scoped work there.
+  3. Merge the completed `fix/*` or `refact/*` branch back into `hotfix/vX.Y.Z` with a PR.
+  4. Finish the hotfix by merging `hotfix/vX.Y.Z` into both `main` and `develop` with `--no-ff`.
+  5. Create the annotated `vX.Y.Z` tag on the `main` hotfix merge commit, then verify tag containment from `develop`.
+- Before reusing any existing `hotfix/*`, `feat/*`, `fix/*`, `refact/*`, or `release/*` branch, verify that the branch scope, active PR, and linked issues match the current task. If they do not clearly match, create a new scoped branch instead of stacking unrelated work.
+- Hotfix/release completion means Git-flow closure, not branch CI. Do **not** report a hotfix or release complete while the work exists only on a pushed work branch.
 - Complete hotfix/release Git-flow in this repository as follows unless the user explicitly gives a different release procedure:
-  1. Verify the completed hotfix/task branch and confirm its scope.
-  2. Merge the hotfix/task branch into `main` with `--no-ff`.
-  3. Create an annotated version tag on the `main` merge commit.
-  4. Merge that tag back into `develop` with `--no-ff` (tag back into develop).
-  5. Push `main`, `develop`, and the tag.
-  6. Record explicit Git evidence for the release graph because Jenkins does not prove every step: `git cat-file -t vX.Y.Z` returns `tag`, `git rev-parse vX.Y.Z^{}` equals `main` HEAD, and `git merge-base --is-ancestor vX.Y.Z develop` succeeds after the tag-back merge.
-  7. Confirm `main` HEAD resolves to the exact `vX.Y.Z` tag (exact vX.Y.Z tag) before any main/prod deploy.
-  8. Before cleanup, inspect `git worktree list --porcelain`, then delete only branches that are confirmed merged into both `main` and `develop`; keep unmerged work.
+  1. Verify the completed work branch and confirm its scope.
+  2. Verify the expected integration chain is present: `feat/* -> develop -> release/* -> main/develop`, or `fix/*`/`refact/* -> hotfix/vX.Y.Z -> main/develop`.
+  3. Create the annotated version tag on the `main` merge commit.
+  4. Record explicit Git evidence for the release graph because Jenkins does not prove every step: `git cat-file -t vX.Y.Z` returns `tag`, `git rev-parse vX.Y.Z^{}` equals `main` HEAD, and `git merge-base --is-ancestor vX.Y.Z develop` succeeds after the back-merge.
+  5. Confirm `main` HEAD resolves to the exact `vX.Y.Z` tag (exact vX.Y.Z tag) before any main/prod deploy.
+  6. Before cleanup, inspect `git worktree list --porcelain`, then delete only branches that are confirmed merged into both `main` and `develop`; keep unmerged work.
 - Hotfix/release completion is a hard gate. Do **not** report hotfix/release completion until all of the following are true:
   1. Branch scope is confirmed and the work is on a dedicated `hotfix/*` or task branch.
   2. Only intended files are staged and committed; any remaining dirty state in every linked worktree is explicitly classified as unrelated, generated evidence, or a blocker.

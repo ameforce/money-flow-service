@@ -13,14 +13,24 @@ pipeline {
       description: '빌드 성공 시 배포 스테이지 실행 여부 (기본 true)'
     )
     booleanParam(
-      name: 'RUN_POST_DEPLOY_E2E',
-      defaultValue: true,
-      description: '배포 완료 후 배포 URL에 대해 경량 Playwright E2E를 수행'
-    )
-    booleanParam(
       name: 'SKIP_QUALITY_GATE',
       defaultValue: false,
-      description: 'Quality Gate(ci:quality:gate) 스테이지를 건너뜀'
+      description: 'Quality Gate(deploy-blocking pytest) 스테이지를 건너뜀. RUN_DEPLOY=true 실배포 경로에서는 허용되지 않음'
+    )
+    booleanParam(
+      name: 'RUN_ASYNC_QUALITY_GATE',
+      defaultValue: false,
+      description: 'true면 full ci:quality:gate를 온디맨드로 실행하고 실패 시 .jenkins-async-deploy-block.json을 남김'
+    )
+    booleanParam(
+      name: 'RUN_PRE_DEPLOY_E2E',
+      defaultValue: false,
+      description: 'true면 배포 전 live deep-link Playwright smoke를 온디맨드로 실행'
+    )
+    string(
+      name: 'ASYNC_FAILURE_RCA_LINK',
+      defaultValue: '',
+      description: '.jenkins-async-deploy-block.json marker clearing에 필요한 RCA 링크'
     )
     booleanParam(
       name: 'SKIP_DEPLOY_APPROVAL',
@@ -242,7 +252,6 @@ pipeline {
           env.POST_DEPLOY_E2E_URL_RESOLVED = isMainBranch ? (params.POST_DEPLOY_E2E_URL?.trim() ?: 'https://moneyflow.enmsoftware.com') : 'https://dev.moneyflow.enmsoftware.com'
           env.DEPLOY_ENV_FILE_NAME = isMainBranch ? '.env' : '.env.dev'
           env.SKIP_QUALITY_GATE_FOR_BRANCH = isMainBranch ? 'false' : 'true'
-          env.SKIP_POST_DEPLOY_E2E_FOR_BRANCH = isMainBranch ? 'true' : 'false'
 
           echo "Resolved deploy branch=${env.DEPLOY_TARGET_BRANCH}, target_env=${env.DEPLOY_TARGET_ENV}, domain=${env.DEPLOY_DOMAIN_FOR_BRANCH}, compose=${env.DEPLOY_COMPOSE_PROJECT_RESOLVED}/${env.DEPLOY_COMPOSE_FILE_RESOLVED}, env_file=${env.DEPLOY_ENV_FILE_NAME}"
         }
@@ -319,13 +328,177 @@ set -e
 export PATH="$HOME/.local/bin:$PATH"
 . ./scripts/ci/ensure-node.sh
 if command -v npm >/dev/null 2>&1; then
-  npm run ci:quality:gate
+  echo "[quality-gate] npm available; deploy gate remains pytest-only."
 else
-  echo "[skip] npm is not available."
+  echo "[error] npm is required on the Jenkins agent for RUN_DEPLOY=true deploy-blocking Quality Gate."
+  exit 1
 fi
+if ! command -v uv >/dev/null 2>&1; then
+  echo "[error] uv is required on the Jenkins agent for RUN_DEPLOY=true deploy-blocking Quality Gate."
+  exit 1
+fi
+echo "[quality-gate] RUN_DEPLOY=true deploy-blocking pytest only"
+uv run --extra dev python -m pytest -q
 '''
           } else {
-            bat 'npm run ci:quality:gate'
+            bat 'uv run --extra dev python -m pytest -q'
+          }
+        }
+      }
+    }
+
+    stage('Async Quality Gate (On Demand)') {
+      when {
+        expression { return params.RUN_ASYNC_QUALITY_GATE }
+      }
+      steps {
+        script {
+          def deployBranch = (env.BRANCH_NAME ?: env.GIT_BRANCH ?: env.GIT_LOCAL_BRANCH ?: env.CHANGE_BRANCH ?: env.JOB_BASE_NAME ?: 'manual').trim()
+          if (deployBranch.startsWith('origin/')) {
+            deployBranch = deployBranch.substring('origin/'.length())
+          }
+          if (deployBranch == 'refs/heads/main') {
+            deployBranch = 'main'
+          }
+          def asyncMarkerPath = '.jenkins-async-deploy-block.json'
+          def remoteAsyncMarkerPath = "${params.DEPLOY_PATH}/${asyncMarkerPath}"
+          writeFile file: 'deploy-evidence.json', text: """{
+  "schema_version": 1,
+  "stage": "Async Quality Gate (On Demand)",
+  "status": "started",
+  "app_version": "${env.APP_VERSION}",
+  "build_number": "${env.BUILD_NUMBER}",
+  "build_url": "${env.BUILD_URL ?: ''}",
+  "job_name": "${env.JOB_NAME ?: ''}",
+  "node_name": "${env.NODE_NAME ?: ''}",
+  "build_branch": "${deployBranch}",
+  "async_quality_gate": "requested",
+  "marker": {
+    "local_path": "${asyncMarkerPath}",
+    "remote_path": "${remoteAsyncMarkerPath}",
+    "blocks_next_deploy": true,
+    "rca_link_parameter": "ASYNC_FAILURE_RCA_LINK"
+  }
+}
+"""
+          if (!isUnix()) {
+            error('Async Quality Gate 단계는 Unix Jenkins agent가 필요합니다.')
+          }
+          if (!params.DEPLOY_SSH_CREDENTIALS_ID?.trim()) {
+            error('DEPLOY_SSH_CREDENTIALS_ID 파라미터가 비어 있습니다.')
+          }
+          if (!params.DEPLOY_SSH_USER?.trim()) {
+            error('DEPLOY_SSH_USER 파라미터가 비어 있습니다.')
+          }
+          def credentialBindings = [[
+            $class: 'SSHUserPrivateKeyBinding',
+            credentialsId: params.DEPLOY_SSH_CREDENTIALS_ID,
+            keyFileVariable: 'DEPLOY_SSH_KEY',
+            usernameVariable: 'DEPLOY_SSH_USER_FROM_CRED'
+          ]]
+          try {
+            withCredentials(credentialBindings) {
+              withEnv([
+                "REMOTE=${params.DEPLOY_SSH_USER}@${params.DEPLOY_HOST}",
+                "REMOTE_DEPLOY_PATH=${params.DEPLOY_PATH}",
+                "DEPLOY_SSH_OPTS=${params.DEPLOY_SSH_OPTS}",
+                "ASYNC_MARKER_FILE=${asyncMarkerPath}",
+                "ASYNC_EVIDENCE_FILE=deploy-evidence.json",
+                "BUILD_BRANCH=${deployBranch}"
+              ]) {
+                sh '''#!/usr/bin/env bash
+set -euo pipefail
+
+if [ -z "${DEPLOY_SSH_KEY:-}" ] || [ ! -r "$DEPLOY_SSH_KEY" ]; then
+  echo "[async-quality] DEPLOY_SSH_KEY credential is missing or unreadable."
+  exit 1
+fi
+
+tmp_key_dir="$(mktemp -d)"
+cleanup_async_key() {
+  rm -rf "$tmp_key_dir"
+}
+cp "$DEPLOY_SSH_KEY" "$tmp_key_dir/id_rsa"
+chmod 600 "$tmp_key_dir/id_rsa"
+SSH_OPTS="${DEPLOY_SSH_OPTS} -i ${tmp_key_dir}/id_rsa -o ConnectTimeout=10 -o ServerAliveInterval=10 -o ServerAliveCountMax=3 -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no"
+remote_marker="${REMOTE_DEPLOY_PATH%/}/${ASYNC_MARKER_FILE}"
+
+run_async_remote() {
+  ssh $SSH_OPTS "$REMOTE" "$1"
+}
+
+write_async_marker() {
+  reason="$1"
+  created_at="$(date -u +%FT%TZ)"
+  cat > "$ASYNC_MARKER_FILE" <<JSON
+{"schema_version":1,"status":"failed","reason":"${reason}","evidence":"${ASYNC_EVIDENCE_FILE}","build_url":"${BUILD_URL:-}","job_name":"${JOB_NAME:-}","build_number":"${BUILD_NUMBER:-}","build_branch":"${BUILD_BRANCH:-}","remote_path":"${remote_marker}","rca_link_required":"ASYNC_FAILURE_RCA_LINK","created_at":"${created_at}"}
+JSON
+}
+
+persist_async_marker() {
+  if [ -f "$ASYNC_MARKER_FILE" ]; then
+    run_async_remote "set -e; mkdir -p '$REMOTE_DEPLOY_PATH'; cat > '$remote_marker'" < "$ASYNC_MARKER_FILE"
+    echo "[async-quality] persisted failure marker to $remote_marker"
+  fi
+}
+
+clear_async_markers() {
+  rm -f "$ASYNC_MARKER_FILE"
+  run_async_remote "set -e; rm -f '$remote_marker'"
+}
+
+on_async_exit() {
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    if [ ! -f "$ASYNC_MARKER_FILE" ]; then
+      write_async_marker "async_quality_setup_failed"
+    fi
+    if ! persist_async_marker; then
+      echo "[async-quality] failed to persist remote marker; refusing to treat async failure as recorded."
+      cleanup_async_key
+      exit 1
+    fi
+  fi
+  cleanup_async_key
+  exit "$rc"
+}
+trap on_async_exit EXIT
+
+remote_marker_state="$(run_async_remote "set -e; if [ -f '$remote_marker' ]; then echo present; else echo absent; fi")"
+if { [ -f "$ASYNC_MARKER_FILE" ] || [ "$remote_marker_state" = "present" ]; } && [ -z "${ASYNC_FAILURE_RCA_LINK:-}" ]; then
+  echo "[async-quality] ASYNC_FAILURE_RCA_LINK is required before clearing async failure marker state."
+  write_async_marker "existing_async_failure_marker_uncleared"
+  persist_async_marker
+  exit 1
+fi
+
+if [ -n "${ASYNC_FAILURE_RCA_LINK:-}" ]; then
+  clear_async_markers
+else
+  rm -f "$ASYNC_MARKER_FILE"
+fi
+
+. ./scripts/ci/ensure-node.sh
+if ! command -v npm >/dev/null 2>&1; then
+  echo "[async-quality] npm is required for full async quality gate."
+  write_async_marker "npm_missing"
+  exit 1
+fi
+
+if ! npm run ci:async:quality; then
+  write_async_marker "ci_async_quality_failed"
+  echo "[async-quality] failed; ASYNC_FAILURE_RCA_LINK is required before clearing marker state."
+  exit 1
+fi
+
+trap - EXIT
+clear_async_markers
+cleanup_async_key
+'''
+              }
+            }
+          } finally {
+            archiveArtifacts artifacts: '.jenkins-async-deploy-block.json,deploy-evidence.json,playwright-report/**,test-results/**,output/playwright/e2e-flow/**', allowEmptyArchive: true, onlyIfSuccessful: false
           }
         }
       }
@@ -349,12 +522,9 @@ fi
       }
     }
 
-    stage('Pre-Deploy E2E (Blocking)') {
+    stage('Pre-Deploy E2E (On Demand)') {
       when {
-        allOf {
-          expression { return params.RUN_DEPLOY }
-          expression { return !params.DEPLOY_DRY_RUN }
-        }
+        expression { return params.RUN_PRE_DEPLOY_E2E }
       }
       steps {
         script {
@@ -472,12 +642,16 @@ done
             "healthcheck_timeout_sec=${params.DEPLOY_HEALTHCHECK_TIMEOUT_SECONDS}",
             "healthcheck_interval_sec=${params.DEPLOY_HEALTHCHECK_INTERVAL_SECONDS}",
             "image_tag=${imageTag}",
+            "quality_gate=pytest_only",
+            "async_quality_requested=${params.RUN_ASYNC_QUALITY_GATE}",
+            "pre_deploy_e2e_requested=${params.RUN_PRE_DEPLOY_E2E}",
+            "post_deploy_smoke=blocking_after_deploy",
             '',
             '# remote command template',
              "mkdir -p ${params.DEPLOY_PATH}",
              "cd ${params.DEPLOY_PATH}",
              "tar -xzf deploy-${env.BUILD_NUMBER}.tgz",
-             "docker compose -p ${env.DEPLOY_COMPOSE_PROJECT_RESOLVED} -f ${env.DEPLOY_COMPOSE_FILE_RESOLVED} --env-file ${env.DEPLOY_ENV_FILE_NAME} build --no-cache",
+             "docker compose -p ${env.DEPLOY_COMPOSE_PROJECT_RESOLVED} -f ${env.DEPLOY_COMPOSE_FILE_RESOLVED} --env-file ${env.DEPLOY_ENV_FILE_NAME} build",
              "docker compose -p ${env.DEPLOY_COMPOSE_PROJECT_RESOLVED} -f ${env.DEPLOY_COMPOSE_FILE_RESOLVED} --env-file ${env.DEPLOY_ENV_FILE_NAME} up -d postgres",
              "docker exec <postgres-container> sh -lc 'psql ... ALTER USER ...'",
              "docker compose -p ${env.DEPLOY_COMPOSE_PROJECT_RESOLVED} -f ${env.DEPLOY_COMPOSE_FILE_RESOLVED} --env-file ${env.DEPLOY_ENV_FILE_NAME} run --rm app env PYTHONPATH=backend python -c 'from app.db.init_db import create_schema; create_schema()'",
@@ -485,10 +659,67 @@ done
              "echo SCHEMA_UPGRADE_OK",
              "docker compose -p ${env.DEPLOY_COMPOSE_PROJECT_RESOLVED} -f ${env.DEPLOY_COMPOSE_FILE_RESOLVED} --env-file ${env.DEPLOY_ENV_FILE_NAME} up -d app",
              "curl -fsS -H 'Host: ${env.DEPLOY_DOMAIN_FOR_BRANCH}' ${env.DEPLOY_HEALTHCHECK_URL_RESOLVED}"
-           ]
+          ]
+
+          def asyncQualityStatus = params.RUN_ASYNC_QUALITY_GATE ? 'requested' : 'not_requested'
+          def preDeployE2EStatus = params.RUN_PRE_DEPLOY_E2E ? 'requested' : 'not_requested'
+          def asyncFailureRcaProvided = params.ASYNC_FAILURE_RCA_LINK?.trim() ? 'true' : 'false'
+          def postDeploySmokeStatus = (!params.DEPLOY_DRY_RUN && canDeployBranch) ? 'blocking_after_deploy' : 'not_applicable'
 
           writeFile file: 'deploy-preview.txt', text: previewLines.join('\n').trim() + '\n'
-          archiveArtifacts artifacts: 'deploy-preview.txt', onlyIfSuccessful: false
+          writeFile file: 'deploy-evidence.json', text: """{
+  "schema_version": 1,
+  "app_version": "${env.APP_VERSION}",
+  "build_number": "${env.BUILD_NUMBER}",
+  "build_url": "${env.BUILD_URL ?: ''}",
+  "job_name": "${env.JOB_NAME ?: ''}",
+  "node_name": "${env.NODE_NAME ?: ''}",
+  "build_branch": "${deployBranch}",
+  "deploy_target": "${env.DEPLOY_TARGET_ENV}",
+  "deploy_domain": "${env.DEPLOY_DOMAIN_FOR_BRANCH}",
+  "deploy_path": "${params.DEPLOY_PATH}",
+  "compose_project": "${env.DEPLOY_COMPOSE_PROJECT_RESOLVED}",
+  "compose_file": "${env.DEPLOY_COMPOSE_FILE_RESOLVED}",
+  "image_tag": "${imageTag}",
+  "params_fingerprint": "RUN_DEPLOY=${params.RUN_DEPLOY};DEPLOY_DRY_RUN=${params.DEPLOY_DRY_RUN};RUN_ASYNC_QUALITY_GATE=${params.RUN_ASYNC_QUALITY_GATE};RUN_PRE_DEPLOY_E2E=${params.RUN_PRE_DEPLOY_E2E}",
+  "blocking_contract": {
+    "quality_gate": "pytest_only",
+    "pre_deploy_e2e": "${preDeployE2EStatus}",
+    "async_quality_gate": "${asyncQualityStatus}",
+    "target_total_blocking_minutes": 20,
+    "target_deploy_execute_minutes": 8
+  },
+  "blocking_guardrails": {
+    "schema_upgrade": "blocking",
+    "healthcheck": "blocking",
+    "frontend_asset_version": "blocking",
+    "upload_limit_probe": "blocking",
+    "post_deploy_smoke": "${postDeploySmokeStatus}",
+    "prod_smtp_route_validation": "blocking_on_prod"
+  },
+  "async_quality_failure_marker": {
+    "path": ".jenkins-async-deploy-block.json",
+    "remote_path": "${params.DEPLOY_PATH}/.jenkins-async-deploy-block.json",
+    "blocks_next_deploy": true,
+    "rca_link_parameter": "ASYNC_FAILURE_RCA_LINK",
+    "rca_link_provided": ${asyncFailureRcaProvided}
+  },
+  "jenkins_evidence_requirements": {
+    "baseline_runs_required": 3,
+    "post_change_runs_required": 3,
+    "same_branch_agent_params": true,
+    "metrics": [
+      "total_blocking_duration_ms",
+      "deploy_execute_duration_ms",
+      "stage_duration_ms",
+      "guardrail_status",
+      "post_deploy_smoke_status",
+      "artifact_url"
+    ]
+  }
+}
+"""
+          archiveArtifacts artifacts: 'deploy-preview.txt,deploy-evidence.json', onlyIfSuccessful: false
 
           if (!canDeployBranch) {
             echo "현재 브랜치(${deployBranch})는 DEPLOY_ALLOWED_BRANCHES(${params.DEPLOY_ALLOWED_BRANCHES})에 포함되지 않아 배포를 건너뜁니다."
@@ -498,6 +729,75 @@ done
           if (params.DEPLOY_DRY_RUN) {
             echo 'DEPLOY_DRY_RUN=true: 승인/배포는 건너뛰고 미리보기만 수행합니다.'
             return
+          }
+
+          if (!isUnix()) {
+            error('Deploy Plan marker 확인은 Unix Jenkins agent가 필요합니다.')
+          }
+          if (!params.DEPLOY_SSH_CREDENTIALS_ID?.trim()) {
+            error('DEPLOY_SSH_CREDENTIALS_ID 파라미터가 비어 있습니다.')
+          }
+          if (!params.DEPLOY_SSH_USER?.trim()) {
+            error('DEPLOY_SSH_USER 파라미터가 비어 있습니다.')
+          }
+          def asyncMarkerPath = '.jenkins-async-deploy-block.json'
+          def localAsyncMarkerExists = fileExists(asyncMarkerPath)
+          def remoteAsyncMarkerStatus = 'unknown'
+          def asyncMarkerCredentialBindings = [[
+            $class: 'SSHUserPrivateKeyBinding',
+            credentialsId: params.DEPLOY_SSH_CREDENTIALS_ID,
+            keyFileVariable: 'DEPLOY_SSH_KEY',
+            usernameVariable: 'DEPLOY_SSH_USER_FROM_CRED'
+          ]]
+          withCredentials(asyncMarkerCredentialBindings) {
+            withEnv([
+              "REMOTE=${params.DEPLOY_SSH_USER}@${params.DEPLOY_HOST}",
+              "REMOTE_DEPLOY_PATH=${params.DEPLOY_PATH}",
+              "DEPLOY_SSH_OPTS=${params.DEPLOY_SSH_OPTS}",
+              "ASYNC_MARKER_FILE=${asyncMarkerPath}"
+            ]) {
+              remoteAsyncMarkerStatus = sh(returnStdout: true, script: '''#!/usr/bin/env bash
+set -euo pipefail
+if [ -z "${DEPLOY_SSH_KEY:-}" ] || [ ! -r "$DEPLOY_SSH_KEY" ]; then
+  echo "[deploy] DEPLOY_SSH_KEY credential is missing or unreadable." >&2
+  exit 1
+fi
+tmp_key_dir="$(mktemp -d)"
+trap 'rm -rf "$tmp_key_dir"' EXIT
+cp "$DEPLOY_SSH_KEY" "$tmp_key_dir/id_rsa"
+chmod 600 "$tmp_key_dir/id_rsa"
+SSH_OPTS="${DEPLOY_SSH_OPTS} -i ${tmp_key_dir}/id_rsa -o ConnectTimeout=10 -o ServerAliveInterval=10 -o ServerAliveCountMax=3 -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no"
+remote_marker="${REMOTE_DEPLOY_PATH%/}/${ASYNC_MARKER_FILE}"
+ssh $SSH_OPTS "$REMOTE" "set -e; if [ -f '$remote_marker' ]; then echo present; else echo absent; fi"
+''').trim()
+            }
+          }
+          if (localAsyncMarkerExists || remoteAsyncMarkerStatus == 'present') {
+            def asyncFailureRcaLink = params.ASYNC_FAILURE_RCA_LINK?.trim()
+            if (!asyncFailureRcaLink) {
+              error('Async/on-demand quality failure marker exists locally or on remote deploy path. Provide ASYNC_FAILURE_RCA_LINK before normal deploy.')
+            }
+            echo "[deploy] clearing async failure marker after RCA link: ${asyncFailureRcaLink}"
+            withCredentials(asyncMarkerCredentialBindings) {
+              withEnv([
+                "REMOTE=${params.DEPLOY_SSH_USER}@${params.DEPLOY_HOST}",
+                "REMOTE_DEPLOY_PATH=${params.DEPLOY_PATH}",
+                "DEPLOY_SSH_OPTS=${params.DEPLOY_SSH_OPTS}",
+                "ASYNC_MARKER_FILE=${asyncMarkerPath}"
+              ]) {
+                sh '''#!/usr/bin/env bash
+set -euo pipefail
+rm -f "$ASYNC_MARKER_FILE"
+tmp_key_dir="$(mktemp -d)"
+trap 'rm -rf "$tmp_key_dir"' EXIT
+cp "$DEPLOY_SSH_KEY" "$tmp_key_dir/id_rsa"
+chmod 600 "$tmp_key_dir/id_rsa"
+SSH_OPTS="${DEPLOY_SSH_OPTS} -i ${tmp_key_dir}/id_rsa -o ConnectTimeout=10 -o ServerAliveInterval=10 -o ServerAliveCountMax=3 -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no"
+remote_marker="${REMOTE_DEPLOY_PATH%/}/${ASYNC_MARKER_FILE}"
+ssh $SSH_OPTS "$REMOTE" "set -e; rm -f '$remote_marker'"
+'''
+              }
+            }
           }
 
           if (!params.SKIP_DEPLOY_APPROVAL) {
@@ -1026,7 +1326,7 @@ if [ -f "$ENV_FILE_PATH" ]; then
 fi
 printf '\nAPP_VERSION=%s\n' "$APP_VERSION" >> "$ENV_FILE_PATH"
 docker compose -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" --env-file "$ENV_FILE_PATH" down --remove-orphans || true
-docker compose -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" --env-file "$ENV_FILE_PATH" build --no-cache
+docker compose -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" --env-file "$ENV_FILE_PATH" build
 echo '[deploy] starting postgres for schema upgrade'
 docker compose -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" --env-file "$ENV_FILE_PATH" up -d postgres
 postgres_health=''
@@ -1252,8 +1552,6 @@ fi
         allOf {
           expression { return params.RUN_DEPLOY }
           expression { return !params.DEPLOY_DRY_RUN }
-          expression { return params.RUN_POST_DEPLOY_E2E }
-          expression { return env.SKIP_POST_DEPLOY_E2E_FOR_BRANCH?.trim() != 'true' }
         }
       }
       steps {
