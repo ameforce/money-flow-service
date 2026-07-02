@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 from threading import Lock
 
 import anyio
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Request, status
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -15,11 +15,12 @@ from app.api.deps import (
     get_current_household,
     get_current_user,
     require_co_owner_household,
+    require_editor_household,
 )
 from app.core.config import settings
 from app.core.errors import app_error
 from app.core.security import create_ws_ticket, generate_opaque_token, hash_opaque_token
-from app.db.models import Household, HouseholdInvitation, HouseholdMember, InvitationStatus, MemberRole, User
+from app.db.models import Holding, Household, HouseholdInvitation, HouseholdMember, InvitationStatus, MemberRole, Transaction, User
 from app.db.session import get_db
 from app.schemas import (
     HouseholdCurrentResponse,
@@ -35,9 +36,16 @@ from app.schemas import (
     HouseholdSettingsPatch,
     HouseholdSettingsRead,
     HouseholdSelectRequest,
+    LegacyOwnerRemapRequest,
+    LegacyOwnerRemapResponse,
 )
 from app.services.email_service import email_service
-from app.services.owner_links import ensure_unique_household_member_display_name
+from app.services.merge import merge_patch_or_raise
+from app.services.owner_links import (
+    ensure_unique_household_member_display_name,
+    legacy_owner_name_key,
+    normalize_legacy_owner_name,
+)
 from app.services.profile import normalize_holding_settings, normalize_transaction_row_colors
 from app.services.runtime import hub
 
@@ -406,6 +414,142 @@ def select_household(
     user.active_household_id = household.id
     db.commit()
     return HouseholdCurrentResponse(household=HouseholdRead.model_validate(household), role=member.role)
+
+
+@router.post("/legacy-owner-remap", response_model=LegacyOwnerRemapResponse)
+def remap_legacy_owner(
+    payload: LegacyOwnerRemapRequest,
+    background_tasks: BackgroundTasks,
+    ctx=Depends(require_editor_household),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> LegacyOwnerRemapResponse:
+    household, member = ctx
+    source_owner_name = normalize_legacy_owner_name(payload.owner_name) or payload.owner_name
+    source_owner_key = legacy_owner_name_key(source_owner_name)
+    db.execute(select(Household.id).where(Household.id == household.id).with_for_update()).first()
+    locked_members = _lock_household_members(db, household.id)
+    actor_member = locked_members.get(str(member.id))
+    if actor_member is None or actor_member.role not in {MemberRole.editor, MemberRole.co_owner, MemberRole.owner}:
+        raise app_error(
+            status_code=403,
+            code="HOUSEHOLD_ROLE_FORBIDDEN",
+            message="소유자 매핑 권한이 없습니다.",
+            action="가계 소유자에게 편집자 이상 권한을 요청해 주세요.",
+        )
+    target_member = next(
+        (item for item in locked_members.values() if str(item.user_id) == payload.target_owner_user_id),
+        None,
+    )
+    if target_member is None:
+        raise app_error(
+            status_code=400,
+            code="LEGACY_OWNER_REMAP_TARGET_INVALID",
+            message="매핑 대상은 현재 가계 구성원만 선택할 수 있습니다.",
+            action="가계 구성원 목록에서 매핑 대상을 다시 선택해 주세요.",
+        )
+    target_user = db.get(User, target_member.user_id)
+    if target_user is None:
+        raise app_error(
+            status_code=400,
+            code="LEGACY_OWNER_REMAP_TARGET_INVALID",
+            message="매핑 대상은 현재 가계 구성원만 선택할 수 있습니다.",
+            action="가계 구성원 목록에서 매핑 대상을 다시 선택해 주세요.",
+        )
+    target_owner_user_id = str(target_user.id)
+    target_owner_name = str(target_user.display_name or "").strip()
+    if not target_owner_name:
+        raise app_error(
+            status_code=400,
+            code="LEGACY_OWNER_REMAP_TARGET_INVALID",
+            message="매핑 대상의 표시 이름을 확인할 수 없습니다.",
+            action="대상 구성원의 프로필 표시 이름을 확인한 뒤 다시 시도해 주세요.",
+        )
+
+    transaction_candidates = db.scalars(
+        select(Transaction)
+        .where(
+            Transaction.household_id == household.id,
+            Transaction.owner_user_id.is_(None),
+            Transaction.owner_name.is_not(None),
+        )
+        .with_for_update()
+    ).all()
+    transactions = [item for item in transaction_candidates if legacy_owner_name_key(item.owner_name) == source_owner_key]
+    holding_candidates = db.scalars(
+        select(Holding)
+        .where(
+            Holding.household_id == household.id,
+            Holding.owner_user_id.is_(None),
+            Holding.owner_name.is_not(None),
+        )
+        .with_for_update()
+    ).all()
+    holdings = [item for item in holding_candidates if legacy_owner_name_key(item.owner_name) == source_owner_key]
+
+    patch_data = {
+        "owner_user_id": target_owner_user_id,
+        "owner_name": target_owner_name,
+    }
+    changed_transaction_ids: list[str] = []
+    changed_holding_ids: list[str] = []
+    for transaction in transactions:
+        _, changed_fields = merge_patch_or_raise(
+            db=db,
+            entity_type="transaction",
+            entity=transaction,
+            household_id=household.id,
+            actor_user_id=user.id,
+            base_version=int(transaction.version),
+            patch_data=patch_data,
+            current_data={},
+        )
+        if changed_fields:
+            changed_transaction_ids.append(str(transaction.id))
+    for holding in holdings:
+        _, changed_fields = merge_patch_or_raise(
+            db=db,
+            entity_type="holding",
+            entity=holding,
+            household_id=household.id,
+            actor_user_id=user.id,
+            base_version=int(holding.version),
+            patch_data=patch_data,
+            current_data={},
+        )
+        if changed_fields:
+            changed_holding_ids.append(str(holding.id))
+
+    try:
+        db.commit()
+    except IntegrityError as error:
+        db.rollback()
+        raise app_error(
+            status_code=409,
+            code="LEGACY_OWNER_REMAP_CONFLICT",
+            message="대상 구성원으로 매핑하면 중복 자산이 생깁니다.",
+            action="중복 자산을 정리한 뒤 다시 시도해 주세요.",
+        ) from error
+
+    result = LegacyOwnerRemapResponse(
+        source_owner_name=source_owner_name,
+        target_owner_user_id=target_owner_user_id,
+        target_owner_name=target_owner_name,
+        remapped_transactions=len(changed_transaction_ids),
+        remapped_holdings=len(changed_holding_ids),
+    )
+    background_tasks.add_task(
+        hub.broadcast,
+        household.id,
+        {
+            "event": "legacy-owner.remapped",
+            "source_owner_name": source_owner_name,
+            "target_owner_user_id": target_owner_user_id,
+            "remapped_transactions": result.remapped_transactions,
+            "remapped_holdings": result.remapped_holdings,
+        },
+    )
+    return result
 
 
 def _issue_ws_ticket(ctx) -> dict[str, str | int]:

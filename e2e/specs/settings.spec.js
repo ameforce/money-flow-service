@@ -114,6 +114,56 @@ test("settings color inputs keep mobile and tablet hit targets", async ({ page }
   await capture(page, "settings-color-input-hit-targets");
 });
 
+test("issue 236: mobile asset type rule checkboxes keep touch targets", async ({ page }) => {
+  const email = `${unique("settings-asset-rule-hit")}@example.com`;
+  const displayName = unique("settings-asset-rule-hit-name");
+
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await assertResponsiveShell(page);
+  await openTab(page, "설정");
+
+  const assetRulesCard = await openSettingsDetails(page, "자산 유형/색상 설정");
+  const metrics = await assetRulesCard.locator("label.check-row").evaluateAll((labels) =>
+    labels.map((label) => {
+      const input = label.querySelector("input[type='checkbox']");
+      const labelBox = label.getBoundingClientRect();
+      const inputBox = input?.getBoundingClientRect();
+      const centerX = labelBox.left + labelBox.width / 2;
+      const centerY = labelBox.top + labelBox.height / 2;
+      const topElement = document.elementFromPoint(centerX, centerY);
+      return {
+        text: label.textContent?.replace(/\s+/g, " ").trim() || "",
+        labelHeight: labelBox.height,
+        labelWidth: labelBox.width,
+        inputHeight: inputBox?.height || 0,
+        inputWidth: inputBox?.width || 0,
+        centerHitsLabel: Boolean(topElement && (topElement === label || label.contains(topElement))),
+      };
+    }),
+  );
+  const targetMetrics = metrics.filter(({ text }) =>
+    ["시장 추적형 유형", "평균단가/평가금액 입력 표시", "손익 표시"].includes(text),
+  );
+
+  expect(targetMetrics, `asset type rule labels should be present: ${JSON.stringify(metrics)}`).toHaveLength(3);
+  for (const metric of targetMetrics) {
+    expect(metric.labelHeight, `${metric.text} label hit target height: ${JSON.stringify(targetMetrics)}`).toBeGreaterThanOrEqual(44);
+    expect(metric.labelWidth, `${metric.text} label should span a tappable row: ${JSON.stringify(targetMetrics)}`).toBeGreaterThanOrEqual(220);
+    expect(metric.inputWidth, `${metric.text} checkbox should remain visible: ${JSON.stringify(targetMetrics)}`).toBeGreaterThanOrEqual(16);
+    expect(metric.inputHeight, `${metric.text} checkbox should remain visible: ${JSON.stringify(targetMetrics)}`).toBeGreaterThanOrEqual(16);
+    expect(metric.centerHitsLabel, `${metric.text} row center should hit the label: ${JSON.stringify(targetMetrics)}`).toBe(true);
+  }
+
+  const gainLossRule = assetRulesCard.locator("label.check-row", { hasText: "손익 표시" }).first();
+  const gainLossInput = gainLossRule.locator("input[type='checkbox']");
+  const before = await gainLossInput.isChecked();
+  await gainLossRule.click({ position: { x: 180, y: 22 } });
+  await expect(gainLossInput, "tapping the rule row should toggle the checkbox").toBeChecked({ checked: !before });
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "issue-236-mobile-asset-type-rule-hit-targets");
+});
+
 test("settings category row actions stay inside mobile cards", async ({ page }) => {
   const email = `${unique("settings-category-actions")}@example.com`;
   const displayName = unique("settings-category-actions-name");

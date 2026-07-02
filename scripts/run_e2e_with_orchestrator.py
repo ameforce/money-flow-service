@@ -218,6 +218,7 @@ def start_orchestrator(
     env["FRONTEND_BASE_URL"] = f"http://127.0.0.1:{frontend_port}"
     # E2E runs must be deterministic regardless of parent shell env.
     env["ENV"] = "test"
+    env["SECRET_KEY"] = "test-secret-key-for-e2e-toss-import-1234567890"
     env["AUTH_COOKIE_SECURE"] = "false"
     env["AUTH_DEBUG_RETURN_VERIFY_TOKEN"] = "true"
     # The full Playwright matrix registers many unique users from one loopback IP.
@@ -275,6 +276,7 @@ def run_playwright(
         env["E2E_PROJECT_MATRIX"] = "1"
     if include_slow:
         env["E2E_INCLUDE_SLOW"] = "1"
+    env["E2E_SECRET_KEY"] = "test-secret-key-for-e2e-toss-import-1234567890"
     SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
     for path in SCREENSHOT_DIR.glob("*.png"):
         try:

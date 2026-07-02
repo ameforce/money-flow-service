@@ -13,11 +13,17 @@ import {
 import { Doughnut, Line } from "react-chartjs-2";
 import { IsoDateInput } from "./components/IsoDateInput";
 import { HoldingSurfaceTable } from "./components/worksurface/HoldingSurfaceTable";
+import { TransactionCategoryQuickPicker } from "./components/worksurface/TransactionCategoryQuickPicker";
 import { TransactionSurfaceTable } from "./components/worksurface/TransactionSurfaceTable";
 import { extractVisibleInitial, resolveSemanticColor, withAlpha } from "./components/worksurface/colorSemantics";
 import { getWorkSurfaceMobilePriority } from "./components/worksurface/fieldPriority";
 import "./App.css";
 import packageJson from "../package.json";
+import {
+  normalizeFileArray,
+  patchTossRowWithInference,
+  recomputeTossDuplicateRows,
+} from "./tossImportUtils.js";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, ArcElement, Tooltip, Legend, Filler);
 
@@ -34,6 +40,7 @@ const DEFAULT_CSRF_COOKIE_NAME = "mf_csrf_token";
 const DEFAULT_CSRF_HEADER_NAME = "x-csrf-token";
 const DEFAULT_HOUSEHOLD_HEADER_NAME = "x-household-id";
 const DEBUG_TOKEN_OPT_IN_HEADER = "x-debug-token-opt-in";
+const KRW_TRANSACTION_INTEGER_AMOUNT_MESSAGE = "원화 금액은 소수 없이 정수로 입력해 주세요.";
 
 const DEBUG_TOKEN_OPT_IN =
   String(
@@ -118,6 +125,11 @@ const IMPORT_MODE_LABELS = {
   dry_run: "미리 검증",
   apply: "적용",
 };
+const IMPORT_SOURCE_MODES = [
+  { value: "workbook", label: "XLSX" },
+  { value: "toss", label: "토스 이미지" },
+];
+const TOSS_IMAGE_ACCEPT = ".png,.jpg,.jpeg,.webp";
 const AUTO_PRICE_REFRESH_INTERVAL_MS = 20_000;
 const AUTO_PRICE_REFRESH_COOLDOWN_MS = 30_000;
 const PRICE_REFRESH_POLL_INTERVAL_MS = 1_000;
@@ -130,7 +142,28 @@ const TRANSACTION_HISTORY_AUTO_FILL_THRESHOLD = 12;
 const TRANSACTION_HISTORY_SENTINEL_ROOT_MARGIN = "360px 0px";
 const IMPORT_MISMATCH_PREVIEW_LIMIT = 20;
 const IMPORT_ISSUE_PREVIEW_LIMIT = 20;
+const IMPORT_REPORT_SORT_OPTIONS = [
+  { value: "row_asc", label: "행 오름차순" },
+  { value: "row_desc", label: "행 내림차순" },
+  { value: "severity", label: "심각도순" },
+  { value: "type", label: "유형순" },
+];
+const IMPORT_REPORT_SEVERITY_LABELS = {
+  error: "오류",
+  warning: "경고",
+  warn: "경고",
+  info: "안내",
+  informational: "안내",
+};
+const IMPORT_REPORT_SEVERITY_RANK = {
+  error: 0,
+  warning: 1,
+  warn: 1,
+  info: 2,
+  informational: 2,
+};
 const MOBILE_BREAKPOINT_PX = 820;
+const HOLDING_SUMMARY_SCROLL_OFFSET_PX = 96;
 const SOCKET_STATUS_LABELS = {
   connected: "연결됨",
   disconnected: "연결 끊김",
@@ -204,6 +237,10 @@ const CATEGORY_MINOR_ALIAS = {
   "카드 대금": "카드대금",
   건강1: "건강",
 };
+const PASSWORD_RECOVERY_EMAIL = "support@enmsoftware.com";
+const PASSWORD_RECOVERY_MAILTO = `mailto:${PASSWORD_RECOVERY_EMAIL}?subject=${encodeURIComponent(
+  "Money Flow 비밀번호 재설정 요청"
+)}&body=${encodeURIComponent("가입 이메일:\n요청 내용: 비밀번호 재설정을 요청합니다.")}`;
 let refreshSessionPromise = null;
 
 function uiGuideMessage(problem, action) {
@@ -583,6 +620,154 @@ function fmtDate(value) {
   });
 }
 
+function normalizeImportReportSeverity(value, fallback = "info") {
+  const normalized = String(value || "").trim().toLowerCase();
+  return normalized || fallback;
+}
+
+function formatImportReportSeverity(value) {
+  const normalized = normalizeImportReportSeverity(value);
+  return IMPORT_REPORT_SEVERITY_LABELS[normalized] || normalized.toUpperCase();
+}
+
+function parseImportMismatchCell(value) {
+  const text = String(value || "").trim();
+  const parts = text.split("!");
+  const rawCell = parts.pop() || text;
+  const sheet = parts.join("!").replace(/^'|'$/g, "");
+  const rowMatch = rawCell.match(/(\d+)/);
+  return {
+    sheet,
+    row: rowMatch ? Number(rowMatch[1]) : null,
+    target: text,
+  };
+}
+
+function normalizeImportReportRows(report) {
+  const mismatchRows = (report?.detected_mismatch_cells || []).map((cell, index) => {
+    const parsed = parseImportMismatchCell(cell);
+    return {
+      id: `mismatch-${index}`,
+      source: "formula_mismatch",
+      type: "formula_mismatch",
+      typeLabel: "수식 불일치",
+      severity: "warning",
+      severityLabel: "경고",
+      sheet: parsed.sheet,
+      row: parsed.row,
+      target: parsed.target,
+      message: "월별 수식과 계산값이 일치하지 않습니다.",
+    };
+  });
+  const issueRows = (report?.issues || []).map((issue, index) => {
+    const type = String(issue.code || "issue").trim() || "issue";
+    const sheet = String(issue.sheet || "").trim();
+    const row = Number(issue.row || 0) || null;
+    return {
+      id: `issue-${index}`,
+      source: "issue",
+      type,
+      typeLabel: type,
+      severity: normalizeImportReportSeverity(issue.severity, "error"),
+      severityLabel: formatImportReportSeverity(issue.severity || "error"),
+      sheet,
+      row,
+      target: sheet && row ? `${sheet}:${row}` : sheet || (row ? `행 ${row}` : "-"),
+      message: String(issue.message || "").trim() || "가져오기 이슈",
+    };
+  });
+  return [...mismatchRows, ...issueRows].map((row) => ({
+    ...row,
+    searchText: [row.type, row.typeLabel, row.severity, row.severityLabel, row.sheet, row.row, row.target, row.message]
+      .filter((item) => item !== null && item !== undefined)
+      .join(" ")
+      .toLowerCase(),
+  }));
+}
+
+function compareImportReportRowNumber(left, right, direction = "asc") {
+  const leftRow = Number.isFinite(left.row) ? left.row : Number.POSITIVE_INFINITY;
+  const rightRow = Number.isFinite(right.row) ? right.row : Number.POSITIVE_INFINITY;
+  const result = leftRow - rightRow || left.target.localeCompare(right.target, "ko");
+  return direction === "desc" ? -result : result;
+}
+
+function sortImportReportRows(rows, sortMode) {
+  const nextRows = [...rows];
+  if (sortMode === "row_desc") {
+    return nextRows.sort((left, right) => compareImportReportRowNumber(left, right, "desc"));
+  }
+  if (sortMode === "severity") {
+    return nextRows.sort((left, right) => {
+      const leftRank = IMPORT_REPORT_SEVERITY_RANK[left.severity] ?? 9;
+      const rightRank = IMPORT_REPORT_SEVERITY_RANK[right.severity] ?? 9;
+      return leftRank - rightRank || compareImportReportRowNumber(left, right);
+    });
+  }
+  if (sortMode === "type") {
+    return nextRows.sort((left, right) => {
+      const typeCompare = left.typeLabel.localeCompare(right.typeLabel, "ko");
+      return typeCompare || compareImportReportRowNumber(left, right);
+    });
+  }
+  return nextRows.sort((left, right) => compareImportReportRowNumber(left, right));
+}
+
+function csvEscape(value) {
+  const text = String(value ?? "");
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+function formatImportReportCsv(rows) {
+  const header = ["severity", "type", "sheet", "row", "target", "message"];
+  const body = rows.map((row) =>
+    [row.severityLabel, row.typeLabel, row.sheet, row.row || "", row.target, row.message].map(csvEscape).join(",")
+  );
+  return [header.join(","), ...body].join("\n");
+}
+
+function normalizeImportAppliedTransactionRefs(report) {
+  return (Array.isArray(report?.applied_transaction_refs) ? report.applied_transaction_refs : [])
+    .map((item) => ({
+      id: String(item?.id || "").trim(),
+      occurred_on: String(item?.occurred_on || "").trim(),
+      memo: String(item?.memo || "").trim(),
+      source_ref: String(item?.source_ref || "").trim(),
+    }))
+    .filter((item) => item.id);
+}
+
+function normalizeImportAppliedHoldingRefs(report) {
+  return (Array.isArray(report?.applied_holding_refs) ? report.applied_holding_refs : [])
+    .map((item) => ({
+      id: String(item?.id || "").trim(),
+      name: String(item?.name || "").trim(),
+      category: String(item?.category || "").trim(),
+      source_ref: String(item?.source_ref || "").trim(),
+      action: String(item?.action || "").trim(),
+    }))
+    .filter((item) => item.id);
+}
+
+function getImportRefMonth(ref) {
+  const key = String(ref?.occurred_on || "").slice(0, 7);
+  return parseYearMonthKey(key);
+}
+
+function scrollToDataRow(attributeName, value) {
+  const targetValue = String(value || "").trim();
+  if (!targetValue || typeof window === "undefined" || typeof document === "undefined") {
+    return;
+  }
+  window.requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
+      const rows = Array.from(document.querySelectorAll(`[${attributeName}]`));
+      const row = rows.find((item) => item.getAttribute(attributeName) === targetValue);
+      row?.scrollIntoView?.({ block: "center", inline: "nearest", behavior: "smooth" });
+    });
+  });
+}
+
 function todayIso() {
   const now = new Date();
   const month = String(now.getMonth() + 1).padStart(2, "0");
@@ -593,6 +778,15 @@ function todayIso() {
 function currentMonth() {
   const now = new Date();
   return { year: now.getFullYear(), month: now.getMonth() + 1 };
+}
+
+function yearMonthFromIsoDate(value, fallback = todayIso()) {
+  const normalized = normalizeIsoDateKey(value, fallback);
+  const [year, month] = normalized.split("-").map((part) => Number(part));
+  if (!Number.isFinite(year) || !Number.isFinite(month)) {
+    return currentMonth();
+  }
+  return { year, month };
 }
 
 function isoDateFromUtcDate(value) {
@@ -619,6 +813,32 @@ function yearMonthEndDateKey(value, todayKey = todayIso()) {
   const lastDay = isoDateFromUtcDate(new Date(Date.UTC(parsed.year, month, 0)));
   const normalizedToday = normalizeIsoDateKey(todayKey);
   return lastDay > normalizedToday ? normalizedToday : lastDay;
+}
+
+function yearMonthFullDateRange(value, todayKey = todayIso()) {
+  const fallbackDate = normalizeIsoDateKey(todayKey);
+  const [fallbackYear, fallbackMonth] = fallbackDate.split("-").map((part) => Number(part));
+  const parsed = {
+    year: Number(value?.year),
+    month: Number(value?.month),
+  };
+  const year = Number.isFinite(parsed.year) ? parsed.year : fallbackYear;
+  const month = Number.isFinite(parsed.month) ? Math.max(1, Math.min(12, parsed.month)) : fallbackMonth;
+  const monthText = String(month).padStart(2, "0");
+  return {
+    start: `${year}-${monthText}-01`,
+    end: isoDateFromUtcDate(new Date(Date.UTC(year, month, 0))),
+  };
+}
+
+function recentDateRange(days = 30, todayKey = todayIso()) {
+  const end = normalizeIsoDateKey(todayKey);
+  const [year, month, day] = end.split("-").map((part) => Number(part));
+  const startDate = new Date(Date.UTC(year, month - 1, day - Math.max(0, days - 1)));
+  return {
+    start: isoDateFromUtcDate(startDate),
+    end,
+  };
 }
 
 function compareTransactionHistoryItems(left, right) {
@@ -746,6 +966,20 @@ function stripGrouping(value) {
   return String(value ?? "").replace(/,/g, "").trim();
 }
 
+function decimalPayload(value) {
+  const normalized = stripGrouping(value);
+  return normalized || null;
+}
+
+function signedAmountPayload(row, amountText) {
+  const fallback = decimalPayload(row?.signed_amount);
+  const magnitude = String(amountText || fallback || "").replace(/^[+-]/, "");
+  if (!magnitude) {
+    return fallback;
+  }
+  return row?.flow_type === "income" ? magnitude : `-${magnitude}`;
+}
+
 function sanitizeDecimalInput(value) {
   const text = stripGrouping(value).replace(/[^\d.]/g, "");
   if (!text) {
@@ -758,6 +992,10 @@ function sanitizeDecimalInput(value) {
   const integerPart = text.slice(0, firstDot).replace(/\./g, "");
   const decimalPart = text.slice(firstDot + 1).replace(/\./g, "");
   return `${integerPart || "0"}.${decimalPart}`;
+}
+
+function hasDecimalSeparatorInput(value) {
+  return sanitizeDecimalInput(value).includes(".");
 }
 
 function formatGroupedDecimalInput(value) {
@@ -1021,6 +1259,17 @@ function createTransactionForm(defaultOccurredOn = todayIso()) {
   };
 }
 
+function createRepeatTransactionForm(previousForm, fallbackOccurredOn = todayIso()) {
+  const normalizedDate = normalizeIsoDateKey(previousForm?.occurred_on, fallbackOccurredOn);
+  return {
+    ...createTransactionForm(normalizedDate),
+    flow_type: previousForm?.flow_type || "expense",
+    category_id: previousForm?.category_id || "",
+    owner_user_id: previousForm?.owner_user_id || "",
+    owner_name: previousForm?.owner_name || "",
+  };
+}
+
 function buildDirtyPatchFields(payload, baseline, comparators = {}) {
   if (!baseline) {
     return { ...payload };
@@ -1152,6 +1401,43 @@ function resolveHoldingCategoryOnTypeChange(currentCategory, previousType, nextT
     ].filter(Boolean)
   );
   return previousDefaults.has(normalizedCurrent) ? holdingDefaultCategory(nextType) : normalizedCurrent;
+}
+
+function holdingAverageCostSemantic(typeLike) {
+  const assetType = typeof typeLike === "string" ? typeLike : typeLike?.asset_type || "other";
+  const tracked = Boolean(
+    typeof typeLike === "object" && typeLike !== null && "tracked" in typeLike
+      ? typeLike.tracked
+      : isMarketTrackedAssetType(assetType)
+  );
+  const showAverageCost = Boolean(
+    typeof typeLike === "object" && typeLike !== null && "show_average_cost" in typeLike
+      ? typeLike.show_average_cost
+      : true
+  );
+  if (!showAverageCost) {
+    return "hidden";
+  }
+  return tracked ? "average-cost" : "valuation";
+}
+
+function nextAverageCostForHoldingTypeChange(previousValue, previousType, nextType) {
+  const nextSemantic = holdingAverageCostSemantic(nextType);
+  if (nextSemantic === "hidden") {
+    return "0";
+  }
+  return holdingAverageCostSemantic(previousType) === nextSemantic ? previousValue : "";
+}
+
+function shouldExplainHoldingValueReset(previousValue, previousType, nextType) {
+  return Boolean(
+    String(previousValue || "").trim() &&
+      holdingAverageCostSemantic(previousType) !== holdingAverageCostSemantic(nextType)
+  );
+}
+
+function holdingValuationInputMode(currency) {
+  return String(currency || "KRW").trim().toUpperCase() === "KRW" ? "numeric" : "decimal";
 }
 
 function createHoldingInlineEditForm(row) {
@@ -1294,6 +1580,129 @@ function toCategoryPairLabel(category) {
   return `${toCategoryMajorLabel(category.major)} / ${toCategoryMinorLabel(category.minor)}`;
 }
 
+function normalizeCategoryFlowType(value) {
+  return String(value || "expense").trim() || "expense";
+}
+
+function findCompatibleCategoryForFlow(categories, sourceCategory, flowType) {
+  if (!sourceCategory) {
+    return null;
+  }
+  const targetFlowType = normalizeCategoryFlowType(flowType);
+  const sourceMajor = normalizeCategoryText(sourceCategory.major);
+  const sourceMinor = normalizeCategoryText(sourceCategory.minor);
+  if (!sourceMajor || !sourceMinor) {
+    return null;
+  }
+  return (
+    (categories || []).find((candidate) => {
+      if (normalizeCategoryFlowType(candidate?.flow_type) !== targetFlowType) {
+        return false;
+      }
+      return (
+        normalizeCategoryText(candidate?.major) === sourceMajor &&
+        normalizeCategoryText(candidate?.minor) === sourceMinor
+      );
+    }) || null
+  );
+}
+
+function buildCategoryRestoreSnapshot(category) {
+  if (!category?.id) {
+    return null;
+  }
+  return {
+    flow_type: normalizeCategoryFlowType(category.flow_type),
+    category_id: String(category.id || ""),
+    category_major: String(category.major || ""),
+    label: toCategoryPairLabel(category),
+  };
+}
+
+function buildTransactionCategoryQuickChips({ categoryOptions, categoryById, flowType, transactionItems }) {
+  const normalizedFlowType = String(flowType || "expense").trim() || "expense";
+  const usageByCategoryId = new Map();
+  const toComparableTime = (item) => {
+    const explicitTime = Date.parse(String(item?.updated_at || item?.created_at || ""));
+    if (Number.isFinite(explicitTime)) {
+      return explicitTime;
+    }
+    const dateKey = normalizeIsoDateKey(item?.occurred_on, "");
+    const dateTime = Date.parse(dateKey);
+    return Number.isFinite(dateTime) ? dateTime : 0;
+  };
+
+  for (const item of transactionItems || []) {
+    if (String(item?.flow_type || "").trim() !== normalizedFlowType) {
+      continue;
+    }
+    const categoryId = String(item?.category_id || "").trim();
+    const category = categoryById.get(categoryId);
+    if (!category || String(category.flow_type || "").trim() !== normalizedFlowType) {
+      continue;
+    }
+    const occurredOn = normalizeIsoDateKey(item?.occurred_on, "");
+    const latestTime = toComparableTime(item);
+    const prev = usageByCategoryId.get(categoryId) || { category, count: 0, latestTime: 0, latestDate: "" };
+    prev.count += 1;
+    if (!prev.latestDate || (occurredOn && occurredOn > prev.latestDate)) {
+      prev.latestDate = occurredOn;
+      prev.latestTime = latestTime;
+    } else if (occurredOn && occurredOn === prev.latestDate) {
+      prev.latestTime = Math.max(prev.latestTime, latestTime);
+    } else if (!occurredOn) {
+      prev.latestTime = Math.max(prev.latestTime, latestTime);
+    }
+    usageByCategoryId.set(categoryId, prev);
+  }
+
+  const recentChips = Array.from(usageByCategoryId.entries())
+    .map(([id, info]) => ({
+      id,
+      label: toCategoryPairLabel(info.category),
+      count: info.count,
+      latestTime: info.latestTime,
+      latestDate: info.latestDate,
+    }))
+    .sort((left, right) => {
+      if (left.latestDate !== right.latestDate) {
+        return right.latestDate.localeCompare(left.latestDate);
+      }
+      if (left.latestTime !== right.latestTime) {
+        return right.latestTime - left.latestTime;
+      }
+      if (left.count !== right.count) {
+        return right.count - left.count;
+      }
+      const labelOrder = left.label.localeCompare(right.label, "ko");
+      return labelOrder || left.id.localeCompare(right.id);
+    });
+
+  if (recentChips.length > 0) {
+    return recentChips.slice(0, 6);
+  }
+
+  return [...(categoryOptions || [])]
+    .filter((category) => String(category?.id || "").trim())
+    .sort((left, right) => {
+      const leftOrder = Number(left?.display_order ?? left?.sort_order ?? 0);
+      const rightOrder = Number(right?.display_order ?? right?.sort_order ?? 0);
+      if (Number.isFinite(leftOrder) && Number.isFinite(rightOrder) && leftOrder !== rightOrder) {
+        return leftOrder - rightOrder;
+      }
+      const labelOrder = toCategoryPairLabel(left).localeCompare(toCategoryPairLabel(right), "ko");
+      return labelOrder || String(left?.id || "").localeCompare(String(right?.id || ""));
+    })
+    .slice(0, 6)
+    .map((category) => ({
+      id: String(category.id || ""),
+      label: toCategoryPairLabel(category),
+      count: 0,
+      latestTime: 0,
+      latestDate: "",
+    }));
+}
+
 function onboardingSeenKey(userId, householdId) {
   const normalizedUserId = String(userId || "").trim();
   const normalizedHouseholdId = String(householdId || "").trim();
@@ -1313,6 +1722,14 @@ function ownerSelectValue(ownerUserId = "", ownerName = "") {
     return "";
   }
   return `${LEGACY_OWNER_PREFIX}${normalizedOwnerName}`;
+}
+
+function normalizeOwnerName(value) {
+  return String(value || "").trim().replace(/\s+/g, " ");
+}
+
+function isLegacyOwnerIdentity(ownerUserId = "", ownerName = "") {
+  return !String(ownerUserId || "").trim() && Boolean(normalizeOwnerName(ownerName));
 }
 
 function createProfileForm(user) {
@@ -1370,7 +1787,10 @@ function formatApiError(error, context) {
     return uiGuideMessage("요청 출처를 확인할 수 없습니다.", "브라우저에서 앱을 다시 열고 로그인해 주세요.");
   }
   if (context === "auth_login" && (code === "AUTH_INVALID_CREDENTIALS" || code === "AUTH_USER_NOT_FOUND" || status === 401)) {
-    return uiGuideMessage("로그인에 실패했습니다.", "이메일과 비밀번호를 확인한 뒤 다시 시도해 주세요.");
+    return uiGuideMessage(
+      "로그인에 실패했습니다.",
+      "이메일과 비밀번호를 확인한 뒤 다시 시도해 주세요. 비밀번호를 잊었다면 관리자에게 재설정을 요청해 주세요."
+    );
   }
   if (context === "auth_register" && (code === "AUTH_EMAIL_ALREADY_EXISTS" || status === 409)) {
     return uiGuideMessage("이미 가입된 이메일입니다.", "로그인으로 전환하거나 다른 이메일을 사용해 주세요.");
@@ -1600,6 +2020,10 @@ function isFocusableFormField(control) {
   );
 }
 
+function isSequentialEnterField(control) {
+  return Boolean(isFocusableFormField(control) && control.getAttribute("data-skip-enter-flow") !== "true");
+}
+
 function App() {
   const [token, setToken] = useState("");
   const [authReady, setAuthReady] = useState(false);
@@ -1621,6 +2045,7 @@ function App() {
   const [householdInvites, setHouseholdInvites] = useState([]);
   const [receivedHouseholdInvites, setReceivedHouseholdInvites] = useState([]);
   const [inviteForm, setInviteForm] = useState({ email: "", role: "viewer" });
+  const [inviteFormErrors, setInviteFormErrors] = useState({ email: "" });
   const [inviteAcceptToken, setInviteAcceptToken] = useState("");
   const [inviteAcceptanceNotice, setInviteAcceptanceNotice] = useState(null);
   const [receivedInviteTab, setReceivedInviteTab] = useState("new");
@@ -1648,8 +2073,12 @@ function App() {
   const [transactionSupportOpen, setTransactionSupportOpen] = useState(false);
   const [txEntrySheetStep, setTxEntrySheetStep] = useState("form");
   const [showTransactionQuickResume, setShowTransactionQuickResume] = useState(false);
+  const [txRepeatFocusRequest, setTxRepeatFocusRequest] = useState(0);
   const [txQuickOwnerTouched, setTxQuickOwnerTouched] = useState(false);
+  const [txDraftTouched, setTxDraftTouched] = useState(false);
   const [showHoldingForm, setShowHoldingForm] = useState(false);
+  const [holdingOwnerTouched, setHoldingOwnerTouched] = useState(false);
+  const [holdingDraftTouched, setHoldingDraftTouched] = useState(false);
   const [holdingSummaryOpen, setHoldingSummaryOpen] = useState(true);
   const [tab, setTab] = useState(() => getInitialTabId());
   const [isCompactViewport, setIsCompactViewport] = useState(
@@ -1669,10 +2098,13 @@ function App() {
 
   const [filterMode, setFilterMode] = useState("month");
   const [yearMonth, setYearMonth] = useState(currentMonth());
-  const [range, setRange] = useState({ start: todayIso(), end: todayIso() });
+  const [isMonthFilterPending, setIsMonthFilterPending] = useState(false);
+  const [range, setRange] = useState(() => yearMonthFullDateRange(currentMonth()));
 
   const filterModeRef = useRef(filterMode);
   const yearMonthRef = useRef(yearMonth);
+  const appliedYearMonthRef = useRef(yearMonth);
+  const isMonthFilterPendingRef = useRef(false);
   const rangeRef = useRef(range);
   useEffect(() => { filterModeRef.current = filterMode; }, [filterMode]);
   useEffect(() => { yearMonthRef.current = yearMonth; }, [yearMonth]);
@@ -1706,9 +2138,9 @@ function App() {
       if (!form) {
         return;
       }
-      const fields = Array.from(form.querySelectorAll(MOBILE_FORM_FIELD_SELECTOR)).filter(isFocusableFormField);
+      const fields = Array.from(form.querySelectorAll(MOBILE_FORM_FIELD_SELECTOR)).filter(isSequentialEnterField);
       const currentIndex = fields.indexOf(target);
-      const nextField = fields.slice(currentIndex + 1).find(isFocusableFormField);
+      const nextField = fields.slice(currentIndex + 1).find(isSequentialEnterField);
       if (!nextField) {
         return;
       }
@@ -1746,6 +2178,8 @@ function App() {
   const [overview, setOverview] = useState(null);
   const [portfolio, setPortfolio] = useState(null);
   const [transactions, setTransactions] = useState([]);
+  const [ownerCleanupTransactions, setOwnerCleanupTransactions] = useState([]);
+  const [ownerCleanupTransactionsLoaded, setOwnerCleanupTransactionsLoaded] = useState(false);
   const [transactionHistoryItems, setTransactionHistoryItems] = useState([]);
   const [transactionHistoryOlderCursor, setTransactionHistoryOlderCursor] = useState("");
   const [transactionHistoryNewerCursor, setTransactionHistoryNewerCursor] = useState("");
@@ -1763,7 +2197,21 @@ function App() {
   const [holdings, setHoldings] = useState([]);
   const [priceStatus, setPriceStatus] = useState(null);
   const [importReport, setImportReport] = useState(null);
+  const [recentImportTransactionIds, setRecentImportTransactionIds] = useState(() => new Set());
+  const [recentSavedTransactionIds, setRecentSavedTransactionIds] = useState(() => new Set());
+  const [recentImportHoldingIds, setRecentImportHoldingIds] = useState(() => new Set());
+  const [pendingImportEditTransactionId, setPendingImportEditTransactionId] = useState("");
+  const [pendingImportEditHoldingId, setPendingImportEditHoldingId] = useState("");
   const [migrationReport, setMigrationReport] = useState(null);
+  const [importReportSearch, setImportReportSearch] = useState("");
+  const [importReportSeverityFilter, setImportReportSeverityFilter] = useState("all");
+  const [importReportTypeFilter, setImportReportTypeFilter] = useState("all");
+  const [importReportSort, setImportReportSort] = useState("row_asc");
+  const [ownerRemapTargets, setOwnerRemapTargets] = useState({});
+  const [ownerRemappingKey, setOwnerRemappingKey] = useState("");
+  const [importMode, setImportMode] = useState("workbook");
+  const [tossPreview, setTossPreview] = useState(null);
+  const [tossApplyReport, setTossApplyReport] = useState(null);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [dashboardLoading, setDashboardLoading] = useState(false);
@@ -1771,9 +2219,11 @@ function App() {
   const [importLoadingMode, setImportLoadingMode] = useState("");
   const [migrationLoadingMode, setMigrationLoadingMode] = useState("");
   const [migrationExporting, setMigrationExporting] = useState(false);
+  const migrationPackageInputRef = useRef(null);
+  const [tossLoadingMode, setTossLoadingMode] = useState("");
   const [priceRefreshPolling, setPriceRefreshPolling] = useState(false);
   const importFileInputRef = useRef(null);
-  const migrationPackageInputRef = useRef(null);
+  const tossFileInputRef = useRef(null);
   const dashboardRequestCountRef = useRef(0);
   const wsTicketMethodRef = useRef("POST");
   const wsRefreshTimerRef = useRef(null);
@@ -1797,16 +2247,47 @@ function App() {
   const pendingTransactionHistoryScrollAnchorRef = useRef(null);
   const roleNoticeStateRef = useRef({ householdId: "", role: "" });
   const receivedInviteIdsRef = useRef(new Set());
+  const activeDeepLinkFlowRef = useRef({ type: "", token: "" });
+  const inviteEmailInputRef = useRef(null);
   const confirmResolveRef = useRef(null);
+
+  const transactionEntryTodayDate = useCallback(() => {
+    return normalizeIsoDateKey(transactionHistoryTodayRef.current || transactionHistoryToday, todayIso());
+  }, [transactionHistoryToday]);
+
+  const transactionEntryContextDate = useCallback(() => {
+    const todayDate = transactionEntryTodayDate();
+    return normalizeIsoDateKey(
+      transactionHistoryAnchorDateRef.current || transactionHistoryAnchorDate || todayDate,
+      todayDate
+    );
+  }, [transactionEntryTodayDate, transactionHistoryAnchorDate]);
+
   const [confirmDialog, setConfirmDialog] = useState({
     open: false,
     title: "",
     action: "",
     confirmLabel: "확인",
   });
+  const requestConfirmDialog = useCallback(({ title, action, confirmLabel = "확인" }) => {
+    if (confirmResolveRef.current) {
+      confirmResolveRef.current(false);
+      confirmResolveRef.current = null;
+    }
+    return new Promise((resolve) => {
+      confirmResolveRef.current = resolve;
+      setConfirmDialog({
+        open: true,
+        title,
+        action,
+        confirmLabel,
+      });
+    });
+  }, []);
 
   const [txForm, setTxForm] = useState(() => createTransactionForm());
   const [txCategoryMajor, setTxCategoryMajor] = useState("");
+  const [txCategoryRestore, setTxCategoryRestore] = useState(null);
   const [txListFilter, setTxListFilter] = useState({
     keyword: "",
     flow_type: "all",
@@ -1841,10 +2322,12 @@ function App() {
 
   const [importFile, setImportFile] = useState(null);
   const [migrationPackageFile, setMigrationPackageFile] = useState(null);
+  const [tossFiles, setTossFiles] = useState([]);
   const [isDragOver, setIsDragOver] = useState(false);
   const txDateInputRef = useRef(null);
   const txAmountInputRef = useRef(null);
   const txQuickMemoInputRef = useRef(null);
+  const txMemoInputRef = useRef(null);
   const txQuickFormRef = useRef(null);
   const txQuickLastFocusedFieldRef = useRef(null);
   const txQuickFocusScrollTimersRef = useRef([]);
@@ -1853,6 +2336,8 @@ function App() {
   const transactionSupportDetailsRef = useRef(null);
   const transactionListHeadingRef = useRef(null);
   const transactionListCardRef = useRef(null);
+  const transactionStickyToolbarRef = useRef(null);
+  const transactionDesktopAddActionRef = useRef(null);
   const transactionFabRef = useRef(null);
   const transactionSheetScrollYRef = useRef(0);
   const holdingSheetScrollYRef = useRef(0);
@@ -1892,6 +2377,17 @@ function App() {
 
   function dismissMessage() {
     setMessage("");
+  }
+
+  function switchPublicAuthMode(nextMode) {
+    setAuthMode(nextMode);
+    setMessage("");
+    setAuthForm((prev) => ({
+      ...prev,
+      password: "",
+      password_confirm: "",
+      ...(nextMode === "login" ? { display_name: "" } : {}),
+    }));
   }
 
   useEffect(() => {
@@ -2021,89 +2517,26 @@ function App() {
         .sort((left, right) => Number(right.amount) - Number(left.amount)),
     }));
   }, [categoryById, sortedTransactions]);
-  const transactionQuickCategoryChips = useMemo(() => {
-    const flowType = String(txForm.flow_type || "expense").trim() || "expense";
-    const usageByCategoryId = new Map();
-    const toComparableTime = (item) => {
-      const explicitTime = Date.parse(String(item?.updated_at || item?.created_at || ""));
-      if (Number.isFinite(explicitTime)) {
-        return explicitTime;
-      }
-      const dateKey = normalizeIsoDateKey(item?.occurred_on, "");
-      const dateTime = Date.parse(dateKey);
-      return Number.isFinite(dateTime) ? dateTime : 0;
-    };
-
-    for (const item of transactionLedgerItems) {
-      if (String(item?.flow_type || "").trim() !== flowType) {
-        continue;
-      }
-      const categoryId = String(item?.category_id || "").trim();
-      const category = categoryById.get(categoryId);
-      if (!category || String(category.flow_type || "").trim() !== flowType) {
-        continue;
-      }
-      const occurredOn = normalizeIsoDateKey(item?.occurred_on, "");
-      const latestTime = toComparableTime(item);
-      const prev = usageByCategoryId.get(categoryId) || { category, count: 0, latestTime: 0, latestDate: "" };
-      prev.count += 1;
-      if (!prev.latestDate || (occurredOn && occurredOn > prev.latestDate)) {
-        prev.latestDate = occurredOn;
-        prev.latestTime = latestTime;
-      } else if (occurredOn && occurredOn === prev.latestDate) {
-        prev.latestTime = Math.max(prev.latestTime, latestTime);
-      } else if (!occurredOn) {
-        prev.latestTime = Math.max(prev.latestTime, latestTime);
-      }
-      usageByCategoryId.set(categoryId, prev);
-    }
-
-    const recentChips = Array.from(usageByCategoryId.entries())
-      .map(([id, info]) => ({
-        id,
-        label: toCategoryPairLabel(info.category),
-        count: info.count,
-        latestTime: info.latestTime,
-        latestDate: info.latestDate,
-      }))
-      .sort((left, right) => {
-        if (left.latestDate !== right.latestDate) {
-          return right.latestDate.localeCompare(left.latestDate);
-        }
-        if (left.latestTime !== right.latestTime) {
-          return right.latestTime - left.latestTime;
-        }
-        if (left.count !== right.count) {
-          return right.count - left.count;
-        }
-        const labelOrder = left.label.localeCompare(right.label, "ko");
-        return labelOrder || left.id.localeCompare(right.id);
-      });
-
-    if (recentChips.length > 0) {
-      return recentChips.slice(0, 6);
-    }
-
-    return [...categoryOptions]
-      .filter((category) => String(category?.id || "").trim())
-      .sort((left, right) => {
-        const leftOrder = Number(left?.display_order ?? left?.sort_order ?? 0);
-        const rightOrder = Number(right?.display_order ?? right?.sort_order ?? 0);
-        if (Number.isFinite(leftOrder) && Number.isFinite(rightOrder) && leftOrder !== rightOrder) {
-          return leftOrder - rightOrder;
-        }
-        const labelOrder = toCategoryPairLabel(left).localeCompare(toCategoryPairLabel(right), "ko");
-        return labelOrder || String(left?.id || "").localeCompare(String(right?.id || ""));
-      })
-      .slice(0, 6)
-      .map((category) => ({
-        id: String(category.id || ""),
-        label: toCategoryPairLabel(category),
-        count: 0,
-        latestTime: 0,
-        latestDate: "",
-      }));
-  }, [categoryById, categoryOptions, transactionLedgerItems, txForm.flow_type]);
+  const transactionQuickCategoryChips = useMemo(
+    () =>
+      buildTransactionCategoryQuickChips({
+        categoryOptions,
+        categoryById,
+        flowType: txForm.flow_type,
+        transactionItems: transactionLedgerItems,
+      }),
+    [categoryById, categoryOptions, transactionLedgerItems, txForm.flow_type]
+  );
+  const txInlineCategoryQuickChips = useMemo(
+    () =>
+      buildTransactionCategoryQuickChips({
+        categoryOptions: txInlineCategoryOptions,
+        categoryById,
+        flowType: txInlineEdit?.flow_type,
+        transactionItems: transactionLedgerItems,
+      }),
+    [categoryById, transactionLedgerItems, txInlineCategoryOptions, txInlineEdit?.flow_type]
+  );
   const selectedTransactionSummary = useMemo(() => {
     let count = 0;
     let amount = 0;
@@ -2138,6 +2571,40 @@ function App() {
       amount_max: "",
     });
   }
+
+  async function revealSavedTransactionInList(transaction, fallbackDate, options = {}) {
+    const savedId = String(transaction?.id || "").trim();
+    const savedDate = normalizeIsoDateKey(
+      transaction?.occurred_on || fallbackDate,
+      transactionHistoryTodayRef.current || transactionHistoryToday || todayIso()
+    );
+    const targetMonth = yearMonthFromIsoDate(savedDate, transactionHistoryTodayRef.current || transactionHistoryToday || todayIso());
+    const targetRange = yearMonthFullDateRange(targetMonth, transactionHistoryTodayRef.current || transactionHistoryToday || todayIso());
+
+    clearTxListFilter();
+    setRecentSavedTransactionIds(savedId ? new Set([savedId]) : new Set());
+    setRecentImportTransactionIds(new Set());
+    setRecentImportHoldingIds(new Set());
+    setFilterMode("month");
+    filterModeRef.current = "month";
+    yearMonthRef.current = targetMonth;
+    appliedYearMonthRef.current = targetMonth;
+    rangeRef.current = targetRange;
+    setMonthFilterPending(false);
+    setYearMonth(targetMonth);
+    setRange(targetRange);
+
+    await refreshData(false, token, { filterMode: "month", yearMonth: targetMonth });
+    if (transactionHistoryInitialized || tab === "transactions") {
+      await refreshTransactionHistoryAtAnchor(savedDate, {
+        alignToEnd: options.alignToEnd !== false,
+      });
+    }
+    if (savedId) {
+      scrollToDataRow("data-transaction-id", savedId);
+    }
+  }
+
   const transactionSortSummary = transactionHistoryInitialized
     ? "연속 내역순"
     : txSortDirection === "asc"
@@ -2165,6 +2632,43 @@ function App() {
     [holdingTypeOptions]
   );
   const holdingById = useMemo(() => new Map(holdings.map((item) => [item.id, item])), [holdings]);
+  useEffect(() => {
+    if (!pendingImportEditTransactionId || tab !== "transactions") {
+      return;
+    }
+    const item = transactionById.get(pendingImportEditTransactionId);
+    if (!item) {
+      return;
+    }
+    setTxInlineEdit({
+      id: item.id,
+      version: item.version,
+      occurred_on: item.occurred_on,
+      flow_type: item.flow_type,
+      amount: normalizeDecimalInputValue(item.amount),
+      category_id: item.category_id || "",
+      category_major: categoryById.get(String(item.category_id || ""))?.major || "",
+      memo: item.memo || "",
+      owner_user_id: item.owner_user_id || "",
+      owner_name: item.owner_name || "",
+    });
+    setExpandedTransactionRows((prev) => new Set(prev).add(item.id));
+    setPendingImportEditTransactionId("");
+    scrollToDataRow("data-transaction-id", item.id);
+  }, [categoryById, pendingImportEditTransactionId, tab, transactionById]);
+  useEffect(() => {
+    if (!pendingImportEditHoldingId || tab !== "holdings") {
+      return;
+    }
+    const row = holdingById.get(pendingImportEditHoldingId);
+    if (!row) {
+      return;
+    }
+    setHoldingInlineEdit(createHoldingInlineEditForm(row));
+    setExpandedHoldingRows((prev) => new Set(prev).add(row.id));
+    setPendingImportEditHoldingId("");
+    scrollToDataRow("data-holding-id", row.id);
+  }, [holdingById, pendingImportEditHoldingId, tab]);
   const holdingUpdatedAtById = useMemo(
     () => new Map(holdings.map((item) => [item.id, item.updated_at])),
     [holdings]
@@ -2418,6 +2922,37 @@ function App() {
       })
       .filter(Boolean);
   }, [householdMembers]);
+  const defaultOwnerRemapOption = useMemo(() => {
+    if (currentUserId) {
+      const currentUserOption = ownerMemberOptions.find((option) => option.value === currentUserId);
+      if (currentUserOption) {
+        return currentUserOption;
+      }
+    }
+    return ownerMemberOptions[0] || null;
+  }, [currentUserId, ownerMemberOptions]);
+  const legacyOwnerCleanupRows = useMemo(() => {
+    const groups = new Map();
+    const transactionSource = ownerCleanupTransactionsLoaded ? ownerCleanupTransactions : transactions;
+    const addItem = (kind, item) => {
+      const ownerName = normalizeOwnerName(item?.owner_name);
+      if (!isLegacyOwnerIdentity(item?.owner_user_id, ownerName)) {
+        return;
+      }
+      const key = ownerName.toLocaleLowerCase("ko-KR");
+      const group = groups.get(key) || {
+        key,
+        ownerName,
+        transactions: [],
+        holdings: [],
+      };
+      group[kind].push(item);
+      groups.set(key, group);
+    };
+    transactionSource.forEach((item) => addItem("transactions", item));
+    holdings.forEach((item) => addItem("holdings", item));
+    return [...groups.values()].sort((left, right) => left.ownerName.localeCompare(right.ownerName, "ko-KR"));
+  }, [holdings, ownerCleanupTransactions, ownerCleanupTransactionsLoaded, transactions]);
   const transactionQuickOwnerSuggestion = useMemo(() => {
     if (txQuickOwnerTouched) {
       return null;
@@ -2438,6 +2973,101 @@ function App() {
 
     return ownerMemberOptions.length === 1 ? ownerMemberOptions[0] : null;
   }, [currentUserId, ownerMemberOptions, txForm.owner_name, txForm.owner_user_id, txQuickOwnerTouched]);
+  const holdingOwnerSuggestion = useMemo(() => {
+    if (holdingOwnerTouched) {
+      return null;
+    }
+    if (holdingForm.owner_user_id || holdingForm.owner_name) {
+      return null;
+    }
+    if (ownerMemberOptions.length === 0) {
+      return null;
+    }
+
+    const currentOwnerOption = currentUserId
+      ? ownerMemberOptions.find((option) => option.value === currentUserId)
+      : null;
+    if (currentOwnerOption) {
+      return currentOwnerOption;
+    }
+
+    return ownerMemberOptions.length === 1 ? ownerMemberOptions[0] : null;
+  }, [currentUserId, holdingForm.owner_name, holdingForm.owner_user_id, holdingOwnerTouched, ownerMemberOptions]);
+  const transactionDraftHasContent = Boolean(
+    String(stripGrouping(txForm.amount) || "").trim() ||
+      String(txForm.memo || "").trim() ||
+      String(txForm.category_id || "").trim() ||
+      String(txCategoryMajor || "").trim() ||
+      String(txForm.flow_type || "expense") !== "expense" ||
+      String(txForm.occurred_on || "") !== String(transactionEntryContextDate()) ||
+      (txQuickOwnerTouched && (txForm.owner_user_id || txForm.owner_name))
+  );
+  const isTransactionEntryDraftDirty = txDraftTouched && transactionDraftHasContent;
+  const holdingDraftType =
+    holdingTypeByKey.get(normalizeHoldingTypeKey(holdingForm.type_key || holdingForm.asset_type || "")) ||
+    holdingTypeOptions[0] ||
+    DEFAULT_HOLDING_TYPES[0];
+  const holdingDraftDefault = createHoldingForm(
+    holdingDraftType?.asset_type || holdingForm.asset_type || "cash",
+    holdingDraftType?.key || holdingForm.type_key || "",
+    holdingDraftType?.label || ""
+  );
+  const holdingDraftHasContent = Boolean(
+    String(holdingForm.name || "").trim() ||
+      String(holdingForm.symbol || "").trim() ||
+      String(holdingForm.market_symbol || "").trim() ||
+      String(holdingForm.account_name || "").trim() ||
+      (holdingOwnerTouched && (holdingForm.owner_user_id || holdingForm.owner_name)) ||
+      String(holdingForm.category || "").trim() !== String(holdingDraftDefault.category || "").trim() ||
+      normalizeDecimalForCompare(holdingForm.quantity) !== normalizeDecimalForCompare(holdingDraftDefault.quantity) ||
+      normalizeDecimalForCompare(holdingForm.average_cost) !== normalizeDecimalForCompare(holdingDraftDefault.average_cost) ||
+      String(holdingForm.currency || "").trim().toUpperCase() !==
+        String(holdingDraftDefault.currency || "").trim().toUpperCase()
+  );
+  const isHoldingEntryDraftDirty = holdingDraftTouched && holdingDraftHasContent;
+  useEffect(() => {
+    setOwnerRemapTargets((prev) => {
+      const next = {};
+      let changed = Object.keys(prev).length !== legacyOwnerCleanupRows.length;
+      for (const row of legacyOwnerCleanupRows) {
+        const existing = String(prev[row.key] || "").trim();
+        const existingStillValid = ownerMemberOptions.some((option) => option.value === existing);
+        const nextValue = existingStillValid ? existing : defaultOwnerRemapOption?.value || "";
+        next[row.key] = nextValue;
+        if (prev[row.key] !== nextValue) {
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [defaultOwnerRemapOption?.value, legacyOwnerCleanupRows, ownerMemberOptions]);
+  useEffect(() => {
+    if (!token || !household?.id) {
+      setOwnerCleanupTransactions([]);
+      setOwnerCleanupTransactionsLoaded(false);
+      return undefined;
+    }
+    if (tab !== "import") {
+      return undefined;
+    }
+    let active = true;
+    api(`${API_PREFIX}/transactions?limit=3000`, {}, token)
+      .then((rows) => {
+        if (!active) {
+          return;
+        }
+        setOwnerCleanupTransactions(Array.isArray(rows) ? rows : []);
+        setOwnerCleanupTransactionsLoaded(true);
+      })
+      .catch(() => {
+        if (active) {
+          setOwnerCleanupTransactionsLoaded(false);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [household?.id, tab, token]);
   const categoryGroups = useMemo(() => {
     const flows = new Map();
     for (const category of categories) {
@@ -2528,10 +3158,56 @@ function App() {
     () => (importReport?.issues || []).slice(0, IMPORT_ISSUE_PREVIEW_LIMIT),
     [importReport]
   );
+  const importReportRows = useMemo(() => normalizeImportReportRows(importReport), [importReport]);
+  const importAppliedTransactionRefs = useMemo(
+    () => normalizeImportAppliedTransactionRefs(importReport),
+    [importReport]
+  );
+  const importAppliedHoldingRefs = useMemo(
+    () => normalizeImportAppliedHoldingRefs(importReport),
+    [importReport]
+  );
+  const hasImportPostApplyTargets = importAppliedTransactionRefs.length > 0 || importAppliedHoldingRefs.length > 0;
+  const importReportSeverityOptions = useMemo(
+    () =>
+      Array.from(new Set(importReportRows.map((row) => row.severity)))
+        .filter(Boolean)
+        .map((severity) => ({ value: severity, label: formatImportReportSeverity(severity) })),
+    [importReportRows]
+  );
+  const importReportTypeOptions = useMemo(
+    () =>
+      Array.from(new Map(importReportRows.map((row) => [row.type, row.typeLabel])).entries())
+        .map(([value, label]) => ({ value, label }))
+        .sort((left, right) => left.label.localeCompare(right.label, "ko")),
+    [importReportRows]
+  );
+  const importReportVisibleRows = useMemo(() => {
+    const query = importReportSearch.trim().toLowerCase();
+    const filteredRows = importReportRows.filter((row) => {
+      const matchesSearch = !query || row.searchText.includes(query);
+      const matchesSeverity = importReportSeverityFilter === "all" || row.severity === importReportSeverityFilter;
+      const matchesType = importReportTypeFilter === "all" || row.type === importReportTypeFilter;
+      return matchesSearch && matchesSeverity && matchesType;
+    });
+    return sortImportReportRows(filteredRows, importReportSort);
+  }, [importReportRows, importReportSearch, importReportSeverityFilter, importReportSort, importReportTypeFilter]);
+  const importReportCsv = useMemo(() => formatImportReportCsv(importReportVisibleRows), [importReportVisibleRows]);
   const migrationIssuePreview = useMemo(
     () => (migrationReport?.issues || []).slice(0, IMPORT_ISSUE_PREVIEW_LIMIT),
     [migrationReport]
   );
+  const tossRows = tossPreview?.rows || [];
+  const tossExcludedCandidates = tossPreview?.excluded_candidates || [];
+  const tossIncludedCount = tossRows.filter((row) => row.included).length;
+  const tossDuplicateCount = tossRows.filter((row) => row.duplicate_group_id).length;
+
+  useEffect(() => {
+    setImportReportSearch("");
+    setImportReportSeverityFilter("all");
+    setImportReportTypeFilter("all");
+    setImportReportSort("row_asc");
+  }, [importReport]);
 
   useEffect(() => {
     setProfileForm(createProfileForm(user));
@@ -2608,6 +3284,12 @@ function App() {
     tabRef.current = tab;
   }, [tab]);
 
+  function setMonthFilterPending(nextValue) {
+    const normalized = Boolean(nextValue);
+    isMonthFilterPendingRef.current = normalized;
+    setIsMonthFilterPending(normalized);
+  }
+
   useEffect(() => {
     transactionHistoryInitializedRef.current = transactionHistoryInitialized;
   }, [transactionHistoryInitialized]);
@@ -2661,20 +3343,19 @@ function App() {
   }, [household?.id, tab, token, transactionHistoryInitialized]);
 
   useEffect(() => {
-    const nextDefaultDate = normalizeIsoDateKey(transactionHistoryToday, todayIso());
+    const nextDefaultDate = transactionEntryContextDate();
     setTxForm((prev) => {
-      const localToday = todayIso();
-      const stillDefaultDraft =
+      const pristineDefaultDraft =
+        !txDraftTouched &&
         !prev.amount &&
         !prev.memo &&
-        !prev.category_id &&
-        (!prev.occurred_on || prev.occurred_on === localToday);
-      if (!stillDefaultDraft || prev.occurred_on === nextDefaultDate) {
+        !prev.category_id;
+      if (!pristineDefaultDraft || prev.occurred_on === nextDefaultDate) {
         return prev;
       }
       return { ...prev, occurred_on: nextDefaultDate };
     });
-  }, [transactionHistoryToday]);
+  }, [transactionEntryContextDate, txDraftTouched]);
 
   useEffect(() => {
     if (!token || !household?.id || tab !== "transactions" || !transactionHistoryInitialized) {
@@ -2775,6 +3456,38 @@ function App() {
   }, [isCompactViewport, showTransactionForm, txEntrySheetStep]);
 
   useEffect(() => {
+    if (!txRepeatFocusRequest || loading || !showTransactionForm || txEntrySheetStep !== "form") {
+      return undefined;
+    }
+
+    let cancelled = false;
+    let timeoutId = 0;
+    let frameId = requestAnimationFrame(() => {
+      timeoutId = window.setTimeout(() => {
+        if (cancelled) {
+          return;
+        }
+        const amountInput = txAmountInputRef.current;
+        if (!amountInput || amountInput.disabled) {
+          return;
+        }
+        txQuickLastFocusedFieldRef.current = amountInput;
+        amountInput.focus?.({ preventScroll: false });
+        amountInput.select?.();
+        if (document.activeElement === amountInput) {
+          setShowTransactionQuickResume(false);
+        }
+      }, 0);
+    });
+
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(frameId);
+      window.clearTimeout(timeoutId);
+    };
+  }, [loading, showTransactionForm, txEntrySheetStep, txRepeatFocusRequest]);
+
+  useEffect(() => {
     if (!isCompactViewport || !showTransactionForm || txEntrySheetStep !== "form") {
       return undefined;
     }
@@ -2828,7 +3541,6 @@ function App() {
 
   useEffect(() => {
     if (
-      !isCompactViewport ||
       !showTransactionForm ||
       txEntrySheetStep !== "form" ||
       txQuickOwnerTouched ||
@@ -2850,13 +3562,41 @@ function App() {
       };
     });
   }, [
-    isCompactViewport,
     showTransactionForm,
     transactionQuickOwnerSuggestion,
     txEntrySheetStep,
     txForm.owner_name,
     txForm.owner_user_id,
     txQuickOwnerTouched,
+  ]);
+
+  useEffect(() => {
+    if (
+      !showHoldingForm ||
+      holdingOwnerTouched ||
+      !holdingOwnerSuggestion ||
+      holdingForm.owner_user_id ||
+      holdingForm.owner_name
+    ) {
+      return;
+    }
+
+    setHoldingForm((prev) => {
+      if (prev.owner_user_id || prev.owner_name) {
+        return prev;
+      }
+      return {
+        ...prev,
+        owner_user_id: holdingOwnerSuggestion.value,
+        owner_name: holdingOwnerSuggestion.displayName || "",
+      };
+    });
+  }, [
+    holdingForm.owner_name,
+    holdingForm.owner_user_id,
+    holdingOwnerSuggestion,
+    holdingOwnerTouched,
+    showHoldingForm,
   ]);
 
   useEffect(() => {
@@ -2892,6 +3632,62 @@ function App() {
       mediaQuery.removeListener(syncViewportMode);
     };
   }, []);
+
+  useLayoutEffect(() => {
+    if (typeof window === "undefined" || tab !== "transactions") {
+      return undefined;
+    }
+
+    const listCard = transactionListCardRef.current;
+    const toolbar = transactionStickyToolbarRef.current;
+    if (!listCard || !toolbar) {
+      return undefined;
+    }
+
+    let frameId = 0;
+    const applyStickyGeometry = () => {
+      const toolbarHeight = Math.ceil(toolbar.getBoundingClientRect().height);
+      if (!Number.isFinite(toolbarHeight) || toolbarHeight <= 0) {
+        return;
+      }
+      listCard.style.setProperty("--transaction-toolbar-sticky-height", `${toolbarHeight}px`);
+      listCard.style.setProperty("--surface-heading-sticky-height", `${toolbarHeight + 4}px`);
+    };
+    const scheduleStickyGeometry = () => {
+      if (frameId) {
+        window.cancelAnimationFrame(frameId);
+      }
+      frameId = window.requestAnimationFrame(() => {
+        frameId = 0;
+        applyStickyGeometry();
+      });
+    };
+
+    applyStickyGeometry();
+
+    const resizeObserver =
+      typeof window.ResizeObserver === "function" ? new window.ResizeObserver(scheduleStickyGeometry) : null;
+    resizeObserver?.observe(toolbar);
+    window.addEventListener("resize", scheduleStickyGeometry);
+
+    return () => {
+      if (frameId) {
+        window.cancelAnimationFrame(frameId);
+      }
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", scheduleStickyGeometry);
+    };
+  }, [
+    tab,
+    showTransactionFilterPanel,
+    selectedTransactionSummary.count,
+    selectedTransactionSummary.amount,
+    transactionHistoryInitialized,
+    transactionHistoryAnchorDate,
+    transactionHistoryToday,
+    transactionSortSummary,
+    isTransactionFilterActive,
+  ]);
 
   useEffect(() => {
     if (!isCompactViewport || tab !== "transactions") {
@@ -2951,7 +3747,17 @@ function App() {
     setShowTransactionForm(true);
   }
 
-  const closeTransactionEntrySheet = useCallback(() => {
+  const closeTransactionEntrySheet = useCallback(async ({ skipDraftGuard = false } = {}) => {
+    if (!skipDraftGuard && txEntrySheetStep === "form" && isTransactionEntryDraftDirty) {
+      const confirmed = await requestConfirmDialog({
+        title: "거래 입력을 닫을까요?",
+        action: "작성 중인 거래 초안은 보존됩니다. 닫으면 목록으로 돌아가고 다시 열어 이어서 입력할 수 있습니다.",
+        confirmLabel: "입력 닫기",
+      });
+      if (!confirmed) {
+        return false;
+      }
+    }
     const restoreScrollY = transactionSheetScrollYRef.current;
     setShowTransactionForm(false);
     setTxEntrySheetStep("form");
@@ -2959,9 +3765,11 @@ function App() {
     clearTransactionQuickFocusScrollTimers();
     window.setTimeout(() => {
       window.scrollTo({ top: restoreScrollY, behavior: "auto" });
-      transactionFabRef.current?.focus?.({ preventScroll: true });
+      const trigger = isCompactViewport ? transactionFabRef.current : transactionDesktopAddActionRef.current ?? transactionFabRef.current;
+      trigger?.focus?.({ preventScroll: true });
     }, 0);
-  }, [clearTransactionQuickFocusScrollTimers]);
+    return true;
+  }, [clearTransactionQuickFocusScrollTimers, isCompactViewport, isTransactionEntryDraftDirty, requestConfirmDialog, txEntrySheetStep]);
 
   useEffect(() => {
     if (!showTransactionForm) {
@@ -2979,8 +3787,10 @@ function App() {
   }, [showTransactionForm, closeTransactionEntrySheet]);
 
   function resetTransactionDraft() {
-    setTxForm(createTransactionForm(normalizeIsoDateKey(transactionHistoryToday, todayIso())));
+    setTxForm(createTransactionForm(transactionEntryContextDate()));
     setTxCategoryMajor("");
+    setTxCategoryRestore(null);
+    setTxDraftTouched(false);
     setShowTransactionQuickResume(false);
     setTxQuickOwnerTouched(false);
     if (isCompactViewport && showTransactionForm) {
@@ -2998,6 +3808,10 @@ function App() {
     });
   }
 
+  function focusTransactionAmountForRepeatEntry() {
+    setTxRepeatFocusRequest((current) => current + 1);
+  }
+
   function isTransactionQuickRestorableField(element) {
     const quickForm = txQuickFormRef.current;
     return Boolean(
@@ -3009,17 +3823,18 @@ function App() {
     );
   }
 
-  function keepTransactionQuickFieldVisible(element) {
+  function keepTransactionQuickFieldVisible(element, options = {}) {
     if (!isTransactionQuickRestorableField(element) || typeof window === "undefined") {
       return;
     }
+    const behavior = options.behavior || "smooth";
     clearTransactionQuickFocusScrollTimers();
     const run = () => {
       if (!isTransactionQuickRestorableField(element)) {
         return;
       }
       element.scrollIntoView?.({
-        behavior: "smooth",
+        behavior,
         block: "center",
         inline: "nearest",
       });
@@ -3035,9 +3850,9 @@ function App() {
       const lowerGuard = visibleBottom - Math.max(96, Math.round(window.innerHeight * 0.18));
       const upperGuard = visibleTop + 72;
       if (rect.bottom > lowerGuard) {
-        sheet.scrollBy?.({ top: rect.bottom - lowerGuard + 18, behavior: "smooth" });
+        sheet.scrollBy?.({ top: rect.bottom - lowerGuard + 18, behavior });
       } else if (rect.top < upperGuard) {
-        sheet.scrollBy?.({ top: rect.top - upperGuard - 18, behavior: "smooth" });
+        sheet.scrollBy?.({ top: rect.top - upperGuard - 18, behavior });
       }
     };
 
@@ -3056,6 +3871,18 @@ function App() {
     keepTransactionQuickFieldVisible(element);
   }
 
+  function handleTransactionQuickDetailsToggle(event) {
+    const details = event.currentTarget;
+    if (!details?.open) {
+      return;
+    }
+    const firstField = details.querySelector(MOBILE_FORM_FIELD_SELECTOR);
+    if (firstField instanceof HTMLElement) {
+      rememberTransactionQuickField(firstField);
+      keepTransactionQuickFieldVisible(firstField, { behavior: "auto" });
+    }
+  }
+
   function rememberActiveTransactionQuickField() {
     rememberTransactionQuickField(document.activeElement);
   }
@@ -3065,7 +3892,7 @@ function App() {
     if (!quickForm) {
       return [];
     }
-    return Array.from(quickForm.querySelectorAll(MOBILE_FORM_FIELD_SELECTOR)).filter(isFocusableFormField);
+    return Array.from(quickForm.querySelectorAll(MOBILE_FORM_FIELD_SELECTOR)).filter(isSequentialEnterField);
   }
 
   function getTransactionQuickFocusTarget() {
@@ -3165,12 +3992,124 @@ function App() {
     txQuickFormRef.current?.requestSubmit?.();
   }
 
-  function selectTransactionQuickCategory(categoryId) {
+  function applyTransactionCategory(categoryId, categoryOverride = null) {
     const normalizedCategoryId = String(categoryId || "").trim();
-    const category = categoryById.get(normalizedCategoryId);
+    const category = categoryOverride || categoryById.get(normalizedCategoryId);
+    setTxDraftTouched(true);
     setTxForm((prev) => ({ ...prev, category_id: normalizedCategoryId }));
     setTxCategoryMajor(category ? String(category.major || "") : "");
+    setTxCategoryRestore(null);
+  }
+
+  function selectTransactionQuickCategory(categoryId) {
+    applyTransactionCategory(categoryId);
     restoreTransactionQuickFocus();
+  }
+
+  function changeTransactionFlowType(nextFlowType) {
+    const normalizedFlowType = normalizeCategoryFlowType(nextFlowType);
+    if (normalizedFlowType === txForm.flow_type) {
+      return;
+    }
+    setTxDraftTouched(true);
+    const selectedCategory = categoryById.get(String(txForm.category_id || ""));
+    const compatibleCategory = findCompatibleCategoryForFlow(categories, selectedCategory, normalizedFlowType);
+    setTxForm((prev) => ({
+      ...prev,
+      flow_type: normalizedFlowType,
+      category_id: compatibleCategory ? String(compatibleCategory.id || "") : "",
+    }));
+    setTxCategoryMajor(compatibleCategory ? String(compatibleCategory.major || "") : "");
+    if (compatibleCategory) {
+      setTxCategoryRestore(null);
+      setMessage(
+        uiGuideMessage(
+          "유형에 맞는 카테고리를 유지했습니다.",
+          `${toCategoryPairLabel(compatibleCategory)} 카테고리로 이어서 입력합니다.`
+        )
+      );
+      return;
+    }
+    const restoreSnapshot = buildCategoryRestoreSnapshot(selectedCategory);
+    setTxCategoryRestore(restoreSnapshot);
+    if (restoreSnapshot) {
+      setMessage(
+        uiGuideMessage(
+          "카테고리 선택을 비웠습니다.",
+          "선택한 유형에 같은 카테고리가 없어 필요하면 이전 카테고리를 복구하세요."
+        )
+      );
+    }
+  }
+
+  function restoreTransactionCategorySelection() {
+    if (!txCategoryRestore) {
+      return;
+    }
+    setTxDraftTouched(true);
+    setTxForm((prev) => ({
+      ...prev,
+      flow_type: txCategoryRestore.flow_type,
+      category_id: txCategoryRestore.category_id,
+    }));
+    setTxCategoryMajor(txCategoryRestore.category_major);
+    setTxCategoryRestore(null);
+    setMessage(
+      uiGuideMessage(
+        "이전 카테고리를 복구했습니다.",
+        `${FLOW_TYPE_LABELS[txCategoryRestore.flow_type] || txCategoryRestore.flow_type} · ${txCategoryRestore.label}`
+      )
+    );
+  }
+
+  function renderTransactionCategoryRestoreNotice() {
+    if (!txCategoryRestore) {
+      return null;
+    }
+    return (
+      <div className="tx-category-restore-notice" data-testid="transaction-category-restore-notice" role="status">
+        <span>
+          <strong>카테고리 선택을 비웠습니다.</strong>
+          <small>이전 선택: {txCategoryRestore.label}</small>
+        </span>
+        <button
+          type="button"
+          className="secondary"
+          data-testid="transaction-category-restore-button"
+          onClick={restoreTransactionCategorySelection}
+        >
+          이전 카테고리 복구
+        </button>
+      </div>
+    );
+  }
+
+  function focusTransactionAfterCategoryCreate() {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.setTimeout(() => {
+      const hasAmount = String(txForm.amount || "").trim();
+      const target = isCompactViewport
+        ? txQuickMemoInputRef.current || txAmountInputRef.current
+        : hasAmount
+          ? txMemoInputRef.current || txAmountInputRef.current
+          : txAmountInputRef.current || txMemoInputRef.current;
+      target?.focus?.({ preventScroll: false });
+    }, 0);
+  }
+
+  function focusTxInlineAfterCategoryCreate() {
+    if (typeof window === "undefined" || typeof document === "undefined") {
+      return;
+    }
+    window.setTimeout(() => {
+      const editorRow = document.querySelector("tr.transaction-inline-editor-row");
+      const target =
+        editorRow?.querySelector('input[aria-label="메모"]') ||
+        editorRow?.querySelector('input[aria-label="금액"]');
+      target?.focus?.({ preventScroll: false });
+    }, 0);
   }
 
   function openHoldingEntrySheet() {
@@ -3183,14 +4122,25 @@ function App() {
     setShowHoldingForm(true);
   }
 
-  function closeHoldingEntrySheet() {
+  async function closeHoldingEntrySheet({ skipDraftGuard = false } = {}) {
+    if (!skipDraftGuard && isHoldingEntryDraftDirty) {
+      const confirmed = await requestConfirmDialog({
+        title: "자산 입력을 닫을까요?",
+        action: "작성 중인 자산 초안은 보존됩니다. 닫으면 목록으로 돌아가고 다시 열어 이어서 입력할 수 있습니다.",
+        confirmLabel: "입력 닫기",
+      });
+      if (!confirmed) {
+        return false;
+      }
+    }
     setShowHoldingForm(false);
     if (!isCompactViewport || typeof window === "undefined") {
-      return;
+      return true;
     }
     window.setTimeout(() => {
       window.scrollTo({ top: holdingSheetScrollYRef.current, behavior: "auto" });
     }, 0);
+    return true;
   }
 
   function scrollToHoldingSummary() {
@@ -3200,11 +4150,51 @@ function App() {
     }
     summaryCard.open = true;
     setHoldingSummaryOpen(true);
-    const targetTop = window.scrollY + summaryCard.getBoundingClientRect().top - 96;
+    scrollHoldingSummaryIntoViewport(summaryCard);
+  }
+
+  function scrollHoldingSummaryIntoViewport(summaryCard) {
+    if (!summaryCard || typeof window === "undefined") {
+      return;
+    }
+    const targetTop = window.scrollY + summaryCard.getBoundingClientRect().top - HOLDING_SUMMARY_SCROLL_OFFSET_PX;
     window.scrollTo({
       top: Math.max(targetTop, 0),
       behavior: "auto",
     });
+  }
+
+  function isCurrentCompactViewport() {
+    return typeof window !== "undefined" && window.innerWidth <= MOBILE_BREAKPOINT_PX;
+  }
+
+  function keepHoldingSummaryOpenContentVisible(summaryCard) {
+    if (!isCurrentCompactViewport() || !summaryCard?.open || typeof window === "undefined") {
+      return;
+    }
+    const alignSummary = () => {
+      if (summaryCard.isConnected && summaryCard.open) {
+        scrollHoldingSummaryIntoViewport(summaryCard);
+      }
+    };
+    alignSummary();
+    window.requestAnimationFrame(alignSummary);
+    window.setTimeout(alignSummary, 120);
+  }
+
+  function handleHoldingSummaryToggle(event) {
+    const summaryCard = event.currentTarget;
+    setHoldingSummaryOpen(summaryCard.open);
+    if (summaryCard.open) {
+      keepHoldingSummaryOpenContentVisible(summaryCard);
+    }
+  }
+
+  function handleHoldingSummarySummaryClick(event) {
+    const summaryCard = event.currentTarget.parentElement;
+    if (isCurrentCompactViewport() && summaryCard && !summaryCard.open) {
+      scrollHoldingSummaryIntoViewport(summaryCard);
+    }
   }
 
   function toggleTransactionCategoryManager(forceOpen) {
@@ -3232,6 +4222,30 @@ function App() {
         next.add(transactionId);
       }
       return next;
+    });
+  }
+
+  function selectTransactionRows(transactionIds) {
+    setTransactionRowsSelected(transactionIds, true);
+  }
+
+  function setTransactionRowsSelected(transactionIds, selected) {
+    setSelectedTransactionIds((prev) => {
+      const next = new Set(prev);
+      let changed = false;
+      for (const transactionId of transactionIds) {
+        if (!transactionId) {
+          continue;
+        }
+        if (selected && !next.has(transactionId)) {
+          next.add(transactionId);
+          changed = true;
+        } else if (!selected && next.has(transactionId)) {
+          next.delete(transactionId);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
     });
   }
 
@@ -3376,22 +4390,6 @@ function App() {
     if (resolve) {
       resolve(confirmed);
     }
-  }
-
-  function requestConfirmDialog({ title, action, confirmLabel = "확인" }) {
-    if (confirmResolveRef.current) {
-      confirmResolveRef.current(false);
-      confirmResolveRef.current = null;
-    }
-    return new Promise((resolve) => {
-      confirmResolveRef.current = resolve;
-      setConfirmDialog({
-        open: true,
-        title,
-        action,
-        confirmLabel,
-      });
-    });
   }
 
   async function handleHouseholdInviteAccepted(acceptedPayload, nextToken = token) {
@@ -3596,6 +4594,7 @@ function App() {
       return;
     }
     setTxCategoryMajor("");
+    setTxCategoryRestore(null);
     setTxForm((prev) => ({ ...prev, category_id: "" }));
     closeTxInlineEdit();
     setHoldingInlineEdit(null);
@@ -3619,6 +4618,11 @@ function App() {
     setRecentInviteIds([]);
     receivedInviteIdsRef.current = new Set();
     setImportReport(null);
+    setRecentImportTransactionIds(new Set());
+    setRecentSavedTransactionIds(new Set());
+    setRecentImportHoldingIds(new Set());
+    setPendingImportEditTransactionId("");
+    setPendingImportEditHoldingId("");
     setMigrationReport(null);
     setMigrationPackageFile(null);
     setMigrationLoadingMode("");
@@ -3638,6 +4642,9 @@ function App() {
         setMessage("");
       }
       if (verifyToken) {
+        activeDeepLinkFlowRef.current = { type: "verify", token: verifyToken };
+        setInviteAcceptToken("");
+        setInviteAcceptanceNotice(null);
         setAuthMode("verify");
         setVerifyForm((prev) => ({
           ...prev,
@@ -3652,9 +4659,19 @@ function App() {
         verifyEmailTokenFromLink(verifyToken).catch(() => undefined);
         params.delete("verify_token");
         hashParams.delete("verify_token");
-      }
-      if (inviteToken) {
+        hashParams.delete("invite_token");
+      } else if (inviteToken) {
+        activeDeepLinkFlowRef.current = { type: "invite", token: inviteToken };
+        autoVerifyTokenRef.current = "";
+        setLoading(false);
+        setAuthMode("login");
+        setVerifyForm((prev) => ({
+          ...createVerifyForm(),
+          email: prev.email || getSavedEmail() || "",
+        }));
+        setVerificationMeta(createVerificationMeta());
         setInviteAcceptToken(inviteToken);
+        hashParams.delete("verify_token");
         hashParams.delete("invite_token");
       }
       if (hadLegacyQueryTokens) {
@@ -3819,7 +4836,7 @@ function App() {
     const activeElement = document.activeElement;
     const isEditingMonthStepper =
       activeElement instanceof HTMLElement && activeElement.closest(".transaction-list-card .month-stepper");
-    if (isEditingMonthStepper && Math.abs(currentScrollY - transactionHistoryMonthSyncScrollYRef.current) <= 2) {
+    if (isEditingMonthStepper || isMonthFilterPendingRef.current) {
       return;
     }
     const visibleDateKey = findVisibleTransactionHistoryDateKey();
@@ -3842,6 +4859,8 @@ function App() {
     }
     const nextYearMonth = { ...visibleYearMonth };
     yearMonthRef.current = nextYearMonth;
+    appliedYearMonthRef.current = nextYearMonth;
+    setMonthFilterPending(false);
     setYearMonth(nextYearMonth);
   }
 
@@ -3864,6 +4883,7 @@ function App() {
       [
         "header.topbar",
         ".transaction-list-card > .transaction-sticky-toolbar",
+        ".transactions-desktop-ledger-head",
         ".transactions-mobile-ledger-head",
       ].reduce((bottom, selector) => {
         const box = document.querySelector(selector)?.getBoundingClientRect();
@@ -4088,6 +5108,7 @@ function App() {
     return loadTransactionHistoryPage({
       direction: "initial",
       anchorDate: normalizeIsoDateKey(anchorDate, transactionHistoryToday || todayIso()),
+      preserveScroll: Boolean(options.preserveScroll),
       alignToEnd: options.alignToEnd !== false,
       silent: options.silent,
       nextToken: options.nextToken,
@@ -4148,6 +5169,13 @@ function App() {
     return api(`${API_PREFIX}/prices/status`, {}, nextToken)
       .then((data) => ({ ok: true, data }))
       .catch((error) => ({ ok: false, error }));
+  }
+
+  async function loadOwnerCleanupTransactions(nextToken = token) {
+    const rows = await api(`${API_PREFIX}/transactions?limit=3000`, {}, nextToken);
+    setOwnerCleanupTransactions(Array.isArray(rows) ? rows : []);
+    setOwnerCleanupTransactionsLoaded(true);
+    return rows;
   }
 
   async function refreshData(REFRESH_PRICES = false, nextToken = token, filterOverride = null, options = {}) {
@@ -4260,12 +5288,10 @@ function App() {
           }
         }
       }
-      if (includeTransactions && tabRef.current !== "transactions" && transactionHistoryInitializedRef.current) {
+      if (includeTransactions && transactionHistoryInitializedRef.current) {
         const historyAnchor =
           transactionHistoryAnchorDateRef.current || transactionHistoryTodayRef.current || todayIso();
-        await loadTransactionHistoryPage({
-          direction: "initial",
-          anchorDate: historyAnchor,
+        await refreshTransactionHistoryAtAnchor(historyAnchor, {
           preserveScroll: tabRef.current === "transactions",
           alignToEnd: false,
           silent: true,
@@ -4315,7 +5341,10 @@ function App() {
       }
     }
     setFilterMode("month");
+    filterModeRef.current = "month";
     yearMonthRef.current = normalized;
+    appliedYearMonthRef.current = normalized;
+    setMonthFilterPending(false);
     setYearMonth(normalized);
     if (tab === "transactions" || transactionHistoryInitialized) {
       refreshTransactionHistoryAtAnchor(yearMonthEndDateKey(normalized, transactionHistoryToday || todayIso()), {
@@ -4333,11 +5362,10 @@ function App() {
   function updateYearMonthInput(part, value) {
     const numericValue = Number(value);
     const safeValue = Number.isFinite(numericValue) ? numericValue : 0;
-    setYearMonth((prev) => {
-      const next = { ...prev, [part]: safeValue };
-      yearMonthRef.current = next;
-      return next;
-    });
+    const next = { ...yearMonthRef.current, [part]: safeValue };
+    yearMonthRef.current = next;
+    setYearMonth(next);
+    setMonthFilterPending(compareYearMonth(next, appliedYearMonthRef.current) !== 0);
   }
 
   function handleApplyYearMonth() {
@@ -4355,6 +5383,9 @@ function App() {
 
   function applyRangeFilter(nextRange = range) {
     setFilterMode("range");
+    filterModeRef.current = "range";
+    rangeRef.current = nextRange;
+    setMonthFilterPending(false);
     setRange(nextRange);
     if (!nextRange.start || !nextRange.end) {
       return;
@@ -4370,6 +5401,26 @@ function App() {
 
   function handleRangeInputChange(field, value) {
     applyRangeFilter({ ...range, [field]: value });
+  }
+
+  function handleSwitchToRangeFilter() {
+    const nextRange = filterModeRef.current === "month"
+      ? yearMonthFullDateRange(yearMonthRef.current, transactionHistoryTodayRef.current || todayIso())
+      : rangeRef.current;
+    applyRangeFilter(nextRange);
+  }
+
+  function handleRangePreset(preset) {
+    if (preset === "current_month") {
+      const nextMonth = currentMonth();
+      yearMonthRef.current = nextMonth;
+      setYearMonth(nextMonth);
+      applyRangeFilter(yearMonthFullDateRange(nextMonth, transactionHistoryTodayRef.current || todayIso()));
+      return;
+    }
+    if (preset === "recent_30") {
+      applyRangeFilter(recentDateRange(30, transactionHistoryTodayRef.current || todayIso()));
+    }
   }
 
   function handleYearMonthInputKeyDown(event) {
@@ -4418,6 +5469,8 @@ function App() {
     if (!tokenText || autoVerifyTokenRef.current === tokenText) {
       return;
     }
+    const isCurrentVerifyDeepLink = () =>
+      activeDeepLinkFlowRef.current.type === "verify" && activeDeepLinkFlowRef.current.token === tokenText;
     autoVerifyTokenRef.current = tokenText;
     setLoading(true);
     setMessage("인증 링크를 확인하고 있습니다...");
@@ -4430,11 +5483,17 @@ function App() {
           remember_me: keepSignedIn,
         }),
       });
+      if (!isCurrentVerifyDeepLink()) {
+        return;
+      }
       await finishAuthFlow(
         payload,
         uiGuideMessage("회원가입이 완료되었습니다.", "Money Flow Service로 바로 이동했습니다.")
       );
     } catch (error) {
+      if (!isCurrentVerifyDeepLink()) {
+        return;
+      }
       autoVerifyTokenRef.current = "";
       setAuthMode("verify");
       if (isRegistrationPasswordSetupRequired(error)) {
@@ -4452,7 +5511,9 @@ function App() {
       }
       setMessage(formatAuthError(error, "verify"));
     } finally {
-      setLoading(false);
+      if (isCurrentVerifyDeepLink()) {
+        setLoading(false);
+      }
     }
   }
 
@@ -4486,6 +5547,35 @@ function App() {
         : `${label}은 ${min}보다 크게 입력해 주세요.`;
     }
     return "";
+  }
+
+  function validateTransactionAmountInput(value) {
+    const decimalMessage = validateDecimalInput(value, "금액");
+    if (decimalMessage) {
+      return decimalMessage;
+    }
+    return hasDecimalSeparatorInput(value) ? KRW_TRANSACTION_INTEGER_AMOUNT_MESSAGE : "";
+  }
+
+  function handleTransactionAmountInput(event, setForm, field = "amount") {
+    const rawValue = String(event.currentTarget.value || "");
+    handleGroupedDecimalInput(event, setForm, field);
+    setMessage((prev) => {
+      if (hasDecimalSeparatorInput(rawValue)) {
+        return KRW_TRANSACTION_INTEGER_AMOUNT_MESSAGE;
+      }
+      return prev === KRW_TRANSACTION_INTEGER_AMOUNT_MESSAGE ? "" : prev;
+    });
+  }
+
+  function handleTransactionEntryAmountInput(event) {
+    setTxDraftTouched(true);
+    handleTransactionAmountInput(event, setTxForm);
+  }
+
+  function handleHoldingEntryDecimalInput(event, field) {
+    setHoldingDraftTouched(true);
+    handleGroupedDecimalInput(event, setHoldingForm, field);
   }
 
   function validateLoginForm(form) {
@@ -4525,7 +5615,7 @@ function App() {
   }
 
   function validateInviteForm(form) {
-    return validateAuthEmail(form.email, "초대 이메일");
+    return validateAuthEmail(form.email, "초대할 이메일");
   }
 
   function validateTransactionForm(form) {
@@ -4533,7 +5623,7 @@ function App() {
     if (dateMessage) {
       return dateMessage;
     }
-    return validateDecimalInput(form.amount, "금액");
+    return validateTransactionAmountInput(form.amount);
   }
 
   function validateCategoryDraftForm() {
@@ -4541,6 +5631,16 @@ function App() {
       return "새 대분류를 입력해 주세요.";
     }
     if (categoryDraftMinorSelect === "__custom__" && !String(categoryDraft.minor || "").trim()) {
+      return "첫 중분류를 입력해 주세요.";
+    }
+    return "";
+  }
+
+  function validateInlineCategoryCreateDraft(draft) {
+    if (!String(draft?.major || "").trim()) {
+      return "새 대분류를 입력해 주세요.";
+    }
+    if (!String(draft?.minor || "").trim()) {
       return "첫 중분류를 입력해 주세요.";
     }
     return "";
@@ -4811,11 +5911,15 @@ function App() {
   }
 
   async function resendVerification() {
+    const email = String(verifyForm.email || authForm.email || "").trim();
+    if (!email) {
+      setMessage(uiGuideMessage("이메일을 입력해 주세요.", "인증 메일을 받을 이메일 주소를 입력한 뒤 재전송해 주세요."));
+      return;
+    }
     setLoading(true);
     setMessage("");
     try {
       await loadClientConfig();
-      const email = String(verifyForm.email || authForm.email || "").trim();
       const payload = await api(`${API_PREFIX}/auth/resend-verification`, {
         method: "POST",
         body: JSON.stringify({ email }),
@@ -4916,9 +6020,14 @@ function App() {
     event.preventDefault();
     const validationMessage = validateInviteForm(inviteForm);
     if (validationMessage) {
+      setInviteFormErrors({ email: validationMessage });
+      inviteEmailInputRef.current?.setCustomValidity?.(validationMessage);
+      inviteEmailInputRef.current?.focus({ preventScroll: true });
       setMessage(validationMessage);
       return;
     }
+    setInviteFormErrors({ email: "" });
+    inviteEmailInputRef.current?.setCustomValidity?.("");
     setLoading(true);
     setMessage("");
     try {
@@ -4938,6 +6047,7 @@ function App() {
         setInviteAcceptToken(debugToken);
       }
       setInviteForm({ email: "", role: "viewer" });
+      setInviteFormErrors({ email: "" });
       await refreshCollaborationData(token);
       setMessage(
         uiGuideMessage(
@@ -5084,8 +6194,13 @@ function App() {
     setLoading(true);
     setMessage("");
     try {
+      const keepQuickEntryOpen = isCompactViewport && showTransactionForm && txEntrySheetStep === "form";
       const payload = buildTransactionPayloadFromForm(txForm);
-      await api(
+      const repeatForm = createRepeatTransactionForm(
+        txForm,
+        normalizeIsoDateKey(payload.occurred_on, transactionHistoryToday || todayIso())
+      );
+      const createdTransaction = await api(
         `${API_PREFIX}/transactions`,
         {
           method: "POST",
@@ -5093,21 +6208,19 @@ function App() {
         },
         token
       );
-      setTxForm(createTransactionForm(normalizeIsoDateKey(transactionHistoryToday, todayIso())));
-      setTxCategoryMajor("");
+      setTxForm(repeatForm);
+      setTxCategoryRestore(null);
+      setTxDraftTouched(false);
       setShowTransactionEntryBanner(false);
-      setShowTransactionForm(false);
       setTxEntrySheetStep("form");
       setShowTransactionQuickResume(false);
-      setTxQuickOwnerTouched(false);
-      await refreshData(false);
-      if (transactionHistoryInitialized || tab === "transactions") {
-        await refreshTransactionHistoryAtAnchor(
-          normalizeIsoDateKey(payload.occurred_on, transactionHistoryAnchorDate || transactionHistoryToday || todayIso()),
-          { alignToEnd: true }
-        );
-      }
-      setMessage(uiGuideMessage("거래를 등록했습니다.", "목록에서 반영 결과를 확인해 주세요."));
+      await revealSavedTransactionInList(createdTransaction, payload.occurred_on, { alignToEnd: true });
+      focusTransactionAmountForRepeatEntry();
+      setMessage(
+        keepQuickEntryOpen
+          ? ""
+          : uiGuideMessage("거래를 등록했습니다.", "필터를 초기화하고 저장한 거래를 표시했습니다. 다음 거래 금액을 바로 입력할 수 있습니다.")
+      );
     } catch (error) {
       setMessage(formatApiError(error, "transaction_submit"));
     } finally {
@@ -5185,6 +6298,142 @@ function App() {
     };
   }
 
+  function legacyOwnerCountText(row) {
+    const parts = [];
+    if (row.transactions.length > 0) {
+      parts.push(`거래 ${fmt(row.transactions.length)}건`);
+    }
+    if (row.holdings.length > 0) {
+      parts.push(`자산 ${fmt(row.holdings.length)}건`);
+    }
+    return parts.join(" · ");
+  }
+
+  async function applyLegacyOwnerRemap(rowKey) {
+    if (!canEditRecords) {
+      setMessage(uiGuideMessage("현재 권한으로는 소유자를 매핑할 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
+      return;
+    }
+    const row = legacyOwnerCleanupRows.find((item) => item.key === rowKey);
+    if (!row) {
+      return;
+    }
+    const targetValue = ownerRemapTargets[row.key] || defaultOwnerRemapOption?.value || "";
+    const target = ownerMemberOptions.find((option) => option.value === targetValue);
+    if (!target) {
+      setMessage(uiGuideMessage("매핑할 현재 구성원을 선택해 주세요.", "대상 구성원을 선택한 뒤 다시 실행해 주세요."));
+      return;
+    }
+    setOwnerRemappingKey(row.key);
+    setLoading(true);
+    setMessage("");
+    try {
+      const remapResult = await api(
+        `${API_PREFIX}/household/legacy-owner-remap`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            owner_name: row.ownerName,
+            target_owner_user_id: target.value,
+          }),
+        },
+        token
+      );
+      await refreshData(false);
+      await loadOwnerCleanupTransactions(token);
+      if (Number(remapResult?.remapped_transactions || 0) > 0 && (transactionHistoryInitialized || tab === "transactions")) {
+        await refreshTransactionHistoryAtAnchor(transactionHistoryAnchorDate || transactionHistoryToday || todayIso(), {
+          alignToEnd: false,
+        });
+      }
+      const total = Number(remapResult?.remapped_transactions || 0) + Number(remapResult?.remapped_holdings || 0);
+      const targetDisplayName = remapResult?.target_owner_name || target.displayName;
+      setMessage(
+        uiGuideMessage(
+          "기존 소유자를 현재 구성원으로 매핑했습니다.",
+          `${remapResult?.source_owner_name || row.ownerName} ${fmt(total)}건을 ${targetDisplayName}으로 연결했습니다.`
+        )
+      );
+    } catch (error) {
+      setMessage(formatApiError(error, "owner_remap"));
+    } finally {
+      setOwnerRemappingKey("");
+      setLoading(false);
+    }
+  }
+
+  function renderLegacyOwnerRemapHelper({ ownerUserId = "", ownerName = "", disabled = false, onApply }) {
+    const normalizedOwnerName = normalizeOwnerName(ownerName);
+    if (!isLegacyOwnerIdentity(ownerUserId, normalizedOwnerName)) {
+      return null;
+    }
+    const target = defaultOwnerRemapOption;
+    return (
+      <div className="owner-legacy-helper">
+        <span>기존 값은 현재 가계 구성원과 연결되지 않은 과거/가져오기 소유자명입니다.</span>
+        {target && (
+          <button
+            type="button"
+            className="secondary inline-owner-remap-btn"
+            onClick={() => onApply?.(target)}
+            disabled={disabled}
+          >
+            현재 구성원으로 매핑
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  function applyTransactionOwnerOption(option) {
+    setTxQuickOwnerTouched(true);
+    setTxDraftTouched(true);
+    setTxForm((prev) => ({
+      ...prev,
+      owner_user_id: option.value,
+      owner_name: option.displayName || "",
+    }));
+  }
+
+  function applyHoldingOwnerOption(option) {
+    setHoldingOwnerTouched(true);
+    setHoldingDraftTouched(true);
+    setHoldingForm((prev) => ({
+      ...prev,
+      owner_user_id: option.value,
+      owner_name: option.displayName || "",
+    }));
+  }
+
+  function renderOwnerQuickSelect({ ownerLabel, testId, selectedValue = "", disabled = false, onSelect }) {
+    if (ownerMemberOptions.length === 0) {
+      return null;
+    }
+    const normalizedSelectedValue = String(selectedValue || "").trim();
+    return (
+      <div className="owner-quick-select" data-testid={testId} role="group" aria-label={`${ownerLabel} 빠른 선택`}>
+        {ownerMemberOptions.map((option) => {
+          const displayName = option.displayName || option.label;
+          const selected = option.value === normalizedSelectedValue;
+          return (
+            <button
+              key={option.value}
+              type="button"
+              className={`owner-quick-chip${selected ? " selected" : ""}`}
+              aria-label={`${displayName} ${ownerLabel} 선택`}
+              aria-pressed={selected ? "true" : "false"}
+              title={option.email ? `${displayName} (${option.email})` : displayName}
+              onClick={() => onSelect?.(option)}
+              disabled={disabled}
+            >
+              <span className="owner-quick-chip-name">{displayName}</span>
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
+
   async function submitHolding(event) {
     event.preventDefault();
     if (!canEditRecords) {
@@ -5211,8 +6460,17 @@ function App() {
         },
         token
       );
-      setHoldingForm(createHoldingForm(holdingForm.asset_type, holdingForm.type_key, holdingFormType?.label));
-      closeHoldingEntrySheet();
+      const nextForm = {
+        ...createHoldingForm(holdingForm.asset_type, holdingForm.type_key, holdingFormType?.label),
+        owner_user_id: holdingForm.owner_user_id,
+        owner_name: holdingForm.owner_name,
+      };
+      setHoldingForm(nextForm);
+      setHoldingDraftTouched(false);
+      setHoldingOwnerTouched(
+        holdingOwnerTouched || Boolean(nextForm.owner_user_id || nextForm.owner_name)
+      );
+      closeHoldingEntrySheet({ skipDraftGuard: true });
       await refreshData(false);
       setMessage(uiGuideMessage("자산을 저장했습니다.", "목록에서 반영 결과를 확인해 주세요."));
     } catch (error) {
@@ -5253,7 +6511,7 @@ function App() {
           })
         : null;
       const dirtyPatch = buildDirtyPatchFields(payload, originalPayload, TX_PATCH_COMPARATORS);
-      await api(
+      const updatedTransaction = await api(
         `${API_PREFIX}/transactions/${txInlineEdit.id}`,
         {
           method: "PATCH",
@@ -5265,17 +6523,12 @@ function App() {
         token
       );
       closeTxInlineEdit();
-      await refreshData(false);
-      if (transactionHistoryInitialized || tab === "transactions") {
-        await refreshTransactionHistoryAtAnchor(
-          normalizeIsoDateKey(
-            dirtyPatch.occurred_on || transactionHistoryAnchorDate || transactionHistoryToday,
-            transactionHistoryToday || todayIso()
-          ),
-          { alignToEnd: Boolean(dirtyPatch.occurred_on) }
-        );
-      }
-      setMessage(uiGuideMessage("거래를 수정했습니다.", "목록에서 변경 내용을 확인해 주세요."));
+      await revealSavedTransactionInList(
+        updatedTransaction,
+        dirtyPatch.occurred_on || txInlineEdit.occurred_on || transactionHistoryAnchorDate || transactionHistoryToday,
+        { alignToEnd: true }
+      );
+      setMessage(uiGuideMessage("거래를 수정했습니다.", "필터를 초기화하고 수정한 거래를 표시했습니다."));
     } catch (error) {
       setMessage(formatApiError(error, "transaction_submit"));
     } finally {
@@ -5444,6 +6697,93 @@ function App() {
     }
   }
 
+  async function createAndApplyTransactionCategory(draft) {
+    const validationMessage = validateInlineCategoryCreateDraft(draft);
+    if (validationMessage) {
+      setMessage(validationMessage);
+      return false;
+    }
+    const flowType = String(txForm.flow_type || "expense").trim() || "expense";
+    setLoading(true);
+    setMessage("");
+    try {
+      const createdCategory = await api(
+        `${API_PREFIX}/categories`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            flow_type: flowType,
+            major: String(draft.major || "").trim(),
+            minor: String(draft.minor || "").trim(),
+          }),
+        },
+        token
+      );
+      const createdId = String(createdCategory?.id || "").trim();
+      setCategoryQuickSelectedId(createdId);
+      await loadAuthContext(token);
+      applyTransactionCategory(createdId, createdCategory);
+      setMessage(uiGuideMessage("카테고리를 추가했습니다.", "새 카테고리를 현재 거래 초안에 바로 적용했습니다."));
+      focusTransactionAfterCategoryCreate();
+      return createdCategory;
+    } catch (error) {
+      setMessage(formatApiError(error, "category_create"));
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function createAndApplyTxInlineCategory(draft) {
+    if (!txInlineEdit) {
+      setMessage("수정 중인 거래가 없습니다.");
+      return false;
+    }
+    const validationMessage = validateInlineCategoryCreateDraft(draft);
+    if (validationMessage) {
+      setMessage(validationMessage);
+      return false;
+    }
+    const editId = txInlineEdit.id;
+    const flowType = String(txInlineEdit.flow_type || "expense").trim() || "expense";
+    setLoading(true);
+    setMessage("");
+    try {
+      const createdCategory = await api(
+        `${API_PREFIX}/categories`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            flow_type: flowType,
+            major: String(draft.major || "").trim(),
+            minor: String(draft.minor || "").trim(),
+          }),
+        },
+        token
+      );
+      const createdId = String(createdCategory?.id || "").trim();
+      setCategoryQuickSelectedId(createdId);
+      await loadAuthContext(token);
+      setTxInlineEdit((prev) =>
+        prev && prev.id === editId
+          ? {
+              ...prev,
+              category_id: createdId,
+              category_major: String(createdCategory?.major || draft.major || "").trim(),
+          }
+          : prev
+      );
+      setMessage(uiGuideMessage("카테고리를 추가했습니다.", "새 카테고리를 수정 중인 거래에 바로 적용했습니다."));
+      focusTxInlineAfterCategoryCreate();
+      return createdCategory;
+    } catch (error) {
+      setMessage(formatApiError(error, "category_create"));
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function saveCategoryEdit(event, categoryId) {
     event.preventDefault();
     setLoading(true);
@@ -5603,6 +6943,99 @@ function App() {
     openTransactionEntrySheet("form");
   }
 
+  async function copyImportReportCsv() {
+    if (!importReportVisibleRows.length) {
+      setMessage("복사할 정리 표 행이 없습니다.");
+      return;
+    }
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(importReportCsv);
+      } else {
+        const textarea = document.createElement("textarea");
+        textarea.value = importReportCsv;
+        textarea.setAttribute("readonly", "");
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textarea);
+      }
+      setMessage("정리 표 CSV를 클립보드에 복사했습니다.");
+    } catch {
+      setMessage("브라우저 권한 때문에 CSV 복사에 실패했습니다. 다운로드를 사용하세요.");
+    }
+  }
+
+  function downloadImportReportCsv() {
+    if (!importReportVisibleRows.length) {
+      setMessage("내보낼 정리 표 행이 없습니다.");
+      return;
+    }
+    const blob = new Blob(["\uFEFF", importReportCsv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `import-report-issues-${todayIso()}.csv`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(url);
+    setMessage("정리 표 CSV를 다운로드했습니다.");
+  }
+
+  async function showImportedTransactions({ startEdit = false } = {}) {
+    if (importAppliedTransactionRefs.length === 0) {
+      setMessage("가져온 거래가 없습니다.");
+      return;
+    }
+    const ids = importAppliedTransactionRefs.map((item) => item.id);
+    const firstRef = importAppliedTransactionRefs[0];
+    const targetMonth = getImportRefMonth(firstRef) || yearMonthRef.current;
+    setRecentImportTransactionIds(new Set(ids));
+    setRecentSavedTransactionIds(new Set());
+    setRecentImportHoldingIds(new Set());
+    clearTxListFilter();
+    setFilterMode("month");
+    filterModeRef.current = "month";
+    setYearMonth(targetMonth);
+    yearMonthRef.current = targetMonth;
+    if (startEdit) {
+      setPendingImportEditTransactionId(firstRef.id);
+    }
+    setTab("transactions");
+    await refreshDataWithUiFeedback({ filterMode: "month", yearMonth: targetMonth });
+    scrollToDataRow("data-transaction-id", firstRef.id);
+  }
+
+  function showImportedHoldings({ startEdit = false } = {}) {
+    if (importAppliedHoldingRefs.length === 0) {
+      setMessage("가져온 자산이 없습니다.");
+      return;
+    }
+    const ids = importAppliedHoldingRefs.map((item) => item.id);
+    const firstRef = importAppliedHoldingRefs[0];
+    setRecentImportHoldingIds(new Set(ids));
+    setRecentImportTransactionIds(new Set());
+    setRecentSavedTransactionIds(new Set());
+    setHoldingListTab("all");
+    setHoldingTypeFilter("all");
+    if (startEdit) {
+      setPendingImportEditHoldingId(firstRef.id);
+    }
+    setTab("holdings");
+    scrollToDataRow("data-holding-id", firstRef.id);
+  }
+
+  async function startImportedCorrection() {
+    if (importAppliedTransactionRefs.length > 0) {
+      await showImportedTransactions({ startEdit: true });
+      return;
+    }
+    showImportedHoldings({ startEdit: true });
+  }
+
   async function doImport(mode) {
     if (!canEditRecords) {
       setMessage(uiGuideMessage("현재 권한으로는 데이터를 가져올 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
@@ -5629,8 +7062,17 @@ function App() {
       );
       setImportReport(report);
       if (mode === "apply") {
+        setRecentImportTransactionIds(new Set(normalizeImportAppliedTransactionRefs(report).map((item) => item.id)));
+        setRecentSavedTransactionIds(new Set());
+        setRecentImportHoldingIds(new Set(normalizeImportAppliedHoldingRefs(report).map((item) => item.id)));
         await loadAuthContext(token);
         await refreshData(false);
+      } else {
+        setRecentImportTransactionIds(new Set());
+        setRecentSavedTransactionIds(new Set());
+        setRecentImportHoldingIds(new Set());
+        setPendingImportEditTransactionId("");
+        setPendingImportEditHoldingId("");
       }
       setMessage(`${IMPORT_MODE_LABELS[mode] || mode} 완료`);
     } catch (error) {
@@ -5728,6 +7170,138 @@ function App() {
       setMigrationLoadingMode("");
       setLoading(false);
     }
+  }
+
+  function updateTossPreviewRow(rowId, patch) {
+    setTossPreview((prev) => {
+      if (!prev) {
+        return prev;
+      }
+      return {
+        ...prev,
+        rows: recomputeTossDuplicateRows(
+          (prev.rows || []).map((row) =>
+            String(row.row_id) === String(rowId) ? patchTossRowWithInference(row, patch, categories) : row
+          )
+        ),
+      };
+    });
+  }
+
+  function prepareTossRowsForApply(rows) {
+    return rows.map((row) => {
+      const amount = decimalPayload(row.amount);
+      return {
+        ...row,
+        amount,
+        signed_amount: signedAmountPayload(row, amount),
+        balance: decimalPayload(row.balance),
+        category_id: String(row.category_id || "").trim() || null,
+        detail: String(row.detail || "").trim(),
+        item_name: String(row.item_name || "").trim(),
+      };
+    });
+  }
+
+  function setTossImportFiles(files) {
+    setTossFiles(normalizeFileArray(files));
+    setTossPreview(null);
+    setTossApplyReport(null);
+  }
+
+  async function doTossPreview() {
+    if (!canEditRecords) {
+      setMessage(uiGuideMessage("현재 권한으로는 데이터를 가져올 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
+      return;
+    }
+    if (tossFiles.length === 0) {
+      setMessage("토스 스크린샷 이미지를 먼저 업로드해 주세요.");
+      return;
+    }
+    setTossLoadingMode("preview");
+    setLoading(true);
+    setImportReport(null);
+    setTossApplyReport(null);
+    setMessage("토스 스크린샷을 로컬 OCR로 읽고 있습니다.");
+    try {
+      const formData = new FormData();
+      for (const file of tossFiles) {
+        formData.append("files", file);
+      }
+      const preview = await api(
+        `${API_PREFIX}/imports/toss-screenshots/preview`,
+        {
+          method: "POST",
+          body: formData,
+        },
+        token
+      );
+      setTossPreview(preview);
+      const parsedRows = Number(preview?.summary?.parsed_rows || 0);
+      const excludedRows = Number(preview?.summary?.excluded_candidates || 0);
+      setMessage(`토스 거래 ${fmt(parsedRows)}건을 검토 표에 올렸습니다. 제외 후보 ${fmt(excludedRows)}건`);
+    } catch (error) {
+      setMessage(formatImportError(error, "toss_preview"));
+    } finally {
+      setTossLoadingMode("");
+      setLoading(false);
+    }
+  }
+
+  async function doTossApply() {
+    if (!canEditRecords) {
+      setMessage(uiGuideMessage("현재 권한으로는 데이터를 가져올 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
+      return;
+    }
+    if (!tossPreview || tossRows.length === 0) {
+      setMessage("먼저 토스 스크린샷 미리보기를 생성해 주세요.");
+      return;
+    }
+    if (tossIncludedCount === 0) {
+      setMessage("적용할 행이 없습니다. 필요한 행을 포함으로 바꾼 뒤 다시 시도해 주세요.");
+      return;
+    }
+    setTossLoadingMode("apply");
+    setLoading(true);
+    setMessage("검토 표에 포함된 토스 거래를 적용 중입니다.");
+    try {
+      const result = await api(
+        `${API_PREFIX}/imports/toss-screenshots/apply`,
+        {
+          method: "POST",
+          body: JSON.stringify({ rows: prepareTossRowsForApply(tossRows) }),
+        },
+        token
+      );
+      setTossApplyReport(result);
+      if (Number(result?.applied_transactions || 0) > 0) {
+        await refreshData(false);
+      }
+      setMessage(
+        `토스 거래 적용 완료: 추가 ${fmt(result?.applied_transactions || 0)}건, 제외/중복 ${fmt(result?.skipped_transactions || 0)}건`
+      );
+    } catch (error) {
+      setMessage(formatImportError(error, "toss_apply"));
+    } finally {
+      setTossLoadingMode("");
+      setLoading(false);
+    }
+  }
+
+  function startCategoryDraftFromTossRecommendation(row) {
+    const recommendation = row?.category_recommendation;
+    if (!recommendation) {
+      return;
+    }
+    setCategoryDraft({
+      flow_type: row.flow_type || "expense",
+      major: recommendation.suggested_major || "",
+      minor: recommendation.suggested_minor || "",
+    });
+    setCategoryDraftMajorSelect("__custom__");
+    setCategoryDraftMinorSelect("__custom__");
+    setTab("settings");
+    setMessage("추천 카테고리 초안을 채웠습니다. 저장 후 가져오기 탭에서 해당 행에 선택할 수 있습니다.");
   }
 
   async function refreshPriceNow() {
@@ -6094,7 +7668,13 @@ function App() {
     const ownerInitial = extractVisibleInitial(item.owner_name);
     const holdingCompactMeta = item.category || typeLabel || "-";
     const isExpanded = expandedHoldingRows.has(item.holding_id);
+    const isRecentlyImported = recentImportHoldingIds.has(item.holding_id);
     const holdingMobilePriority = (fieldKey) => getWorkSurfaceMobilePriority("holdings", fieldKey);
+    const holdingOrderScope = "전체 자산 순서";
+    const holdingMoveUpLabel = `${item.name} ${holdingOrderScope}에서 위로 이동`;
+    const holdingMoveDownLabel = `${item.name} ${holdingOrderScope}에서 아래로 이동`;
+    const holdingMoveUpTitle = `${item.name}을(를) ${holdingOrderScope} 기준으로 위로 이동합니다.`;
+    const holdingMoveDownTitle = `${item.name}을(를) ${holdingOrderScope} 기준으로 아래로 이동합니다.`;
     const handleHoldingEditToggle = () => {
       if (!canEditRecords) {
         return;
@@ -6111,7 +7691,9 @@ function App() {
     return (
       <Fragment key={rowKey}>
         <tr
-          className={`holding-row ${isEditing ? "holding-row-editing" : ""} ${isExpanded ? "mobile-row-expanded" : ""}`}
+          className={`holding-row ${isEditing ? "holding-row-editing" : ""} ${isExpanded ? "mobile-row-expanded" : ""} ${isRecentlyImported ? "holding-row-imported" : ""}`}
+          data-holding-id={item.holding_id}
+          data-import-highlight={isRecentlyImported ? "true" : undefined}
           style={rowColor ? {
             "--holding-row-cue": rowColor,
             "--holding-row-wash-strong": withAlpha(rowColor, holdingColorMode === "none" ? 0.22 : 0.3),
@@ -6171,10 +7753,24 @@ function App() {
           </td>
           <td data-label="동작" className="holding-col-actions" data-mobile-priority="action">
             <div className="inline">
-              <button type="button" className="secondary row-order-btn" disabled={!canEditRecords || loading} onClick={() => moveHoldingDisplayOrder(item, -1).catch(() => undefined)}>
+              <button
+                type="button"
+                className="secondary row-order-btn"
+                aria-label={holdingMoveUpLabel}
+                title={holdingMoveUpTitle}
+                disabled={!canEditRecords || loading}
+                onClick={() => moveHoldingDisplayOrder(item, -1).catch(() => undefined)}
+              >
                 ↑
               </button>
-              <button type="button" className="secondary row-order-btn" disabled={!canEditRecords || loading} onClick={() => moveHoldingDisplayOrder(item, 1).catch(() => undefined)}>
+              <button
+                type="button"
+                className="secondary row-order-btn"
+                aria-label={holdingMoveDownLabel}
+                title={holdingMoveDownTitle}
+                disabled={!canEditRecords || loading}
+                onClick={() => moveHoldingDisplayOrder(item, 1).catch(() => undefined)}
+              >
                 ↓
               </button>
               <button
@@ -6220,10 +7816,24 @@ function App() {
           >
             <td colSpan={11}>
               <div className="holding-mobile-expanded-actions">
-                <button type="button" className="secondary" disabled={!canEditRecords || loading} onClick={() => moveHoldingDisplayOrder(item, -1).catch(() => undefined)}>
+                <button
+                  type="button"
+                  className="secondary"
+                  aria-label={holdingMoveUpLabel}
+                  title={holdingMoveUpTitle}
+                  disabled={!canEditRecords || loading}
+                  onClick={() => moveHoldingDisplayOrder(item, -1).catch(() => undefined)}
+                >
                   위로
                 </button>
-                <button type="button" className="secondary" disabled={!canEditRecords || loading} onClick={() => moveHoldingDisplayOrder(item, 1).catch(() => undefined)}>
+                <button
+                  type="button"
+                  className="secondary"
+                  aria-label={holdingMoveDownLabel}
+                  title={holdingMoveDownTitle}
+                  disabled={!canEditRecords || loading}
+                  onClick={() => moveHoldingDisplayOrder(item, 1).catch(() => undefined)}
+                >
                   아래로
                 </button>
                 <button
@@ -6253,15 +7863,27 @@ function App() {
                     onChange={(event) => {
                       const nextTypeKey = normalizeHoldingTypeKey(event.target.value || "");
                       const nextType = holdingTypeByKey.get(nextTypeKey) || holdingTypeOptions[0] || DEFAULT_HOLDING_TYPES[0];
+                      const previousType =
+                        holdingTypeByKey.get(normalizeHoldingTypeKey(editForm.type_key || editForm.asset_type || "")) ||
+                        editType;
+                      if (shouldExplainHoldingValueReset(editForm.average_cost, previousType, nextType)) {
+                        setMessage(
+                          uiGuideMessage(
+                            "자산 유형을 변경했습니다.",
+                            "평가금액과 평균단가의 의미가 달라 금액 입력값을 비웠습니다."
+                          )
+                        );
+                      }
                       setHoldingInlineEdit((prev) => ({
                         ...prev,
                         type_key: nextType.key,
                         asset_type: nextType.asset_type,
                         category: resolveHoldingCategoryOnTypeChange(
                           prev.category,
-                          holdingTypeByKey.get(normalizeHoldingTypeKey(prev.type_key || prev.asset_type || "")) || editType,
+                          previousType,
                           nextType
                         ),
+                        average_cost: nextAverageCostForHoldingTypeChange(prev.average_cost, previousType, nextType),
                       }));
                     }}
                   >
@@ -6317,6 +7939,17 @@ function App() {
                     ))}
                   </select>
                 </label>
+                {renderLegacyOwnerRemapHelper({
+                  ownerUserId: editForm.owner_user_id,
+                  ownerName: editForm.owner_name,
+                  disabled: !canEditRecords,
+                  onApply: (target) =>
+                    setHoldingInlineEdit((prev) => ({
+                      ...prev,
+                      owner_user_id: target.value,
+                      owner_name: target.displayName,
+                    })),
+                })}
                 <label>
                   계좌
                   <input
@@ -6375,7 +8008,7 @@ function App() {
                       평가금액
                       <input
                         type="text"
-                        inputMode="decimal"
+                        inputMode={holdingValuationInputMode(editForm.currency)}
                         value={editForm.average_cost}
                         onChange={(event) => handleGroupedDecimalInput(event, setHoldingInlineEdit, "average_cost")}
                         disabled={!canEditRecords}
@@ -6444,22 +8077,35 @@ function App() {
     setHouseholdInvites([]);
     setReceivedHouseholdInvites([]);
     setInviteForm({ email: "", role: "viewer" });
+    setInviteFormErrors({ email: "" });
     setInviteAcceptToken("");
     setInviteAcceptanceNotice(null);
     setRecentInviteIds([]);
     setCategories([]);
     setOverview(null);
     setTransactions([]);
+    setOwnerCleanupTransactions([]);
+    setOwnerCleanupTransactionsLoaded(false);
     setHoldings([]);
     setPortfolio(null);
     setPriceStatus(null);
     setImportReport(null);
+    setRecentImportTransactionIds(new Set());
+    setRecentSavedTransactionIds(new Set());
+    setRecentImportHoldingIds(new Set());
+    setPendingImportEditTransactionId("");
+    setPendingImportEditHoldingId("");
+    setImportMode("workbook");
     setImportFile(null);
     setImportLoadingMode("");
     setMigrationReport(null);
     setMigrationPackageFile(null);
     setMigrationLoadingMode("");
     setMigrationExporting(false);
+    setTossFiles([]);
+    setTossPreview(null);
+    setTossApplyReport(null);
+    setTossLoadingMode("");
     setMessage(logoutWarning);
     setPriceRefreshPolling(false);
     setDashboardLoading(false);
@@ -6467,8 +8113,15 @@ function App() {
     clearSavedTabId();
     setTab("dashboard");
     setFilterMode("month");
-    setYearMonth(currentMonth());
-    setRange({ start: todayIso(), end: todayIso() });
+    filterModeRef.current = "month";
+    const resetMonth = currentMonth();
+    yearMonthRef.current = resetMonth;
+    appliedYearMonthRef.current = resetMonth;
+    setMonthFilterPending(false);
+    setYearMonth(resetMonth);
+    const resetRange = yearMonthFullDateRange(resetMonth);
+    rangeRef.current = resetRange;
+    setRange(resetRange);
     setTxListFilter({
       keyword: "",
       flow_type: "all",
@@ -6479,7 +8132,10 @@ function App() {
     setTxCategoryMajor("");
     closeTxInlineEdit();
     setTxForm(createTransactionForm());
+    setTxDraftTouched(false);
     setHoldingForm(createHoldingForm("cash"));
+    setHoldingOwnerTouched(false);
+    setHoldingDraftTouched(false);
     setHoldingInlineEdit(null);
     setShowTransactionForm(false);
     setShowHoldingForm(false);
@@ -7131,6 +8787,21 @@ function App() {
   const canEditRecords = canEditHouseholdData;
   const canManageHousehold = householdRole === "owner" || householdRole === "co_owner";
   const canAssignOwner = householdRole === "owner";
+  const importBusy = Boolean(importLoadingMode || tossLoadingMode || migrationLoadingMode || migrationExporting);
+  const workbookMissingFile = !importFile;
+  const workbookActionsDisabled = importBusy || !canEditRecords || workbookMissingFile;
+  const packageMissingFile = !migrationPackageFile;
+  const packageActionsDisabled =
+    Boolean(migrationLoadingMode) || migrationExporting || !canEditRecords || packageMissingFile;
+  const workbookUploadPlaceholder = isCompactViewport
+    ? "탭해서 엑셀 파일을 선택하세요. 파일 앱 또는 기기 저장소에서 업로드할 수 있습니다."
+    : "엑셀 파일을 이곳에 드래그 앤 드롭 하거나 클릭하여 업로드하세요.";
+  const tossUploadPlaceholder = isCompactViewport
+    ? "탭해서 토스 거래내역 이미지를 선택하세요. 사진 앱 또는 기기 저장소에서 업로드할 수 있습니다."
+    : "토스 거래내역 이미지를 이곳에 드래그 앤 드롭 하거나 클릭하여 업로드하세요.";
+  const migrationPackageUploadPlaceholder = isCompactViewport
+    ? "탭해서 추출한 패키지(.zip)를 선택하세요. 파일 앱 또는 기기 저장소에서 업로드할 수 있습니다."
+    : "추출한 패키지(.zip) 파일을 클릭하여 업로드하세요.";
   const memberRoleOptions = canAssignOwner
     ? COLLAB_ROLE_OPTIONS
     : COLLAB_ROLE_OPTIONS.filter((item) => item.value !== "owner");
@@ -7275,6 +8946,36 @@ function App() {
     const selectedCategoryLabel = selectedCategoryId
       ? toCategoryPairLabel(categoryById.get(selectedCategoryId))
       : "추천 카테고리를 탭하면 바로 연결됩니다.";
+    const selectedCategoryContextLabel = selectedCategoryId
+      ? toCategoryPairLabel(categoryById.get(selectedCategoryId))
+      : "미선택";
+    const selectedOwnerValue = ownerSelectValue(txForm.owner_user_id, txForm.owner_name);
+    const selectedOwnerOption = transactionOwnerOptions.find(
+      (option) => String(option.value || "") === selectedOwnerValue
+    );
+    const selectedOwnerLabel = selectedOwnerOption?.label || txForm.owner_name || "미선택";
+    const transactionQuickContextItems = [
+      {
+        key: "flow",
+        label: "유형",
+        value: FLOW_TYPE_LABELS[txForm.flow_type] || txForm.flow_type || "지출",
+      },
+      {
+        key: "date",
+        label: "일자",
+        value: txForm.occurred_on || transactionEntryContextDate(),
+      },
+      {
+        key: "owner",
+        label: "거래자",
+        value: selectedOwnerLabel,
+      },
+      {
+        key: "category",
+        label: "카테고리",
+        value: selectedCategoryContextLabel,
+      },
+    ];
 
     return (
       <form
@@ -7293,17 +8994,34 @@ function App() {
             ref={txAmountInputRef}
             data-testid="transaction-quick-amount"
             type="text"
-            inputMode="decimal"
+            inputMode="numeric"
             enterKeyHint="next"
             autoComplete="off"
             placeholder="0"
             value={txForm.amount}
-            onChange={(event) => handleGroupedDecimalInput(event, setTxForm, "amount")}
+            onChange={handleTransactionEntryAmountInput}
             onKeyDown={handleTransactionQuickAmountKeyDown}
             disabled={transactionFormDisabled}
             required
           />
         </label>
+
+        <div
+          className="transaction-quick-context-strip"
+          data-testid="transaction-quick-context-summary"
+          aria-label="저장 컨텍스트 요약"
+        >
+          {transactionQuickContextItems.map((item) => (
+            <div
+              key={item.key}
+              className="transaction-quick-context-item"
+              data-testid={`transaction-quick-context-${item.key}`}
+            >
+              <span>{item.label}</span>
+              <strong title={item.value}>{item.value}</strong>
+            </div>
+          ))}
+        </div>
 
         {showTransactionQuickResume && (
           <button
@@ -7317,35 +9035,26 @@ function App() {
           </button>
         )}
 
-        <section className="transaction-quick-category-panel" aria-label="추천 카테고리">
-          <div className="transaction-quick-section-title">
-            <span>추천 카테고리</span>
-            <small>{selectedCategoryLabel}</small>
-          </div>
-          <div className="transaction-quick-category-chips">
-            {transactionQuickCategoryChips.length > 0 ? (
-              transactionQuickCategoryChips.map((chip) => {
-                const isSelected = selectedCategoryId === chip.id;
-                return (
-                  <button
-                    key={chip.id}
-                    type="button"
-                    className={`transaction-quick-category-chip${isSelected ? " selected" : ""}`}
-                    data-testid="transaction-quick-category-chip"
-                    aria-pressed={isSelected}
-                    onClick={() => selectTransactionQuickCategory(chip.id)}
-                    disabled={transactionFormDisabled}
-                  >
-                    <span>{chip.label}</span>
-                    {chip.count > 0 && <small>최근 {chip.count}회</small>}
-                  </button>
-                );
-              })
-            ) : (
-              <p className="table-summary">아직 사용할 수 있는 카테고리가 없습니다. 카테고리 관리에서 먼저 만들어 주세요.</p>
-            )}
-          </div>
-        </section>
+        <TransactionCategoryQuickPicker
+          categories={categoryOptions}
+          quickOptions={transactionQuickCategoryChips}
+          selectedCategoryId={selectedCategoryId}
+          disabled={transactionFormDisabled}
+          allowCreate={canEditHouseholdData}
+          createDisabled={!canEditHouseholdData}
+          onSelect={selectTransactionQuickCategory}
+          onCreate={createAndApplyTransactionCategory}
+          title="추천 카테고리"
+          selectedEmptyText={selectedCategoryLabel}
+          searchPlaceholder="카테고리 검색"
+          rootClassName="transaction-quick-category-panel"
+          titleClassName="transaction-quick-section-title"
+          optionsClassName="transaction-quick-category-chips"
+          optionClassName="transaction-quick-category-chip"
+          optionTestId="transaction-quick-category-chip"
+          toCategoryMajorLabel={toCategoryMajorLabel}
+          toCategoryMinorLabel={toCategoryMinorLabel}
+        />
 
         <label className="transaction-quick-memo-field">
           메모
@@ -7354,7 +9063,10 @@ function App() {
             enterKeyHint="done"
             value={txForm.memo}
             placeholder="선택 입력"
-            onChange={(e) => setTxForm((prev) => ({ ...prev, memo: e.target.value }))}
+            onChange={(e) => {
+              setTxDraftTouched(true);
+              setTxForm((prev) => ({ ...prev, memo: e.target.value }));
+            }}
             onKeyDown={handleTransactionQuickMemoKeyDown}
             disabled={transactionFormDisabled}
           />
@@ -7366,7 +9078,7 @@ function App() {
           </p>
         )}
 
-        <details className="transaction-quick-details">
+        <details className="transaction-quick-details" onToggle={handleTransactionQuickDetailsToggle}>
           <summary>전체 카테고리</summary>
           <div className="transaction-quick-detail-grid">
             <label>
@@ -7376,7 +9088,9 @@ function App() {
                 value={txCategoryMajor}
                 disabled={transactionFormDisabled}
                 onChange={(e) => {
+                  setTxDraftTouched(true);
                   setTxCategoryMajor(e.target.value);
+                  setTxCategoryRestore(null);
                   setTxForm((prev) => ({ ...prev, category_id: "" }));
                 }}
               >
@@ -7394,7 +9108,11 @@ function App() {
                 enterKeyHint="next"
                 value={txForm.category_id}
                 disabled={transactionFormDisabled || !txCategoryMajor}
-                onChange={(e) => setTxForm((prev) => ({ ...prev, category_id: e.target.value }))}
+                onChange={(e) => {
+                  setTxDraftTouched(true);
+                  setTxCategoryRestore(null);
+                  setTxForm((prev) => ({ ...prev, category_id: e.target.value }));
+                }}
               >
                 <option value="">(선택 안함)</option>
                 {categoryMinorOptions.map((item) => (
@@ -7407,7 +9125,7 @@ function App() {
           </div>
         </details>
 
-        <details className="transaction-quick-details">
+        <details className="transaction-quick-details" onToggle={handleTransactionQuickDetailsToggle}>
           <summary>추가 입력</summary>
           <div className="transaction-quick-detail-grid">
             <label className="date-field">
@@ -7417,14 +9135,20 @@ function App() {
                   ref={txDateInputRef}
                   enterKeyHint="next"
                   value={txForm.occurred_on}
-                  onValueChange={(value) => setTxForm((prev) => ({ ...prev, occurred_on: value }))}
+                  onValueChange={(value) => {
+                    setTxDraftTouched(true);
+                    setTxForm((prev) => ({ ...prev, occurred_on: value }));
+                  }}
                   disabled={transactionFormDisabled}
                   required
                 />
                 <button
                   type="button"
                   className="secondary today-btn"
-                  onClick={() => setTxForm((prev) => ({ ...prev, occurred_on: normalizeIsoDateKey(transactionHistoryToday, todayIso()) }))}
+                  onClick={() => {
+                    setTxDraftTouched(true);
+                    setTxForm((prev) => ({ ...prev, occurred_on: transactionEntryTodayDate() }));
+                  }}
                   disabled={transactionFormDisabled}
                 >
                   오늘
@@ -7437,10 +9161,7 @@ function App() {
                 enterKeyHint="next"
                 value={txForm.flow_type}
                 disabled={transactionFormDisabled}
-                onChange={(e) => {
-                  setTxForm((prev) => ({ ...prev, flow_type: e.target.value, category_id: "" }));
-                  setTxCategoryMajor("");
-                }}
+                onChange={(e) => changeTransactionFlowType(e.target.value)}
               >
                 {FLOW_TYPE_OPTIONS.map((item) => (
                   <option key={item.value} value={item.value}>
@@ -7449,6 +9170,7 @@ function App() {
                 ))}
               </select>
             </label>
+            {renderTransactionCategoryRestoreNotice()}
             <label>
               거래자
               <select
@@ -7458,6 +9180,7 @@ function App() {
                 onChange={(event) => {
                   const nextOwner = ownerSelectionFromValue(event.target.value, transactionOwnerOptions);
                   setTxQuickOwnerTouched(true);
+                  setTxDraftTouched(true);
                   setTxForm((prev) => ({ ...prev, ...nextOwner }));
                 }}
               >
@@ -7469,6 +9192,27 @@ function App() {
                 ))}
               </select>
             </label>
+            {renderOwnerQuickSelect({
+              ownerLabel: "거래자",
+              testId: "transaction-owner-quick-select",
+              selectedValue: txForm.owner_user_id,
+              disabled: transactionFormDisabled,
+              onSelect: applyTransactionOwnerOption,
+            })}
+            {renderLegacyOwnerRemapHelper({
+              ownerUserId: txForm.owner_user_id,
+              ownerName: txForm.owner_name,
+              disabled: transactionFormDisabled,
+              onApply: (target) => {
+                setTxQuickOwnerTouched(true);
+                setTxDraftTouched(true);
+                setTxForm((prev) => ({
+                  ...prev,
+                  owner_user_id: target.value,
+                  owner_name: target.displayName,
+                }));
+              },
+            })}
           </div>
         </details>
 
@@ -7508,14 +9252,20 @@ function App() {
             ref={txDateInputRef}
             enterKeyHint="next"
             value={txForm.occurred_on}
-            onValueChange={(value) => setTxForm((prev) => ({ ...prev, occurred_on: value }))}
+            onValueChange={(value) => {
+              setTxDraftTouched(true);
+              setTxForm((prev) => ({ ...prev, occurred_on: value }));
+            }}
             disabled={transactionFormDisabled}
             required
           />
           <button
             type="button"
             className="secondary today-btn"
-            onClick={() => setTxForm((prev) => ({ ...prev, occurred_on: normalizeIsoDateKey(transactionHistoryToday, todayIso()) }))}
+            onClick={() => {
+              setTxDraftTouched(true);
+              setTxForm((prev) => ({ ...prev, occurred_on: transactionEntryTodayDate() }));
+            }}
             disabled={transactionFormDisabled}
           >
             오늘
@@ -7528,10 +9278,7 @@ function App() {
           enterKeyHint="next"
           value={txForm.flow_type}
           disabled={transactionFormDisabled}
-          onChange={(e) => {
-            setTxForm((prev) => ({ ...prev, flow_type: e.target.value, category_id: "" }));
-            setTxCategoryMajor("");
-          }}
+          onChange={(e) => changeTransactionFlowType(e.target.value)}
         >
           {FLOW_TYPE_OPTIONS.map((item) => (
             <option key={item.value} value={item.value}>
@@ -7540,18 +9287,34 @@ function App() {
           ))}
         </select>
       </label>
+      {renderTransactionCategoryRestoreNotice()}
       <label>
         금액
         <input
+          ref={txAmountInputRef}
           type="text"
-          inputMode="decimal"
+          inputMode="numeric"
           enterKeyHint="next"
           value={txForm.amount}
-          onChange={(event) => handleGroupedDecimalInput(event, setTxForm, "amount")}
+          onChange={handleTransactionEntryAmountInput}
           disabled={transactionFormDisabled}
           required
         />
       </label>
+      <TransactionCategoryQuickPicker
+        categories={categoryOptions}
+        quickOptions={transactionQuickCategoryChips}
+        selectedCategoryId={txForm.category_id}
+        disabled={transactionFormDisabled}
+        allowCreate={canEditHouseholdData}
+        createDisabled={!canEditHouseholdData}
+        onSelect={applyTransactionCategory}
+        onCreate={createAndApplyTransactionCategory}
+        title="카테고리 빠른 선택"
+        rootClassName="transaction-category-picker-desktop"
+        toCategoryMajorLabel={toCategoryMajorLabel}
+        toCategoryMinorLabel={toCategoryMinorLabel}
+      />
       <label>
         카테고리 그룹
         <select
@@ -7559,7 +9322,9 @@ function App() {
           value={txCategoryMajor}
           disabled={transactionFormDisabled}
           onChange={(e) => {
+            setTxDraftTouched(true);
             setTxCategoryMajor(e.target.value);
+            setTxCategoryRestore(null);
             setTxForm((prev) => ({ ...prev, category_id: "" }));
           }}
         >
@@ -7577,7 +9342,11 @@ function App() {
           enterKeyHint="next"
           value={txForm.category_id}
           disabled={transactionFormDisabled || !txCategoryMajor}
-          onChange={(e) => setTxForm((prev) => ({ ...prev, category_id: e.target.value }))}
+          onChange={(e) => {
+            setTxDraftTouched(true);
+            setTxCategoryRestore(null);
+            setTxForm((prev) => ({ ...prev, category_id: e.target.value }));
+          }}
         >
           <option value="">(선택 안함)</option>
           {categoryMinorOptions.map((item) => (
@@ -7590,9 +9359,13 @@ function App() {
       <label>
         메모
         <input
+          ref={txMemoInputRef}
           enterKeyHint="next"
           value={txForm.memo}
-          onChange={(e) => setTxForm((prev) => ({ ...prev, memo: e.target.value }))}
+          onChange={(e) => {
+            setTxDraftTouched(true);
+            setTxForm((prev) => ({ ...prev, memo: e.target.value }));
+          }}
           disabled={transactionFormDisabled}
         />
       </label>
@@ -7605,6 +9378,7 @@ function App() {
           onChange={(event) => {
             const nextOwner = ownerSelectionFromValue(event.target.value, transactionOwnerOptions);
             setTxQuickOwnerTouched(true);
+            setTxDraftTouched(true);
             setTxForm((prev) => ({ ...prev, ...nextOwner }));
           }}
         >
@@ -7613,9 +9387,30 @@ function App() {
             <option key={option.value} value={option.value}>
               {option.label}
             </option>
-          ))}
-        </select>
+            ))}
+          </select>
       </label>
+      {renderOwnerQuickSelect({
+        ownerLabel: "거래자",
+        testId: "transaction-owner-quick-select",
+        selectedValue: txForm.owner_user_id,
+        disabled: transactionFormDisabled,
+        onSelect: applyTransactionOwnerOption,
+      })}
+      {renderLegacyOwnerRemapHelper({
+        ownerUserId: txForm.owner_user_id,
+        ownerName: txForm.owner_name,
+        disabled: transactionFormDisabled,
+        onApply: (target) => {
+          setTxQuickOwnerTouched(true);
+          setTxDraftTouched(true);
+          setTxForm((prev) => ({
+            ...prev,
+            owner_user_id: target.value,
+            owner_name: target.displayName,
+          }));
+        },
+      })}
       <div className="inline form-actions">
         <button
           type="button"
@@ -7820,7 +9615,8 @@ function App() {
     const resendLimit = Math.max(0, Number(verificationMeta.resendLimit || 0));
     const resendUsedCount = Math.max(0, Number(verificationMeta.resendUsedCount || 0));
     const resendRemainingCount = resendLimit > 0 ? Math.max(0, resendLimit - resendUsedCount) : null;
-    const resendDisabled = loading || resendRemainingSeconds > 0 || resendRemainingCount === 0;
+    const resendEmailReady = Boolean(String(verifyForm.email || authForm.email || "").trim());
+    const resendDisabled = loading || !resendEmailReady || resendRemainingSeconds > 0 || resendRemainingCount === 0;
     const resendWaitText = resendRemainingSeconds > 0 ? `${formatDurationKo(resendRemainingSeconds)} 후 가능` : "지금 가능";
     const requiresVerificationPasswordSetup = authMode === "verify" && Boolean(verifyForm.requires_password_setup);
     const verifyTokenText = String(verifyForm.token || "").trim();
@@ -7830,6 +9626,7 @@ function App() {
     const verificationSubmitReady =
       authMode !== "verify" || requiresVerificationPasswordSetup || Boolean(verifyTokenText || verificationCodeReady);
     const verifySubmitHelperId = "auth-verify-submit-helper";
+    const resendEmailHelperId = "auth-resend-email-helper";
     const authDescription =
       authMode === "verify"
         ? hasPendingInviteToken
@@ -7885,8 +9682,8 @@ function App() {
             </div>
           {hasPendingInviteToken && (
             <div className="auth-pending-invite" role="status">
-              <strong>가계부 초대 링크를 확인했습니다.</strong>
-              <span>로그인 또는 회원가입 후 협업 탭의 초대 수락 토큰 칸에 자동 입력됩니다.</span>
+              <strong>초대 토큰을 감지했습니다.</strong>
+              <span>아직 초대 유효성은 확인되지 않았습니다. 로그인 또는 회원가입 후 협업 탭에서 초대를 확인하고 수락해 주세요.</span>
             </div>
           )}
           {authMode === "verify" ? (
@@ -7965,6 +9762,11 @@ function App() {
                       onChange={(e) => setVerifyForm({ ...verifyForm, email: e.target.value })}
                     />
                   </label>
+                  {!resendEmailReady && (
+                    <p id={resendEmailHelperId} className="field-helper auth-submit-helper">
+                      이메일을 입력하면 인증 메일 재전송이 가능합니다.
+                    </p>
+                  )}
                   <label>
                     6자리 인증번호
                     <input
@@ -7995,6 +9797,15 @@ function App() {
                 비밀번호
                 <input type="password" value={authForm.password} onChange={(e) => setAuthForm({ ...authForm, password: e.target.value })} required />
               </label>
+              {authMode === "login" && (
+                <div className="auth-recovery-callout" role="note">
+                  <strong>비밀번호를 잊으셨나요?</strong>
+                  <span>현재는 관리자 재설정으로 계정 복구를 지원합니다. 가입 이메일을 함께 보내 주세요.</span>
+                  <a className="text-button" href={PASSWORD_RECOVERY_MAILTO}>
+                    관리자에게 재설정 요청
+                  </a>
+                </div>
+              )}
               {authMode === "register" && (
                 <>
                   <label>
@@ -8067,7 +9878,13 @@ function App() {
                     : "이메일 인증 완료"}
           </button>
           {authMode === "verify" && !requiresVerificationPasswordSetup && (
-            <button type="button" className="secondary" onClick={() => resendVerification().catch(() => undefined)} disabled={resendDisabled}>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => resendVerification().catch(() => undefined)}
+              disabled={resendDisabled}
+              aria-describedby={!resendEmailReady ? resendEmailHelperId : undefined}
+            >
               {resendRemainingCount === 0
                 ? "재전송 횟수 소진"
                 : resendRemainingSeconds > 0
@@ -8079,21 +9896,21 @@ function App() {
             {authMode === "login" ? (
               <>
                 <span>처음이신가요?</span>
-                <button type="button" className="text-button" onClick={() => { setAuthMode("register"); setMessage(""); }}>
+                <button type="button" className="text-button" onClick={() => switchPublicAuthMode("register")}>
                   회원가입
                 </button>
               </>
             ) : authMode === "register" ? (
               <>
                 <span>이미 계정이 있나요?</span>
-                <button type="button" className="text-button" onClick={() => { setAuthMode("login"); setMessage(""); }}>
+                <button type="button" className="text-button" onClick={() => switchPublicAuthMode("login")}>
                   로그인으로 돌아가기
                 </button>
               </>
             ) : (
               <>
                 <span>인증 링크가 없나요?</span>
-                <button type="button" className="text-button" onClick={() => { setAuthMode("login"); setMessage(""); }}>
+                <button type="button" className="text-button" onClick={() => switchPublicAuthMode("login")}>
                   로그인으로 돌아가기
                 </button>
               </>
@@ -8169,17 +9986,20 @@ function App() {
           </div>
         </div>
         <div className="actions topbar-actions">
-          <button className="secondary" onClick={() => refreshDataWithUiFeedback().catch(() => undefined)} disabled={dashboardLoading}>
-            {dashboardLoading ? "불러오는 중..." : "새로고침"}
+          <button className="secondary topbar-action-button topbar-refresh-action" onClick={() => refreshDataWithUiFeedback().catch(() => undefined)} disabled={dashboardLoading}>
+            <span className="topbar-action-label">{dashboardLoading ? "불러오는 중..." : "새로고침"}</span>
           </button>
           <button
-            className="secondary"
+            className={`secondary topbar-action-button topbar-price-refresh-action${isPriceRefreshActive ? " is-active" : ""}`}
             onClick={refreshPriceNow}
             disabled={loading || dashboardLoading || isPriceRefreshActive}
+            title={isPriceRefreshActive ? "시세 갱신 중" : "시세 갱신"}
           >
-            {isPriceRefreshActive ? "시세 갱신 중..." : "시세 갱신"}
+            <span className="topbar-action-label">{isPriceRefreshActive ? "시세 갱신 중..." : "시세 갱신"}</span>
           </button>
-          <button className="danger" onClick={() => logout().catch(() => undefined)}>로그아웃</button>
+          <button className="danger topbar-action-button topbar-logout-action" onClick={() => logout().catch(() => undefined)}>
+            <span className="topbar-action-label">로그아웃</span>
+          </button>
         </div>
       </header>
 
@@ -8289,11 +10109,12 @@ function App() {
             <div className="filter-container">
               <div className="filter-modes-segmented">
                 <button className={filterMode === "month" ? "active" : ""} onClick={() => applyMonthFilter(yearMonth)}>월별</button>
-                <button className={filterMode === "range" ? "active" : ""} onClick={() => applyRangeFilter(range)}>기간</button>
+                <button className={filterMode === "range" ? "active" : ""} onClick={handleSwitchToRangeFilter}>기간</button>
               </div>
               <div className="filter-inputs-wrapper">
                 {filterMode === "month" ? (
-                  <div className="month-stepper">
+                  <>
+                    <div className="month-stepper">
                     <button
                       type="button"
                       className="icon-btn"
@@ -8347,30 +10168,44 @@ function App() {
                     >
                       이번 달
                     </button>
-                  </div>
+                    </div>
+                    {isMonthFilterPending && (
+                      <p className="filter-pending-status" data-testid="transaction-month-pending-status" aria-live="polite">
+                        변경됨 · Enter 또는 입력칸을 벗어나면 조회 적용
+                      </p>
+                    )}
+                  </>
                 ) : (
-                  <div className="range-picker">
-                    <label className="range-date-field">
-                      <span className="range-date-label">시작일</span>
-                      <input
-                        type="date"
-                        aria-label="시작일"
-                        value={range.start}
-                        onChange={(e) => handleRangeInputChange("start", e.target.value)}
-                        enterKeyHint="done"
-                      />
-                    </label>
-                    <span className="range-separator">~</span>
-                    <label className="range-date-field">
-                      <span className="range-date-label">종료일</span>
-                      <input
-                        type="date"
-                        aria-label="종료일"
-                        value={range.end}
-                        onChange={(e) => handleRangeInputChange("end", e.target.value)}
-                        enterKeyHint="done"
-                      />
-                    </label>
+                  <div className="range-filter-stack">
+                    <div className="range-picker">
+                      <label className="range-date-field">
+                        <span className="range-date-label">시작일</span>
+                        <input
+                          type="date"
+                          aria-label="시작일"
+                          value={range.start}
+                          onChange={(e) => handleRangeInputChange("start", e.target.value)}
+                          enterKeyHint="done"
+                        />
+                        <span className="range-date-value" aria-hidden="true">{range.start}</span>
+                      </label>
+                      <span className="range-separator">~</span>
+                      <label className="range-date-field">
+                        <span className="range-date-label">종료일</span>
+                        <input
+                          type="date"
+                          aria-label="종료일"
+                          value={range.end}
+                          onChange={(e) => handleRangeInputChange("end", e.target.value)}
+                          enterKeyHint="done"
+                        />
+                        <span className="range-date-value" aria-hidden="true">{range.end}</span>
+                      </label>
+                    </div>
+                    <div className="range-preset-row" aria-label="기간 빠른 선택">
+                      <button type="button" onClick={() => handleRangePreset("current_month")}>이번 달</button>
+                      <button type="button" onClick={() => handleRangePreset("recent_30")}>최근 30일</button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -8560,7 +10395,11 @@ function App() {
       {tab === "transactions" && (
         <section className="grid-1 transaction-page-section">
           <article ref={transactionListCardRef} className="card table-card surface-list-card transaction-list-card">
-            <div className="transaction-sticky-toolbar" data-testid="transaction-sticky-toolbar">
+            <div
+              ref={transactionStickyToolbarRef}
+              className="transaction-sticky-toolbar"
+              data-testid="transaction-sticky-toolbar"
+            >
               <div ref={transactionListHeadingRef} className="surface-list-heading">
                 <div className="work-surface-title">
                   <span className="surface-eyebrow">작업 원장</span>
@@ -8569,6 +10408,19 @@ function App() {
                 <p className="table-summary surface-count-summary">
                   {transactionHistoryInitialized ? "불러온" : "총"} {transactionLedgerItems.length}건 중 {sortedTransactions.length}건 표시
                 </p>
+                {!isCompactViewport && !txInlineEdit && (
+                  <button
+                    ref={transactionDesktopAddActionRef}
+                    type="button"
+                    className="primary surface-heading-action transaction-desktop-add-action"
+                    data-testid="transactions-desktop-add-action"
+                    disabled={loading}
+                    onClick={() => openTransactionEntrySheet("form")}
+                  >
+                    <span aria-hidden="true">＋</span>
+                    <span>거래 추가</span>
+                  </button>
+                )}
               </div>
               <div className="surface-control-strip" aria-label="거래 목록 상태">
                 <span className="surface-chip surface-chip-strong">{transactionSortSummary}</span>
@@ -8580,7 +10432,32 @@ function App() {
                 <span className={`surface-chip${isTransactionFilterActive ? " surface-chip-strong" : " surface-chip-muted"}`}>
                   필터 {isTransactionFilterActive ? "적용됨" : "기본"}
                 </span>
-                <span className="surface-chip">선택 {selectedTransactionSummary.count}건</span>
+                <span
+                  className="transaction-selection-summary"
+                  data-testid="transaction-selection-summary"
+                  data-selection-active={selectedTransactionSummary.count > 0 ? "true" : "false"}
+                >
+                  <span className="transaction-selection-status" role="status" aria-live="polite" aria-atomic="true">
+                    <span
+                      className={`surface-chip${
+                        selectedTransactionSummary.count > 0 ? " surface-chip-strong" : " surface-chip-muted"
+                      }`}
+                    >
+                      선택 {selectedTransactionSummary.count}건
+                    </span>
+                    <span className="surface-chip transaction-selection-amount">
+                      선택 합계 {fmtKrw(selectedTransactionSummary.amount)}
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    className="secondary transaction-selection-clear"
+                    disabled={selectedTransactionSummary.count === 0}
+                    onClick={() => setSelectedTransactionIds(new Set())}
+                  >
+                    선택 해제
+                  </button>
+                </span>
               </div>
               <div className="table-header-group">
                 <div className="month-stepper-inline">
@@ -8638,25 +10515,34 @@ function App() {
                   <p className="table-summary">
                     조회 가능 월: {toYearMonthKey(minMonth)} ~ {toYearMonthKey(maxMonth)}
                   </p>
+                  {isMonthFilterPending && (
+                    <p className="filter-pending-status" data-testid="transaction-month-pending-status" aria-live="polite">
+                      변경됨 · Enter 또는 입력칸을 벗어나면 조회 적용
+                    </p>
+                  )}
                 </div>
               </div>
-              <div className="transaction-filter-actions" aria-label="거래 필터 빠른 조작">
-                <button
-                  type="button"
-                  className="secondary"
-                  aria-expanded={showTransactionFilterPanel ? "true" : "false"}
-                  aria-controls="transaction-filter-panel"
-                  onClick={() => setShowTransactionFilterPanel((prev) => !prev)}
-                >
-                  {showTransactionFilterPanel ? "필터 닫기" : "필터 열기"}
-                </button>
-                {isTransactionFilterActive && (
-                  <button type="button" className="secondary tx-header-filter-reset" onClick={clearTxListFilter}>
-                    필터 초기화
-                  </button>
-                )}
-                <span className="table-summary">현재 불러온 거래 목록 기준 필터입니다.</span>
-              </div>
+              {(!isCompactViewport || isTransactionFilterActive) && (
+                <div className="transaction-filter-actions" aria-label="거래 필터 빠른 조작">
+                  {!isCompactViewport && (
+                    <button
+                      type="button"
+                      className="secondary"
+                      aria-expanded={showTransactionFilterPanel ? "true" : "false"}
+                      aria-controls="transaction-filter-panel"
+                      onClick={() => setShowTransactionFilterPanel((prev) => !prev)}
+                    >
+                      {showTransactionFilterPanel ? "필터 닫기" : "필터 열기"}
+                    </button>
+                  )}
+                  {isTransactionFilterActive && (
+                    <button type="button" className="secondary tx-header-filter-reset" onClick={clearTxListFilter}>
+                      필터 초기화
+                    </button>
+                  )}
+                  {!isCompactViewport && <span className="table-summary">현재 불러온 거래 목록 기준 필터입니다.</span>}
+                </div>
+              )}
               {showTransactionFilterPanel && (
                 <div id="transaction-filter-panel" className="tx-header-filters" aria-label="거래 제목행 필터">
                   <label className="tx-header-filter tx-header-filter-search">
@@ -8706,20 +10592,6 @@ function App() {
                 </div>
               )}
             </div>
-            {selectedTransactionSummary.count > 0 && (
-              <div className="message" role="status">
-                <span>
-                  선택 {selectedTransactionSummary.count}건 · 선택 합계 {fmtKrw(selectedTransactionSummary.amount)}
-                </span>
-                <button
-                  type="button"
-                  className="message-close secondary"
-                  onClick={() => setSelectedTransactionIds(new Set())}
-                >
-                  선택 해제
-                </button>
-              </div>
-            )}
             {(transactionHistoryLoading.initial ||
               transactionHistoryLoading.older ||
               transactionHistoryLoading.newer ||
@@ -8748,14 +10620,21 @@ function App() {
               historyLoadingOlder={transactionHistoryLoading.older}
               historyLoadingNewer={transactionHistoryLoading.newer}
               selectedTransactionIds={selectedTransactionIds}
+              recentImportTransactionIds={recentImportTransactionIds}
+              recentSavedTransactionIds={recentSavedTransactionIds}
               toggleTransactionSelection={toggleTransactionSelection}
+              selectTransactionRows={selectTransactionRows}
+              setTransactionRowsSelected={setTransactionRowsSelected}
               txInlineEdit={txInlineEdit}
               ownerOptionsWithFallback={ownerOptionsWithFallback}
               ownerSelectValue={ownerSelectValue}
               txInlineCategoryMajor={txInlineCategoryMajor}
+              txInlineCategoryOptions={txInlineCategoryOptions}
+              txInlineCategoryQuickChips={txInlineCategoryQuickChips}
               txInlineCategoryMajorOptions={txInlineCategoryMajorOptions}
               txInlineCategoryMinorOptions={txInlineCategoryMinorOptions}
               setTxInlineEdit={setTxInlineEdit}
+              createTxInlineCategory={createAndApplyTxInlineCategory}
               categoryById={categoryById}
               renderCategoryCell={renderCategoryCell}
               FLOW_TYPE_LABELS={FLOW_TYPE_LABELS}
@@ -8769,13 +10648,16 @@ function App() {
               expandedTransactionRows={expandedTransactionRows}
               toggleExpandedTransactionRow={toggleExpandedTransactionRow}
               canEditRecords={canEditRecords}
+              canEditHouseholdData={canEditHouseholdData}
               loading={loading}
               closeTxInlineEdit={closeTxInlineEdit}
               removeTx={removeTx}
               mobileStickyActive={transactionsMobileStickyActive}
               handleTxInlineEditKeyDown={handleTxInlineEditKeyDown}
               handleGroupedDecimalInput={handleGroupedDecimalInput}
+              handleTransactionAmountInput={handleTransactionAmountInput}
               ownerSelectionFromValue={ownerSelectionFromValue}
+              renderLegacyOwnerRemapHelper={renderLegacyOwnerRemapHelper}
               submitTxInlineEdit={submitTxInlineEdit}
               fmtKrw={fmtKrw}
               fmtDate={fmtDate}
@@ -8784,17 +10666,19 @@ function App() {
               toCategoryMinorLabel={toCategoryMinorLabel}
             />
           </article>
-          <button
-            ref={transactionFabRef}
-            type="button"
-            className="transactions-fab transaction-add-fab"
-            data-testid="transactions-fab"
-            aria-label="거래 추가"
-            disabled={loading}
-            onClick={() => openTransactionEntrySheet("form")}
-          >
-            <span aria-hidden="true">＋</span>
-          </button>
+          {isCompactViewport && !txInlineEdit && (
+            <button
+              ref={transactionFabRef}
+              type="button"
+              className="transactions-fab transaction-add-fab"
+              data-testid="transactions-fab"
+              aria-label="거래 추가"
+              disabled={loading}
+              onClick={() => openTransactionEntrySheet("form")}
+            >
+              <span aria-hidden="true">＋</span>
+            </button>
+          )}
           <details
             ref={transactionSupportDetailsRef}
             className="card compact-support-card transaction-support-card surface-support-card"
@@ -8999,6 +10883,14 @@ function App() {
 
       {tab === "holdings" && (
         <section className="grid-1">
+          {isCompactViewport && showHoldingForm && (
+            <div
+              className="holding-entry-sheet-backdrop"
+              data-testid="holding-entry-sheet-backdrop"
+              aria-hidden="true"
+              onClick={closeHoldingEntrySheet}
+            />
+          )}
           <article
             className={`card surface-entry-card holding-entry-card${isCompactViewport && showHoldingForm ? " holding-entry-sheet" : ""}`}
             data-testid={isCompactViewport && showHoldingForm ? "holding-entry-sheet" : undefined}
@@ -9032,162 +10924,221 @@ function App() {
             {showHoldingForm && (
               <div className="holdings-form-container">
               <form className="holdings-form-grid" onSubmit={submitHolding} noValidate>
-                <label>
-                  유형
-                  <select
-                    value={holdingForm.type_key}
-                    disabled={!canEditRecords}
-                    onChange={(event) => {
-                      const nextTypeKey = normalizeHoldingTypeKey(event.target.value || "");
-                      const nextType = holdingTypeByKey.get(nextTypeKey) || holdingTypeOptions[0] || DEFAULT_HOLDING_TYPES[0];
+                <div className="holdings-form-fields">
+                  <label>
+                    유형
+                    <select
+                      value={holdingForm.type_key}
+                      disabled={!canEditRecords}
+                      onChange={(event) => {
+                        setHoldingDraftTouched(true);
+                        const nextTypeKey = normalizeHoldingTypeKey(event.target.value || "");
+                        const nextType = holdingTypeByKey.get(nextTypeKey) || holdingTypeOptions[0] || DEFAULT_HOLDING_TYPES[0];
+                        const previousType =
+                          holdingTypeByKey.get(normalizeHoldingTypeKey(holdingForm.type_key || holdingForm.asset_type || "")) ||
+                          holdingFormType;
+                        if (shouldExplainHoldingValueReset(holdingForm.average_cost, previousType, nextType)) {
+                          setMessage(
+                            uiGuideMessage(
+                              "자산 유형을 변경했습니다.",
+                              "평가금액과 평균단가의 의미가 달라 금액 입력값을 비웠습니다."
+                            )
+                          );
+                        }
+                        setHoldingForm((prev) => ({
+                          ...createHoldingForm(nextType.asset_type || "other", nextType.key, nextType.label),
+                          name: prev.name,
+                          category: resolveHoldingCategoryOnTypeChange(
+                            prev.category,
+                            previousType,
+                            nextType
+                          ),
+                          owner_user_id: prev.owner_user_id,
+                          owner_name: prev.owner_name,
+                          account_name: prev.account_name,
+                          average_cost: nextAverageCostForHoldingTypeChange(prev.average_cost, previousType, nextType),
+                        }));
+                      }}
+                    >
+                      {holdingTypeOptions.map((item) => (
+                        <option key={item.key} value={item.key}>
+                          {item.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    자산명
+                    <textarea
+                      rows={2}
+                      ref={holdingNameInputRef}
+                      value={holdingForm.name}
+                      onChange={(event) => {
+                        setHoldingDraftTouched(true);
+                        setHoldingForm({ ...holdingForm, name: event.target.value });
+                      }}
+                      disabled={!canEditRecords}
+                      required
+                    />
+                  </label>
+                  <div className="settings-preview">
+                    선택 유형: <strong>{holdingFormType?.label || "-"}</strong>
+                  </div>
+                  <label>
+                    카테고리
+                    <input
+                      value={holdingForm.category}
+                      onChange={(event) => {
+                        setHoldingDraftTouched(true);
+                        setHoldingForm({ ...holdingForm, category: event.target.value });
+                      }}
+                      disabled={!canEditRecords}
+                    />
+                  </label>
+                  <label>
+                    보유자
+                    <select
+                      value={ownerSelectValue(holdingForm.owner_user_id, holdingForm.owner_name)}
+                      disabled={!canEditRecords}
+                      onChange={(event) => {
+                        setHoldingOwnerTouched(true);
+                        setHoldingDraftTouched(true);
+                        setHoldingForm({
+                          ...holdingForm,
+                          ...ownerSelectionFromValue(event.target.value, holdingFormOwnerOptions),
+                        });
+                      }}
+                    >
+                      <option value="">(선택 안함)</option>
+                      {holdingFormOwnerOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {renderOwnerQuickSelect({
+                    ownerLabel: "보유자",
+                    testId: "holding-owner-quick-select",
+                    selectedValue: holdingForm.owner_user_id,
+                    disabled: !canEditRecords,
+                    onSelect: applyHoldingOwnerOption,
+                  })}
+                  {renderLegacyOwnerRemapHelper({
+                    ownerUserId: holdingForm.owner_user_id,
+                    ownerName: holdingForm.owner_name,
+                    disabled: !canEditRecords,
+                    onApply: (target) => {
+                      setHoldingOwnerTouched(true);
+                      setHoldingDraftTouched(true);
                       setHoldingForm((prev) => ({
-                        ...createHoldingForm(nextType.asset_type || "other", nextType.key, nextType.label),
-                        name: prev.name,
-                        category: resolveHoldingCategoryOnTypeChange(
-                          prev.category,
-                          holdingTypeByKey.get(normalizeHoldingTypeKey(prev.type_key || prev.asset_type || "")) || holdingFormType,
-                          nextType
-                        ),
-                        owner_user_id: prev.owner_user_id,
-                        owner_name: prev.owner_name,
-                        account_name: prev.account_name,
-                        average_cost: prev.average_cost,
+                        ...prev,
+                        owner_user_id: target.value,
+                        owner_name: target.displayName,
                       }));
-                    }}
-                  >
-                    {holdingTypeOptions.map((item) => (
-                      <option key={item.key} value={item.key}>
-                        {item.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  자산명
-                  <textarea
-                    rows={2}
-                    ref={holdingNameInputRef}
-                    value={holdingForm.name}
-                    onChange={(event) => setHoldingForm({ ...holdingForm, name: event.target.value })}
-                    disabled={!canEditRecords}
-                    required
-                  />
-                </label>
-                <div className="settings-preview">
-                  선택 유형: <strong>{holdingFormType?.label || "-"}</strong>
-                </div>
-                <label>
-                  카테고리
-                  <input
-                    value={holdingForm.category}
-                    onChange={(event) => setHoldingForm({ ...holdingForm, category: event.target.value })}
-                    disabled={!canEditRecords}
-                  />
-                </label>
-                <label>
-                  보유자
-                  <select
-                    value={ownerSelectValue(holdingForm.owner_user_id, holdingForm.owner_name)}
-                    disabled={!canEditRecords}
-                    onChange={(event) =>
-                      setHoldingForm({
-                        ...holdingForm,
-                        ...ownerSelectionFromValue(event.target.value, holdingFormOwnerOptions),
-                      })
-                    }
-                  >
-                    <option value="">(선택 안함)</option>
-                    {holdingFormOwnerOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  계좌
-                  <input
-                    value={holdingForm.account_name}
-                    onChange={(event) => setHoldingForm({ ...holdingForm, account_name: event.target.value })}
-                    disabled={!canEditRecords}
-                  />
-                </label>
-                {holdingFormTracked ? (
-                  <>
-                    <label>
-                      심볼
-                      <input
-                        value={holdingForm.symbol}
-                        onChange={(event) => setHoldingForm({ ...holdingForm, symbol: event.target.value })}
-                        disabled={!canEditRecords}
-                        required
-                      />
-                    </label>
-                    <label>
-                      시장심볼
-                      <input
-                        value={holdingForm.market_symbol}
-                        onChange={(event) => setHoldingForm({ ...holdingForm, market_symbol: event.target.value })}
-                        disabled={!canEditRecords}
-                      />
-                    </label>
-                    <label>
-                      수량
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        value={holdingForm.quantity}
-                        onChange={(event) => handleGroupedDecimalInput(event, setHoldingForm, "quantity")}
-                        disabled={!canEditRecords}
-                        required
-                      />
-                    </label>
-                    {holdingFormShowAverageCost && (
+                    },
+                  })}
+                  {holdingFormTracked ? (
+                    <>
                       <label>
-                        평균단가
+                        심볼
                         <input
-                          type="text"
-                          inputMode="decimal"
-                          value={holdingForm.average_cost}
-                          onChange={(event) => handleGroupedDecimalInput(event, setHoldingForm, "average_cost")}
+                          value={holdingForm.symbol}
+                          onChange={(event) => {
+                            setHoldingDraftTouched(true);
+                            setHoldingForm({ ...holdingForm, symbol: event.target.value });
+                          }}
                           disabled={!canEditRecords}
                           required
                         />
                       </label>
-                    )}
-                  </>
-                ) : (
-                  holdingFormShowAverageCost ? (
-                    <label>
-                      평가금액
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        value={holdingForm.average_cost}
-                        onChange={(event) => handleGroupedDecimalInput(event, setHoldingForm, "average_cost")}
-                        disabled={!canEditRecords}
-                        required
-                      />
-                    </label>
+                      <label>
+                        시장심볼
+                        <input
+                          value={holdingForm.market_symbol}
+                          onChange={(event) => {
+                            setHoldingDraftTouched(true);
+                            setHoldingForm({ ...holdingForm, market_symbol: event.target.value });
+                          }}
+                          disabled={!canEditRecords}
+                        />
+                      </label>
+                      <label>
+                        수량
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={holdingForm.quantity}
+                          onChange={(event) => handleHoldingEntryDecimalInput(event, "quantity")}
+                          disabled={!canEditRecords}
+                          required
+                        />
+                      </label>
+                      {holdingFormShowAverageCost && (
+                        <label>
+                          평균단가
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={holdingForm.average_cost}
+                            onChange={(event) => handleHoldingEntryDecimalInput(event, "average_cost")}
+                            disabled={!canEditRecords}
+                            required
+                          />
+                        </label>
+                      )}
+                    </>
                   ) : (
-                    <div className="settings-preview">선택한 유형은 평균단가/손익 입력이 필요하지 않습니다.</div>
-                  )
-                )}
-                <label>
-                  통화
-                  <input
-                    value={holdingForm.currency}
-                    onChange={(event) => setHoldingForm({ ...holdingForm, currency: event.target.value.toUpperCase() })}
-                    disabled={!canEditRecords}
-                    required
-                  />
-                </label>
+                    holdingFormShowAverageCost ? (
+                      <label>
+                        평가금액
+                        <input
+                          type="text"
+                          inputMode={holdingValuationInputMode(holdingForm.currency)}
+                          value={holdingForm.average_cost}
+                          onChange={(event) => handleHoldingEntryDecimalInput(event, "average_cost")}
+                          disabled={!canEditRecords}
+                          required
+                        />
+                      </label>
+                    ) : (
+                      <div className="settings-preview">선택한 유형은 평균단가/손익 입력이 필요하지 않습니다.</div>
+                    )
+                  )}
+                  <label>
+                    계좌
+                    <input
+                      value={holdingForm.account_name}
+                      onChange={(event) => {
+                        setHoldingDraftTouched(true);
+                        setHoldingForm({ ...holdingForm, account_name: event.target.value });
+                      }}
+                      disabled={!canEditRecords}
+                    />
+                  </label>
+                  <label>
+                    통화
+                    <input
+                      value={holdingForm.currency}
+                      onChange={(event) => {
+                        setHoldingDraftTouched(true);
+                        setHoldingForm({ ...holdingForm, currency: event.target.value.toUpperCase() });
+                      }}
+                      disabled={!canEditRecords}
+                      required
+                    />
+                  </label>
+                </div>
                 <div className="holdings-form-actions">
                   <button
                     type="button"
                     className="secondary"
                     disabled={!canEditRecords}
-                    onClick={() => setHoldingForm(createHoldingForm(holdingForm.asset_type, holdingForm.type_key, holdingFormType?.label))}
+                    onClick={() => {
+                      setHoldingOwnerTouched(false);
+                      setHoldingDraftTouched(false);
+                      setHoldingForm(createHoldingForm(holdingForm.asset_type, holdingForm.type_key, holdingFormType?.label));
+                    }}
                   >
                     초기화
                   </button>
@@ -9261,7 +11212,11 @@ function App() {
               ))}
             </div>
             <details className="holding-display-options compact-inline-details">
-              <summary>보기 옵션</summary>
+              <summary>
+                <span>보기 옵션</span>
+                <span className="holding-display-options-state holding-display-options-state-closed">펼치기</span>
+                <span className="holding-display-options-state holding-display-options-state-open">접기</span>
+              </summary>
               <div className="table-toolbar">
                 <label>
                   색상 기준
@@ -9336,11 +11291,9 @@ function App() {
             ref={holdingSummaryCardRef}
             className="card compact-support-card holding-summary-card surface-support-card"
             open={holdingSummaryOpen}
-            onToggle={(event) => {
-              setHoldingSummaryOpen(event.currentTarget.open);
-            }}
+            onToggle={handleHoldingSummaryToggle}
           >
-            <summary>
+            <summary onClick={handleHoldingSummarySummaryClick}>
               <span>자산 포트폴리오 차트 {holdingSummaryOpen ? "접기" : "열기"}</span>
             </summary>
             <div className="compact-support-grid">
@@ -10158,16 +12111,28 @@ function App() {
             )}
 
             <form className="form-grid collaboration-form-grid" onSubmit={createHouseholdInvite} noValidate>
-              <label>
+              <label className="form-field">
                 초대할 이메일
                 <input
+                  ref={inviteEmailInputRef}
                   type="email"
                   value={inviteForm.email}
-                  onChange={(event) => setInviteForm((prev) => ({ ...prev, email: event.target.value }))}
+                  onChange={(event) => {
+                    event.target.setCustomValidity("");
+                    setInviteFormErrors({ email: "" });
+                    setInviteForm((prev) => ({ ...prev, email: event.target.value }));
+                  }}
                   placeholder="example@email.com"
                   disabled={loading || !canManageHousehold}
                   required
+                  aria-invalid={inviteFormErrors.email ? "true" : undefined}
+                  aria-describedby={inviteFormErrors.email ? "collaboration-invite-email-error" : undefined}
                 />
+                {inviteFormErrors.email && (
+                  <p id="collaboration-invite-email-error" className="field-helper field-error" role="alert">
+                    {inviteFormErrors.email}
+                  </p>
+                )}
               </label>
               <label>
                 권한
@@ -10448,6 +12413,62 @@ function App() {
             {!canEditRecords && (
               <p className="table-summary">데이터 가져오기는 편집자 이상 권한에서만 가능합니다.</p>
             )}
+            {legacyOwnerCleanupRows.length > 0 && (
+              <section className="owner-remap-cleanup" aria-labelledby="owner-remap-cleanup-title">
+                <div className="secondary-table-heading owner-remap-heading">
+                  <div className="work-surface-title">
+                    <span className="surface-eyebrow">소유자 정리</span>
+                    <h3 id="owner-remap-cleanup-title">기존 소유자 정리</h3>
+                  </div>
+                  <p className="table-summary">
+                    기존 값은 현재 가계 구성원과 연결되지 않은 과거/가져오기 소유자명입니다.
+                  </p>
+                </div>
+                <div className="owner-remap-list">
+                  {legacyOwnerCleanupRows.map((row) => {
+                    const targetValue = ownerRemapTargets[row.key] || defaultOwnerRemapOption?.value || "";
+                    const remapping = ownerRemappingKey === row.key;
+                    const totalCount = row.transactions.length + row.holdings.length;
+                    return (
+                      <div className="owner-remap-row" key={row.key}>
+                        <div className="owner-remap-summary">
+                          <strong>{row.ownerName} (기존 값)</strong>
+                          <span>{legacyOwnerCountText(row)}</span>
+                        </div>
+                        <label>
+                          매핑 대상
+                          <select
+                            aria-label={`${row.ownerName} 매핑 대상`}
+                            value={targetValue}
+                            disabled={!canEditRecords || remapping || ownerMemberOptions.length === 0}
+                            onChange={(event) =>
+                              setOwnerRemapTargets((prev) => ({
+                                ...prev,
+                                [row.key]: event.target.value,
+                              }))
+                            }
+                          >
+                            {ownerMemberOptions.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <button
+                          type="button"
+                          className="secondary"
+                          disabled={!canEditRecords || remapping || !targetValue || totalCount === 0}
+                          onClick={() => applyLegacyOwnerRemap(row.key)}
+                        >
+                          {remapping ? "매핑 중..." : "현재 구성원으로 매핑"}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
             <div className="mobile-import-package-export">
               <button
                 type="button"
@@ -10461,16 +12482,39 @@ function App() {
               <section className="import-mode-panel import-excel-panel">
                 <div className="secondary-table-heading import-report-heading">
                   <div className="work-surface-title">
-                    <span className="surface-eyebrow">엑셀 데이터</span>
-                    <h3 id="excel-import-heading">엑셀 파일 업로드</h3>
+                    <span className="surface-eyebrow">원본 데이터</span>
+                    <h3 id="excel-import-heading">데이터 파일 업로드</h3>
                   </div>
-                  <p className="table-summary">{importFile ? "파일 선택됨" : "파일 대기"}</p>
+                  <p className="table-summary">
+                    {importMode === "toss"
+                      ? (tossFiles.length > 0 ? `이미지 ${fmt(tossFiles.length)}개 선택됨` : "이미지 대기")
+                      : (importFile ? "파일 선택됨" : "파일 대기")}
+                  </p>
                 </div>
+                <div className="import-mode-switch" role="tablist" aria-label="가져오기 형식">
+                  {IMPORT_SOURCE_MODES.map((mode) => (
+                    <button
+                      key={mode.value}
+                      type="button"
+                      className={importMode === mode.value ? "active" : "secondary"}
+                      onClick={() => {
+                        setImportMode(mode.value);
+                        setIsDragOver(false);
+                      }}
+                      disabled={importBusy}
+                    >
+                      {mode.label}
+                    </button>
+                  ))}
+                </div>
+
+                {importMode === "workbook" && (
+                  <>
                 <div
                   className={`file-drop-area ${isDragOver ? "drag-over" : ""}`}
                   onDragOver={(e) => {
                     e.preventDefault();
-                    if (!importLoadingMode && canEditRecords) setIsDragOver(true);
+                    if (!importBusy && canEditRecords) setIsDragOver(true);
                   }}
                   onDragLeave={(e) => {
                     e.preventDefault();
@@ -10479,12 +12523,12 @@ function App() {
                   onDrop={(e) => {
                     e.preventDefault();
                     setIsDragOver(false);
-                    if (!importLoadingMode && canEditRecords && e.dataTransfer.files?.[0]) {
+                    if (!importBusy && canEditRecords && e.dataTransfer.files?.[0]) {
                       setImportFile(e.dataTransfer.files[0]);
                     }
                   }}
                   onClick={() => {
-                    if (!importLoadingMode && canEditRecords) importFileInputRef.current?.click();
+                    if (!importBusy && canEditRecords) importFileInputRef.current?.click();
                   }}
                 >
                   <input
@@ -10494,19 +12538,34 @@ function App() {
                     onChange={(e) => setImportFile(e.target.files?.[0] || null)}
                     style={{ display: "none" }}
                     aria-label="엑셀 파일 업로드"
-                    disabled={Boolean(importLoadingMode) || !canEditRecords}
+                    disabled={importBusy || !canEditRecords}
                   />
                   {importFile ? (
                     <div className="upload-file-name">선택된 파일: {importFile.name}</div>
                   ) : (
-                    <div className="upload-placeholder">엑셀 파일을 이곳에 드래그 앤 드롭 하거나 클릭하여 업로드하세요.</div>
+                    <div className="upload-placeholder">{workbookUploadPlaceholder}</div>
                   )}
                 </div>
+                {workbookMissingFile && (
+                  <p id="excel-import-file-required" className="table-summary import-action-help">
+                    엑셀 파일을 선택하면 미리 검증과 적용을 사용할 수 있습니다.
+                  </p>
+                )}
                 <div className="inline import-action-row">
-                  <button type="button" disabled={Boolean(importLoadingMode) || !canEditRecords} onClick={() => doImport("dry_run")}>
+                  <button
+                    type="button"
+                    disabled={workbookActionsDisabled}
+                    aria-describedby={workbookMissingFile ? "excel-import-file-required" : undefined}
+                    onClick={() => doImport("dry_run")}
+                  >
                     {importLoadingMode === "dry_run" ? "미리 검증 중..." : IMPORT_MODE_LABELS.dry_run}
                   </button>
-                  <button type="button" disabled={Boolean(importLoadingMode) || !canEditRecords} onClick={() => doImport("apply")}>
+                  <button
+                    type="button"
+                    disabled={workbookActionsDisabled}
+                    aria-describedby={workbookMissingFile ? "excel-import-file-required" : undefined}
+                    onClick={() => doImport("apply")}
+                  >
                     {importLoadingMode === "apply" ? "적용 중..." : IMPORT_MODE_LABELS.apply}
                   </button>
                 </div>
@@ -10516,65 +12575,449 @@ function App() {
                 {importReport && (
                   <section className="import-report">
                     <div className="secondary-table-heading import-report-heading">
-                  <div className="work-surface-title">
-                    <span className="surface-eyebrow">검증 리포트</span>
-                    <h3>가져오기 결과</h3>
-                  </div>
-                  <p className="table-summary">
-                    거래 {fmt(importReport.transaction_rows)}행 · 보유 {fmt(importReport.holding_rows)}행
-                  </p>
-                </div>
-                <div className="import-summary-grid">
-                  <div className="import-summary-item"><strong>파일</strong><span>{importReport.workbook_path}</span></div>
-                  <div className="import-summary-item"><strong>시트 수</strong><span>{fmt(importReport.sheets)}</span></div>
-                  <div className="import-summary-item"><strong>거래 행</strong><span>{fmt(importReport.transaction_rows)}</span></div>
-                  <div className="import-summary-item"><strong>보유 행</strong><span>{fmt(importReport.holding_rows)}</span></div>
-                  <div className="import-summary-item"><strong>적용된 거래</strong><span>{fmt(importReport.applied_transactions)}</span></div>
-                  <div className="import-summary-item"><strong>적용된 보유(추가/수정)</strong><span>{fmt(importReport.applied_holdings_added)} / {fmt(importReport.applied_holdings_updated)}</span></div>
-                </div>
-                <div className="import-list-grid">
-                  <section>
-                    <h3>수식 불일치 셀 ({fmt(importReport.monthly_formula_mismatch_count)})</h3>
-                    {importMismatchPreview.length === 0 ? (
-                      <p className="table-summary">불일치가 없습니다.</p>
-                    ) : (
-                      <ul className="compact-list">
-                        {importMismatchPreview.map((cell) => (
-                          <li key={cell}>{cell}</li>
-                        ))}
-                      </ul>
-                    )}
-                    {(importReport.detected_mismatch_cells || []).length > importMismatchPreview.length && (
+                      <div className="work-surface-title">
+                        <span className="surface-eyebrow">검증 리포트</span>
+                        <h3>가져오기 결과</h3>
+                      </div>
                       <p className="table-summary">
-                        +{(importReport.detected_mismatch_cells || []).length - importMismatchPreview.length}건 더 있음
+                        거래 {fmt(importReport.transaction_rows)}행 · 보유 {fmt(importReport.holding_rows)}행
                       </p>
+                    </div>
+                    <div className="import-summary-grid">
+                      <div className="import-summary-item"><strong>파일</strong><span>{importReport.workbook_path}</span></div>
+                      <div className="import-summary-item"><strong>시트 수</strong><span>{fmt(importReport.sheets)}</span></div>
+                      <div className="import-summary-item"><strong>거래 행</strong><span>{fmt(importReport.transaction_rows)}</span></div>
+                      <div className="import-summary-item"><strong>보유 행</strong><span>{fmt(importReport.holding_rows)}</span></div>
+                      <div className="import-summary-item"><strong>적용된 거래</strong><span>{fmt(importReport.applied_transactions)}</span></div>
+                      <div className="import-summary-item"><strong>적용된 보유(추가/수정)</strong><span>{fmt(importReport.applied_holdings_added)} / {fmt(importReport.applied_holdings_updated)}</span></div>
+                    </div>
+                    {hasImportPostApplyTargets && (
+                      <section className="import-post-apply-actions" aria-label="가져오기 적용 후 이동">
+                        <div className="import-post-apply-copy">
+                          <strong>적용한 항목 바로가기</strong>
+                          <span>
+                            거래 {fmt(importAppliedTransactionRefs.length)}건 · 자산 {fmt(importAppliedHoldingRefs.length)}건을
+                            목록에서 바로 확인하고 수정할 수 있습니다.
+                          </span>
+                        </div>
+                        <div className="import-post-apply-buttons">
+                          <button
+                            type="button"
+                            className="secondary-btn"
+                            disabled={importAppliedTransactionRefs.length === 0}
+                            onClick={() => showImportedTransactions()}
+                          >
+                            가져온 거래 보기
+                          </button>
+                          <button
+                            type="button"
+                            className="secondary-btn"
+                            disabled={importAppliedHoldingRefs.length === 0}
+                            onClick={() => showImportedHoldings()}
+                          >
+                            가져온 자산 보기
+                          </button>
+                          <button type="button" className="primary" onClick={() => startImportedCorrection()}>
+                            수정 시작
+                          </button>
+                        </div>
+                      </section>
                     )}
+                    <div className="import-list-grid">
+                      <section>
+                        <h3>수식 불일치 셀 ({fmt(importReport.monthly_formula_mismatch_count)})</h3>
+                        {importMismatchPreview.length === 0 ? (
+                          <p className="table-summary">불일치가 없습니다.</p>
+                        ) : (
+                          <ul className="compact-list">
+                            {importMismatchPreview.map((cell) => (
+                              <li key={cell}>{cell}</li>
+                            ))}
+                          </ul>
+                        )}
+                        {(importReport.detected_mismatch_cells || []).length > importMismatchPreview.length && (
+                          <p className="table-summary">
+                            +{(importReport.detected_mismatch_cells || []).length - importMismatchPreview.length}건 더 있음
+                          </p>
+                        )}
+                      </section>
+                      <section>
+                        <h3>이슈 ({fmt((importReport.issues || []).length)})</h3>
+                        {importIssuePreview.length === 0 ? (
+                          <p className="table-summary">검출된 이슈가 없습니다.</p>
+                        ) : (
+                          <ul className="compact-list">
+                            {importIssuePreview.map((issue, index) => (
+                              <li key={`${issue.code}-${issue.sheet || "none"}-${issue.row || 0}-${index}`}>
+                                [{issue.severity}] {issue.message}
+                                {issue.sheet ? ` (${issue.sheet}` : ""}
+                                {issue.row ? `:${issue.row}` : ""}
+                                {issue.sheet ? ")" : ""}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                        {(importReport.issues || []).length > importIssuePreview.length && (
+                          <p className="table-summary">+{(importReport.issues || []).length - importIssuePreview.length}건 더 있음</p>
+                        )}
+                      </section>
+                    </div>
+                    {importReportRows.length > 0 && (
+                      <section className="import-report-workbench" aria-labelledby="import-report-workbench-title">
+                        <div className="secondary-table-heading import-report-workbench-heading">
+                          <div className="work-surface-title">
+                            <span className="surface-eyebrow">정리 도구</span>
+                            <h3 id="import-report-workbench-title">문제 정리 표</h3>
+                          </div>
+                          <p className="table-summary">
+                            전체 {fmt(importReportRows.length)}건 · 표시 {fmt(importReportVisibleRows.length)}건
+                          </p>
+                        </div>
+                        <div className="import-report-toolbar">
+                          <label>
+                            <span>검색</span>
+                            <input
+                              type="search"
+                              aria-label="정리 표 검색"
+                              value={importReportSearch}
+                              onChange={(event) => setImportReportSearch(event.target.value)}
+                              placeholder="시트, 행, 유형, 메시지"
+                            />
+                          </label>
+                          <label>
+                            <span>심각도</span>
+                            <select
+                              aria-label="심각도 필터"
+                              value={importReportSeverityFilter}
+                              onChange={(event) => setImportReportSeverityFilter(event.target.value)}
+                            >
+                              <option value="all">전체</option>
+                              {importReportSeverityOptions.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            <span>유형</span>
+                            <select
+                              aria-label="유형 필터"
+                              value={importReportTypeFilter}
+                              onChange={(event) => setImportReportTypeFilter(event.target.value)}
+                            >
+                              <option value="all">전체</option>
+                              {importReportTypeOptions.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            <span>정렬</span>
+                            <select
+                              aria-label="정렬"
+                              value={importReportSort}
+                              onChange={(event) => setImportReportSort(event.target.value)}
+                            >
+                              {IMPORT_REPORT_SORT_OPTIONS.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <div className="import-report-actions">
+                            <button
+                              type="button"
+                              className="secondary-btn"
+                              disabled={importReportVisibleRows.length === 0}
+                              onClick={copyImportReportCsv}
+                            >
+                              CSV 복사
+                            </button>
+                            <button
+                              type="button"
+                              className="secondary-btn"
+                              disabled={importReportVisibleRows.length === 0}
+                              onClick={downloadImportReportCsv}
+                            >
+                              CSV 다운로드
+                            </button>
+                          </div>
+                        </div>
+                        <div className="import-report-table-scroll">
+                          <table className="import-report-table">
+                            <thead>
+                              <tr>
+                                <th scope="col">심각도</th>
+                                <th scope="col">유형</th>
+                                <th scope="col">시트</th>
+                                <th scope="col">행/셀</th>
+                                <th scope="col">메시지</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {importReportVisibleRows.length === 0 ? (
+                                <tr>
+                                  <td colSpan={5}>필터 조건에 맞는 항목이 없습니다.</td>
+                                </tr>
+                              ) : (
+                                importReportVisibleRows.map((row) => (
+                                  <tr key={row.id} id={`import-report-row-${row.id}`}>
+                                    <td>
+                                      <span className="import-report-severity" data-severity={row.severity}>
+                                        {row.severityLabel}
+                                      </span>
+                                    </td>
+                                    <td>{row.typeLabel}</td>
+                                    <td>{row.sheet || "-"}</td>
+                                    <td>
+                                      <a href={`#import-report-row-${row.id}`}>{row.target}</a>
+                                    </td>
+                                    <td>{row.message}</td>
+                                  </tr>
+                                ))
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </section>
+                    )}
+                    <details className="report-raw">
+                      <summary>원본 JSON 보기</summary>
+                      <pre className="report">{JSON.stringify(importReport, null, 2)}</pre>
+                    </details>
                   </section>
-                  <section>
-                    <h3>이슈 ({fmt((importReport.issues || []).length)})</h3>
-                    {importIssuePreview.length === 0 ? (
-                      <p className="table-summary">검출된 이슈가 없습니다.</p>
-                    ) : (
-                      <ul className="compact-list">
-                        {importIssuePreview.map((issue, index) => (
-                          <li key={`${issue.code}-${issue.sheet || "none"}-${issue.row || 0}-${index}`}>
-                            [{issue.severity}] {issue.message}
-                            {issue.sheet ? ` (${issue.sheet}` : ""}
-                            {issue.row ? `:${issue.row}` : ""}
-                            {issue.sheet ? ")" : ""}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                    {(importReport.issues || []).length > importIssuePreview.length && (
-                      <p className="table-summary">+{(importReport.issues || []).length - importIssuePreview.length}건 더 있음</p>
-                    )}
-                  </section>
+                )}
+              </>
+            )}
+
+            {importMode === "toss" && (
+              <section className="toss-import-panel">
+                <div
+                  className={`file-drop-area toss-drop-area ${isDragOver ? "drag-over" : ""}`}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    if (!importBusy && canEditRecords) setIsDragOver(true);
+                  }}
+                  onDragLeave={(e) => {
+                    e.preventDefault();
+                    setIsDragOver(false);
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setIsDragOver(false);
+                    if (!importBusy && canEditRecords && e.dataTransfer.files?.length) {
+                      setTossImportFiles(e.dataTransfer.files);
+                    }
+                  }}
+                  onClick={() => {
+                    if (!importBusy && canEditRecords) tossFileInputRef.current?.click();
+                  }}
+                >
+                  <input
+                    ref={tossFileInputRef}
+                    type="file"
+                    accept={TOSS_IMAGE_ACCEPT}
+                    multiple
+                    onChange={(e) => setTossImportFiles(e.target.files)}
+                    style={{ display: "none" }}
+                    aria-label="토스 스크린샷 업로드"
+                    disabled={importBusy || !canEditRecords}
+                  />
+                  {tossFiles.length > 0 ? (
+                    <ul className="upload-file-list">
+                      {tossFiles.map((file) => (
+                        <li key={`${file.name}-${file.size}`}>{file.name}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <div className="upload-placeholder">{tossUploadPlaceholder}</div>
+                  )}
                 </div>
-                <details className="report-raw">
-                  <summary>원본 JSON 보기</summary>
-                  <pre className="report">{JSON.stringify(importReport, null, 2)}</pre>
-                </details>
+                <div className="inline import-actions">
+                  <button type="button" disabled={importBusy || !canEditRecords} onClick={() => doTossPreview()}>
+                    {tossLoadingMode === "preview" ? "추출 중..." : "검토 표 만들기"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={importBusy || !canEditRecords || !tossPreview || tossIncludedCount === 0}
+                    onClick={() => doTossApply()}
+                  >
+                    {tossLoadingMode === "apply" ? "적용 중..." : "포함 행 적용"}
+                  </button>
+                </div>
+                {tossLoadingMode && (
+                  <div className="import-progress">토스 이미지를 처리 중입니다.</div>
+                )}
+                {tossPreview && (
+                  <section className="import-report toss-review">
+                    <div className="import-summary-grid">
+                      <div className="import-summary-item"><strong>이미지</strong><span>{fmt(tossPreview.summary?.image_count)}</span></div>
+                      <div className="import-summary-item"><strong>검토 행</strong><span>{fmt(tossRows.length)}</span></div>
+                      <div className="import-summary-item"><strong>포함 행</strong><span>{fmt(tossIncludedCount)}</span></div>
+                      <div className="import-summary-item"><strong>중복 후보</strong><span>{fmt(tossDuplicateCount)}</span></div>
+                      <div className="import-summary-item"><strong>제외된 후보</strong><span>{fmt(tossExcludedCandidates.length)}</span></div>
+                    </div>
+                    <div className="toss-review-table-wrap">
+                      <table className="toss-review-table">
+                        <thead>
+                          <tr>
+                            <th>포함</th>
+                            <th>일자</th>
+                            <th>시간</th>
+                            <th>항목명</th>
+                            <th>금액</th>
+                            <th>잔액</th>
+                            <th>유형</th>
+                            <th>카테고리</th>
+                            <th>상태</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {tossRows.length === 0 && (
+                            <tr>
+                              <td colSpan={9} className="empty-state">검토할 행이 없습니다.</td>
+                            </tr>
+                          )}
+                          {tossRows.map((row) => {
+                            const recommendation = row.category_recommendation;
+                            const selectedCategory = categoryById.get(String(row.category_id || ""));
+                            const rowCategories = categories.filter((item) => item.flow_type === row.flow_type);
+                            return (
+                              <tr key={row.row_id} className={!row.included ? "toss-row-excluded" : ""}>
+                                <td data-label="포함">
+                                  <input
+                                    type="checkbox"
+                                    checked={Boolean(row.included)}
+                                    onChange={(e) => updateTossPreviewRow(row.row_id, { included: e.target.checked })}
+                                    disabled={importBusy || !canEditRecords}
+                                  />
+                                </td>
+                                <td data-label="일자">
+                                  <input
+                                    type="date"
+                                    value={row.occurred_on || ""}
+                                    onChange={(e) => updateTossPreviewRow(row.row_id, { occurred_on: e.target.value })}
+                                    disabled={importBusy || !canEditRecords}
+                                  />
+                                </td>
+                                <td data-label="시간">
+                                  <input
+                                    value={row.time || ""}
+                                    onChange={(e) => updateTossPreviewRow(row.row_id, { time: e.target.value })}
+                                    disabled={importBusy || !canEditRecords}
+                                  />
+                                </td>
+                                <td data-label="항목명">
+                                  <input
+                                    value={row.item_name || ""}
+                                    onChange={(e) => updateTossPreviewRow(row.row_id, { item_name: e.target.value })}
+                                    disabled={importBusy || !canEditRecords}
+                                  />
+                                  <input
+                                    className="toss-detail-input"
+                                    value={row.detail || ""}
+                                    onChange={(e) => updateTossPreviewRow(row.row_id, { detail: e.target.value })}
+                                    disabled={importBusy || !canEditRecords}
+                                    placeholder="상세"
+                                  />
+                                </td>
+                                <td data-label="금액">
+                                  <input
+                                    inputMode="decimal"
+                                    value={row.amount ?? ""}
+                                    onChange={(e) => updateTossPreviewRow(row.row_id, { amount: e.target.value })}
+                                    disabled={importBusy || !canEditRecords}
+                                  />
+                                </td>
+                                <td data-label="잔액">
+                                  <input
+                                    inputMode="decimal"
+                                    value={row.balance ?? ""}
+                                    onChange={(e) => updateTossPreviewRow(row.row_id, { balance: e.target.value })}
+                                    disabled={importBusy || !canEditRecords}
+                                  />
+                                </td>
+                                <td data-label="유형">
+                                  <select
+                                    value={row.flow_type || "expense"}
+                                    onChange={(e) => updateTossPreviewRow(row.row_id, { flow_type: e.target.value, category_id: "" })}
+                                    disabled={importBusy || !canEditRecords}
+                                  >
+                                    {FLOW_TYPE_OPTIONS.map((option) => (
+                                      <option key={option.value} value={option.value}>{option.label}</option>
+                                    ))}
+                                  </select>
+                                </td>
+                                <td data-label="카테고리" className="toss-category-cell">
+                                  <select
+                                    value={row.category_id || ""}
+                                    onChange={(e) => updateTossPreviewRow(row.row_id, { category_id: e.target.value })}
+                                    disabled={importBusy || !canEditRecords}
+                                  >
+                                    <option value="">미분류/검토 필요</option>
+                                    {rowCategories.map((category) => (
+                                      <option key={category.id} value={category.id}>{toCategoryPairLabel(category)}</option>
+                                    ))}
+                                  </select>
+                                  {selectedCategory ? (
+                                    <span className="toss-category-hint">선택: {toCategoryPairLabel(selectedCategory)}</span>
+                                  ) : recommendation ? (
+                                    <div className="toss-category-recommendation">
+                                      <span>추천 카테고리: {recommendation.suggested_major} / {recommendation.suggested_minor}</span>
+                                      <button
+                                        type="button"
+                                        className="secondary"
+                                        onClick={() => startCategoryDraftFromTossRecommendation(row)}
+                                        disabled={importBusy || !canEditRecords}
+                                      >
+                                        생성 초안
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <span className="toss-category-hint">미분류/검토 필요</span>
+                                  )}
+                                </td>
+                                <td data-label="상태">
+                                  {row.duplicate_group_id ? (
+                                    <span className="status-pill status-pill-pending">중복 후보</span>
+                                  ) : row.included ? (
+                                    <span className="status-pill status-pill-accepted">적용 예정</span>
+                                  ) : (
+                                    <span className="status-pill status-pill-revoked">적용 제외</span>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                    {tossExcludedCandidates.length > 0 && (
+                      <section className="toss-excluded-panel">
+                        <h3>제외된 후보 / 인식 불가</h3>
+                        <ul className="compact-list">
+                          {tossExcludedCandidates.map((candidate, index) => (
+                            <li key={`${candidate.source_image_index}-${candidate.item_name}-${index}`}>
+                              <strong>{candidate.item_name || "인식 불가"}</strong>
+                              <span> {candidate.exclusion_reason}</span>
+                              {candidate.raw_text ? <pre>{candidate.raw_text}</pre> : null}
+                            </li>
+                          ))}
+                        </ul>
+                      </section>
+                    )}
+                    {tossApplyReport && (
+                      <div className="import-summary-grid">
+                        <div className="import-summary-item"><strong>추가된 거래</strong><span>{fmt(tossApplyReport.applied_transactions)}</span></div>
+                        <div className="import-summary-item"><strong>건너뛴 행</strong><span>{fmt(tossApplyReport.skipped_transactions)}</span></div>
+                      </div>
+                    )}
+                  </section>
+                )}
               </section>
             )}
               </section>
@@ -10618,20 +13061,27 @@ function App() {
                 {migrationPackageFile ? (
                   <div className="upload-file-name">선택된 패키지: {migrationPackageFile.name}</div>
                 ) : (
-                  <div className="upload-placeholder">추출한 패키지(.zip) 파일을 클릭하여 업로드하세요.</div>
+                  <div className="upload-placeholder">{migrationPackageUploadPlaceholder}</div>
                 )}
               </div>
+              {packageMissingFile && (
+                <p id="package-import-file-required" className="table-summary import-action-help">
+                  패키지 파일(.zip)을 선택하면 미리 검증과 적용을 사용할 수 있습니다.
+                </p>
+              )}
               <div className="inline import-action-row">
                 <button
                   type="button"
-                  disabled={Boolean(migrationLoadingMode) || migrationExporting || !canEditRecords}
+                  disabled={packageActionsDisabled}
+                  aria-describedby={packageMissingFile ? "package-import-file-required" : undefined}
                   onClick={() => doMigrationImport("dry_run")}
                 >
                   {migrationLoadingMode === "dry_run" ? "미리 검증 중..." : "패키지 미리 검증"}
                 </button>
                 <button
                   type="button"
-                  disabled={Boolean(migrationLoadingMode) || migrationExporting || !canEditRecords}
+                  disabled={packageActionsDisabled}
+                  aria-describedby={packageMissingFile ? "package-import-file-required" : undefined}
                   onClick={() => doMigrationImport("apply")}
                 >
                   {migrationLoadingMode === "apply" ? "적용 중..." : "패키지 적용"}
