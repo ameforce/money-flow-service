@@ -1,0 +1,63 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-moneyflow_dev}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB:-moneyflow_dev}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+    restart: unless-stopped
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        APP_VERSION: ${APP_VERSION:-0.0.0}
+    environment:
+      ENV: ${ENV:-dev}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-moneyflow_dev}}
+      SECRET_KEY: ${SECRET_KEY}
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-true}
+      AUTH_DEBUG_RETURN_VERIFY_TOKEN: ${AUTH_DEBUG_RETURN_VERIFY_TOKEN:-false}
+      AUTH_EMAIL_VERIFICATION_REQUIRED: ${AUTH_EMAIL_VERIFICATION_REQUIRED:-true}
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-172.30.0.0/24,127.0.0.1,::1}
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://dev.moneyflow.enmsoftware.com}
+      FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:-https://dev.moneyflow.enmsoftware.com}
+      SMTP_HOST: ${SMTP_HOST:?SMTP_HOST required}
+      SMTP_PORT: ${SMTP_PORT:?SMTP_PORT required}
+      SMTP_SSL: ${SMTP_SSL:?SMTP_SSL required}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:?SMTP_STARTTLS required}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASS: ${SMTP_PASS}
+      SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL:?SMTP_FROM_EMAIL required}
+      SMTP_FROM_NAME: ${SMTP_FROM_NAME}
+      SMTP_ACCOUNT_LABEL: ${SMTP_ACCOUNT_LABEL:?SMTP_ACCOUNT_LABEL required}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:18081:8000"
+    networks:
+      - default
+      - enm-services-mail
+
+volumes:
+  pgdata:
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.31.0.0/24
+  enm-services-mail:
+    external: true
+    name: enm-services-mail

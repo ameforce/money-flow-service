@@ -3,9 +3,10 @@ from __future__ import annotations
 import asyncio
 import io
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 import os
+import re
 from pathlib import Path
 import threading
 import time
@@ -13,10 +14,11 @@ from typing import Any
 import uuid
 
 from fastapi.testclient import TestClient as FastAPITestClient
+import jwt
 from openpyxl import load_workbook
 from pydantic import ValidationError
 import pytest
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import create_engine, delete, event, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.requests import Request
@@ -42,6 +44,7 @@ class TestClient(FastAPITestClient):
 
 
 TEST_REQUEST_ORIGIN = "http://127.0.0.1:5173"
+PUBLIC_DEV_ORIGIN = "https://dev.moneyflow.enmsoftware.com"
 
 
 def _base_test_headers(*, include_debug_opt_in: bool = True) -> dict[str, str]:
@@ -50,20 +53,31 @@ def _base_test_headers(*, include_debug_opt_in: bool = True) -> dict[str, str]:
         headers["x-debug-token-opt-in"] = "true"
     return headers
 
+
+def _public_dev_debug_headers() -> dict[str, str]:
+    return {
+        "origin": PUBLIC_DEV_ORIGIN,
+        "host": "dev.moneyflow.enmsoftware.com",
+        "x-debug-token-opt-in": "true",
+    }
+
 import app.main as app_main  # noqa: E402
 from app.main import app  # noqa: E402
 from app.api.routes import auth as auth_route  # noqa: E402
 from app.api.routes import household as household_route  # noqa: E402
 from app.api.routes import imports as imports_route  # noqa: E402
 from app.core.config import INSECURE_DEFAULT_SECRET_KEY, Settings, settings  # noqa: E402
-from app.core.security import (
+from app.core.security import (  # noqa: E402
     create_access_token,
     create_refresh_token,
     decode_access_token,
     decode_refresh_token,
+    decode_ws_ticket,
     hash_opaque_token,
-)  # noqa: E402
-from app.db.models import (
+)
+from app.db import schema_upgrade as schema_upgrade_module  # noqa: E402
+from app.db.base import Base  # noqa: E402
+from app.db.models import (  # noqa: E402
     AssetType,
     Category,
     EmailVerificationToken,
@@ -81,10 +95,11 @@ from app.db.models import (
     RevokedToken,
     Transaction,
     User,
-)  # noqa: E402
+)
 from app.db.session import SessionLocal, engine  # noqa: E402
+from app.schemas import VerifyEmailRequest  # noqa: E402
 from app.services.email_service import email_service  # noqa: E402
-from app.services.importer import ParsedHolding, WorkbookImporter  # noqa: E402
+from app.services.importer import ParsedHolding, ParsedTransaction, WorkbookImporter  # noqa: E402
 from app.services.runtime import dashboard_service, price_service  # noqa: E402
 
 
@@ -167,6 +182,103 @@ def teardown_module() -> None:
                 time.sleep(0.1)
 
 
+def test_settings_default_env_is_local_when_not_supplied() -> None:
+    tracked_keys = ["SECRET_KEY", "ENV"]
+    previous = {key: os.environ.get(key) for key in tracked_keys}
+    try:
+        os.environ["SECRET_KEY"] = "local-secret-key-should-be-long-enough-1234567890"
+        os.environ.pop("ENV", None)
+
+        loaded = Settings(_env_file=None)
+
+        assert loaded.env == "local"
+    finally:
+        for key, value in previous.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+
+def test_settings_dev_requires_strict_smtp_verification_config() -> None:
+    tracked_keys = [
+        "SECRET_KEY",
+        "ENV",
+        "AUTH_EMAIL_VERIFICATION_REQUIRED",
+        "AUTH_DEBUG_RETURN_VERIFY_TOKEN",
+        "EMAIL_DELIVERY_MODE",
+        "SMTP_HOST",
+        "SMTP_PORT",
+        "SMTP_USER",
+        "SMTP_PASS",
+        "SMTP_STARTTLS",
+        "SMTP_SSL",
+        "SMTP_FROM_EMAIL",
+        "SMTP_ACCOUNT_LABEL",
+    ]
+    previous = {key: os.environ.get(key) for key in tracked_keys}
+    try:
+        os.environ.update(
+            {
+                "SECRET_KEY": "dev-secret-key-should-be-long-enough-1234567890",
+                "ENV": "dev",
+                "AUTH_EMAIL_VERIFICATION_REQUIRED": "true",
+                "AUTH_DEBUG_RETURN_VERIFY_TOKEN": "false",
+                "SMTP_PORT": "587",
+                "SMTP_STARTTLS": "true",
+                "SMTP_SSL": "false",
+                "SMTP_FROM_EMAIL": "noreply@example.com",
+                "SMTP_ACCOUNT_LABEL": "money-flow-dev",
+            }
+        )
+        os.environ.pop("EMAIL_DELIVERY_MODE", None)
+        os.environ.pop("SMTP_HOST", None)
+        with pytest.raises(ValidationError):
+            Settings(_env_file=None)
+
+        os.environ["SMTP_HOST"] = "smtp.example.com"
+        loaded_without_mode = Settings(_env_file=None)
+        assert loaded_without_mode.email_delivery_mode == "smtp"
+
+        os.environ["AUTH_EMAIL_VERIFICATION_REQUIRED"] = "false"
+        with pytest.raises(ValidationError):
+            Settings(_env_file=None)
+
+        os.environ["AUTH_EMAIL_VERIFICATION_REQUIRED"] = "true"
+        os.environ["AUTH_DEBUG_RETURN_VERIFY_TOKEN"] = "true"
+        with pytest.raises(ValidationError):
+            Settings(_env_file=None)
+
+        os.environ["AUTH_DEBUG_RETURN_VERIFY_TOKEN"] = "false"
+        os.environ["EMAIL_DELIVERY_MODE"] = "log"
+        with pytest.raises(ValidationError):
+            Settings(_env_file=None)
+
+        os.environ["EMAIL_DELIVERY_MODE"] = "smtp"
+        os.environ.pop("SMTP_ACCOUNT_LABEL", None)
+        with pytest.raises(ValidationError):
+            Settings(_env_file=None)
+
+        os.environ["SMTP_ACCOUNT_LABEL"] = "money-flow-dev"
+        os.environ["SMTP_USER"] = "smtp-user"
+        os.environ["SMTP_PASS"] = "smtp-pass"
+        os.environ["SMTP_STARTTLS"] = "false"
+        os.environ["SMTP_SSL"] = "false"
+        with pytest.raises(ValidationError):
+            Settings(_env_file=None)
+
+        os.environ["SMTP_STARTTLS"] = "true"
+        loaded = Settings(_env_file=None)
+        assert loaded.email_delivery_mode == "smtp"
+        assert loaded.is_strict_email_environment is True
+    finally:
+        for key, value in previous.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+
 def test_settings_secret_key_fail_fast() -> None:
     previous = os.environ.pop("SECRET_KEY", None)
     try:
@@ -197,6 +309,9 @@ def test_settings_prod_requires_secure_cookie_and_disables_debug_tokens() -> Non
         "ENV",
         "AUTH_COOKIE_SECURE",
         "AUTH_DEBUG_RETURN_VERIFY_TOKEN",
+        "SMTP_HOST",
+        "SMTP_FROM_EMAIL",
+        "SMTP_ACCOUNT_LABEL",
     ]
     previous = {key: os.environ.get(key) for key in tracked_keys}
     try:
@@ -204,6 +319,9 @@ def test_settings_prod_requires_secure_cookie_and_disables_debug_tokens() -> Non
         os.environ["ENV"] = "prod"
         os.environ["AUTH_COOKIE_SECURE"] = "false"
         os.environ["AUTH_DEBUG_RETURN_VERIFY_TOKEN"] = "false"
+        os.environ["SMTP_HOST"] = "smtp.example.com"
+        os.environ["SMTP_FROM_EMAIL"] = "noreply@example.com"
+        os.environ["SMTP_ACCOUNT_LABEL"] = "money-flow-prod"
         with pytest.raises(ValidationError):
             Settings(_env_file=None)
 
@@ -226,6 +344,9 @@ def test_settings_prod_disallows_email_log_mode() -> None:
         "AUTH_COOKIE_SECURE",
         "AUTH_DEBUG_RETURN_VERIFY_TOKEN",
         "EMAIL_DELIVERY_MODE",
+        "SMTP_HOST",
+        "SMTP_FROM_EMAIL",
+        "SMTP_ACCOUNT_LABEL",
     ]
     previous = {key: os.environ.get(key) for key in tracked_keys}
     try:
@@ -234,6 +355,9 @@ def test_settings_prod_disallows_email_log_mode() -> None:
         os.environ["AUTH_COOKIE_SECURE"] = "true"
         os.environ["AUTH_DEBUG_RETURN_VERIFY_TOKEN"] = "false"
         os.environ["EMAIL_DELIVERY_MODE"] = "log"
+        os.environ["SMTP_HOST"] = "smtp.example.com"
+        os.environ["SMTP_FROM_EMAIL"] = "noreply@example.com"
+        os.environ["SMTP_ACCOUNT_LABEL"] = "money-flow-prod"
         with pytest.raises(ValidationError):
             Settings(_env_file=None)
     finally:
@@ -253,6 +377,7 @@ def test_settings_prod_disallows_localhost_origins_and_requires_https_frontend()
         "EMAIL_DELIVERY_MODE",
         "SMTP_HOST",
         "SMTP_FROM_EMAIL",
+        "SMTP_ACCOUNT_LABEL",
         "CORS_ORIGINS",
         "FRONTEND_BASE_URL",
     ]
@@ -265,6 +390,7 @@ def test_settings_prod_disallows_localhost_origins_and_requires_https_frontend()
         os.environ["EMAIL_DELIVERY_MODE"] = "smtp"
         os.environ["SMTP_HOST"] = "smtp.example.com"
         os.environ["SMTP_FROM_EMAIL"] = "noreply@example.com"
+        os.environ["SMTP_ACCOUNT_LABEL"] = "money-flow-prod"
         os.environ["CORS_ORIGINS"] = "http://localhost,http://127.0.0.1"
         os.environ["FRONTEND_BASE_URL"] = "http://localhost"
         with pytest.raises(ValidationError):
@@ -286,6 +412,7 @@ def test_settings_prod_requires_explicit_non_sqlite_database_url() -> None:
         "EMAIL_DELIVERY_MODE",
         "SMTP_HOST",
         "SMTP_FROM_EMAIL",
+        "SMTP_ACCOUNT_LABEL",
         "CORS_ORIGINS",
         "FRONTEND_BASE_URL",
         "DATABASE_URL",
@@ -299,6 +426,7 @@ def test_settings_prod_requires_explicit_non_sqlite_database_url() -> None:
         os.environ["EMAIL_DELIVERY_MODE"] = "smtp"
         os.environ["SMTP_HOST"] = "smtp.example.com"
         os.environ["SMTP_FROM_EMAIL"] = "noreply@example.com"
+        os.environ["SMTP_ACCOUNT_LABEL"] = "money-flow-prod"
         os.environ["CORS_ORIGINS"] = "https://app.example.com"
         os.environ["FRONTEND_BASE_URL"] = "https://app.example.com"
 
@@ -329,6 +457,7 @@ def test_settings_prod_disallows_wildcard_forwarded_allow_ips() -> None:
         "EMAIL_DELIVERY_MODE",
         "SMTP_HOST",
         "SMTP_FROM_EMAIL",
+        "SMTP_ACCOUNT_LABEL",
         "CORS_ORIGINS",
         "FRONTEND_BASE_URL",
         "DATABASE_URL",
@@ -343,6 +472,7 @@ def test_settings_prod_disallows_wildcard_forwarded_allow_ips() -> None:
         os.environ["EMAIL_DELIVERY_MODE"] = "smtp"
         os.environ["SMTP_HOST"] = "smtp.example.com"
         os.environ["SMTP_FROM_EMAIL"] = "noreply@example.com"
+        os.environ["SMTP_ACCOUNT_LABEL"] = "money-flow-prod"
         os.environ["CORS_ORIGINS"] = "https://app.example.com"
         os.environ["FRONTEND_BASE_URL"] = "https://app.example.com"
         os.environ["DATABASE_URL"] = "postgresql+psycopg://user:pass@db:5432/moneyflow"
@@ -371,6 +501,7 @@ def test_settings_smtp_mode_requires_host_from_and_valid_port() -> None:
         "EMAIL_DELIVERY_MODE",
         "SMTP_HOST",
         "SMTP_FROM_EMAIL",
+        "SMTP_ACCOUNT_LABEL",
         "SMTP_PORT",
     ]
     previous = {key: os.environ.get(key) for key in tracked_keys}
@@ -379,6 +510,7 @@ def test_settings_smtp_mode_requires_host_from_and_valid_port() -> None:
         os.environ["EMAIL_DELIVERY_MODE"] = "smtp"
         os.environ.pop("SMTP_HOST", None)
         os.environ["SMTP_FROM_EMAIL"] = "noreply@example.com"
+        os.environ["SMTP_ACCOUNT_LABEL"] = "money-flow-test"
         os.environ["SMTP_PORT"] = "587"
         with pytest.raises(ValidationError):
             Settings(_env_file=None)
@@ -403,6 +535,78 @@ def test_settings_smtp_mode_requires_host_from_and_valid_port() -> None:
                 os.environ[key] = value
 
 
+def test_deployment_compose_requires_smtp_without_delivery_mode_fallback() -> None:
+    root = Path(__file__).resolve().parents[2]
+    compose_paths = [
+        root / "docker-compose.yml",
+        root / "docker-compose.deploy.yml",
+        root / "docker-compose.dev.deploy.yml",
+    ]
+
+    for compose_path in compose_paths:
+        source = compose_path.read_text(encoding="utf-8")
+        assert "EMAIL_DELIVERY_MODE" not in source
+        assert "SMTP_ACCOUNT_LABEL: ${SMTP_ACCOUNT_LABEL:?" in source
+        assert "${SMTP_HOST:?" in source
+        assert "${SMTP_FROM_EMAIL:?" in source
+
+    dev_compose = (root / "docker-compose.dev.deploy.yml").read_text(encoding="utf-8")
+    assert "ENV: ${ENV:-dev}" in dev_compose
+
+    profile_script = (root / "scripts" / "create_service_mail_profile.py").read_text(encoding="utf-8")
+    assert '"EMAIL_DELIVERY_MODE=smtp\\n"' not in profile_script
+    docs = root / "docs" / "mail-delivery-troubleshooting-and-setup.md"
+    assert docs.exists()
+
+
+
+def test_dev_deploy_smtp_secret_file_overrides_legacy_env_values() -> None:
+    root = Path(__file__).resolve().parents[2]
+    source = (root / "Jenkinsfile").read_text(encoding="utf-8")
+
+    assert "for candidate in '.env.dev.smtp' '.env'; do" in source
+    assert "Server-local SMTP settings must win over Jenkins' legacy dev env file." in source
+    assert "SMTP_HOST|SMTP_PORT|SMTP_SSL|SMTP_STARTTLS|SMTP_USER|SMTP_PASS" in source
+    assert 'if [ -z "$current_value" ]; then\n        fallback_line="$(grep -E "^${key}=" "$smtp_fallback_file"' not in source
+
+
+def test_post_deploy_e2e_smoke_does_not_successfully_skip_missing_runner() -> None:
+    root = Path(__file__).resolve().parents[2]
+    source = (root / "Jenkinsfile").read_text(encoding="utf-8")
+    post_deploy_stage = source[source.index("stage('Post-Deploy E2E Smoke')") :]
+    next_stage_index = post_deploy_stage.find("\n    stage(", len("stage('Post-Deploy E2E Smoke')"))
+    if next_stage_index != -1:
+        post_deploy_stage = post_deploy_stage[:next_stage_index]
+
+    assert "npx is unavailable; skip post-deploy smoke test" not in post_deploy_stage
+    assert "Playwright Chromium binary not found; skip post-deploy browser smoke" not in post_deploy_stage
+    assert "Playwright browser dependency missing:" in post_deploy_stage
+    assert "exit 1" in post_deploy_stage
+    assert "npx playwright test" in post_deploy_stage or "npm exec" in post_deploy_stage
+
+
+def test_quality_gate_uses_ci_node_after_user_local_uv_path_on_jenkins_agent() -> None:
+    root = Path(__file__).resolve().parents[2]
+    source = (root / "Jenkinsfile").read_text(encoding="utf-8")
+    quality_gate_stage = source[source.index("stage('Quality Gate')") :]
+    next_stage_index = quality_gate_stage.find("\n    stage(", len("stage('Quality Gate')"))
+    if next_stage_index != -1:
+        quality_gate_stage = quality_gate_stage[:next_stage_index]
+
+    assert 'export PATH="$HOME/.local/bin:$PATH"' in quality_gate_stage
+    assert 'export PATH="$HOME/.local/bin:$PATH"\n. ./scripts/ci/ensure-node.sh\nif command -v npm' in quality_gate_stage
+    assert "npm run ci:quality:gate" in quality_gate_stage
+
+
+def test_jenkinsfile_uses_ci_node_for_frontend_and_smoke_steps() -> None:
+    root = Path(__file__).resolve().parents[2]
+    source = (root / "Jenkinsfile").read_text(encoding="utf-8")
+
+    assert "CI_NODE_VERSION = '22.12.0'" in source
+    assert source.count(". ./scripts/ci/ensure-node.sh") >= 4
+    assert "npx is unavailable; skip pre-deploy browser smoke" not in source
+
+
 def test_email_log_mode_redacts_body(caplog: pytest.LogCaptureFixture) -> None:
     previous_mode = settings.email_delivery_mode
     try:
@@ -412,15 +616,35 @@ def test_email_log_mode_redacts_body(caplog: pytest.LogCaptureFixture) -> None:
         sent = email_service.send_email(
             to_email="mask@example.com",
             subject="mask",
-            body_text="https://example.com/#verify_token=sensitive-token",
+            body_text="https://example.com/#verify_token=sensitive-token code=123456",
+            body_html='<a href="https://example.com/#verify_token=sensitive-token">verify</a><strong>123456</strong>',
         )
         assert sent is True
         messages = "\n".join(record.getMessage() for record in caplog.records)
         assert "sensitive-token" not in messages
+        assert "123456" not in messages
         assert "verify_token" not in messages
         assert "body_redacted=true" in messages
     finally:
         settings.email_delivery_mode = previous_mode
+
+
+def test_auth_verification_ack_message_mentions_mailpit_for_internal_dev_smtp() -> None:
+    previous_env = settings.env
+    previous_mode = settings.email_delivery_mode
+    previous_host = settings.smtp_host
+    try:
+        settings.env = "dev"
+        settings.email_delivery_mode = "smtp"
+        settings.smtp_host = "enm-mail-smtp"
+        message = auth_route._verification_ack_message()
+        assert "인증 메일을 보냈습니다" in message
+        assert "Mailpit" in message
+        assert "외부 메일함 미도착이 정상 동작" in message
+    finally:
+        settings.env = previous_env
+        settings.email_delivery_mode = previous_mode
+        settings.smtp_host = previous_host
 
 
 def test_email_smtp_starttls_uses_explicit_tls_context(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -476,6 +700,73 @@ def test_email_smtp_starttls_uses_explicit_tls_context(monkeypatch: pytest.Monke
         settings.smtp_starttls = previous_starttls
         settings.smtp_user = previous_user
         settings.smtp_pass = previous_pass
+
+
+def test_email_verification_message_contains_brand_html_code_and_link(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def _capture_send(**kwargs: Any) -> bool:
+        captured.update(kwargs)
+        return True
+
+    monkeypatch.setattr(email_service, "send_email", _capture_send)
+
+    sent = email_service.send_verification_email(
+        to_email="receiver@example.com",
+        token="opaque-token",
+        verification_code="123456",
+        expires_minutes=30,
+    )
+
+    assert sent is True
+    assert captured["subject"] == "[Money Flow Service] 이메일 인증을 완료해 주세요"
+    assert "Money Flow Service" in captured["body_text"]
+    assert "123 456" in captured["body_text"]
+    assert "/#verify_token=opaque-token" in captured["body_text"]
+    assert "body_html" in captured
+    assert "Money Flow Service" in captured["body_html"]
+    assert "123 456" in captured["body_html"]
+    assert "/#verify_token=opaque-token" in captured["body_html"]
+    assert "이메일 인증 완료하기" in captured["body_html"]
+    assert 'data-brand-token="mfs-primary-blue"' in captured["body_html"]
+    assert 'bgcolor="#0B4AB4"' in captured["body_html"]
+    assert "#1E7BFF" in captured["body_html"]
+    assert "#14B8A6" in captured["body_html"]
+    assert "#0F172A" in captured["body_html"]
+    assert "[money-flow]" not in captured["subject"]
+    assert "money-flow 계정 인증" not in captured["body_text"]
+
+
+def test_brand_tokens_doc_captures_email_first_palette_and_handoff() -> None:
+    doc_path = Path(__file__).resolve().parents[2] / "docs" / "brand-tokens.md"
+    doc = doc_path.read_text(encoding="utf-8")
+
+    required_fragments = [
+        "email-first brand baseline",
+        "mfs-primary-blue",
+        "#0B4AB4",
+        "mfs-primary-blue-bright",
+        "#1E7BFF",
+        "mfs-secondary-cyan",
+        "#1D9CE5",
+        "mfs-secondary-teal",
+        "#14B8A6",
+        "mfs-neutral-bg",
+        "#F6F8FB",
+        "mfs-success",
+        "#16A34A",
+        "mfs-warning",
+        "#F59E0B",
+        "mfs-info",
+        "#2563EB",
+        "mfs-email-dark-surface",
+        "#0F172A",
+        "Future redesign handoff",
+        "전체 프론트엔드 디자인 시스템이 아니며",
+        "data-brand-token",
+    ]
+    for fragment in required_fragments:
+        assert fragment in doc
 
 
 def test_email_smtp_ssl_uses_explicit_tls_context(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -618,6 +909,7 @@ def test_auth_verify_email_rejects_blank_display_name() -> None:
                     "display_name": "   ",
                     "remember_me": True,
                 },
+                headers=_base_test_headers(),
             )
             assert verified.status_code == 400
             assert verified.json()["error"]["code"] == "REQUEST_VALIDATION_FAILED"
@@ -688,15 +980,53 @@ def test_auth_token_reserved_claims_cannot_be_overridden_by_extra() -> None:
     assert refresh_payload["scope"] == "session:rotate"
 
 
+def test_auth_token_decoders_tolerate_small_clock_skew() -> None:
+    future_iat = int((datetime.now(UTC) + timedelta(seconds=2)).timestamp())
+    future_exp = int((datetime.now(UTC) + timedelta(minutes=5)).timestamp())
+    access = jwt.encode(
+        {"sub": "skew-access", "typ": "access", "jti": uuid.uuid4().hex, "iat": future_iat, "exp": future_exp},
+        settings.secret_key,
+        algorithm="HS256",
+    )
+    refresh = jwt.encode(
+        {
+            "sub": "skew-refresh",
+            "typ": "refresh",
+            "jti": uuid.uuid4().hex,
+            "iat": future_iat,
+            "exp": future_exp,
+        },
+        settings.secret_key,
+        algorithm="HS256",
+    )
+    ws_ticket = jwt.encode(
+        {
+            "sub": "skew-ws",
+            "household_id": "household-skew",
+            "typ": "ws_ticket",
+            "jti": uuid.uuid4().hex,
+            "iat": future_iat,
+            "exp": future_exp,
+        },
+        settings.secret_key,
+        algorithm="HS256",
+    )
+
+    assert decode_access_token(access)["sub"] == "skew-access"
+    assert decode_refresh_token(refresh)["sub"] == "skew-refresh"
+    assert decode_ws_ticket(ws_ticket)["household_id"] == "household-skew"
+
+
 def test_auth_register_persists_verification_token_before_email_send(monkeypatch: pytest.MonkeyPatch) -> None:
     previous_required = settings.auth_email_verification_required
     settings.auth_email_verification_required = True
     email = f"verify-order-register-{uuid.uuid4().hex}@example.com"
     observed = {"persisted": False}
 
-    def _fake_send(*, to_email: str, token: str, expires_minutes: int) -> bool:
+    def _fake_send(*, to_email: str, token: str, verification_code: str | None = None, expires_minutes: int) -> bool:
         assert to_email == email
         assert token
+        assert verification_code is not None and re.fullmatch(r"\d{6}", verification_code)
         assert int(expires_minutes) > 0
         with SessionLocal() as check_db:
             user = check_db.scalar(select(User).where(func.lower(User.email) == email.lower()))
@@ -736,9 +1066,10 @@ def test_auth_resend_persists_verification_token_before_email_send(monkeypatch: 
     email = f"verify-order-resend-{uuid.uuid4().hex}@example.com"
     observed = {"persisted": False}
 
-    def _fake_send(*, to_email: str, token: str, expires_minutes: int) -> bool:
+    def _fake_send(*, to_email: str, token: str, verification_code: str | None = None, expires_minutes: int) -> bool:
         assert to_email == email
         assert token
+        assert verification_code is not None and re.fullmatch(r"\d{6}", verification_code)
         assert int(expires_minutes) > 0
         with SessionLocal() as check_db:
             user = check_db.scalar(select(User).where(func.lower(User.email) == email.lower()))
@@ -787,9 +1118,10 @@ def test_auth_resend_smtp_failure_does_not_block_immediate_retry(monkeypatch: py
     email = f"verify-resend-smtp-retry-{uuid.uuid4().hex}@example.com"
     call_count = {"send": 0}
 
-    def _flaky_send(*, to_email: str, token: str, expires_minutes: int) -> bool:
+    def _flaky_send(*, to_email: str, token: str, verification_code: str | None = None, expires_minutes: int) -> bool:
         assert to_email == email
         assert token
+        assert verification_code is not None and re.fullmatch(r"\d{6}", verification_code)
         assert int(expires_minutes) > 0
         call_count["send"] += 1
         return call_count["send"] >= 2
@@ -891,6 +1223,7 @@ def test_auth_resend_verification_ip_global_rate_limit_blocks_multi_email_flood(
     settings.auth_email_verification_required = True
     settings.auth_verification_resend_cooldown_seconds = 0
     monkeypatch.setattr(auth_route, "_resend_ip_max_attempts", lambda: 2)
+    monkeypatch.setattr(auth_route.email_service, "send_verification_email", lambda **_: True)
     _reset_auth_throttle_rows()
     try:
         with TestClient(app) as client:
@@ -1054,6 +1387,174 @@ def test_auth_register_smtp_failure_cleans_up_new_unverified_user(monkeypatch: p
         settings.email_delivery_mode = previous_mode
 
 
+@pytest.mark.parametrize(
+    ("patch_target", "error_message"),
+    [
+        ("app.services.email_service.smtplib.SMTP", "smtp connect failed"),
+        ("app.services.email_service.ssl.create_default_context", "tls context failed"),
+    ],
+)
+def test_auth_register_smtp_setup_failure_cleans_up_new_unverified_user(
+    monkeypatch: pytest.MonkeyPatch,
+    patch_target: str,
+    error_message: str,
+) -> None:
+    previous_required = settings.auth_email_verification_required
+    previous_mode = settings.email_delivery_mode
+    previous_host = settings.smtp_host
+    previous_port = settings.smtp_port
+    previous_ssl = settings.smtp_ssl
+    previous_starttls = settings.smtp_starttls
+    previous_from = settings.smtp_from_email
+    previous_label = settings.smtp_account_label
+    settings.auth_email_verification_required = True
+    settings.email_delivery_mode = "smtp"
+    settings.smtp_host = "smtp.example.test"
+    settings.smtp_port = 587
+    settings.smtp_ssl = False
+    settings.smtp_starttls = True
+    settings.smtp_from_email = "noreply@example.test"
+    settings.smtp_account_label = "money-flow-test"
+    email = f"smtp-setup-cleanup-{uuid.uuid4().hex}@example.com"
+
+    def _raise_on_setup(*_: Any, **__: Any) -> Any:
+        raise OSError(error_message)
+
+    monkeypatch.setattr(patch_target, _raise_on_setup)
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/v1/auth/register",
+                json={
+                    "email": email,
+                    "password": "Password1234",
+                    "display_name": "SmtpSetupCleanup",
+                },
+                headers=_base_test_headers(),
+            )
+            assert response.status_code == 503
+            assert response.json()["error"]["code"] == "AUTH_EMAIL_DELIVERY_FAILED"
+        with SessionLocal() as db:
+            user = db.scalar(select(User).where(User.email == email))
+            assert user is None
+    finally:
+        settings.auth_email_verification_required = previous_required
+        settings.email_delivery_mode = previous_mode
+        settings.smtp_host = previous_host
+        settings.smtp_port = previous_port
+        settings.smtp_ssl = previous_ssl
+        settings.smtp_starttls = previous_starttls
+        settings.smtp_from_email = previous_from
+        settings.smtp_account_label = previous_label
+
+
+def test_auth_register_strict_env_blocks_send_failure_without_delivery_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    previous_required = settings.auth_email_verification_required
+    previous_mode = settings.email_delivery_mode
+    previous_env = settings.env
+    settings.auth_email_verification_required = True
+    settings.email_delivery_mode = "log"
+    settings.env = "dev"
+    monkeypatch.setattr(auth_route.email_service, "send_verification_email", lambda **_: False)
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/v1/auth/register",
+                json={
+                    "email": f"strict-send-fail-{uuid.uuid4().hex}@example.com",
+                    "password": "Password1234",
+                    "display_name": "StrictSendFail",
+                },
+                headers=_base_test_headers(),
+            )
+            assert response.status_code == 503
+            assert response.json()["error"]["code"] == "AUTH_EMAIL_DELIVERY_FAILED"
+    finally:
+        settings.auth_email_verification_required = previous_required
+        settings.email_delivery_mode = previous_mode
+        settings.env = previous_env
+
+
+def test_auth_register_strict_env_rejects_verification_disabled_runtime_path() -> None:
+    previous_required = settings.auth_email_verification_required
+    previous_env = settings.env
+    settings.auth_email_verification_required = False
+    settings.env = "dev"
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/v1/auth/register",
+                json={
+                    "email": f"strict-disabled-{uuid.uuid4().hex}@example.com",
+                    "password": "Password1234",
+                    "display_name": "StrictDisabled",
+                },
+                headers=_base_test_headers(),
+            )
+            assert response.status_code == 503
+            assert response.json()["error"]["code"] == "AUTH_EMAIL_VERIFICATION_CONFIG_INVALID"
+    finally:
+        settings.auth_email_verification_required = previous_required
+        settings.env = previous_env
+
+
+def test_auth_register_existing_unverified_send_failure_consumes_new_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    previous_required = settings.auth_email_verification_required
+    previous_mode = settings.email_delivery_mode
+    settings.auth_email_verification_required = True
+    settings.email_delivery_mode = "smtp"
+    email = f"smtp-existing-cleanup-{uuid.uuid4().hex}@example.com"
+    send_count = {"count": 0}
+
+    def _send_stub(**_: Any) -> bool:
+        send_count["count"] += 1
+        return send_count["count"] == 1
+
+    monkeypatch.setattr(auth_route.email_service, "send_verification_email", _send_stub)
+    try:
+        with TestClient(app) as client:
+            first = client.post(
+                "/api/v1/auth/register",
+                json={
+                    "email": email,
+                    "password": "Password1234",
+                    "display_name": "ExistingCleanupOne",
+                },
+                headers=_base_test_headers(),
+            )
+            assert first.status_code == 201
+
+            second = client.post(
+                "/api/v1/auth/register",
+                json={
+                    "email": email,
+                    "password": "ChangedPassword1234",
+                    "display_name": "ExistingCleanupTwo",
+                },
+                headers=_base_test_headers(),
+            )
+            assert second.status_code == 503
+            assert second.json()["error"]["code"] == "AUTH_EMAIL_DELIVERY_FAILED"
+
+        with SessionLocal() as db:
+            user = db.scalar(select(User).where(User.email == email))
+            assert user is not None
+            tokens = db.scalars(
+                select(EmailVerificationToken)
+                .where(EmailVerificationToken.user_id == user.id)
+                .order_by(EmailVerificationToken.created_at.asc())
+            ).all()
+            assert len(tokens) >= 2
+            assert tokens[-1].consumed_at is not None
+    finally:
+        settings.auth_email_verification_required = previous_required
+        settings.email_delivery_mode = previous_mode
+
+
 def test_auth_login_rate_limited_after_repeated_failures() -> None:
     with TestClient(app) as client:
         email = f"rate-limit-{uuid.uuid4().hex}@example.com"
@@ -1152,6 +1653,7 @@ def test_auth_register_ip_global_rate_limit_blocks_multi_email_signup_flood(monk
     previous_env = settings.env
     settings.env = "prod"
     monkeypatch.setattr(auth_route, "_register_ip_max_attempts", lambda: 2)
+    monkeypatch.setattr(auth_route.email_service, "send_verification_email", lambda **_: True)
     _reset_auth_throttle_rows()
     try:
         with TestClient(app) as client:
@@ -1245,6 +1747,7 @@ def test_auth_cookie_refresh_flow_and_logout_clears_session() -> None:
                 "display_name": "Cookie",
                 "remember_me": True,
             },
+            headers=_base_test_headers(),
         )
         assert verified.status_code == 200
         assert settings.auth_access_cookie_name in verified.cookies
@@ -1433,6 +1936,7 @@ def test_cookie_auth_write_routes_require_csrf_headers() -> None:
                 "display_name": "CookieWriteCsrf",
                 "remember_me": True,
             },
+            headers=_base_test_headers(),
         )
         assert verified.status_code == 200
 
@@ -1473,7 +1977,10 @@ def test_cookie_auth_write_routes_require_csrf_headers() -> None:
         allowed_invite = client.post("/api/v1/household/invitations", headers=_csrf_headers(client), json=invite_payload)
         assert allowed_invite.status_code == 201
 
-        workbook_path = str(next((Path(__file__).resolve().parents[2] / "legacy").glob("*.xlsx")))
+        legacy_files = sorted((Path(__file__).resolve().parents[2] / "legacy").glob("*.xlsx"))
+        if not legacy_files:
+            pytest.skip("legacy workbook fixtures are missing in this environment")
+        workbook_path = str(legacy_files[0])
         blocked_import = client.post(
             "/api/v1/imports/workbook",
             json={"mode": "dry_run", "workbook_path": workbook_path},
@@ -1623,19 +2130,19 @@ def test_auth_register_unverified_credentials_finalized_at_verify_step() -> None
             json={"email": email, "password": second_password},
             headers=_base_test_headers(),
         )
-        assert login_new.status_code == 401
+        assert login_new.status_code == 200
 
         login_verified = client.post(
             "/api/v1/auth/login",
             json={"email": email, "password": verified_password},
             headers=_base_test_headers(),
         )
-        assert login_verified.status_code == 200
+        assert login_verified.status_code == 401
 
         with SessionLocal() as db:
             user = db.scalar(select(User).where(User.email == email))
             assert user is not None
-            assert user.display_name == "VerifiedName"
+            assert user.display_name == "OverwrittenName"
 
 
 def test_auth_register_existing_unverified_parallel_bootstrap_creates_single_household(
@@ -1798,11 +2305,14 @@ def test_auth_verify_email_single_use_under_parallel_requests() -> None:
         assert registered.status_code == 201
         token = str(registered.json().get("debug_verification_token") or "").strip()
         assert token
+        continuation_cookie = str(client.cookies.get(auth_route._REGISTRATION_CONTINUATION_COOKIE_NAME) or "")
+        assert continuation_cookie
 
     start_barrier = threading.Barrier(2)
 
     def _verify_once() -> tuple[int, str]:
         with TestClient(app) as worker:
+            worker.cookies.set(auth_route._REGISTRATION_CONTINUATION_COOKIE_NAME, continuation_cookie)
             start_barrier.wait(timeout=3)
             response = worker.post(
                 "/api/v1/auth/verify-email",
@@ -1829,10 +2339,14 @@ def test_auth_verify_email_single_use_under_parallel_requests() -> None:
     assert invalid_result[1] == "AUTH_VERIFICATION_TOKEN_INVALID"
 
 
-def test_auth_register_existing_verified_returns_generic_ack() -> None:
+def test_auth_register_existing_verified_returns_conflict_without_email_send(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _unexpected_send(**_: Any) -> bool:
+        pytest.fail("verified duplicate registration must not send a verification email")
+
     with TestClient(app) as client:
         email = f"register-enum-{uuid.uuid4().hex}@example.com"
         _auth(client, email, "Password1234", "RegisterEnum")
+        monkeypatch.setattr(auth_route.email_service, "send_verification_email", _unexpected_send)
 
         repeated = client.post(
             "/api/v1/auth/register",
@@ -1841,13 +2355,12 @@ def test_auth_register_existing_verified_returns_generic_ack() -> None:
                 "password": "Password1234",
                 "display_name": "RegisterEnum",
             },
+            headers=_base_test_headers(),
         )
-        assert repeated.status_code == 201
+        assert repeated.status_code == 409
         payload = repeated.json()
-        assert payload["status"] == "verification_required"
-        assert "가입된 계정이 있으면 인증 메일을 발송" in payload["message"]
-        assert not payload.get("access_token")
-        assert not payload.get("user")
+        assert payload["error"]["code"] == "AUTH_EMAIL_ALREADY_EXISTS"
+        assert "이미 가입된 이메일" in payload["error"]["message"]
 
 
 def test_auth_register_expired_unverified_cleanup_removes_orphan_household() -> None:
@@ -1889,6 +2402,688 @@ def test_auth_register_expired_unverified_cleanup_removes_orphan_household() -> 
             assert removed_user is None
             removed_household = db.get(Household, old_household_id)
             assert removed_household is None
+
+
+def test_auth_verify_email_accepts_six_digit_code(monkeypatch: pytest.MonkeyPatch) -> None:
+    previous_required = settings.auth_email_verification_required
+    settings.auth_email_verification_required = True
+    captured: dict[str, str] = {}
+
+    def _capture_send(*, to_email: str, token: str, verification_code: str, expires_minutes: int) -> bool:
+        captured["to_email"] = to_email
+        captured["token"] = token
+        captured["verification_code"] = verification_code
+        captured["expires_minutes"] = str(expires_minutes)
+        return True
+
+    monkeypatch.setattr(auth_route.email_service, "send_verification_email", _capture_send)
+    try:
+        with TestClient(app) as client:
+            email = f"verify-code-{uuid.uuid4().hex}@example.com"
+            password = "Password1234"
+            registered = client.post(
+                "/api/v1/auth/register",
+                json={"email": email, "password": password, "display_name": "VerifyCode"},
+                headers=_base_test_headers(),
+            )
+            assert registered.status_code == 201
+            assert re.fullmatch(r"\d{6}", captured.get("verification_code", ""))
+
+            verified = client.post(
+                "/api/v1/auth/verify-email",
+                json={
+                    "email": email,
+                    "verification_code": captured["verification_code"],
+                    "password": password,
+                    "display_name": "VerifyCode",
+                    "remember_me": True,
+                },
+                headers=_base_test_headers(),
+            )
+            assert verified.status_code == 200
+
+            reused = client.post(
+                "/api/v1/auth/verify-email",
+                json={
+                    "email": email,
+                    "verification_code": captured["verification_code"],
+                    "password": password,
+                    "display_name": "VerifyCode",
+                },
+                headers=_base_test_headers(),
+            )
+            assert reused.status_code == 400
+            assert reused.json()["error"]["code"] == "AUTH_VERIFICATION_CODE_INVALID"
+
+            login = client.post(
+                "/api/v1/auth/login",
+                json={"email": email, "password": password},
+                headers=_base_test_headers(),
+            )
+            assert login.status_code == 200
+    finally:
+        settings.auth_email_verification_required = previous_required
+
+
+def test_auth_verify_email_token_only_completes_pending_registration(monkeypatch: pytest.MonkeyPatch) -> None:
+    previous_required = settings.auth_email_verification_required
+    settings.auth_email_verification_required = True
+    captured: dict[str, str] = {}
+
+    def _capture_send(*, to_email: str, token: str, verification_code: str, expires_minutes: int) -> bool:
+        captured["token"] = token
+        captured["verification_code"] = verification_code
+        return True
+
+    monkeypatch.setattr(auth_route.email_service, "send_verification_email", _capture_send)
+    try:
+        with TestClient(app) as client:
+            email = f"verify-token-only-{uuid.uuid4().hex}@example.com"
+            password = "Password1234"
+            registered = client.post(
+                "/api/v1/auth/register",
+                json={"email": email, "password": password, "display_name": "TokenOnly"},
+                headers=_base_test_headers(),
+            )
+            assert registered.status_code == 201
+
+            verified = client.post(
+                "/api/v1/auth/verify-email",
+                json={"token": captured["token"], "remember_me": True},
+                headers=_base_test_headers(),
+            )
+            assert verified.status_code == 200
+            assert verified.json()["user"]["email_verified"] is True
+
+            login = client.post(
+                "/api/v1/auth/login",
+                json={"email": email, "password": password},
+                headers=_base_test_headers(),
+            )
+            assert login.status_code == 200
+    finally:
+        settings.auth_email_verification_required = previous_required
+
+
+def test_auth_resend_after_expired_verify_preserves_pending_registration_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    previous_required = settings.auth_email_verification_required
+    previous_cooldown = settings.auth_verification_resend_cooldown_seconds
+    settings.auth_email_verification_required = True
+    settings.auth_verification_resend_cooldown_seconds = 0
+    sent_tokens: list[str] = []
+
+    def _capture_send(*, to_email: str, token: str, verification_code: str, expires_minutes: int) -> bool:
+        sent_tokens.append(token)
+        return True
+
+    monkeypatch.setattr(auth_route.email_service, "send_verification_email", _capture_send)
+    try:
+        with TestClient(app) as client:
+            email = f"verify-expired-resend-{uuid.uuid4().hex}@example.com"
+            password = "Password1234"
+            registered = client.post(
+                "/api/v1/auth/register",
+                json={"email": email, "password": password, "display_name": "ExpiredResend"},
+                headers=_base_test_headers(),
+            )
+            assert registered.status_code == 201
+            assert sent_tokens
+            first_token = sent_tokens[-1]
+
+            with SessionLocal() as db:
+                token_row = db.scalar(
+                    select(EmailVerificationToken).where(
+                        EmailVerificationToken.token_hash == hash_opaque_token(first_token)
+                    )
+                )
+                assert token_row is not None
+                token_row.expires_at = datetime.now(UTC) - timedelta(minutes=1)
+                db.commit()
+
+            expired = client.post(
+                "/api/v1/auth/verify-email",
+                json={"token": first_token, "remember_me": True},
+                headers=_base_test_headers(),
+            )
+            assert expired.status_code == 400
+            assert expired.json()["error"]["code"] == "AUTH_VERIFICATION_TOKEN_EXPIRED"
+
+            resent = client.post(
+                "/api/v1/auth/resend-verification",
+                json={"email": email},
+                headers=_base_test_headers(),
+            )
+            assert resent.status_code == 200
+            assert resent.json()["status"] == "verification_required"
+            assert len(sent_tokens) == 2
+
+            verified = client.post(
+                "/api/v1/auth/verify-email",
+                json={"token": sent_tokens[-1], "remember_me": True},
+                headers=_base_test_headers(),
+            )
+            assert verified.status_code == 200
+
+            login = client.post(
+                "/api/v1/auth/login",
+                json={"email": email, "password": password},
+                headers=_base_test_headers(),
+            )
+            assert login.status_code == 200
+    finally:
+        settings.auth_email_verification_required = previous_required
+        settings.auth_verification_resend_cooldown_seconds = previous_cooldown
+
+
+def test_auth_resend_from_other_browser_does_not_issue_continuation_cookie(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    previous_required = settings.auth_email_verification_required
+    previous_cooldown = settings.auth_verification_resend_cooldown_seconds
+    settings.auth_email_verification_required = True
+    settings.auth_verification_resend_cooldown_seconds = 0
+    sent_tokens: list[str] = []
+    sent_codes: list[str] = []
+
+    def _capture_send(*, to_email: str, token: str, verification_code: str, expires_minutes: int) -> bool:
+        sent_tokens.append(token)
+        sent_codes.append(verification_code)
+        return True
+
+    monkeypatch.setattr(auth_route.email_service, "send_verification_email", _capture_send)
+    try:
+        email = f"resend-cross-browser-{uuid.uuid4().hex}@example.com"
+        password = "Password1234"
+        with TestClient(app) as registration_client:
+            registered = registration_client.post(
+                "/api/v1/auth/register",
+                json={"email": email, "password": password, "display_name": "CrossBrowser"},
+                headers=_base_test_headers(),
+            )
+            assert registered.status_code == 201
+            assert registration_client.cookies.get(auth_route._REGISTRATION_CONTINUATION_COOKIE_NAME)
+
+            with TestClient(app) as other_client:
+                resent = other_client.post(
+                    "/api/v1/auth/resend-verification",
+                    json={"email": email},
+                    headers=_base_test_headers(),
+                )
+                assert resent.status_code == 200
+                assert resent.json()["status"] == "verification_required"
+                assert len(sent_tokens) == 2
+                assert not other_client.cookies.get(auth_route._REGISTRATION_CONTINUATION_COOKIE_NAME)
+
+                other_verify = other_client.post(
+                    "/api/v1/auth/verify-email",
+                    json={"token": sent_tokens[-1], "remember_me": True},
+                    headers=_base_test_headers(),
+                )
+                assert other_verify.status_code == 409
+                assert other_verify.json()["error"]["code"] == "AUTH_REGISTRATION_PASSWORD_SETUP_REQUIRED"
+                with SessionLocal() as db:
+                    token_row = db.scalar(
+                        select(EmailVerificationToken).where(
+                            EmailVerificationToken.token_hash == hash_opaque_token(sent_tokens[-1])
+                        )
+                    )
+                    assert token_row is not None
+                    assert token_row.consumed_at is None
+
+            original_verify = registration_client.post(
+                "/api/v1/auth/verify-email",
+                json={"token": sent_tokens[-1], "remember_me": True},
+                headers=_base_test_headers(),
+            )
+            assert original_verify.status_code == 200
+
+            login = registration_client.post(
+                "/api/v1/auth/login",
+                json={"email": email, "password": password},
+                headers=_base_test_headers(),
+            )
+            assert login.status_code == 200
+    finally:
+        settings.auth_email_verification_required = previous_required
+        settings.auth_verification_resend_cooldown_seconds = previous_cooldown
+
+
+def test_auth_verify_email_code_only_completes_pending_registration(monkeypatch: pytest.MonkeyPatch) -> None:
+    previous_required = settings.auth_email_verification_required
+    settings.auth_email_verification_required = True
+    captured: dict[str, str] = {}
+
+    def _capture_send(*, to_email: str, token: str, verification_code: str, expires_minutes: int) -> bool:
+        captured["verification_code"] = verification_code
+        return True
+
+    monkeypatch.setattr(auth_route.email_service, "send_verification_email", _capture_send)
+    try:
+        with TestClient(app) as client:
+            email = f"verify-code-only-{uuid.uuid4().hex}@example.com"
+            password = "Password1234"
+            registered = client.post(
+                "/api/v1/auth/register",
+                json={"email": email, "password": password, "display_name": "CodeOnly"},
+                headers=_base_test_headers(),
+            )
+            assert registered.status_code == 201
+
+            verified = client.post(
+                "/api/v1/auth/verify-email",
+                json={
+                    "email": email,
+                    "verification_code": captured["verification_code"],
+                    "remember_me": True,
+                },
+                headers=_base_test_headers(),
+            )
+            assert verified.status_code == 200
+
+            login = client.post(
+                "/api/v1/auth/login",
+                json={"email": email, "password": password},
+                headers=_base_test_headers(),
+            )
+            assert login.status_code == 200
+    finally:
+        settings.auth_email_verification_required = previous_required
+
+
+def test_auth_verify_email_token_without_registration_context_does_not_activate_pending_password(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    previous_required = settings.auth_email_verification_required
+    settings.auth_email_verification_required = True
+    captured: dict[str, str] = {}
+
+    def _capture_send(*, to_email: str, token: str, verification_code: str, expires_minutes: int) -> bool:
+        captured["token"] = token
+        return True
+
+    monkeypatch.setattr(auth_route.email_service, "send_verification_email", _capture_send)
+    try:
+        email = f"verify-context-{uuid.uuid4().hex}@example.com"
+        attacker_password = "AttackerPass123"
+        with TestClient(app) as attacker_client:
+            registered = attacker_client.post(
+                "/api/v1/auth/register",
+                json={"email": email, "password": attacker_password, "display_name": "VictimName"},
+                headers=_base_test_headers(),
+            )
+            assert registered.status_code == 201
+
+        with TestClient(app) as fresh_client:
+            verified = fresh_client.post(
+                "/api/v1/auth/verify-email",
+                json={"token": captured["token"]},
+                headers=_base_test_headers(),
+            )
+            assert verified.status_code == 409
+            assert verified.json()["error"]["code"] == "AUTH_REGISTRATION_PASSWORD_SETUP_REQUIRED"
+            with SessionLocal() as db:
+                token_row = db.scalar(
+                    select(EmailVerificationToken).where(
+                        EmailVerificationToken.token_hash == hash_opaque_token(captured["token"])
+                    )
+                )
+                assert token_row is not None
+                assert token_row.consumed_at is None
+
+            new_password = "FreshPass1234"
+            completed = fresh_client.post(
+                "/api/v1/auth/verify-email",
+                json={"token": captured["token"], "password": new_password},
+                headers=_base_test_headers(),
+            )
+            assert completed.status_code == 200
+            assert completed.json()["user"]["email_verified"] is True
+
+            login = fresh_client.post(
+                "/api/v1/auth/login",
+                json={"email": email, "password": attacker_password},
+                headers=_base_test_headers(),
+            )
+            assert login.status_code == 401
+            new_login = fresh_client.post(
+                "/api/v1/auth/login",
+                json={"email": email, "password": new_password},
+                headers=_base_test_headers(),
+            )
+            assert new_login.status_code == 200
+    finally:
+        settings.auth_email_verification_required = previous_required
+
+
+def test_auth_verify_email_consumed_token_with_password_does_not_rewrite_verified_user(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    previous_required = settings.auth_email_verification_required
+    settings.auth_email_verification_required = True
+    captured: dict[str, str] = {}
+
+    def _capture_send(*, to_email: str, token: str, verification_code: str, expires_minutes: int) -> bool:
+        captured["token"] = token
+        return True
+
+    monkeypatch.setattr(auth_route.email_service, "send_verification_email", _capture_send)
+    try:
+        email = f"verify-consumed-rewrite-{uuid.uuid4().hex}@example.com"
+        original_password = "OriginalPass123"
+        replacement_password = "ReplacementPass123"
+        with TestClient(app) as client:
+            registered = client.post(
+                "/api/v1/auth/register",
+                json={"email": email, "password": original_password, "display_name": "ConsumedGuard"},
+                headers=_base_test_headers(),
+            )
+            assert registered.status_code == 201
+
+            verified = client.post(
+                "/api/v1/auth/verify-email",
+                json={"token": captured["token"]},
+                headers=_base_test_headers(),
+            )
+            assert verified.status_code == 200
+
+        with TestClient(app) as fresh_client:
+            reused = fresh_client.post(
+                "/api/v1/auth/verify-email",
+                json={"token": captured["token"], "password": replacement_password},
+                headers=_base_test_headers(),
+            )
+            assert reused.status_code == 400
+            assert reused.json()["error"]["code"] == "AUTH_VERIFICATION_TOKEN_INVALID"
+
+            changed_login = fresh_client.post(
+                "/api/v1/auth/login",
+                json={"email": email, "password": replacement_password},
+                headers=_base_test_headers(),
+            )
+            assert changed_login.status_code == 401
+
+            original_login = fresh_client.post(
+                "/api/v1/auth/login",
+                json={"email": email, "password": original_password},
+                headers=_base_test_headers(),
+            )
+            assert original_login.status_code == 200
+    finally:
+        settings.auth_email_verification_required = previous_required
+
+
+def test_auth_verify_email_code_without_registration_context_requires_new_password(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    previous_required = settings.auth_email_verification_required
+    settings.auth_email_verification_required = True
+    captured: dict[str, str] = {}
+
+    def _capture_send(*, to_email: str, token: str, verification_code: str, expires_minutes: int) -> bool:
+        captured["token"] = token
+        captured["verification_code"] = verification_code
+        return True
+
+    monkeypatch.setattr(auth_route.email_service, "send_verification_email", _capture_send)
+    try:
+        email = f"verify-code-cross-context-{uuid.uuid4().hex}@example.com"
+        attacker_password = "AttackerPass123"
+        with TestClient(app) as attacker_client:
+            registered = attacker_client.post(
+                "/api/v1/auth/register",
+                json={"email": email, "password": attacker_password, "display_name": "VictimCode"},
+                headers=_base_test_headers(),
+            )
+            assert registered.status_code == 201
+
+        with TestClient(app) as fresh_client:
+            required = fresh_client.post(
+                "/api/v1/auth/verify-email",
+                json={"email": email, "verification_code": captured["verification_code"]},
+                headers=_base_test_headers(),
+            )
+            assert required.status_code == 409
+            assert required.json()["error"]["code"] == "AUTH_REGISTRATION_PASSWORD_SETUP_REQUIRED"
+            with SessionLocal() as db:
+                token_row = db.scalar(
+                    select(EmailVerificationToken).where(
+                        EmailVerificationToken.token_hash == hash_opaque_token(captured["token"])
+                    )
+                )
+                assert token_row is not None
+                assert token_row.consumed_at is None
+
+            new_password = "FreshCodePass123"
+            completed = fresh_client.post(
+                "/api/v1/auth/verify-email",
+                json={
+                    "email": email,
+                    "verification_code": captured["verification_code"],
+                    "password": new_password,
+                },
+                headers=_base_test_headers(),
+            )
+            assert completed.status_code == 200
+            assert completed.json()["user"]["email_verified"] is True
+
+            old_login = fresh_client.post(
+                "/api/v1/auth/login",
+                json={"email": email, "password": attacker_password},
+                headers=_base_test_headers(),
+            )
+            assert old_login.status_code == 401
+            new_login = fresh_client.post(
+                "/api/v1/auth/login",
+                json={"email": email, "password": new_password},
+                headers=_base_test_headers(),
+            )
+            assert new_login.status_code == 200
+    finally:
+        settings.auth_email_verification_required = previous_required
+
+
+def test_auth_verify_email_rejects_bad_origin(monkeypatch: pytest.MonkeyPatch) -> None:
+    previous_required = settings.auth_email_verification_required
+    settings.auth_email_verification_required = True
+    captured: dict[str, str] = {}
+
+    def _capture_send(*, to_email: str, token: str, verification_code: str, expires_minutes: int) -> bool:
+        captured["token"] = token
+        return True
+
+    monkeypatch.setattr(auth_route.email_service, "send_verification_email", _capture_send)
+    try:
+        with TestClient(app) as client:
+            email = f"verify-origin-{uuid.uuid4().hex}@example.com"
+            registered = client.post(
+                "/api/v1/auth/register",
+                json={"email": email, "password": "Password1234", "display_name": "VerifyOrigin"},
+                headers=_base_test_headers(),
+            )
+            assert registered.status_code == 201
+
+            verified = client.post(
+                "/api/v1/auth/verify-email",
+                json={"token": captured["token"]},
+                headers={"origin": "https://evil.example"},
+            )
+            assert verified.status_code == 403
+            assert verified.json()["error"]["code"] == "AUTH_CSRF_ORIGIN_FORBIDDEN"
+    finally:
+        settings.auth_email_verification_required = previous_required
+
+
+def test_auth_register_verification_response_includes_expiry_resend_policy_and_friendly_copy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    previous_required = settings.auth_email_verification_required
+    previous_token_minutes = settings.auth_verification_token_minutes
+    previous_cooldown = settings.auth_verification_resend_cooldown_seconds
+    settings.auth_email_verification_required = True
+    settings.auth_verification_token_minutes = 30
+    settings.auth_verification_resend_cooldown_seconds = 60
+    monkeypatch.setattr(auth_route.email_service, "send_verification_email", lambda **_: True)
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/v1/auth/register",
+                json={
+                    "email": f"verify-copy-{uuid.uuid4().hex}@example.com",
+                    "password": "Password1234",
+                    "display_name": "VerifyCopy",
+                },
+                headers=_base_test_headers(),
+            )
+            assert response.status_code == 201
+            payload = response.json()
+            assert payload["status"] == "verification_required"
+            assert "요청이 접수되었습니다" not in payload["message"]
+            assert "인증 메일을 보냈습니다" in payload["message"]
+            assert payload["verification_expires_in_seconds"] <= 30 * 60
+            assert payload["verification_resend_limit"] == auth_route._RESEND_VERIFICATION_MAX_ATTEMPTS
+            assert payload["verification_resend_window_seconds"] == settings.register_rate_limit_window_seconds
+            assert payload["verification_resend_cooldown_seconds"] == 60
+    finally:
+        settings.auth_email_verification_required = previous_required
+        settings.auth_verification_token_minutes = previous_token_minutes
+        settings.auth_verification_resend_cooldown_seconds = previous_cooldown
+
+
+def test_verification_email_html_uses_brand_token_template(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, str] = {}
+
+    def _capture_email(*, to_email: str, subject: str, body_text: str, body_html: str | None = None) -> bool:
+        captured["to_email"] = to_email
+        captured["subject"] = subject
+        captured["body_text"] = body_text
+        captured["body_html"] = body_html or ""
+        return True
+
+    monkeypatch.setattr(email_service, "send_email", _capture_email)
+
+    assert email_service.send_verification_email(
+        to_email="template@example.com",
+        token="token-for-template",
+        verification_code="482913",
+        expires_minutes=30,
+    )
+
+    html = captured["body_html"]
+    text = captured["body_text"]
+    html_lower = html.lower()
+    assert captured["subject"] == "[Money Flow Service] 이메일 인증을 완료해 주세요"
+    assert "Money Flow Service" in html
+    assert "직접 입력 인증번호" in html
+    assert "482 913" in html
+    assert "유효시간 30분" in html
+    assert "/#verify_token=token-for-template" in html
+    assert "color-scheme" in html
+    assert "supported-color-schemes" in html
+    assert 'content="light dark"' in html
+    assert "@media (prefers-color-scheme: dark)" in html
+    assert "[data-ogsc]" in html
+    assert "mfs-body" in html
+    assert (
+        'data-email-region="hero" '
+        'data-brand-token="mfs-primary-blue mfs-primary-blue-bright mfs-secondary-teal" '
+        'bgcolor="#0B4AB4"'
+    ) in html
+    assert "linear-gradient(135deg,#0B4AB4 0%,#1E7BFF 54%,#14B8A6 100%)" in html
+    assert "#1D9CE5" in html
+    assert "#F6F8FB" in html
+    assert "#111C2F" in html
+    assert "#17264A" in html
+    assert "#BFD3F6" in html
+    assert 'data-brand-token="mfs-primary-blue"' in html
+    assert 'data-brand-token="mfs-success"' in html
+    assert 'data-brand-token="mfs-info"' in html
+    assert 'data-email-region="cta" data-brand-token="mfs-primary-blue" role="presentation"' in html
+    assert 'bgcolor="#0B4AB4"' in html
+    assert "mso-table-lspace" in html
+    assert "mfs-code-panel" in html
+    assert "mfs-url-panel" in html
+    assert "#0f172a" in html_lower
+    assert "bgcolor=" in html
+    assert "opacity:" not in html
+    assert 'data-email-region="headline"' in html
+    assert 'data-email-region="body-copy"' in html
+    assert 'data-email-region="verification-code"' in html
+    assert 'data-email-region="expiry"' in html
+    assert 'data-email-region="fallback-url"' in html
+    assert "#f8fbff" in html_lower
+    assert "요청한 적이 없다면 이 메일을 무시해 주세요" in html
+    assert "Money Flow Service 계정 보호" in text
+    assert "/#verify_token=token-for-template" in text
+    assert "482 913" in text
+    assert "유효시간 30분" in text
+    assert "background-color:#e6f7ff" not in html_lower
+    assert "#14324f" not in html_lower
+    assert "#176b87" not in html_lower
+
+
+def test_auth_verify_email_rejects_ambiguous_or_blank_verification_paths() -> None:
+    password = "Password1234"
+    invalid_payloads = [
+        {"password": password},
+        {"token": "", "email": "blank@example.com", "verification_code": "", "password": password},
+        {"token": "opaque-token-123", "email": "both@example.com", "verification_code": "123456", "password": password},
+        {"email": "short@example.com", "verification_code": "12345", "password": password},
+        {"email": "alpha@example.com", "verification_code": "abcdef", "password": password},
+    ]
+    for payload in invalid_payloads:
+        with pytest.raises(ValidationError):
+            VerifyEmailRequest(**payload)
+
+    assert VerifyEmailRequest(token="opaque-token-123", password=password).token == "opaque-token-123"
+    code_payload = VerifyEmailRequest(email="code@example.com", verification_code="123456", password=password)
+    assert code_payload.verification_code == "123456"
+
+
+def test_auth_verify_email_code_rate_limit_blocks_repeated_failures(monkeypatch: pytest.MonkeyPatch) -> None:
+    previous_required = settings.auth_email_verification_required
+    previous_env = settings.env
+    previous_window = settings.register_rate_limit_window_seconds
+    settings.auth_email_verification_required = True
+    settings.env = "dev"
+    settings.register_rate_limit_window_seconds = 60
+    captured: dict[str, str] = {}
+
+    def _capture_send(*, to_email: str, token: str, verification_code: str, expires_minutes: int) -> bool:
+        captured["verification_code"] = verification_code
+        return True
+
+    monkeypatch.setattr(auth_route.email_service, "send_verification_email", _capture_send)
+    try:
+        with TestClient(app) as client:
+            email = f"verify-code-limit-{uuid.uuid4().hex}@example.com"
+            registered = client.post(
+                "/api/v1/auth/register",
+                json={"email": email, "password": "Password1234", "display_name": "VerifyCodeLimit"},
+                headers=_base_test_headers(),
+            )
+            assert registered.status_code == 201
+
+            last = None
+            wrong_code = "000000" if captured["verification_code"] != "000000" else "999999"
+            for _ in range(7):
+                last = client.post(
+                    "/api/v1/auth/verify-email",
+                    json={
+                        "email": email,
+                        "verification_code": wrong_code,
+                        "password": "Password1234",
+                    },
+                    headers=_base_test_headers(),
+                )
+            assert last is not None
+            assert last.status_code == 429
+            assert last.json()["error"]["code"] == "AUTH_VERIFICATION_CODE_RATE_LIMITED"
+    finally:
+        settings.auth_email_verification_required = previous_required
+        settings.env = previous_env
+        settings.register_rate_limit_window_seconds = previous_window
 
 
 def test_auth_login_requires_verified_email() -> None:
@@ -2000,12 +3195,12 @@ def test_auth_register_hides_debug_token_when_disabled() -> None:
             settings.auth_debug_return_verify_token = previous
 
 
-def test_auth_register_debug_token_requires_opt_in_header_in_dev() -> None:
+def test_auth_register_debug_token_requires_opt_in_header_in_local() -> None:
     with TestClient(app) as client:
         previous_debug = settings.auth_debug_return_verify_token
         previous_env = settings.env
         settings.auth_debug_return_verify_token = True
-        settings.env = "dev"
+        settings.env = "local"
         try:
             email = f"register-optin-{uuid.uuid4().hex}@example.com"
             payload = {
@@ -2039,6 +3234,63 @@ def test_auth_register_debug_token_requires_opt_in_header_in_dev() -> None:
             settings.env = previous_env
 
 
+def test_auth_public_dev_debug_header_does_not_return_verification_tokens(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with TestClient(app) as client:
+        previous_debug = settings.auth_debug_return_verify_token
+        previous_env = settings.env
+        previous_frontend_base_url = settings.frontend_base_url
+        previous_cors_origins = settings.cors_origins
+        previous_cooldown = settings.auth_verification_resend_cooldown_seconds
+        settings.auth_debug_return_verify_token = True
+        settings.env = "dev"
+        settings.frontend_base_url = PUBLIC_DEV_ORIGIN
+        settings.cors_origins = PUBLIC_DEV_ORIGIN
+        settings.auth_verification_resend_cooldown_seconds = 0
+        monkeypatch.setattr(auth_route.email_service, "send_verification_email", lambda **_: True)
+        try:
+            email = f"register-public-dev-{uuid.uuid4().hex}@example.com"
+            headers = _public_dev_debug_headers()
+            registered = client.post(
+                "/api/v1/auth/register",
+                json={
+                    "email": email,
+                    "password": "Password1234",
+                    "display_name": "PublicDevNoToken",
+                },
+                headers=headers,
+            )
+            assert registered.status_code == 201
+            register_payload = registered.json()
+            assert register_payload["status"] == "verification_required"
+            assert "debug_verification_token" not in register_payload
+
+            resent = client.post(
+                "/api/v1/auth/resend-verification",
+                json={"email": email},
+                headers=headers,
+            )
+            assert resent.status_code == 200
+            resend_payload = resent.json()
+            assert resend_payload["status"] == "verification_required"
+            assert "debug_verification_token" not in resend_payload
+        finally:
+            settings.auth_debug_return_verify_token = previous_debug
+            settings.env = previous_env
+            settings.frontend_base_url = previous_frontend_base_url
+            settings.cors_origins = previous_cors_origins
+            settings.auth_verification_resend_cooldown_seconds = previous_cooldown
+
+
+def test_frontend_debug_token_opt_in_does_not_special_case_public_dev_host() -> None:
+    app_source = (Path(__file__).resolve().parents[2] / "frontend" / "src" / "App.jsx").read_text(
+        encoding="utf-8"
+    )
+    assert "VITE_DEBUG_TOKEN_OPT_IN" in app_source
+    assert "dev.moneyflow.enmsoftware.com" not in app_source
+
+
 def test_auth_cookie_flags_include_secure_when_enabled() -> None:
     with TestClient(app) as client:
         previous_secure = settings.auth_cookie_secure
@@ -2057,6 +3309,8 @@ def test_auth_cookie_flags_include_secure_when_enabled() -> None:
             assert registered.status_code == 201
             verify_token = str(registered.json().get("debug_verification_token") or "")
             assert verify_token
+            continuation_cookie = str(client.cookies.get(auth_route._REGISTRATION_CONTINUATION_COOKIE_NAME) or "")
+            assert continuation_cookie
 
             verified = client.post(
                 "/api/v1/auth/verify-email",
@@ -2065,6 +3319,10 @@ def test_auth_cookie_flags_include_secure_when_enabled() -> None:
                     "password": "Password1234",
                     "display_name": "CookieFlags",
                     "remember_me": True,
+                },
+                headers={
+                    **_base_test_headers(),
+                    "cookie": f"{auth_route._REGISTRATION_CONTINUATION_COOKIE_NAME}={continuation_cookie}",
                 },
             )
             assert verified.status_code == 200
@@ -2107,6 +3365,7 @@ def test_auth_remember_me_false_uses_session_access_cookie() -> None:
                 "display_name": "CookieSession",
                 "remember_me": False,
             },
+            headers=_base_test_headers(),
         )
         assert verified.status_code == 200
         set_cookie_values = verified.headers.get_list("set-cookie")
@@ -2132,6 +3391,7 @@ def test_household_invitation_accept_and_switch_household() -> None:
         owner_household = client.get("/api/v1/household/current", headers=_headers(token_owner))
         assert owner_household.status_code == 200
         owner_household_id = owner_household.json()["household"]["id"]
+        owner_household_name = owner_household.json()["household"]["name"]
 
         invite_resp = client.post(
             "/api/v1/household/invitations",
@@ -2149,7 +3409,12 @@ def test_household_invitation_accept_and_switch_household() -> None:
             json={"token": invite_token},
         )
         assert accepted.status_code == 200
-        assert accepted.json()["status"] == "accepted"
+        accepted_payload = accepted.json()
+        assert accepted_payload["status"] == "accepted"
+        assert accepted_payload["household_id"] == owner_household_id
+        assert accepted_payload["household_name"] == owner_household_name
+        assert accepted_payload["active_household_selected"] is False
+        assert accepted_payload["invitation_id"] == invite_payload["id"]
 
         listed = client.get("/api/v1/household/list", headers=_headers(token_guest))
         assert listed.status_code == 200
@@ -2168,6 +3433,51 @@ def test_household_invitation_accept_and_switch_household() -> None:
         members = client.get("/api/v1/household/members", headers=_headers(token_guest))
         assert members.status_code == 200
         assert len(members.json()) >= 2
+
+
+def test_household_received_invitations_can_show_inviter_and_accept_by_id() -> None:
+    with TestClient(app) as client:
+        owner_email = f"owner-received-{uuid.uuid4().hex}@example.com"
+        guest_email = f"guest-received-{uuid.uuid4().hex}@example.com"
+        token_owner = _auth(client, owner_email, "Password1234", "OwnerReceived")
+        token_guest = _auth(client, guest_email, "Password1234", "GuestReceived")
+
+        owner_household = client.get("/api/v1/household/current", headers=_headers(token_owner))
+        assert owner_household.status_code == 200
+        owner_household_name = owner_household.json()["household"]["name"]
+
+        invite_resp = client.post(
+            "/api/v1/household/invitations",
+            headers=_headers(token_owner),
+            json={"email": guest_email, "role": "editor"},
+        )
+        assert invite_resp.status_code == 201
+        invite_id = invite_resp.json()["id"]
+
+        received = client.get("/api/v1/household/invitations/received", headers=_headers(token_guest))
+        assert received.status_code == 200
+        received_payload = received.json()
+        assert len(received_payload) == 1
+        assert received_payload[0]["id"] == invite_id
+        assert received_payload[0]["household_name"] == owner_household_name
+        assert received_payload[0]["inviter_display_name"] == "OwnerReceived"
+        assert received_payload[0]["status"] == "pending"
+
+        accepted = client.post(
+            f"/api/v1/household/invitations/{invite_id}/accept",
+            headers=_headers(token_guest),
+        )
+        assert accepted.status_code == 200
+        accepted_payload = accepted.json()
+        assert accepted_payload["invitation_id"] == invite_id
+        assert accepted_payload["household_name"] == owner_household_name
+        assert accepted_payload["active_household_selected"] is False
+        assert accepted_payload["role"] == "editor"
+
+        received_after = client.get("/api/v1/household/invitations/received", headers=_headers(token_guest))
+        assert received_after.status_code == 200
+        assert received_after.json()[0]["status"] == "accepted"
+        assert received_after.json()[0]["accepted_at"] is not None
 
 
 def test_household_invitation_accept_single_use_under_parallel_requests() -> None:
@@ -2341,7 +3651,7 @@ def test_household_invitation_rejects_duplicate_display_name_member() -> None:
             json={"email": guest_email, "role": "viewer"},
         )
         assert invited.status_code == 409
-        assert invited.json()["error"]["code"] == "HOUSEHOLD_MEMBER_NAME_CONFLICT"
+        assert invited.json()["error"]["code"] == "HOUSEHOLD_MEMBER_DISPLAY_NAME_DUPLICATE"
 
 
 def test_household_invitation_persists_before_email_send(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2525,13 +3835,13 @@ def test_household_invitation_hides_debug_token_when_disabled() -> None:
             settings.auth_debug_return_verify_token = previous
 
 
-def test_household_invitation_debug_token_requires_opt_in_header_in_dev() -> None:
+def test_household_invitation_debug_token_requires_opt_in_header_in_local() -> None:
     with TestClient(app) as client:
         token_owner = _auth(client, f"invite-optin-owner-{uuid.uuid4().hex}@example.com", "Password1234", "InviteOptIn")
         previous_debug = settings.auth_debug_return_verify_token
         previous_env = settings.env
         settings.auth_debug_return_verify_token = True
-        settings.env = "dev"
+        settings.env = "local"
         try:
             without_header = client.post(
                 "/api/v1/household/invitations",
@@ -2551,6 +3861,40 @@ def test_household_invitation_debug_token_requires_opt_in_header_in_dev() -> Non
         finally:
             settings.auth_debug_return_verify_token = previous_debug
             settings.env = previous_env
+
+
+def test_household_invitation_public_dev_debug_header_does_not_return_invite_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with TestClient(app) as client:
+        token_owner = _auth(
+            client,
+            f"invite-public-dev-owner-{uuid.uuid4().hex}@example.com",
+            "Password1234",
+            "InvitePublicDev",
+        )
+        previous_debug = settings.auth_debug_return_verify_token
+        previous_env = settings.env
+        previous_frontend_base_url = settings.frontend_base_url
+        previous_cors_origins = settings.cors_origins
+        settings.auth_debug_return_verify_token = True
+        settings.env = "dev"
+        settings.frontend_base_url = PUBLIC_DEV_ORIGIN
+        settings.cors_origins = PUBLIC_DEV_ORIGIN
+        monkeypatch.setattr(household_route.email_service, "send_household_invitation_email", lambda **_: True)
+        try:
+            invite = client.post(
+                "/api/v1/household/invitations",
+                headers={**_public_dev_debug_headers(), "Authorization": f"Bearer {token_owner}"},
+                json={"email": f"invite-public-dev-{uuid.uuid4().hex}@example.com", "role": "viewer"},
+            )
+            assert invite.status_code == 201
+            assert "debug_invite_token" not in invite.json()
+        finally:
+            settings.auth_debug_return_verify_token = previous_debug
+            settings.env = previous_env
+            settings.frontend_base_url = previous_frontend_base_url
+            settings.cors_origins = previous_cors_origins
 
 
 def test_household_owner_transfer_and_last_owner_guard() -> None:
@@ -2633,7 +3977,6 @@ def test_household_parallel_owner_demotion_keeps_at_least_one_owner() -> None:
 
         owner_household_id = client.get("/api/v1/household/current", headers=_headers(token_owner)).json()["household"]["id"]
         household_headers_owner = {**_headers(token_owner), "x-household-id": owner_household_id}
-        household_headers_partner = {**_headers(token_partner), "x-household-id": owner_household_id}
 
         members_before = client.get("/api/v1/household/members", headers=household_headers_owner)
         assert members_before.status_code == 200
@@ -2784,6 +4127,34 @@ def test_household_invitation_returns_503_when_smtp_send_fails(monkeypatch: pyte
             assert response.json()["error"]["code"] == "HOUSEHOLD_INVITE_EMAIL_DELIVERY_FAILED"
     finally:
         settings.email_delivery_mode = previous_mode
+
+
+def test_household_invitation_strict_env_blocks_send_failure_without_delivery_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    previous_mode = settings.email_delivery_mode
+    previous_env = settings.env
+    try:
+        with TestClient(app) as client:
+            owner_token = _auth(
+                client,
+                f"invite-strict-owner-{uuid.uuid4().hex}@example.com",
+                "Password1234",
+                "InviteStrictOwner",
+            )
+            settings.email_delivery_mode = "log"
+            settings.env = "dev"
+            monkeypatch.setattr(household_route.email_service, "send_household_invitation_email", lambda **_: False)
+            response = client.post(
+                "/api/v1/household/invitations",
+                json={"email": f"invite-strict-target-{uuid.uuid4().hex}@example.com", "role": "viewer"},
+                headers=_headers(owner_token),
+            )
+            assert response.status_code == 503
+            assert response.json()["error"]["code"] == "HOUSEHOLD_INVITE_EMAIL_DELIVERY_FAILED"
+    finally:
+        settings.email_delivery_mode = previous_mode
+        settings.env = previous_env
 
 
 def test_household_invitation_smtp_failure_allows_immediate_retry(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -3074,7 +4445,7 @@ def test_holding_create_rejects_invalid_currency_and_blank_text_fields() -> None
         assert blank_symbol.status_code == 400
 
 
-def test_holding_owner_must_be_household_member() -> None:
+def test_holding_owner_name_fallback_is_allowed_without_member_link() -> None:
     with TestClient(app) as client:
         token = _auth(client, f"holding-owner-{uuid.uuid4().hex}@example.com", "Password1234", "HoldingOwner")
         created = client.post(
@@ -3092,8 +4463,10 @@ def test_holding_owner_must_be_household_member() -> None:
                 "currency": "KRW",
             },
         )
-        assert created.status_code == 400
-        assert created.json()["error"]["code"] == "HOLDING_OWNER_INVALID"
+        assert created.status_code == 201
+        created_payload = created.json()
+        assert created_payload["owner_user_id"] is None
+        assert created_payload["owner_name"] == "NotMember"
 
         valid = client.post(
             "/api/v1/holdings",
@@ -3104,7 +4477,7 @@ def test_holding_owner_must_be_household_member() -> None:
                 "market_symbol": "KRW-CASH-OWNER-VALID",
                 "name": "OwnerPolicyValid",
                 "category": "현금성",
-                "owner_name": "HoldingOwner",
+                "owner_user_id": client.get("/api/v1/auth/me", headers=_headers(token)).json()["id"],
                 "quantity": 1,
                 "average_cost": 1000,
                 "currency": "KRW",
@@ -3112,17 +4485,19 @@ def test_holding_owner_must_be_household_member() -> None:
         )
         assert valid.status_code == 201
         payload = valid.json()
+        assert payload["owner_user_id"] is not None
+        assert payload["owner_name"] == "HoldingOwner"
 
         patched = client.patch(
             f"/api/v1/holdings/{payload['id']}",
             headers=_headers(token),
-            json={"base_version": payload["version"], "owner_name": "UnknownMember"},
+            json={"base_version": payload["version"], "owner_user_id": "unknown-member"},
         )
         assert patched.status_code == 400
         assert patched.json()["error"]["code"] == "HOLDING_OWNER_INVALID"
 
 
-def test_holding_owner_rejects_ambiguous_member_display_name() -> None:
+def test_holding_duplicate_display_name_can_remain_legacy_owner_name() -> None:
     with TestClient(app) as client:
         owner_email = f"holding-amb-owner-{uuid.uuid4().hex}@example.com"
         token = _auth(client, owner_email, "Password1234", "DupHolder")
@@ -3160,8 +4535,10 @@ def test_holding_owner_rejects_ambiguous_member_display_name() -> None:
                 "currency": "KRW",
             },
         )
-        assert ambiguous.status_code == 409
-        assert ambiguous.json()["error"]["code"] == "HOLDING_OWNER_AMBIGUOUS"
+        assert ambiguous.status_code == 201
+        payload = ambiguous.json()
+        assert payload["owner_user_id"] is None
+        assert payload["owner_name"] == "DupHolder"
 
 
 def test_holding_patch_rejects_invalid_currency() -> None:
@@ -3391,6 +4768,175 @@ def test_transaction_patch_rejects_null_for_required_fields() -> None:
         assert "memo" in (memo_error.get("context", {}).get("fields") or [])
 
 
+def _create_history_transaction(
+    *,
+    household_id: str,
+    occurred_on: date,
+    memo: str,
+    created_at: datetime | None = None,
+) -> str:
+    with SessionLocal() as db:
+        tx = Transaction(
+            household_id=household_id,
+            occurred_on=occurred_on,
+            flow_type=FlowType.expense,
+            amount=Decimal("1000"),
+            currency="KRW",
+            memo=memo,
+            created_at=created_at or datetime.now(UTC),
+            updated_at=created_at or datetime.now(UTC),
+        )
+        db.add(tx)
+        db.commit()
+        return str(tx.id)
+
+
+def test_transaction_history_initial_older_newer_and_future_cap() -> None:
+    with TestClient(app) as client:
+        token = _auth(client, f"tx-history-{uuid.uuid4().hex}@example.com", "Password1234", "TxHistory")
+        household_id = client.get("/api/v1/household/current", headers=_headers(token)).json()["household"]["id"]
+        today = datetime.now(UTC).date()
+        older_date = today - timedelta(days=40)
+        middle_date = today - timedelta(days=10)
+        future_date = today + timedelta(days=3)
+        _create_history_transaction(
+            household_id=household_id,
+            occurred_on=older_date,
+            memo="history-older",
+            created_at=datetime(2026, 1, 1, 8, 0, tzinfo=UTC),
+        )
+        _create_history_transaction(
+            household_id=household_id,
+            occurred_on=middle_date,
+            memo="history-middle",
+            created_at=datetime(2026, 1, 1, 9, 0, tzinfo=UTC),
+        )
+        _create_history_transaction(
+            household_id=household_id,
+            occurred_on=today,
+            memo="history-today",
+            created_at=datetime(2026, 1, 1, 10, 0, tzinfo=UTC),
+        )
+        _create_history_transaction(
+            household_id=household_id,
+            occurred_on=future_date,
+            memo="history-future",
+            created_at=datetime(2026, 1, 1, 11, 0, tzinfo=UTC),
+        )
+
+        initial = client.get("/api/v1/transactions/history?limit=2", headers=_headers(token))
+        assert initial.status_code == 200
+        payload = initial.json()
+        assert payload["today"] == str(today)
+        assert payload["anchor_date"] == str(today)
+        assert payload["has_older"] is True
+        assert payload["has_newer"] is False
+        assert [item["memo"] for item in payload["items"]] == ["history-middle", "history-today"]
+        assert "history-future" not in [item["memo"] for item in payload["items"]]
+        assert payload["older_cursor"]
+        assert payload["newer_cursor"]
+
+        older = client.get(
+            f"/api/v1/transactions/history?direction=older&limit=2&cursor={payload['older_cursor']}",
+            headers=_headers(token),
+        )
+        assert older.status_code == 200
+        older_payload = older.json()
+        assert [item["memo"] for item in older_payload["items"]] == ["history-older"]
+        assert older_payload["has_older"] is False
+        assert older_payload["has_newer"] is True
+
+        newer = client.get(
+            f"/api/v1/transactions/history?direction=newer&limit=5&cursor={older_payload['newer_cursor']}",
+            headers=_headers(token),
+        )
+        assert newer.status_code == 200
+        newer_payload = newer.json()
+        assert [item["memo"] for item in newer_payload["items"]] == ["history-middle", "history-today"]
+        assert newer_payload["has_newer"] is False
+        assert "history-future" not in [item["memo"] for item in newer_payload["items"]]
+
+        future_anchor = client.get(
+            f"/api/v1/transactions/history?anchor_date={future_date}&limit=10",
+            headers=_headers(token),
+        )
+        assert future_anchor.status_code == 200
+        assert future_anchor.json()["anchor_date"] == str(today)
+
+
+def test_transaction_history_cursor_safety_and_tie_breaking() -> None:
+    shared_created_at = datetime(2026, 1, 2, 9, 30, tzinfo=UTC)
+    with TestClient(app) as client:
+        token = _auth(client, f"tx-history-cursor-{uuid.uuid4().hex}@example.com", "Password1234", "TxHistoryCursor")
+        household_id = client.get("/api/v1/household/current", headers=_headers(token)).json()["household"]["id"]
+        other_token = _auth(
+            client,
+            f"tx-history-cursor-other-{uuid.uuid4().hex}@example.com",
+            "Password1234",
+            "TxHistoryOther",
+        )
+        other_household_id = client.get(
+            "/api/v1/household/current",
+            headers=_headers(other_token),
+        ).json()["household"]["id"]
+        today = datetime.now(UTC).date()
+        tie_date = today - timedelta(days=2)
+        _create_history_transaction(
+            household_id=household_id,
+            occurred_on=tie_date,
+            memo="tie-a",
+            created_at=shared_created_at,
+        )
+        _create_history_transaction(
+            household_id=household_id,
+            occurred_on=tie_date,
+            memo="tie-b",
+            created_at=shared_created_at,
+        )
+        _create_history_transaction(
+            household_id=household_id,
+            occurred_on=today,
+            memo="tie-latest",
+            created_at=datetime(2026, 1, 2, 10, 0, tzinfo=UTC),
+        )
+        _create_history_transaction(
+            household_id=other_household_id,
+            occurred_on=today,
+            memo="foreign-latest",
+            created_at=datetime(2026, 1, 2, 10, 5, tzinfo=UTC),
+        )
+
+        first = client.get("/api/v1/transactions/history?limit=2", headers=_headers(token))
+        assert first.status_code == 200
+        first_payload = first.json()
+        first_memos = [item["memo"] for item in first_payload["items"]]
+        assert first_memos == sorted(first_memos)
+        assert len({item["id"] for item in first_payload["items"]}) == 2
+        assert first_payload["has_older"] is True
+
+        older = client.get(
+            f"/api/v1/transactions/history?direction=older&limit=2&cursor={first_payload['older_cursor']}",
+            headers=_headers(token),
+        )
+        assert older.status_code == 200
+        all_ids = [item["id"] for item in first_payload["items"]] + [item["id"] for item in older.json()["items"]]
+        assert len(all_ids) == len(set(all_ids))
+
+        malformed = client.get("/api/v1/transactions/history?direction=older&cursor=not-a-cursor", headers=_headers(token))
+        assert malformed.status_code == 400
+        assert malformed.json()["error"]["code"] == "TRANSACTION_HISTORY_CURSOR_INVALID"
+
+        foreign = client.get("/api/v1/transactions/history?limit=1", headers=_headers(other_token))
+        assert foreign.status_code == 200
+        foreign_cursor = foreign.json()["newer_cursor"]
+        blocked = client.get(
+            f"/api/v1/transactions/history?direction=newer&cursor={foreign_cursor}",
+            headers=_headers(token),
+        )
+        assert blocked.status_code == 400
+        assert blocked.json()["error"]["code"] == "TRANSACTION_HISTORY_CURSOR_INVALID"
+
+
 def test_transaction_patch_merge_conflict_and_tenant_isolation() -> None:
     with TestClient(app) as client:
         token_a = _auth(client, "merge-a@example.com", "Password1234", "A")
@@ -3529,6 +5075,160 @@ def test_holding_patch_rejects_duplicate_identity_when_owner_and_account_become_
         assert second_patch.json()["error"]["code"] == "HOLDING_ALREADY_EXISTS"
 
 
+def test_holding_nullable_owner_unique_identity_is_db_enforced() -> None:
+    with TestClient(app) as client:
+        token = _auth(client, f"holding-db-unique-{uuid.uuid4().hex}@example.com", "Password1234", "DbUnique")
+        household_id = client.get("/api/v1/household/current", headers=_headers(token)).json()["household"]["id"]
+
+    with SessionLocal() as db:
+        db.add(
+            Holding(
+                household_id=household_id,
+                asset_type=AssetType.stock,
+                symbol="NULL-OWNER-DB",
+                market_symbol="NULL-OWNER-DB",
+                name="Null Owner DB",
+                category="테스트",
+                owner_name="LegacyOwner",
+                account_name="AccountA",
+                quantity=Decimal("1"),
+                average_cost=Decimal("100"),
+                currency="KRW",
+            )
+        )
+        db.commit()
+
+        db.add(
+            Holding(
+                household_id=household_id,
+                asset_type=AssetType.stock,
+                symbol="NULL-OWNER-DB",
+                market_symbol="NULL-OWNER-DB",
+                name="Null Owner DB Duplicate",
+                category="테스트",
+                owner_name="LegacyOwner",
+                account_name="AccountA",
+                quantity=Decimal("2"),
+                average_cost=Decimal("200"),
+                currency="KRW",
+            )
+        )
+        with pytest.raises(IntegrityError):
+            db.commit()
+        db.rollback()
+
+        db.add(
+            Holding(
+                household_id=household_id,
+                asset_type=AssetType.stock,
+                symbol="NULL-OWNER-DB",
+                market_symbol="NULL-OWNER-DB",
+                name="Null Owner DB Different Legacy Owner",
+                category="테스트",
+                owner_name="OtherLegacyOwner",
+                account_name="AccountA",
+                quantity=Decimal("3"),
+                average_cost=Decimal("300"),
+                currency="KRW",
+            )
+        )
+        db.commit()
+
+
+def test_schema_upgrade_preserves_legacy_null_owner_rows(tmp_path: Path) -> None:
+    local_engine = create_engine(f"sqlite:///{(tmp_path / 'schema-upgrade.db').as_posix()}")
+    Base.metadata.create_all(bind=local_engine)
+    try:
+        with Session(local_engine) as db:
+            user = User(
+                email=f"schema-owner-{uuid.uuid4().hex}@example.com",
+                password_hash="not-used",
+                display_name="LegacyOwner",
+                email_verified=True,
+                email_verified_at=datetime.now(UTC),
+            )
+            household = Household(name="Schema Upgrade Household", base_currency="KRW")
+            db.add_all([user, household])
+            db.flush()
+            db.add(HouseholdMember(household_id=household.id, user_id=user.id, role=MemberRole.owner))
+            db.add(
+                Transaction(
+                    household_id=household.id,
+                    flow_type=FlowType.expense,
+                    occurred_on=date(2026, 4, 22),
+                    amount=Decimal("12000"),
+                    currency="KRW",
+                    memo="legacy transaction",
+                    owner_name="LegacyOwner",
+                )
+            )
+            db.add(
+                Holding(
+                    household_id=household.id,
+                    asset_type=AssetType.cash,
+                    symbol="SCHEMA-CASH",
+                    market_symbol="SCHEMA-CASH",
+                    name="Schema Cash",
+                    category="현금성",
+                    owner_name="LegacyOwner",
+                    account_name="Schema Account",
+                    quantity=Decimal("1"),
+                    average_cost=Decimal("12000"),
+                    currency="KRW",
+                )
+            )
+            db.commit()
+            household_id = str(household.id)
+
+        schema_upgrade_module.upgrade_schema(local_engine)
+
+        with Session(local_engine) as db:
+            tx = db.scalar(select(Transaction).where(Transaction.household_id == household_id))
+            holding = db.scalar(select(Holding).where(Holding.household_id == household_id))
+            assert tx is not None
+            assert holding is not None
+            assert tx.owner_user_id is None
+            assert holding.owner_user_id is None
+            assert tx.owner_name == "LegacyOwner"
+            assert holding.owner_name == "LegacyOwner"
+    finally:
+        local_engine.dispose()
+
+
+def test_schema_upgrade_reports_duplicate_nullable_holding_identities(tmp_path: Path) -> None:
+    local_engine = create_engine(f"sqlite:///{(tmp_path / 'schema-duplicate.db').as_posix()}")
+    Base.metadata.create_all(bind=local_engine)
+    try:
+        with local_engine.begin() as conn:
+            conn.exec_driver_sql("DROP INDEX IF EXISTS uq_holding_identity")
+        with Session(local_engine) as db:
+            household = Household(name="Duplicate Schema Household", base_currency="KRW")
+            db.add(household)
+            db.flush()
+            for index in range(2):
+                db.add(
+                    Holding(
+                        household_id=household.id,
+                        asset_type=AssetType.stock,
+                        symbol=f"DUP-{index}",
+                        market_symbol="DUPLICATE-NULL-OWNER",
+                        name=f"Duplicate {index}",
+                        category="테스트",
+                        owner_name="LegacyOwner",
+                        account_name="AccountA",
+                        quantity=Decimal(index + 1),
+                        average_cost=Decimal("100"),
+                        currency="KRW",
+                    )
+                )
+            db.commit()
+
+        with pytest.raises(RuntimeError, match="duplicate holding identities"):
+            schema_upgrade_module.upgrade_schema(local_engine)
+    finally:
+        local_engine.dispose()
+
+
 def test_holdings_dashboard_and_import_dry_run() -> None:
     with TestClient(app) as client:
         token = _auth(client, "dash@example.com", "Password1234", "Dash")
@@ -3558,7 +5258,10 @@ def test_holdings_dashboard_and_import_dry_run() -> None:
         assert portfolio.status_code == 200
         assert len(portfolio.json()["items"]) >= 1
 
-        workbook_path = str(next((Path(__file__).resolve().parents[2] / "legacy").glob("*.xlsx")))
+        legacy_files = sorted((Path(__file__).resolve().parents[2] / "legacy").glob("*.xlsx"))
+        if not legacy_files:
+            pytest.skip("legacy workbook fixtures are missing in this environment")
+        workbook_path = str(legacy_files[0])
         dry_run = client.post(
             "/api/v1/imports/workbook",
             headers=_headers(token),
@@ -3649,7 +5352,10 @@ def test_dashboard_portfolio_returns_retryable_error_when_fx_unavailable(monkeyp
 def test_import_upload_dry_run_and_apply_repeat() -> None:
     with TestClient(app) as client:
         token = _auth(client, "import-upload@example.com", "Password1234", "ImportUpload")
-        workbook_path = next((Path(__file__).resolve().parents[2] / "legacy").glob("*.xlsx"))
+        legacy_files = sorted((Path(__file__).resolve().parents[2] / "legacy").glob("*.xlsx"))
+        if not legacy_files:
+            pytest.skip("legacy workbook fixtures are missing in this environment")
+        workbook_path = legacy_files[0]
         content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
         with workbook_path.open("rb") as fp:
@@ -3746,7 +5452,10 @@ def test_import_upload_apply_row_shift_keeps_transaction_idempotency(tmp_path: P
         current = client.get("/api/v1/household/current", headers=_headers(token))
         assert current.status_code == 200
         household_id = str(current.json()["household"]["id"])
-        workbook_path = next((Path(__file__).resolve().parents[2] / "legacy").glob("*.xlsx"))
+        legacy_files = sorted((Path(__file__).resolve().parents[2] / "legacy").glob("*.xlsx"))
+        if not legacy_files:
+            pytest.skip("legacy workbook fixtures are missing in this environment")
+        workbook_path = legacy_files[0]
         content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
         with workbook_path.open("rb") as fp:
@@ -3861,9 +5570,9 @@ def test_import_lock_heartbeat_stop_waits_for_thread_completion() -> None:
     thread.start()
     assert started.wait(timeout=1.0) is True
 
-    started_at = time.time()
+    started_at = time.monotonic()
     imports_route._stop_import_lock_heartbeat(stop_event=stop_event, thread=thread)
-    elapsed = time.time() - started_at
+    elapsed = time.monotonic() - started_at
 
     assert finished.is_set() is True
     assert thread.is_alive() is False
@@ -4144,8 +5853,8 @@ def test_import_non_member_owner_names_do_not_collapse_to_same_holding() -> None
         ).all()
         assert len(imported) == 2
         owners = {str(item.owner_name or "") for item in imported}
-        assert len(owners) == 2
-        assert all(owner.startswith("unmapped:") for owner in owners)
+        assert owners == {"외부보유자-A", "외부보유자-B"}
+        assert all(item.owner_user_id is None for item in imported)
 
         owner_issues = [issue for issue in issues if issue.code == "HOLDING_OWNER_NOT_MEMBER"]
         assert len(owner_issues) == 2
@@ -4153,13 +5862,104 @@ def test_import_non_member_owner_names_do_not_collapse_to_same_holding() -> None
         assert source_owner_names == {"외부보유자-A", "외부보유자-B"}
 
 
+def test_import_owner_resolution_preloads_household_members_once_per_apply_path() -> None:
+    with TestClient(app) as client:
+        token = _auth(
+            client,
+            f"import-owner-lookup-{uuid.uuid4().hex}@example.com",
+            "Password1234",
+            "ImportLookupOwner",
+        )
+        current = client.get("/api/v1/household/current", headers=_headers(token))
+        assert current.status_code == 200
+        household_id = current.json()["household"]["id"]
+
+    with SessionLocal() as db:
+        for index in range(2):
+            duplicate_user = User(
+                email=f"import-ambiguous-{index}-{uuid.uuid4().hex}@example.com",
+                password_hash="not-used",
+                display_name="AmbiguousImportOwner",
+                email_verified=True,
+                email_verified_at=datetime.now(UTC),
+            )
+            db.add(duplicate_user)
+            db.flush()
+            db.add(HouseholdMember(household_id=household_id, user_id=duplicate_user.id, role=MemberRole.viewer))
+        db.commit()
+
+    importer = WorkbookImporter()
+    tx_rows = [
+        ParsedTransaction(
+            source_ref=f"tx-lookup-{index}",
+            dedupe_hash=f"tx-lookup-{index}",
+            dedupe_ordinal=1,
+            occurred_on=date(2026, 4, 22),
+            flow_type=FlowType.expense,
+            major="테스트",
+            minor="소분류",
+            amount=Decimal(index + 1),
+            memo=f"lookup-{index}",
+            owner_name="ImportLookupOwner",
+        )
+        for index in range(4)
+    ]
+    holding_rows = [
+        ParsedHolding(
+            asset_type=AssetType.stock,
+            symbol=f"LOOKUP-{index}",
+            market_symbol=f"LOOKUP-{index}",
+            name=f"Lookup {index}",
+            category="테스트",
+            owner_name=owner_name,
+            account_name="LookupAccount",
+            quantity=Decimal("1"),
+            average_cost=Decimal("100"),
+            currency="KRW",
+            source_ref=f"holding-lookup-{index}",
+        )
+        for index, owner_name in enumerate(
+            [
+                "ImportLookupOwner",
+                "ImportLookupOwner",
+                "NotAHouseholdMember",
+                "AmbiguousImportOwner",
+            ]
+        )
+    ]
+    member_lookup_selects: list[str] = []
+
+    def _capture_member_lookup(_conn, _cursor, statement, _parameters, _context, _executemany) -> None:
+        normalized = " ".join(str(statement).lower().split())
+        if " from users" in normalized and "household_members" in normalized:
+            member_lookup_selects.append(normalized)
+
+    event.listen(engine, "before_cursor_execute", _capture_member_lookup)
+    try:
+        with SessionLocal() as db:
+            tx_added, tx_skipped = importer._apply_transactions(db, household_id, {}, tx_rows)
+            holding_added, holding_updated, issues = importer._apply_holdings(db, household_id, holding_rows)
+            db.rollback()
+    finally:
+        event.remove(engine, "before_cursor_execute", _capture_member_lookup)
+
+    assert tx_added == len(tx_rows)
+    assert tx_skipped == 0
+    assert holding_added == len(holding_rows)
+    assert holding_updated == 0
+    assert len(member_lookup_selects) == 2
+    issue_codes = {issue.code for issue in issues}
+    assert "HOLDING_OWNER_NOT_MEMBER" in issue_codes
+    assert "HOLDING_OWNER_AMBIGUOUS" in issue_codes
+
+
 def test_import_holding_key_avoids_delimiter_collisions() -> None:
     importer = WorkbookImporter()
 
-    key_a = importer._holding_key(AssetType.stock, "ABC", "A:B", "C")
-    key_b = importer._holding_key(AssetType.stock, "ABC", "A", "B:C")
-    key_empty = importer._holding_key(AssetType.stock, "ABC", None, None)
-    key_dash = importer._holding_key(AssetType.stock, "ABC", "-", "-")
+    key_a = importer._holding_key(AssetType.stock, "ABC", None, "A:B", "C")
+    key_b = importer._holding_key(AssetType.stock, "ABC", None, "A", "B:C")
+    key_empty = importer._holding_key(AssetType.stock, "ABC", None, None, None)
+    key_dash = importer._holding_key(AssetType.stock, "ABC", None, "-", "-")
 
     assert key_a != key_b
     assert key_empty != key_dash
@@ -5038,3 +6838,306 @@ def test_import_upload_rejects_oversized_file() -> None:
         assert response.status_code == 413
         error_payload = response.json()["error"]
         assert error_payload["code"] == "IMPORT_FILE_TOO_LARGE"
+
+
+def test_auth_me_patch_updates_profile_without_backfilling_owner_links() -> None:
+    with TestClient(app) as client:
+        token = _auth(client, f"profile-no-backfill-{uuid.uuid4().hex}@example.com", "Password1234", "본명")
+        me = client.get("/api/v1/auth/me", headers=_headers(token))
+        assert me.status_code == 200
+        current = client.get("/api/v1/household/current", headers=_headers(token))
+        assert current.status_code == 200
+        household_id = str(current.json()["household"]["id"])
+
+        with SessionLocal() as db:
+            db.add(
+                Transaction(
+                    household_id=household_id,
+                    flow_type=FlowType.expense,
+                    occurred_on=date(2026, 2, 10),
+                    amount=Decimal("12000"),
+                    currency="KRW",
+                    memo="legacy-owner",
+                    owner_name="새닉네임",
+                )
+            )
+            db.add(
+                Holding(
+                    household_id=household_id,
+                    asset_type=AssetType.cash,
+                    symbol=f"LEGACY-{uuid.uuid4().hex[:8].upper()}",
+                    market_symbol=f"LEGACY-{uuid.uuid4().hex[:8].upper()}",
+                    name="LegacyHolding",
+                    category="현금성",
+                    owner_name="새닉네임",
+                    account_name="",
+                    quantity=Decimal("1"),
+                    average_cost=Decimal("12000"),
+                    currency="KRW",
+                )
+            )
+            db.commit()
+
+        patched = client.patch(
+            "/api/v1/auth/me",
+            headers=_headers(token),
+            json={"nickname": "새닉네임", "display_name_mode": "nickname"},
+        )
+        assert patched.status_code == 200
+        profile = patched.json()
+        assert profile["real_name"] == "본명"
+        assert profile["nickname"] == "새닉네임"
+        assert profile["display_name_mode"] == "nickname"
+        assert profile["display_name"] == "새닉네임"
+
+        tx_list = client.get("/api/v1/transactions", headers=_headers(token))
+        assert tx_list.status_code == 200
+        assert any(item["owner_user_id"] is None and item["owner_name"] == "새닉네임" for item in tx_list.json())
+
+        holding_list = client.get("/api/v1/holdings", headers=_headers(token))
+        assert holding_list.status_code == 200
+        assert any(item["owner_user_id"] is None and item["owner_name"] == "새닉네임" for item in holding_list.json())
+
+        portfolio = client.get("/api/v1/dashboard/portfolio", headers=_headers(token))
+        assert portfolio.status_code == 200
+        assert any(item["owner_name"] == "새닉네임" for item in portfolio.json()["items"])
+
+
+def test_auth_me_patch_rejects_nickname_mode_without_nickname() -> None:
+    with TestClient(app) as client:
+        token = _auth(client, f"profile-nickname-{uuid.uuid4().hex}@example.com", "Password1234", "본명")
+        response = client.patch(
+            "/api/v1/auth/me",
+            headers=_headers(token),
+            json={"display_name_mode": "nickname", "nickname": "   "},
+        )
+        assert response.status_code == 400
+        assert response.json()["error"]["code"] == "AUTH_NICKNAME_REQUIRED"
+
+
+def test_auth_me_patch_rejects_duplicate_household_display_name() -> None:
+    with TestClient(app) as client:
+        owner_email = f"profile-dup-owner-{uuid.uuid4().hex}@example.com"
+        guest_email = f"profile-dup-guest-{uuid.uuid4().hex}@example.com"
+        owner_token = _auth(client, owner_email, "Password1234", "OwnerDup")
+        guest_token = _auth(client, guest_email, "Password1234", "GuestDup")
+
+        invited = client.post(
+            "/api/v1/household/invitations",
+            headers=_headers(owner_token),
+            json={"email": guest_email, "role": "viewer"},
+        )
+        assert invited.status_code == 201
+        accepted = client.post(
+            "/api/v1/household/invitations/accept",
+            headers=_headers(guest_token),
+            json={"token": invited.json()["debug_invite_token"]},
+        )
+        assert accepted.status_code == 200
+
+        duplicate = client.patch(
+            "/api/v1/auth/me",
+            headers=_headers(guest_token),
+            json={"nickname": "OwnerDup", "display_name_mode": "nickname"},
+        )
+        assert duplicate.status_code == 409
+        assert duplicate.json()["error"]["code"] == "HOUSEHOLD_MEMBER_DISPLAY_NAME_DUPLICATE"
+
+
+def test_household_settings_patch_persists_name_and_colors_and_enforces_role() -> None:
+    with TestClient(app) as client:
+        owner_email = f"settings-owner-{uuid.uuid4().hex}@example.com"
+        viewer_email = f"settings-viewer-{uuid.uuid4().hex}@example.com"
+        owner_token = _auth(client, owner_email, "Password1234", "Owner")
+        viewer_token = _auth(client, viewer_email, "Password1234", "Viewer")
+
+        invited = client.post(
+            "/api/v1/household/invitations",
+            headers=_headers(owner_token),
+            json={"email": viewer_email, "role": "viewer"},
+        )
+        assert invited.status_code == 201
+        invite_token = str(invited.json()["debug_invite_token"])
+        accepted = client.post(
+            "/api/v1/household/invitations/accept",
+            headers=_headers(viewer_token),
+            json={"token": invite_token},
+        )
+        assert accepted.status_code == 200
+        selected = client.post(
+            "/api/v1/household/select",
+            headers=_headers(viewer_token),
+            json={"household_id": accepted.json()["household_id"]},
+        )
+        assert selected.status_code == 200
+
+        forbidden = client.patch(
+            "/api/v1/household/settings",
+            headers=_headers(viewer_token),
+            json={"name": "Viewer Rename"},
+        )
+        assert forbidden.status_code == 403
+
+        patched = client.patch(
+            "/api/v1/household/settings",
+            headers=_headers(owner_token),
+            json={
+                "name": "새 가계 이름",
+                "transaction_row_colors": {
+                    "income": "#112233",
+                    "expense": "#445566",
+                },
+            },
+        )
+        assert patched.status_code == 200
+        payload = patched.json()
+        assert payload["name"] == "새 가계 이름"
+        assert payload["transaction_row_colors"]["income"] == "#112233"
+        assert payload["transaction_row_colors"]["expense"] == "#445566"
+        assert payload["transaction_row_colors"]["investment"]
+        assert payload["transaction_row_colors"]["transfer"]
+
+        fetched = client.get("/api/v1/household/settings", headers=_headers(owner_token))
+        assert fetched.status_code == 200
+        assert fetched.json()["name"] == "새 가계 이름"
+
+
+def test_category_crud_usage_count_and_major_rename() -> None:
+    with TestClient(app) as client:
+        token = _auth(client, f"category-crud-{uuid.uuid4().hex}@example.com", "Password1234", "CategoryOwner")
+
+        created = client.post(
+            "/api/v1/categories",
+            headers=_headers(token),
+            json={"flow_type": "expense", "major": "생활", "minor": "식비"},
+        )
+        assert created.status_code == 201
+        first_category = created.json()
+        assert first_category["usage_count"] == 0
+
+        duplicate = client.post(
+            "/api/v1/categories",
+            headers=_headers(token),
+            json={"flow_type": "expense", "major": "생활", "minor": "식비"},
+        )
+        assert duplicate.status_code == 409
+        assert duplicate.json()["error"]["code"] == "CATEGORY_DUPLICATE"
+
+        second_created = client.post(
+            "/api/v1/categories",
+            headers=_headers(token),
+            json={"flow_type": "expense", "major": "생활", "minor": "교통"},
+        )
+        assert second_created.status_code == 201
+
+        patched = client.patch(
+            f"/api/v1/categories/{first_category['id']}",
+            headers=_headers(token),
+            json={"minor": "외식"},
+        )
+        assert patched.status_code == 200
+        first_category = patched.json()
+        assert first_category["minor"] == "외식"
+
+        renamed = client.post(
+            "/api/v1/categories/rename-major",
+            headers=_headers(token),
+            json={"flow_type": "expense", "current_major": "생활", "next_major": "고정생활"},
+        )
+        assert renamed.status_code == 200
+        assert len(renamed.json()) == 2
+        assert all(item["major"] == "고정생활" for item in renamed.json())
+
+        used_tx = client.post(
+            "/api/v1/transactions",
+            headers=_headers(token),
+            json={
+                "occurred_on": "2026-02-03",
+                "flow_type": "expense",
+                "amount": 15000,
+                "currency": "KRW",
+                "memo": "category-use",
+                "category_id": first_category["id"],
+            },
+        )
+        assert used_tx.status_code == 201
+
+        categories = client.get("/api/v1/categories", headers=_headers(token))
+        assert categories.status_code == 200
+        used_category = next(item for item in categories.json() if item["id"] == first_category["id"])
+        assert used_category["usage_count"] == 1
+
+        delete_used = client.delete(f"/api/v1/categories/{first_category['id']}", headers=_headers(token))
+        assert delete_used.status_code == 409
+        assert delete_used.json()["error"]["code"] == "CATEGORY_IN_USE"
+
+        deletable = client.post(
+            "/api/v1/categories",
+            headers=_headers(token),
+            json={"flow_type": "income", "major": "급여", "minor": "월급"},
+        )
+        assert deletable.status_code == 201
+        delete_unused = client.delete(f"/api/v1/categories/{deletable.json()['id']}", headers=_headers(token))
+        assert delete_unused.status_code == 204
+
+
+def test_transaction_owner_user_id_validation_and_display_resolution() -> None:
+    with TestClient(app) as client:
+        owner_email = f"tx-owner-{uuid.uuid4().hex}@example.com"
+        guest_email = f"tx-guest-{uuid.uuid4().hex}@example.com"
+        owner_token = _auth(client, owner_email, "Password1234", "OwnerName")
+        guest_token = _auth(client, guest_email, "Password1234", "GuestName")
+
+        invited = client.post(
+            "/api/v1/household/invitations",
+            headers=_headers(owner_token),
+            json={"email": guest_email, "role": "viewer"},
+        )
+        assert invited.status_code == 201
+        accepted = client.post(
+            "/api/v1/household/invitations/accept",
+            headers=_headers(guest_token),
+            json={"token": invited.json()["debug_invite_token"]},
+        )
+        assert accepted.status_code == 200
+
+        guest_me = client.get("/api/v1/auth/me", headers=_headers(guest_token))
+        assert guest_me.status_code == 200
+        guest_user_id = str(guest_me.json()["id"])
+
+        created = client.post(
+            "/api/v1/transactions",
+            headers=_headers(owner_token),
+            json={
+                "occurred_on": "2026-02-03",
+                "flow_type": "expense",
+                "amount": 15000,
+                "currency": "KRW",
+                "memo": "linked-owner",
+                "owner_user_id": guest_user_id,
+            },
+        )
+        assert created.status_code == 201
+        transaction_payload = created.json()
+        assert transaction_payload["owner_user_id"] == guest_user_id
+        assert transaction_payload["owner_name"] == "GuestName"
+
+        invalid_patch = client.patch(
+            f"/api/v1/transactions/{transaction_payload['id']}",
+            headers=_headers(owner_token),
+            json={"base_version": transaction_payload["version"], "owner_user_id": "not-a-member"},
+        )
+        assert invalid_patch.status_code == 400
+        assert invalid_patch.json()["error"]["code"] == "TRANSACTION_OWNER_INVALID"
+
+        renamed = client.patch(
+            "/api/v1/auth/me",
+            headers=_headers(guest_token),
+            json={"nickname": "GuestNick", "display_name_mode": "nickname"},
+        )
+        assert renamed.status_code == 200
+
+        listed = client.get("/api/v1/transactions", headers=_headers(owner_token))
+        assert listed.status_code == 200
+        updated_row = next(item for item in listed.json() if item["id"] == transaction_payload["id"])
+        assert updated_row["owner_name"] == "GuestNick"

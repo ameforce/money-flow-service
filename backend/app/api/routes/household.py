@@ -10,6 +10,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.api.debug_tokens import debug_token_response_enabled
 from app.api.deps import (
     get_current_household,
     get_current_user,
@@ -31,15 +32,18 @@ from app.schemas import (
     HouseholdMemberRolePatch,
     HouseholdMembershipRead,
     HouseholdRead,
+    HouseholdSettingsPatch,
+    HouseholdSettingsRead,
     HouseholdSelectRequest,
 )
 from app.services.email_service import email_service
+from app.services.owner_links import ensure_unique_household_member_display_name
+from app.services.profile import normalize_holding_settings, normalize_transaction_row_colors
 from app.services.runtime import hub
 
 
 router = APIRouter(prefix="/household", tags=["household"])
 _invite_lock_registry_guard = Lock()
-_DEBUG_TOKEN_OPT_IN_HEADER = "x-debug-token-opt-in"
 
 
 class _InviteLockEntry:
@@ -84,26 +88,11 @@ def _ensure_unique_member_display_name(
     user_id: str,
     display_name: str | None,
 ) -> None:
-    normalized = str(display_name or "").strip().lower()
-    if not normalized:
-        return
-    conflict_member_id = db.scalar(
-        select(HouseholdMember.id)
-        .join(User, User.id == HouseholdMember.user_id)
-        .where(
-            HouseholdMember.household_id == household_id,
-            HouseholdMember.user_id != user_id,
-            func.lower(User.display_name) == normalized,
-        )
-        .limit(1)
-    )
-    if conflict_member_id is None:
-        return
-    raise app_error(
-        status_code=409,
-        code="HOUSEHOLD_MEMBER_NAME_CONFLICT",
-        message="동일한 표시 이름의 가계 구성원이 이미 존재합니다.",
-        action="멤버 표시 이름을 구분 가능하게 변경한 뒤 다시 시도해 주세요.",
+    ensure_unique_household_member_display_name(
+        db,
+        household_id=household_id,
+        user_id=user_id,
+        display_name=display_name,
     )
 
 
@@ -147,35 +136,36 @@ def _to_invitation_read(
     inviter_display_name: str | None = None,
     debug_invite_token: str | None = None,
     status_override: InvitationStatus | None = None,
+    household_name: str | None = None,
 ) -> HouseholdInvitationRead:
     return HouseholdInvitationRead(
         id=invitation.id,
         household_id=invitation.household_id,
+        household_name=household_name,
         email=invitation.email,
         role=invitation.role,
         status=status_override or invitation.status,
         expires_at=invitation.expires_at,
         accepted_at=invitation.accepted_at,
         created_at=invitation.created_at,
+        inviter_user_id=str(invitation.inviter_user_id).strip() if str(invitation.inviter_user_id or "").strip() else None,
         inviter_display_name=inviter_display_name,
         debug_invite_token=debug_invite_token,
     )
 
 
-def _is_debug_token_opted_in(request: Request | None) -> bool:
-    if request is None:
-        return False
-    value = str(request.headers.get(_DEBUG_TOKEN_OPT_IN_HEADER) or "").strip().lower()
-    return value in {"1", "true", "yes", "y", "on"}
+def _to_household_settings_read(household: Household) -> HouseholdSettingsRead:
+    return HouseholdSettingsRead(
+        household_id=str(household.id),
+        name=str(household.name),
+        base_currency=str(household.base_currency),
+        transaction_row_colors=normalize_transaction_row_colors(household.transaction_row_colors),
+        holding_settings=normalize_holding_settings(household.holding_settings),
+    )
 
 
 def _maybe_debug_invite_token(token: str, request: Request | None) -> str | None:
-    if not settings.auth_debug_return_verify_token:
-        return None
-    env_name = settings.env.lower()
-    if env_name not in {"dev", "test", "local"}:
-        return None
-    if not _is_debug_token_opted_in(request):
+    if not debug_token_response_enabled(request):
         return None
     return token
 
@@ -203,7 +193,7 @@ def _raise_if_invite_email_delivery_failed(
     db: Session | None = None,
     invitation_id: str | None = None,
 ) -> None:
-    if sent or settings.email_delivery_mode != "smtp":
+    if sent or not settings.blocks_email_delivery_failures:
         return
     if db is not None and invitation_id:
         try:
@@ -225,10 +215,140 @@ def _expire_if_needed(invitation: HouseholdInvitation, now: datetime) -> bool:
     return False
 
 
+def _accept_invitation_record(
+    invitation: HouseholdInvitation,
+    *,
+    user: User,
+    db: Session,
+) -> HouseholdInvitationAcceptResponse:
+    now = _now()
+    if _expire_if_needed(invitation, now):
+        db.commit()
+    if invitation.status == InvitationStatus.expired:
+        raise app_error(
+            status_code=400,
+            code="HOUSEHOLD_INVITE_EXPIRED",
+            message="초대 토큰이 만료되었습니다.",
+            action="초대를 다시 요청해 주세요.",
+        )
+    if invitation.status != InvitationStatus.pending:
+        raise app_error(
+            status_code=400,
+            code="HOUSEHOLD_INVITE_INVALID",
+            message="이미 처리된 초대입니다.",
+            action="가계 목록을 새로고침해 주세요.",
+        )
+    if user.email.lower() != str(invitation.email or "").lower():
+        raise app_error(
+            status_code=403,
+            code="HOUSEHOLD_INVITE_EMAIL_MISMATCH",
+            message="로그인한 이메일과 초대 이메일이 다릅니다.",
+            action="초대 받은 이메일로 로그인해 주세요.",
+        )
+    _ensure_unique_member_display_name(
+        db,
+        household_id=invitation.household_id,
+        user_id=str(user.id),
+        display_name=user.display_name,
+    )
+    household_name = str(
+        db.scalar(select(Household.name).where(Household.id == invitation.household_id)) or "가계"
+    )
+
+    member = db.scalar(
+        select(HouseholdMember).where(
+            HouseholdMember.household_id == invitation.household_id,
+            HouseholdMember.user_id == user.id,
+        )
+    )
+    if member is None:
+        member = HouseholdMember(
+            household_id=invitation.household_id,
+            user_id=user.id,
+            role=invitation.role,
+        )
+        db.add(member)
+    else:
+        current_rank = ROLE_RANK.get(MemberRole(member.role), 0)
+        invite_rank = ROLE_RANK.get(MemberRole(invitation.role), 0)
+        if invite_rank > current_rank:
+            member.role = invitation.role
+
+    updated_rows = db.execute(
+        update(HouseholdInvitation)
+        .where(
+            HouseholdInvitation.id == invitation.id,
+            HouseholdInvitation.status == InvitationStatus.pending,
+            HouseholdInvitation.expires_at >= now,
+        )
+        .values(
+            status=InvitationStatus.accepted,
+            accepted_user_id=user.id,
+            accepted_at=now,
+        )
+        .execution_options(synchronize_session=False)
+    ).rowcount
+    if int(updated_rows or 0) != 1:
+        raise app_error(
+            status_code=400,
+            code="HOUSEHOLD_INVITE_INVALID",
+            message="이미 처리된 초대입니다.",
+            action="가계 목록을 새로고침해 주세요.",
+        )
+    if user.active_household_id is None:
+        user.active_household_id = invitation.household_id
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise app_error(
+            status_code=400,
+            code="HOUSEHOLD_INVITE_INVALID",
+            message="이미 처리된 초대입니다.",
+            action="가계 목록을 새로고침해 주세요.",
+        )
+    return HouseholdInvitationAcceptResponse(
+        status="accepted",
+        invitation_id=str(invitation.id),
+        household_id=invitation.household_id,
+        household_name=household_name,
+        role=member.role,
+        active_household_selected=str(user.active_household_id or "") == str(invitation.household_id),
+    )
+
+
 @router.get("/current", response_model=HouseholdCurrentResponse)
 def current_household(ctx=Depends(get_current_household)) -> HouseholdCurrentResponse:
     household, member = ctx
     return HouseholdCurrentResponse(household=HouseholdRead.model_validate(household), role=member.role)
+
+
+@router.get("/settings", response_model=HouseholdSettingsRead)
+def get_household_settings(ctx=Depends(get_current_household)) -> HouseholdSettingsRead:
+    household, _ = ctx
+    return _to_household_settings_read(household)
+
+
+@router.patch("/settings", response_model=HouseholdSettingsRead)
+def patch_household_settings(
+    payload: HouseholdSettingsPatch,
+    ctx=Depends(require_co_owner_household),
+    db: Session = Depends(get_db),
+) -> HouseholdSettingsRead:
+    household, _ = ctx
+    if "name" in payload.model_fields_set and payload.name is not None:
+        household.name = payload.name
+    if "transaction_row_colors" in payload.model_fields_set and payload.transaction_row_colors is not None:
+        household.transaction_row_colors = normalize_transaction_row_colors(payload.transaction_row_colors)
+    elif household.transaction_row_colors is None:
+        household.transaction_row_colors = normalize_transaction_row_colors(None)
+    if "holding_settings" in payload.model_fields_set and payload.holding_settings is not None:
+        household.holding_settings = normalize_holding_settings(payload.holding_settings)
+    elif household.holding_settings is None:
+        household.holding_settings = normalize_holding_settings(None)
+    db.commit()
+    db.refresh(household)
+    return _to_household_settings_read(household)
 
 
 @router.get("/list", response_model=HouseholdListResponse)
@@ -337,7 +457,42 @@ def list_invitations(ctx=Depends(require_co_owner_household), db: Session = Depe
     return payload
 
 
-@router.post("/invitations", response_model=HouseholdInvitationRead, status_code=status.HTTP_201_CREATED)
+@router.get("/invitations/received", response_model=list[HouseholdInvitationRead])
+def list_received_invitations(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[HouseholdInvitationRead]:
+    now = _now()
+    normalized_email = user.email.lower()
+    rows = db.execute(
+        select(HouseholdInvitation, Household.name, User.display_name)
+        .join(Household, Household.id == HouseholdInvitation.household_id)
+        .outerjoin(User, User.id == HouseholdInvitation.inviter_user_id)
+        .where(func.lower(HouseholdInvitation.email) == normalized_email)
+        .order_by(HouseholdInvitation.created_at.desc())
+    ).all()
+    payload: list[HouseholdInvitationRead] = []
+    for invitation, household_name, inviter_name in rows:
+        status_override = invitation.status
+        if invitation.status == InvitationStatus.pending and _as_utc(invitation.expires_at) < now:
+            status_override = InvitationStatus.expired
+        payload.append(
+            _to_invitation_read(
+                invitation,
+                inviter_display_name=inviter_name,
+                status_override=status_override,
+                household_name=household_name,
+            )
+        )
+    return payload
+
+
+@router.post(
+    "/invitations",
+    response_model=HouseholdInvitationRead,
+    response_model_exclude_none=True,
+    status_code=status.HTTP_201_CREATED,
+)
 def create_invitation(
     payload: HouseholdInvitationCreate,
     request: Request,
@@ -493,7 +648,6 @@ def accept_invitation(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> HouseholdInvitationAcceptResponse:
-    now = _now()
     invite = db.scalar(
         select(HouseholdInvitation)
         .where(HouseholdInvitation.token_hash == hash_opaque_token(payload.token))
@@ -506,89 +660,28 @@ def accept_invitation(
             message="유효하지 않은 초대 토큰입니다.",
             action="초대 메일에서 최신 링크를 다시 열어 주세요.",
         )
-    if _expire_if_needed(invite, now):
-        db.commit()
-    if invite.status == InvitationStatus.expired:
-        raise app_error(
-            status_code=400,
-            code="HOUSEHOLD_INVITE_EXPIRED",
-            message="초대 토큰이 만료되었습니다.",
-            action="초대를 다시 요청해 주세요.",
-        )
-    if invite.status != InvitationStatus.pending:
-        raise app_error(
-            status_code=400,
-            code="HOUSEHOLD_INVITE_INVALID",
-            message="이미 처리된 초대입니다.",
-            action="가계 목록을 새로고침해 주세요.",
-        )
-    if user.email.lower() != str(invite.email or "").lower():
-        raise app_error(
-            status_code=403,
-            code="HOUSEHOLD_INVITE_EMAIL_MISMATCH",
-            message="로그인한 이메일과 초대 이메일이 다릅니다.",
-            action="초대 받은 이메일로 로그인해 주세요.",
-        )
-    _ensure_unique_member_display_name(
-        db,
-        household_id=invite.household_id,
-        user_id=str(user.id),
-        display_name=user.display_name,
-    )
+    return _accept_invitation_record(invite, user=user, db=db)
 
-    member = db.scalar(
-        select(HouseholdMember).where(
-            HouseholdMember.household_id == invite.household_id,
-            HouseholdMember.user_id == user.id,
-        )
-    )
-    if member is None:
-        member = HouseholdMember(
-            household_id=invite.household_id,
-            user_id=user.id,
-            role=invite.role,
-        )
-        db.add(member)
-    else:
-        current_rank = ROLE_RANK.get(MemberRole(member.role), 0)
-        invite_rank = ROLE_RANK.get(MemberRole(invite.role), 0)
-        if invite_rank > current_rank:
-            member.role = invite.role
 
-    updated_rows = db.execute(
-        update(HouseholdInvitation)
-        .where(
-            HouseholdInvitation.id == invite.id,
-            HouseholdInvitation.status == InvitationStatus.pending,
-            HouseholdInvitation.expires_at >= now,
-        )
-        .values(
-            status=InvitationStatus.accepted,
-            accepted_user_id=user.id,
-            accepted_at=now,
-        )
-        .execution_options(synchronize_session=False)
-    ).rowcount
-    if int(updated_rows or 0) != 1:
+@router.post("/invitations/{invitation_id}/accept", response_model=HouseholdInvitationAcceptResponse)
+def accept_invitation_by_id(
+    invitation_id: str,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> HouseholdInvitationAcceptResponse:
+    invite = db.scalar(
+        select(HouseholdInvitation)
+        .where(HouseholdInvitation.id == invitation_id)
+        .with_for_update()
+    )
+    if invite is None:
         raise app_error(
-            status_code=400,
-            code="HOUSEHOLD_INVITE_INVALID",
-            message="이미 처리된 초대입니다.",
-            action="가계 목록을 새로고침해 주세요.",
+            status_code=404,
+            code="HOUSEHOLD_INVITE_NOT_FOUND",
+            message="초대 정보를 찾을 수 없습니다.",
+            action="초대 현황을 새로고침해 주세요.",
         )
-    if user.active_household_id is None:
-        user.active_household_id = invite.household_id
-    try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        raise app_error(
-            status_code=400,
-            code="HOUSEHOLD_INVITE_INVALID",
-            message="이미 처리된 초대입니다.",
-            action="가계 목록을 새로고침해 주세요.",
-        )
-    return HouseholdInvitationAcceptResponse(status="accepted", household_id=invite.household_id, role=member.role)
+    return _accept_invitation_record(invite, user=user, db=db)
 
 
 @router.delete("/invitations/{invitation_id}")
@@ -756,4 +849,3 @@ def remove_member(
     db.commit()
     anyio.from_thread.run(hub.disconnect_member, household.id, removed_user_id)
     return {"status": "removed"}
-
