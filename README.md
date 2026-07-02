@@ -129,7 +129,7 @@ cmd /c docker compose up -d --build
   - `POST_DEPLOY_E2E_URL=https://moneyflow.enmsoftware.com`
   - `POST_DEPLOY_E2E_RETRY_COUNT=8`
   - `POST_DEPLOY_E2E_RETRY_INTERVAL_SECONDS=5`
-  - `DEPLOY_ALLOWED_BRANCHES=develop,main`
+- `DEPLOY_ALLOWED_BRANCHES=main`
   - `DEPLOY_COMPOSE_PROJECT=money-flow-service`
   - `DEPLOY_COMPOSE_FILE=docker-compose.deploy.yml`
   - `DEPLOY_PATH=/home/ameforce/money-flow-service`(원격 사용자 권한 확인)
@@ -137,13 +137,13 @@ cmd /c docker compose up -d --build
 - `ENM_HOST=enmsoftware.com`, `ENM_PORT=22`, `ENM_USER=ameforce` 기준으로 `enm-server` 접근 테스트 완료.
 - `ENM_DEPLOY_PATH`는 `/home/ameforce/money-flow-service`로 설정하면 Jenkins 실행 시 기본 파라미터와 일치.
 - 헬스체크가 동작하도록 `ENM_HEALTHCHECK_URL`은 `http://127.0.0.1:18080/healthz`로 운영에서 설정.
-- Multi-pipeline 등록 후 빌드 버튼을 누르면 배포가 진행되도록 하려면 Jenkins Job 생성 시 `develop`/`main` 브랜치가 감지되도록 설정하고, 수동 승인 단계에서 `승인` 클릭만 진행하면 됩니다.
+- Multi-pipeline 등록 후 빌드 버튼을 누르면 배포가 진행되도록 하려면 Jenkins Job 생성 시 `main` 브랜치가 감지되도록 설정하고, 수동 승인 단계에서 `승인` 클릭만 진행하면 됩니다.
 - 운영 반영 체크리스트
   - [ ] `/home/ameforce/money-flow-service/docker-compose.deploy.yml` 기준으로 앱이 `127.0.0.1:18080`에 바인딩되어 실행되는지 확인
   - [ ] enm-server system nginx에 `moneyflow.enmsoftware.com` vhost가 적용되어 `/ws/`와 `/`을 `127.0.0.1:18080`으로 전달하는지 확인
   - [ ] Cloudflare DNS에서 `moneyflow.enmsoftware.com`이 `enmsoftware.com` 오리진(프록시 모드)으로 정합되는지 확인
   - [ ] SSL 인증서가 `moneyflow.enmsoftware.com` 기준으로 유효하며 자동 갱신되는지 확인
-  - [ ] Jenkins 멀티브랜치 Job에서 `develop`/`main` 빌드 후 `RUN_DEPLOY` 승인 시 최신 빌드가 반영되는지 확인
+  - [ ] Jenkins 멀티브랜치 Job에서 `main` 브랜치 빌드 후 `RUN_DEPLOY` 승인 시 최신 빌드가 반영되는지 확인
 
 ### enm-server nginx reverse proxy(금액관리 서비스: moneyflow.enmsoftware.com)
 - enm-server가 이미 80/443을 점유 중이므로, 서비스 컨테이너는 내부에서 `127.0.0.1:18080`로만 열어둡니다(`docker-compose.deploy.yml` 기준).
@@ -268,8 +268,8 @@ bash scripts/deploy/jenkins/register-jenkins-multibranch-job.sh
 
 - 실행 후 확인:
   - `https://jenkins.enmsoftware.com/job/money-flow-service/`
-  - `develop` 브랜치가 보이는지 확인 (현재 `main` 브랜치에는 `Jenkinsfile`이 없어 제외될 수 있음)
-  - `develop` 브랜치 페이지에서 `Build Now`로 버튼 배포를 트리거 가능
+  - `main` 브랜치가 보이는지 확인
+  - `main` 브랜치 페이지에서 `Build Now`로 버튼 배포를 트리거 가능
 - 선택적으로 주기 스캔이 필요하면 아래 변수로 분기/푸시 감시 간격을 추가합니다.
 
 ```bash
