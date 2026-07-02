@@ -129,11 +129,13 @@ def test_remote_deploy_wrapper_avoids_nounset_status_capture() -> None:
     assert "then rm -f '$remote_script_name'; else exit 1; fi" in deploy_stage
 
 
-def test_main_prod_deploy_requires_explicit_allow_flag() -> None:
+def test_main_prod_deploy_without_allow_flag_becomes_no_deploy_build() -> None:
     source = _jenkinsfile_source()
 
     assert "ALLOW_PROD_DEPLOY" in source
-    assert "prod deploy is disabled unless ALLOW_PROD_DEPLOY=true" in source
+    assert "RUN_DEPLOY_EFFECTIVE=false" in source
+    assert "main/prod deploy disabled because ALLOW_PROD_DEPLOY=false" in source
+    assert "error('prod deploy is disabled unless ALLOW_PROD_DEPLOY=true" not in source
 
 
 def test_jenkins_does_not_pipe_remote_uv_installer() -> None:
