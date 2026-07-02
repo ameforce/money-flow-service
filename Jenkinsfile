@@ -918,6 +918,7 @@ append_missing_env_keys_from_fallback() {
 
 if [ -n "${INCOMING_ENV_FILE_PATH:-}" ] && [ -f "$INCOMING_ENV_FILE_PATH" ]; then
   validated_env_path="$INCOMING_ENV_FILE_PATH"
+  chmod u+w "$validated_env_path"
   validate_env_has_assignments "$validated_env_path"
   if [ "$ENV_FILE_PATH" = '.env' ]; then
     # Server-local prod SMTP settings fill Jenkins' legacy prod env file.
