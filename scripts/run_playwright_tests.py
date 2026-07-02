@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -15,6 +16,8 @@ def main(argv: list[str] | None = None) -> int:
     args = list(argv or sys.argv[1:])
     env = with_local_playwright_runtime()
     command = ["npx", "playwright", "test", *args]
+    if os.name == "nt":
+        command = ["cmd", "/c", "npx", "playwright", "test", *args]
     return int(subprocess.run(command, cwd=ROOT, env=env).returncode)
 
 
