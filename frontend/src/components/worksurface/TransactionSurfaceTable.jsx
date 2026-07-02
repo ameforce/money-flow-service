@@ -119,7 +119,6 @@ export function TransactionSurfaceTable({
   canEditHouseholdData = false,
   loading,
   closeTxInlineEdit,
-  removeTx,
   mobileStickyActive,
   handleTxInlineEditKeyDown,
   handleGroupedDecimalInput,
@@ -129,7 +128,6 @@ export function TransactionSurfaceTable({
   submitTxInlineEdit,
   fmtKrw,
   fmtDate,
-  normalizeDecimalInputValue,
   toCategoryMajorLabel,
   toCategoryMinorLabel,
 }) {
@@ -657,7 +655,7 @@ export function TransactionSurfaceTable({
           />
         </div>
         {TRANSACTION_SURFACE_FIELDS.map(renderDesktopColumnHead)}
-        <div className="desktop-ledger-head-cell transaction-col-actions">동작</div>
+        <div className="desktop-ledger-head-cell transaction-col-actions">세부</div>
       </div>
       <div className="transactions-surface-scroll">
         <table
@@ -692,7 +690,7 @@ export function TransactionSurfaceTable({
                   </th>
                 );
               })}
-              <th data-mobile-priority="action">동작</th>
+              <th data-mobile-priority="action">세부</th>
             </tr>
           </thead>
           <tbody>
@@ -721,6 +719,7 @@ export function TransactionSurfaceTable({
             const inlineOriginalCategoryChanged = Boolean(
               isEditing &&
                 editForm &&
+                editForm.mode !== "insert" &&
                 originalEditCategory &&
                 (String(editForm.flow_type || "") !== String(item.flow_type || "") ||
                   String(editForm.category_id || "") !== String(item.category_id || ""))
@@ -764,27 +763,6 @@ export function TransactionSurfaceTable({
               toggleTransactionSelection(item.id);
               toggleExpandedTransactionRow(item.id);
             };
-            const handleEditToggle = () => {
-              if (!canEditRecords) {
-                return;
-              }
-              if (isEditing) {
-                closeTxInlineEdit();
-                return;
-              }
-              setTxInlineEdit({
-                id: item.id,
-                version: item.version,
-                occurred_on: item.occurred_on,
-                flow_type: item.flow_type,
-                amount: normalizeDecimalInputValue(item.amount),
-                category_id: item.category_id || "",
-                category_major: categoryById.get(String(item.category_id || ""))?.major || "",
-                memo: item.memo || "",
-                owner_user_id: item.owner_user_id || "",
-                owner_name: item.owner_name || "",
-              });
-            };
             const updateInlineFlowType = (nextFlowType) => {
               if (!editForm) {
                 return;
@@ -813,170 +791,11 @@ export function TransactionSurfaceTable({
                 category_major: String(originalEditCategory.major || ""),
               });
             };
-            return (
-              <Fragment key={rowKey}>
-                {shouldRenderDateHeader && (
-                  <tr className="transaction-history-date-row">
-                    <td colSpan={columnSpan}>
-                      <span>{item.occurred_on}</span>
-                    </td>
-                  </tr>
-                )}
-                <tr
-                  className={`transaction-row transaction-row-${item.flow_type} ${isEditing ? "transaction-row-editing" : ""} ${isExpanded ? "mobile-row-expanded" : ""} ${isRecentlyImported ? "transaction-row-imported" : ""} ${isRecentlySaved ? "transaction-row-saved" : ""}`}
-                  data-row-expanded={isExpanded ? "true" : "false"}
-                  data-row-selected={selectedTransactionIds.has(item.id) ? "true" : "false"}
-                  data-import-highlight={isRecentlyImported ? "true" : undefined}
-                  data-save-highlight={isRecentlySaved ? "true" : undefined}
-                  data-transaction-id={item.id}
-                  data-transaction-date={item.occurred_on}
-                  aria-selected={selectedTransactionIds.has(item.id) ? "true" : "false"}
-                  onPointerDown={(event) => startRowPointerGesture(event, item.id, isEditing)}
-                  onPointerMove={(event) => updateRowPointerGesture(event, item.id)}
-                  onPointerEnter={(event) => updateRowPointerGesture(event, item.id)}
-                  onPointerUp={finishRowPointerGesture}
-                  onPointerCancel={finishRowPointerGesture}
-                  onClick={handleRowClick}
-                  style={{
-                    "--transaction-row-bg": rowAccent,
-                    "--transaction-row-accent": rowAccent,
-                    "--transaction-row-wash-strong": withAlpha(rowAccent, hasConfiguredCategoryColor ? 0.32 : 0.24),
-                    "--transaction-row-wash": withAlpha(rowAccent, hasConfiguredCategoryColor ? 0.25 : 0.19),
-                    "--transaction-row-wash-soft": withAlpha(rowAccent, hasConfiguredCategoryColor ? 0.17 : 0.12),
-                    "--transaction-row-border": withAlpha(rowAccent, hasConfiguredCategoryColor ? 0.3 : 0.22),
-                    "--transaction-owner-color": ownerColor,
-                    "--transaction-owner-chip-bg": withAlpha(ownerColor, 0.08),
-                    "--transaction-owner-chip-ring": withAlpha(ownerColor, 0.22),
-                  }}
-                >
-                  <td data-label="선택" className="transaction-col-select" data-mobile-priority="hidden">
-                    <input
-                      type="checkbox"
-                      aria-label={`${item.occurred_on} 거래 선택`}
-                      checked={selectedTransactionIds.has(item.id)}
-                      onClick={(event) => event.stopPropagation()}
-                      onChange={() => toggleTransactionSelection(item.id)}
-                    />
-                  </td>
-                  <td data-label="일자" className="transaction-col-date" data-field-key="occurred_on" data-mobile-priority={transactionMobilePriority("occurred_on")}>
-                    <span className="desktop-date-text">{item.occurred_on}</span>
-                    <span className="mobile-date-text">{formatCompactDate(item.occurred_on)}</span>
-                  </td>
-                  <td data-label="유형" className="transaction-col-type" data-field-key="flow_type" data-mobile-priority={transactionMobilePriority("flow_type")}>
-                    <span className={`transaction-flow-badge transaction-flow-full transaction-flow-${item.flow_type}`}>
-                      {flowLabel}
-                    </span>
-                    <span
-                      className={`transaction-flow-badge transaction-flow-short transaction-flow-${item.flow_type}`}
-                      title={flowLabel}
-                      aria-label={flowLabel}
-                    >
-                      {flowShortLabel}
-                    </span>
-                    {ownerInitial ? (
-                      <span className="transaction-owner-chip" title={item.owner_name || ""} aria-label={item.owner_name || ""}>
-                        {ownerInitial}
-                      </span>
-                    ) : (
-                      <span className="transaction-owner-empty" title="거래자 미입력" aria-label="거래자 미입력">-</span>
-                    )}
-                  </td>
-                  <td data-label="카테고리" className="transaction-col-category transaction-mobile-detail-cell" data-field-key="category" data-mobile-priority={transactionMobilePriority("category")}>
-                    <span className="transaction-mobile-detail-label">카테고리</span>
-                    <div className="transaction-mobile-detail-value">{renderCategoryCell(category)}</div>
-                  </td>
-                  <td data-label="메모" className="transaction-col-memo" data-field-key="memo" data-mobile-priority={transactionMobilePriority("memo")}>
-                    <span className="transaction-mobile-category-cue">{compactCategoryLabel}</span>
-                    <span className="transaction-memo-text" title={item.memo || "-"} aria-label={`메모 ${item.memo || "-"}`}>
-                      {item.memo || "-"}
-                    </span>
-                    <span
-                      className="transaction-owner-summary"
-                      title={ownerSummaryLabel}
-                      aria-label={`거래자 ${ownerSummaryLabel}`}
-                    >
-                      {ownerSummaryLabel}
-                    </span>
-                  </td>
-                  <td data-label="금액" className="transaction-col-amount" data-field-key="amount" data-mobile-priority={transactionMobilePriority("amount")}>
-                    <span className="transaction-amount-text">{fmtKrw(item.amount)}</span>
-                  </td>
-                  <td data-label="거래자명" className="transaction-col-owner transaction-mobile-detail-cell" data-field-key="owner_name" data-mobile-priority={transactionMobilePriority("owner_name")}>
-                    <span className="transaction-mobile-detail-label">거래자명</span>
-                    <div className="transaction-mobile-detail-value transaction-owner-cue">{item.owner_name || "-"}</div>
-                  </td>
-                  <td data-label="최종 수정일" className="transaction-col-updated transaction-mobile-detail-cell" data-field-key="updated_at" data-mobile-priority={transactionMobilePriority("updated_at")}>
-                    <span className="transaction-mobile-detail-label">최종 수정일</span>
-                    <div className="transaction-mobile-detail-value">{fmtDate(item.updated_at)}</div>
-                  </td>
-                  <td data-label="동작" className="transaction-col-actions" data-mobile-priority="action">
-                    <div className="inline">
-                      <button
-                        type="button"
-                        className={`row-edit-btn ${isEditing ? "primary" : "secondary"}`}
-                        disabled={!canEditRecords || loading}
-                        onClick={handleEditToggle}
-                      >
-                        {isEditing ? "수정 중" : "수정"}
-                      </button>
-                      <button
-                        type="button"
-                        className="secondary mobile-toggle-btn"
-                        aria-label={isExpanded ? "거래 세부 접기" : "거래 세부 보기"}
-                        aria-expanded={isExpanded ? "true" : "false"}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          toggleExpandedTransactionRow(item.id);
-                        }}
-                      >
-                        <span className="mobile-toggle-icon" aria-hidden="true">
-                          <svg viewBox="0 0 16 16" focusable="false" aria-hidden="true">
-                            <path d="M5 3.75L10 8L5 12.25" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                        </span>
-                      </button>
-                      <button type="button" className="danger row-delete-btn" disabled={!canEditRecords || loading} onClick={() => removeTx(item.id)}>삭제</button>
-                    </div>
-                  </td>
-                </tr>
-                {isExpanded && (
-                  <tr
-                    className="transaction-mobile-expanded-actions-row"
-                    style={{
-                      "--transaction-row-bg": rowAccent,
-                      "--transaction-row-accent": rowAccent,
-                      "--transaction-row-wash-strong": withAlpha(rowAccent, hasConfiguredCategoryColor ? 0.32 : 0.24),
-                      "--transaction-row-wash": withAlpha(rowAccent, hasConfiguredCategoryColor ? 0.25 : 0.19),
-                      "--transaction-row-wash-soft": withAlpha(rowAccent, hasConfiguredCategoryColor ? 0.17 : 0.12),
-                      "--transaction-row-border": withAlpha(rowAccent, hasConfiguredCategoryColor ? 0.3 : 0.22),
-                      "--transaction-owner-color": ownerColor,
-                      "--transaction-owner-chip-bg": withAlpha(ownerColor, 0.08),
-                      "--transaction-owner-chip-ring": withAlpha(ownerColor, 0.22),
-                    }}
-                  >
-                    <td colSpan={columnSpan}>
-                      <div className="transaction-mobile-expanded-actions">
-                        <button
-                          type="button"
-                          className={isEditing ? "primary" : "secondary"}
-                          disabled={!canEditRecords || loading}
-                          onClick={handleEditToggle}
-                        >
-                          {isEditing ? "수정 중" : "수정"}
-                        </button>
-                        <button
-                          type="button"
-                          className="danger"
-                          disabled={!canEditRecords || loading}
-                          onClick={() => removeTx(item.id)}
-                        >
-                          삭제
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                )}
-              {isEditing && editForm && (
+            const shouldRenderInlineEditorBeforeRow = Boolean(
+              editForm?.mode === "insert" && editForm?.insert_position === "above"
+            );
+            const inlineEditorRow =
+              isEditing && editForm ? (
                 <tr className="transaction-inline-editor-row transactions-inline-editor" onKeyDown={handleTxInlineEditKeyDown}>
                   <td colSpan={columnSpan} className="transaction-inline-editor-cell">
                     <div className="transaction-inline-editor-grid">
@@ -1167,7 +986,126 @@ export function TransactionSurfaceTable({
                     </div>
                   </td>
                 </tr>
+              ) : null;
+            return (
+              <Fragment key={rowKey}>
+                {shouldRenderDateHeader && (
+                  <tr className="transaction-history-date-row">
+                    <td colSpan={columnSpan}>
+                      <span>{item.occurred_on}</span>
+                    </td>
+                  </tr>
                 )}
+                {shouldRenderInlineEditorBeforeRow && inlineEditorRow}
+                <tr
+                  className={`transaction-row transaction-row-${item.flow_type} ${isEditing ? "transaction-row-editing" : ""} ${isExpanded ? "mobile-row-expanded" : ""} ${isRecentlyImported ? "transaction-row-imported" : ""} ${isRecentlySaved ? "transaction-row-saved" : ""}`}
+                  data-row-expanded={isExpanded ? "true" : "false"}
+                  data-row-selected={selectedTransactionIds.has(item.id) ? "true" : "false"}
+                  data-import-highlight={isRecentlyImported ? "true" : undefined}
+                  data-save-highlight={isRecentlySaved ? "true" : undefined}
+                  data-transaction-id={item.id}
+                  data-transaction-date={item.occurred_on}
+                  aria-selected={selectedTransactionIds.has(item.id) ? "true" : "false"}
+                  onPointerDown={(event) => startRowPointerGesture(event, item.id, isEditing)}
+                  onPointerMove={(event) => updateRowPointerGesture(event, item.id)}
+                  onPointerEnter={(event) => updateRowPointerGesture(event, item.id)}
+                  onPointerUp={finishRowPointerGesture}
+                  onPointerCancel={finishRowPointerGesture}
+                  onClick={handleRowClick}
+                  style={{
+                    "--transaction-row-bg": rowAccent,
+                    "--transaction-row-accent": rowAccent,
+                    "--transaction-row-wash-strong": withAlpha(rowAccent, hasConfiguredCategoryColor ? 0.32 : 0.24),
+                    "--transaction-row-wash": withAlpha(rowAccent, hasConfiguredCategoryColor ? 0.25 : 0.19),
+                    "--transaction-row-wash-soft": withAlpha(rowAccent, hasConfiguredCategoryColor ? 0.17 : 0.12),
+                    "--transaction-row-border": withAlpha(rowAccent, hasConfiguredCategoryColor ? 0.3 : 0.22),
+                    "--transaction-owner-color": ownerColor,
+                    "--transaction-owner-chip-bg": withAlpha(ownerColor, 0.08),
+                    "--transaction-owner-chip-ring": withAlpha(ownerColor, 0.22),
+                  }}
+                >
+                  <td data-label="선택" className="transaction-col-select" data-mobile-priority="hidden">
+                    <input
+                      type="checkbox"
+                      aria-label={`${item.occurred_on} 거래 선택`}
+                      checked={selectedTransactionIds.has(item.id)}
+                      onClick={(event) => event.stopPropagation()}
+                      onChange={() => toggleTransactionSelection(item.id)}
+                    />
+                  </td>
+                  <td data-label="일자" className="transaction-col-date" data-field-key="occurred_on" data-mobile-priority={transactionMobilePriority("occurred_on")}>
+                    <span className="desktop-date-text">{item.occurred_on}</span>
+                    <span className="mobile-date-text">{formatCompactDate(item.occurred_on)}</span>
+                  </td>
+                  <td data-label="유형" className="transaction-col-type" data-field-key="flow_type" data-mobile-priority={transactionMobilePriority("flow_type")}>
+                    <span className={`transaction-flow-badge transaction-flow-full transaction-flow-${item.flow_type}`}>
+                      {flowLabel}
+                    </span>
+                    <span
+                      className={`transaction-flow-badge transaction-flow-short transaction-flow-${item.flow_type}`}
+                      title={flowLabel}
+                      aria-label={flowLabel}
+                    >
+                      {flowShortLabel}
+                    </span>
+                    {ownerInitial ? (
+                      <span className="transaction-owner-chip" title={item.owner_name || ""} aria-label={item.owner_name || ""}>
+                        {ownerInitial}
+                      </span>
+                    ) : (
+                      <span className="transaction-owner-empty" title="거래자 미입력" aria-label="거래자 미입력">-</span>
+                    )}
+                  </td>
+                  <td data-label="카테고리" className="transaction-col-category transaction-mobile-detail-cell" data-field-key="category" data-mobile-priority={transactionMobilePriority("category")}>
+                    <span className="transaction-mobile-detail-label">카테고리</span>
+                    <div className="transaction-mobile-detail-value">{renderCategoryCell(category)}</div>
+                  </td>
+                  <td data-label="메모" className="transaction-col-memo" data-field-key="memo" data-mobile-priority={transactionMobilePriority("memo")}>
+                    <span className="transaction-mobile-category-cue">{compactCategoryLabel}</span>
+                    <span className="transaction-memo-text" title={item.memo || "-"} aria-label={`메모 ${item.memo || "-"}`}>
+                      {item.memo || "-"}
+                    </span>
+                    <span
+                      className="transaction-owner-summary"
+                      title={ownerSummaryLabel}
+                      aria-label={`거래자 ${ownerSummaryLabel}`}
+                    >
+                      {ownerSummaryLabel}
+                    </span>
+                  </td>
+                  <td data-label="금액" className="transaction-col-amount" data-field-key="amount" data-mobile-priority={transactionMobilePriority("amount")}>
+                    <span className="transaction-amount-text">{fmtKrw(item.amount)}</span>
+                  </td>
+                  <td data-label="거래자명" className="transaction-col-owner transaction-mobile-detail-cell" data-field-key="owner_name" data-mobile-priority={transactionMobilePriority("owner_name")}>
+                    <span className="transaction-mobile-detail-label">거래자명</span>
+                    <div className="transaction-mobile-detail-value transaction-owner-cue">{item.owner_name || "-"}</div>
+                  </td>
+                  <td data-label="최종 수정일" className="transaction-col-updated transaction-mobile-detail-cell" data-field-key="updated_at" data-mobile-priority={transactionMobilePriority("updated_at")}>
+                    <span className="transaction-mobile-detail-label">최종 수정일</span>
+                    <div className="transaction-mobile-detail-value">{fmtDate(item.updated_at)}</div>
+                  </td>
+                  <td data-label="세부" className="transaction-col-actions" data-mobile-priority="action">
+                    <div className="inline">
+                      <button
+                        type="button"
+                        className="secondary mobile-toggle-btn"
+                        aria-label={isExpanded ? "거래 세부 접기" : "거래 세부 보기"}
+                        aria-expanded={isExpanded ? "true" : "false"}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          toggleExpandedTransactionRow(item.id);
+                        }}
+                      >
+                        <span className="mobile-toggle-icon" aria-hidden="true">
+                          <svg viewBox="0 0 16 16" focusable="false" aria-hidden="true">
+                            <path d="M5 3.75L10 8L5 12.25" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        </span>
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+                {!shouldRenderInlineEditorBeforeRow && inlineEditorRow}
               </Fragment>
             );
           })}

@@ -14,7 +14,7 @@ import zipfile
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -51,6 +51,7 @@ from app.services.toss_screenshot_importer import (
 router = APIRouter(prefix="/imports", tags=["imports"])
 _MIN_IMPORT_LOCK_TIMEOUT_SECONDS = 30
 _MIN_IMPORT_LOCK_HEARTBEAT_SECONDS = 5
+_TOSS_TRANSACTION_ORDER_STEP = 1024
 logger = logging.getLogger(__name__)
 _import_process_guard_registry_lock = threading.Lock()
 _import_process_guard_registry: set[str] = set()
@@ -851,6 +852,7 @@ def apply_toss_screenshots(
     skipped = 0
     created_transactions: list[Transaction] = []
     seen_source_refs: set[str] = set()
+    next_order_keys_by_date: dict[date, int] = {}
 
     for row in payload.rows:
         if not row.included:
@@ -886,6 +888,18 @@ def apply_toss_screenshots(
             invalid_message="거래자는 현재 가계 구성원만 선택할 수 있습니다.",
             invalid_action="가계 구성원 목록에서 거래자를 다시 선택해 주세요.",
         )
+        if row.occurred_on not in next_order_keys_by_date:
+            max_order_key = db.scalar(
+                select(func.max(Transaction.order_key)).where(
+                    Transaction.household_id == household.id,
+                    Transaction.occurred_on == row.occurred_on,
+                )
+            )
+            next_order_keys_by_date[row.occurred_on] = (
+                int(max_order_key or 0) + _TOSS_TRANSACTION_ORDER_STEP
+            )
+        order_key = next_order_keys_by_date[row.occurred_on]
+        next_order_keys_by_date[row.occurred_on] = order_key + _TOSS_TRANSACTION_ORDER_STEP
         transaction = Transaction(
             household_id=household.id,
             category_id=row.category_id,
@@ -893,6 +907,7 @@ def apply_toss_screenshots(
             flow_type=row.flow_type,
             amount=row.amount,
             currency="KRW",
+            order_key=order_key,
             memo=_toss_transaction_memo(row),
             owner_user_id=owner_user_id,
             owner_name=owner_name,

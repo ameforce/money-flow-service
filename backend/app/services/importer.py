@@ -9,7 +9,7 @@ import re
 
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -589,6 +589,7 @@ class WorkbookImporter:
         added = 0
         skipped = 0
         refs: list[ImportAppliedTransactionRef] = []
+        next_order_keys: dict[date, int] = {}
         for row in rows:
             existing_same_hash = int(existing_hash_counts.get(row.dedupe_hash, 0))
             if row.source_ref in existing_sources or row.dedupe_ordinal <= existing_same_hash:
@@ -609,6 +610,16 @@ class WorkbookImporter:
                 category_map[key] = category
 
             owner_user_id, _, _ = self._resolve_owner_from_lookup(owner_lookup, row.owner_name)
+            if row.occurred_on not in next_order_keys:
+                max_key = db.scalar(
+                    select(func.max(Transaction.order_key)).where(
+                        Transaction.household_id == household_id,
+                        Transaction.occurred_on == row.occurred_on,
+                    )
+                )
+                next_order_keys[row.occurred_on] = int(max_key or 0) + 1024
+            order_key = next_order_keys[row.occurred_on]
+            next_order_keys[row.occurred_on] = order_key + 1024
             entity = Transaction(
                 household_id=household_id,
                 category_id=category.id,
@@ -617,6 +628,7 @@ class WorkbookImporter:
                 amount=row.amount,
                 currency="KRW",
                 memo=row.memo,
+                order_key=order_key,
                 owner_user_id=owner_user_id,
                 owner_name=row.owner_name,
                 source_ref=row.source_ref,

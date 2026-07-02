@@ -9,8 +9,8 @@ export const WORK_SURFACE_FIELDS = {
       { key: 'owner_name', label: '거래자명', priority: 'cue', className: 'transaction-col-owner' },
       { key: 'updated_at', label: '최종 수정일', priority: 'secondary', className: 'transaction-col-updated' },
     ],
-    mobileCompact: ['occurred_on', 'amount', 'category', 'memo'],
-    cues: ['flow_type', 'owner_name', 'updated_at'],
+    mobileCompact: ['occurred_on', 'flow_type', 'amount', 'memo'],
+    cues: ['category', 'owner_name', 'updated_at'],
   },
   holdings: {
     desktop: [
