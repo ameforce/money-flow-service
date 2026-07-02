@@ -239,10 +239,13 @@ pipeline {
             deployBranch = 'main'
           }
           def isMainBranch = (deployBranch == 'main')
+          def effectiveRunDeploy = params.RUN_DEPLOY
           if (isMainBranch && params.RUN_DEPLOY && !params.DEPLOY_DRY_RUN && !params.ALLOW_PROD_DEPLOY) {
-            error('prod deploy is disabled unless ALLOW_PROD_DEPLOY=true. Current hotfix flow must deploy dev only.')
+            effectiveRunDeploy = false
+            echo '[deploy] main/prod deploy disabled because ALLOW_PROD_DEPLOY=false; continuing build with RUN_DEPLOY_EFFECTIVE=false.'
           }
 
+          env.RUN_DEPLOY_EFFECTIVE = effectiveRunDeploy.toString()
           env.DEPLOY_TARGET_BRANCH = deployBranch
           env.DEPLOY_TARGET_ENV = isMainBranch ? 'prod' : 'dev'
           env.DEPLOY_DOMAIN_FOR_BRANCH = isMainBranch ? (params.DEPLOY_DOMAIN?.trim() ?: 'moneyflow.enmsoftware.com') : 'dev.moneyflow.enmsoftware.com'
@@ -311,7 +314,7 @@ fi
     stage('Quality Gate') {
       steps {
         script {
-          def deployBlockingPath = params.RUN_DEPLOY && !params.DEPLOY_DRY_RUN
+          def deployBlockingPath = (env.RUN_DEPLOY_EFFECTIVE?.trim() == 'true') && !params.DEPLOY_DRY_RUN
           def branchSkipQualityGate = (env.SKIP_QUALITY_GATE_FOR_BRANCH?.trim() == 'true')
           if (deployBlockingPath && params.SKIP_QUALITY_GATE) {
             error('RUN_DEPLOY=true 경로에서는 Quality Gate 우회가 허용되지 않습니다. SKIP_QUALITY_GATE를 해제하세요.')
@@ -604,7 +607,7 @@ done
 
     stage('Deploy Plan (Approval Gate)') {
       when {
-        expression { return params.RUN_DEPLOY }
+        expression { return env.RUN_DEPLOY_EFFECTIVE == 'true' }
       }
       steps {
         script {
@@ -623,7 +626,8 @@ done
           def imageTag = "${env.IMAGE_NAME}:${env.APP_VERSION}"
           def previewLines = [
             '[deploy-preview]',
-            "run_deploy=${params.RUN_DEPLOY}",
+            "run_deploy=${env.RUN_DEPLOY_EFFECTIVE}",
+            "run_deploy_requested=${params.RUN_DEPLOY}",
             "dry_run=${params.DEPLOY_DRY_RUN}",
             "app_version=${env.APP_VERSION}",
             "build_number=${env.BUILD_NUMBER}",
@@ -681,7 +685,7 @@ done
   "compose_project": "${env.DEPLOY_COMPOSE_PROJECT_RESOLVED}",
   "compose_file": "${env.DEPLOY_COMPOSE_FILE_RESOLVED}",
   "image_tag": "${imageTag}",
-  "params_fingerprint": "RUN_DEPLOY=${params.RUN_DEPLOY};DEPLOY_DRY_RUN=${params.DEPLOY_DRY_RUN};RUN_ASYNC_QUALITY_GATE=${params.RUN_ASYNC_QUALITY_GATE};RUN_PRE_DEPLOY_E2E=${params.RUN_PRE_DEPLOY_E2E}",
+  "params_fingerprint": "RUN_DEPLOY=${params.RUN_DEPLOY};RUN_DEPLOY_EFFECTIVE=${env.RUN_DEPLOY_EFFECTIVE};DEPLOY_DRY_RUN=${params.DEPLOY_DRY_RUN};RUN_ASYNC_QUALITY_GATE=${params.RUN_ASYNC_QUALITY_GATE};RUN_PRE_DEPLOY_E2E=${params.RUN_PRE_DEPLOY_E2E}",
   "blocking_contract": {
     "quality_gate": "pytest_only",
     "pre_deploy_e2e": "${preDeployE2EStatus}",
@@ -813,7 +817,7 @@ ssh $SSH_OPTS "$REMOTE" "set -e; rm -f '$remote_marker'"
     stage('Deploy Execute') {
       when {
         allOf {
-          expression { return params.RUN_DEPLOY }
+          expression { return env.RUN_DEPLOY_EFFECTIVE == 'true' }
           expression { return !params.DEPLOY_DRY_RUN }
         }
       }
@@ -1550,7 +1554,7 @@ fi
     stage('Post-Deploy E2E Smoke') {
       when {
         allOf {
-          expression { return params.RUN_DEPLOY }
+          expression { return env.RUN_DEPLOY_EFFECTIVE == 'true' }
           expression { return !params.DEPLOY_DRY_RUN }
         }
       }
