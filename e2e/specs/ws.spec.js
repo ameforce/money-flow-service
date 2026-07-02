@@ -11,6 +11,15 @@ import {
   unique,
 } from "../support/helpers";
 
+function previousMonthDateIso() {
+  const date = new Date();
+  date.setUTCDate(1);
+  date.setUTCDate(0);
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  return `${date.getUTCFullYear()}-${month}-${day}`;
+}
+
 // This spec creates two manual browser contexts per project and already captures
 // flow evidence explicitly. Retained trace/video finalization can race under
 // parallel local project runs after the assertions have passed.
@@ -19,7 +28,8 @@ test.use({ trace: "off", video: "off" });
 async function clickTransactionRowAction(row, actionName) {
   const inlineAction = row.locator("td").last().getByRole("button", { name: actionName }).first();
   if (await inlineAction.isVisible().catch(() => false)) {
-    await inlineAction.click();
+    await row.evaluate((element) => element.scrollIntoView({ block: "center", inline: "nearest" }));
+    await inlineAction.evaluate((button) => button.click());
     return;
   }
 
@@ -47,6 +57,7 @@ test("ws flow: connected state and cross-session transaction sync", async ({ bro
   const displayName = unique("ws-name");
   const txMemo = unique("ws-memo");
   const editedMemo = unique("ws-edited-memo");
+  const txOccurredOn = previousMonthDateIso();
 
   const firstContext = await browser.newContext();
   const secondContext = await browser.newContext();
@@ -66,7 +77,7 @@ test("ws flow: connected state and cross-session transaction sync", async ({ bro
 
     await openTab(firstPage, "거래");
     await openTab(secondPage, "거래");
-    await createBasicTransaction(secondPage, { memo: txMemo, amount: "3333" });
+    await createBasicTransaction(secondPage, { memo: txMemo, amount: "3333", occurredOn: txOccurredOn });
     await capture(secondPage, "ws-secondary-created-tx");
 
     await expect(firstPage.locator("tr.transaction-row", { hasText: txMemo }).first()).toBeVisible({ timeout: 20_000 });

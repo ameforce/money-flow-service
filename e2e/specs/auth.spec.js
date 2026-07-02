@@ -128,6 +128,70 @@ test("auth forms show Korean required-field validation", async ({ page }) => {
   await expect(page.getByText("본명을 입력해 주세요.")).toBeVisible();
 });
 
+test("auth signup switch after failed login clears password fields", async ({ page }) => {
+  await page.route("**/api/v1/auth/login", async (route) => {
+    await route.fulfill({
+      status: 401,
+      contentType: "application/json",
+      body: JSON.stringify({
+        error: {
+          code: "AUTH_INVALID_CREDENTIALS",
+          message: "이메일 또는 비밀번호가 올바르지 않습니다.",
+        },
+      }),
+    });
+  });
+
+  await page.goto("/");
+  const failedEmail = `${unique("issue-205-login")}@example.com`;
+  await page.getByLabel("이메일", { exact: true }).fill(failedEmail);
+  await page.getByLabel("비밀번호", { exact: true }).fill("WrongPassword1234");
+  await capture(page, "issue-205-login-filled");
+
+  await page.getByRole("button", { name: "로그인하기" }).click();
+  await expect(page.getByText("로그인에 실패했습니다.")).toBeVisible();
+  await capture(page, "issue-205-login-failed");
+
+  await page.getByRole("button", { name: "회원가입", exact: true }).click();
+  await expect(page.locator("form.auth-card-register")).toBeVisible();
+  await expect(page.getByLabel("이메일", { exact: true })).toHaveValue(failedEmail);
+  await expect(page.getByLabel("비밀번호", { exact: true })).toHaveValue("");
+  await expect(page.getByLabel("비밀번호 확인")).toHaveValue("");
+  await capture(page, "issue-205-signup-password-cleared");
+});
+
+test("auth login offers password recovery path after failed login", async ({ page }) => {
+  await page.route("**/api/v1/auth/login", async (route) => {
+    await route.fulfill({
+      status: 401,
+      contentType: "application/json",
+      body: JSON.stringify({
+        error: {
+          code: "AUTH_INVALID_CREDENTIALS",
+          message: "이메일 또는 비밀번호가 올바르지 않습니다.",
+        },
+      }),
+    });
+  });
+
+  await page.goto("/");
+  const recoveryLink = page.getByRole("link", { name: "관리자에게 재설정 요청" });
+  await expect(page.getByText("비밀번호를 잊으셨나요?")).toBeVisible();
+  await expect(page.getByText("가입 이메일을 함께 보내 주세요.")).toBeVisible();
+  await expect(recoveryLink).toHaveAttribute("href", /mailto:support@enmsoftware\.com/i);
+  await capture(page, "issue-206-login-recovery-initial");
+
+  await page.getByLabel("이메일", { exact: true }).fill(`${unique("issue-206-login")}@example.com`);
+  await page.getByLabel("비밀번호", { exact: true }).fill("WrongPassword1234");
+  await capture(page, "issue-206-login-recovery-filled");
+  await page.getByRole("button", { name: "로그인하기" }).click();
+
+  await expect(page.getByText("로그인에 실패했습니다.")).toBeVisible();
+  await expect(page.getByText("관리자에게 재설정을 요청해 주세요.")).toBeVisible();
+  await expect(recoveryLink).toBeVisible();
+  await capture(page, "issue-206-login-recovery-after-fail");
+});
+
 test("auth verification submit waits for a link token or 6-digit code", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 568 });
   await page.route("**/api/v1/auth/register", async (route) => {
@@ -165,6 +229,46 @@ test("auth verification submit waits for a link token or 6-digit code", async ({
   await page.getByLabel("6자리 인증번호").fill("123456");
   await expect(verifyButton).toBeEnabled();
   await capture(page, "auth-verify-submit-waits-for-code");
+});
+
+test("auth verification resend requires email before submitting", async ({ page }) => {
+  let resendRequests = 0;
+  await page.route("**/api/v1/auth/resend-verification", async (route) => {
+    resendRequests += 1;
+    const payload = route.request().postDataJSON();
+    await route.fulfill({
+      status: 201,
+      contentType: "application/json",
+      body: JSON.stringify({
+        status: "verification_required",
+        email: payload.email,
+        verification_expires_in_seconds: 600,
+        verification_resend_limit: 3,
+        verification_resend_window_seconds: 300,
+        verification_resend_cooldown_seconds: 60,
+      }),
+    });
+  });
+
+  await page.goto("/#verify_token=bad-token-clean-resend");
+  await expect(page.locator("form.auth-card-verify")).toBeVisible();
+  const emailInput = page.getByLabel("이메일", { exact: true });
+  const resendButton = page.getByRole("button", { name: "인증 메일 재전송" });
+
+  await expect(emailInput).toHaveValue("");
+  await expect(page.getByText("이메일을 입력하면 인증 메일 재전송이 가능합니다.")).toBeVisible();
+  await expect(resendButton).toBeDisabled();
+  expect(resendRequests).toBe(0);
+  await capture(page, "issue-208-resend-email-required");
+
+  await emailInput.fill(`${unique("issue-208-resend")}@example.com`);
+  await expect(resendButton).toBeEnabled();
+  await capture(page, "issue-208-resend-email-ready");
+  await resendButton.click();
+
+  await expect.poll(() => resendRequests).toBe(1);
+  await expect(page.getByText("요청 값이 올바르지 않습니다.")).toHaveCount(0);
+  await capture(page, "issue-208-resend-email-submitted");
 });
 
 test("auth login shows origin guidance for CSRF origin rejection", async ({ page }) => {

@@ -4,6 +4,7 @@ import {
   assertResponsiveShell,
   capture,
   createBasicHolding,
+  createHoldingViaApi,
   expectBackgroundNotPlainWhite,
   expectCompactHeader,
   expectCompactLedgerRow,
@@ -97,6 +98,93 @@ async function expectMobileHoldingNameReadable(row, expectedName) {
   expect(metrics.marketY).toBeGreaterThanOrEqual(metrics.nameBottom - 1);
   expect(metrics.rowScrollWidth - metrics.rowClientWidth).toBeLessThanOrEqual(1);
 }
+
+test("holding entry defaults owner and keeps it for repeated assets", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("holding-owner-default")}@example.com`;
+  const displayName = "댕";
+  await registerAndVerify(page, { email, displayName });
+  const currentUser = await page.evaluate(async () => {
+    const response = await fetch("/api/v1/auth/me", { credentials: "include" });
+    return response.json();
+  });
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openTab(page, "자산");
+  const holdingCard = page.locator("article.card", {
+    has: page.getByRole("heading", { name: "자산 입력" }),
+  });
+  await holdingCard.getByRole("button", { name: "자산 추가" }).click();
+  const holdingForm = holdingCard.locator("form.holdings-form-grid").first();
+  const ownerSelect = labeledField(holdingForm, "보유자", "select");
+  await expect(ownerSelect).toHaveValue(currentUser.id);
+  await expect(ownerSelect.locator("option:checked")).toContainText(displayName);
+
+  const ownerQuickSelect = holdingForm.getByTestId("holding-owner-quick-select");
+  await expect(ownerQuickSelect).toBeVisible();
+  const currentUserChip = ownerQuickSelect.getByRole("button", { name: `${displayName} 보유자 선택` });
+  await expect(currentUserChip).toBeVisible();
+  await expect(currentUserChip).toHaveAttribute("aria-pressed", "true");
+
+  const firstHoldingName = unique("issue-201-holding-first");
+  await labeledField(holdingForm, "자산명", "textarea").fill(firstHoldingName);
+  await labeledField(holdingForm, "평가금액", "input").fill("123456");
+  await capture(page, "issue-201-holding-owner-quick-select");
+  await holdingForm.getByRole("button", { name: "자산 등록" }).click();
+  await expect(page.locator("tr", { hasText: firstHoldingName }).first()).toBeVisible({ timeout: 20_000 });
+
+  await holdingCard.getByRole("button", { name: "자산 추가" }).click();
+  const repeatedOwnerSelect = labeledField(holdingForm, "보유자", "select");
+  await expect(repeatedOwnerSelect).toHaveValue(currentUser.id);
+  await expect(repeatedOwnerSelect.locator("option:checked")).toContainText(displayName);
+  await capture(page, "issue-201-holding-owner-repeated");
+});
+
+test("issue 192: mobile holding entry asks before closing a dirty draft and preserves it", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("holding-draft-close")}@example.com`;
+  const displayName = unique("holding-draft-close-name");
+  const holdingName = unique("holding-draft-name");
+
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openTab(page, "자산");
+  await page.waitForLoadState("networkidle");
+
+  const holdingsFab = page.getByTestId("holdings-fab");
+  const holdingSheet = page.getByTestId("holding-entry-sheet");
+  await expect(holdingsFab).toBeVisible();
+  await holdingsFab.click();
+  await expect(holdingSheet).toBeVisible();
+
+  const nameInput = labeledField(holdingSheet, "자산명", "textarea");
+  const valueInput = labeledField(holdingSheet, "평가금액", "input");
+  await nameInput.fill(holdingName);
+  await valueInput.fill("7654321");
+
+  await page.getByTestId("holding-entry-sheet-close").click();
+  const closeDraftDialog = page.getByRole("alertdialog");
+  await expect(closeDraftDialog.getByRole("heading", { name: "자산 입력을 닫을까요?" })).toBeVisible();
+  await expect(closeDraftDialog).toContainText("작성 중인 자산 초안은 보존됩니다.");
+  await closeDraftDialog.getByRole("button", { name: "취소" }).click();
+  await expect(closeDraftDialog).toBeHidden();
+  await expect(holdingSheet).toBeVisible();
+  await expect(nameInput).toHaveValue(holdingName);
+  await expect(valueInput).toHaveValue("7,654,321");
+
+  await page.getByTestId("holding-entry-sheet-close").click();
+  await expect(closeDraftDialog.getByRole("heading", { name: "자산 입력을 닫을까요?" })).toBeVisible();
+  await closeDraftDialog.getByRole("button", { name: "입력 닫기" }).click();
+  await expect(holdingSheet).toBeHidden();
+
+  await holdingsFab.click();
+  await expect(holdingSheet).toBeVisible();
+  await expect(labeledField(holdingSheet, "자산명", "textarea")).toHaveValue(holdingName);
+  await expect(labeledField(holdingSheet, "평가금액", "input")).toHaveValue("7,654,321");
+  await capture(page, "issue-192-mobile-holding-draft-preserved");
+});
 
 async function expectSingleSliceDonutHasNoRadialSeam(chartCard, label) {
   const metrics = await chartCard.locator(".compact-chart-wrap canvas").first().evaluate((canvas) => {
@@ -206,6 +294,47 @@ test("single holding portfolio donut renders a seamless 100 percent ring", async
   await capture(page, "holdings-single-slice-donut-ring");
 });
 
+test("mobile holding summary reopen keeps portfolio labels in viewport", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("holding-summary-reopen")}@example.com`;
+  const displayName = unique("holding-summary-reopen-owner");
+  const holdingName = unique("holding-summary-reopen");
+
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await createBasicHolding(page, { name: holdingName, category: "현금성", marketValue: "360000" });
+  await openTab(page, "자산");
+
+  const holdingSummaryCard = page.locator("details.holding-summary-card").first();
+  const holdingSummary = holdingSummaryCard.locator("summary").first();
+  await expect(holdingSummaryCard).toBeVisible();
+  if (!(await holdingSummaryCard.evaluate((element) => element.hasAttribute("open")))) {
+    await holdingSummary.click();
+  }
+
+  const holdingSummarySelect = holdingSummaryCard.getByLabel("자산 요약 보기 기준");
+  await expect(holdingSummarySelect).toBeVisible();
+  await holdingSummarySelect.selectOption("type");
+  await expect(holdingSummaryCard.getByTestId("portfolio-donut-slice-label")).toHaveCount(1);
+
+  await holdingSummary.click();
+  await expect(holdingSummaryCard).not.toHaveAttribute("open", "");
+  await holdingSummary.evaluate((summary) => {
+    const summaryTop = window.scrollY + summary.getBoundingClientRect().top;
+    window.scrollTo({ top: Math.max(0, summaryTop - window.innerHeight + 68), behavior: "auto" });
+  });
+  await page.waitForTimeout(50);
+  await holdingSummary.click();
+  await expect(holdingSummaryCard).toHaveAttribute("open", "");
+  await expectPortfolioLabelsClearOfBottomNav(
+    page,
+    holdingSummaryCard,
+    "mobile reopened holding portfolio chart",
+  );
+  await capture(page, "holdings-summary-reopen-viewport");
+});
+
 test("desktop holding ledger controls keep usable hit targets", async ({ page }) => {
   test.setTimeout(120_000);
 
@@ -245,6 +374,8 @@ test("desktop holding ledger controls keep usable hit targets", async ({ page })
       const text = button.textContent?.trim() || "";
       return {
         text,
+        aria: button.getAttribute("aria-label") || "",
+        title: button.getAttribute("title") || "",
         width: box.width,
         height: box.height,
         disabled: button.disabled,
@@ -255,8 +386,203 @@ test("desktop holding ledger controls keep usable hit targets", async ({ page })
     actionMetrics.every((button) => button.height >= 32 && button.width >= (["↑", "↓"].includes(button.text) ? 32 : 40)),
     `holding row action buttons should keep desktop hit targets: ${JSON.stringify(actionMetrics)}`,
   ).toBe(true);
+  const moveActionMetrics = actionMetrics.filter((button) => ["↑", "↓"].includes(button.text));
+  expect(
+    moveActionMetrics.every(
+      (button) =>
+        button.aria.includes(holdingName) &&
+        button.aria.includes(button.text === "↑" ? "위로 이동" : "아래로 이동") &&
+        button.title.includes("전체 자산 순서"),
+    ),
+    `holding row move buttons should name the target asset and ordering scope: ${JSON.stringify(moveActionMetrics)}`,
+  ).toBe(true);
   await expectNoHorizontalOverflow(page, 12);
   await capture(page, "holdings-desktop-hit-targets");
+});
+
+test("issue 226: 1024px holding right-side columns and actions stay discoverable", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("holding-1024-actions")}@example.com`;
+  const displayName = unique("holding-1024-actions-owner");
+  const holdingPrefix = unique("holding-1024-actions-row");
+  const categories = [
+    unique("현금성-1024"),
+    unique("투자-1024"),
+    unique("장기-1024"),
+  ];
+
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 1024, height: 768 });
+
+  for (let index = 0; index < 6; index += 1) {
+    await createHoldingViaApi(page, {
+      name: `${holdingPrefix}-${String(index).padStart(2, "0")}`,
+      category: categories[index % categories.length],
+      assetType: "stock",
+      typeKey: "stock",
+      symbol: `H226${String(index).padStart(2, "0")}`,
+      marketSymbol: `H226${String(index).padStart(2, "0")}`,
+      ownerName: displayName,
+      quantity: String(index + 1),
+      averageCost: String(300000 + index * 10000),
+    });
+  }
+
+  await page.reload();
+  await openTab(page, "자산");
+  await page.waitForLoadState("networkidle");
+  const targetRow = page.locator("tr.holding-row", { hasText: holdingPrefix }).first();
+  await expect(targetRow).toBeVisible({ timeout: 20_000 });
+  await page.locator(".holding-list-card").first().evaluate((element) => element.scrollIntoView({ block: "start" }));
+  await targetRow.evaluate((element) => element.scrollIntoView({ block: "center", inline: "nearest" }));
+  await page.locator(".holdings-surface-scroll").first().evaluate((element) => {
+    element.scrollLeft = 0;
+  });
+  await page.waitForTimeout(150);
+
+  const metrics = await page.evaluate((rowNamePrefix) => {
+    const boxOf = (element) => {
+      if (!element) {
+        return null;
+      }
+      const box = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      const centerX = box.left + box.width / 2;
+      const centerY = box.top + box.height / 2;
+      const topElement = document.elementFromPoint(centerX, centerY);
+      return {
+        text: element.textContent?.replace(/\s+/g, " ").trim() || element.getAttribute("aria-label") || "",
+        left: box.left,
+        right: box.right,
+        top: box.top,
+        bottom: box.bottom,
+        width: box.width,
+        height: box.height,
+        display: style.display,
+        visibility: style.visibility,
+        hitVisible: Boolean(topElement && (topElement === element || element.contains(topElement))),
+      };
+    };
+    const viewportWidth = window.innerWidth;
+    const scroller = document.querySelector(".holdings-surface-scroll");
+    const table = document.querySelector(".holdings-surface-table");
+    const updatedHeader = document.querySelector(".holdings-surface-table thead .holding-col-updated");
+    const actionHeader = document.querySelector(".holdings-surface-table thead .holding-col-actions");
+    const target = Array.from(document.querySelectorAll("tr.holding-row")).find((row) =>
+      row.textContent?.includes(rowNamePrefix)
+    );
+    const actionCell = target?.querySelector(".holding-col-actions");
+    const actionButtons = Array.from(actionCell?.querySelectorAll("button:not(.mobile-toggle-btn)") || [])
+      .map((button) => boxOf(button))
+      .filter((targetBox) => targetBox && targetBox.display !== "none" && targetBox.visibility === "visible" && targetBox.width > 0 && targetBox.height > 0);
+    const groupButtons = Array.from(document.querySelectorAll(".holding-section-actions .holding-section-order-btn"))
+      .map((button) => boxOf(button))
+      .filter((targetBox) => targetBox && targetBox.display !== "none" && targetBox.visibility === "visible" && targetBox.width > 0 && targetBox.height > 0);
+    const trackedBoxes = [
+      boxOf(updatedHeader),
+      boxOf(actionHeader),
+      boxOf(actionCell),
+      ...actionButtons,
+      ...groupButtons,
+    ].filter(Boolean);
+    return {
+      viewport: { width: viewportWidth, height: window.innerHeight },
+      pageOverflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      scroller: {
+        ...boxOf(scroller),
+        clientWidth: scroller?.clientWidth || 0,
+        scrollWidth: scroller?.scrollWidth || 0,
+        scrollLeft: scroller?.scrollLeft || 0,
+        scrollOverflowX: scroller ? scroller.scrollWidth - scroller.clientWidth : 0,
+      },
+      table: boxOf(table),
+      updatedHeader: boxOf(updatedHeader),
+      actionHeader: boxOf(actionHeader),
+      actionCell: boxOf(actionCell),
+      actionButtons,
+      groupButtons,
+      outsideViewport: trackedBoxes.filter((targetBox) => targetBox.left < -1 || targetBox.right > viewportWidth + 1),
+      hiddenHitTargets: [...actionButtons, ...groupButtons].filter(
+        (targetBox) => targetBox.top >= 0 && targetBox.bottom <= window.innerHeight && !targetBox.hitVisible
+      ),
+      undersizedRowActions: actionButtons.filter((targetBox) => {
+        const text = targetBox.text.trim();
+        const minWidth = ["↑", "↓"].includes(text) ? 32 : 40;
+        return targetBox.width < minWidth || targetBox.height < 32;
+      }),
+      undersizedGroupActions: groupButtons.filter((targetBox) => targetBox.width < 32 || targetBox.height < 32),
+    };
+  }, holdingPrefix);
+
+  expect(metrics.updatedHeader, `updated sort header should exist: ${JSON.stringify(metrics)}`).toBeTruthy();
+  expect(metrics.actionHeader, `desktop action header should exist: ${JSON.stringify(metrics)}`).toBeTruthy();
+  expect(metrics.actionCell, `target row action cell should exist: ${JSON.stringify(metrics)}`).toBeTruthy();
+  expect(metrics.actionButtons.length, `test should exercise holding row move/edit/delete targets: ${JSON.stringify(metrics)}`).toBe(4);
+  expect(metrics.groupButtons.length, `test should exercise holding group move targets: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(4);
+  expect(metrics.pageOverflowX, `1024px desktop page should not overflow horizontally: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
+  expect(metrics.scroller.scrollOverflowX, `1024px holding table should not hide right-side columns/actions behind horizontal scroll: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
+  expect(metrics.outsideViewport, `updated/action headers, row actions, and group move buttons should stay inside viewport: ${JSON.stringify(metrics)}`).toEqual([]);
+  expect(metrics.undersizedRowActions, `holding row actions should keep usable desktop targets: ${JSON.stringify(metrics)}`).toEqual([]);
+  expect(metrics.undersizedGroupActions, `holding group move actions should keep usable desktop targets: ${JSON.stringify(metrics)}`).toEqual([]);
+  expect(metrics.hiddenHitTargets, `holding action centers should remain directly clickable: ${JSON.stringify(metrics)}`).toEqual([]);
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "issue-226-1024-holding-actions-visible");
+});
+
+test("issue 239: holding view options collapse as a compact explicit toggle", async ({ page }) => {
+  const email = `${unique("issue-239-view-options")}@example.com`;
+  const displayName = unique("issue-239-view-options-name");
+
+  await registerAndVerify(page, { email, displayName });
+  await createHoldingViaApi(page, {
+    name: unique("issue-239-holding"),
+    ownerName: displayName,
+    category: "검증자산",
+    quantity: "1",
+    marketValue: "123456",
+  });
+
+  for (const viewport of [
+    { width: 360, height: 844 },
+    { width: 1366, height: 768 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await assertResponsiveShell(page);
+    await openTab(page, "자산");
+    await page.waitForLoadState("networkidle");
+
+    const displayOptions = page.locator("details.holding-display-options").first();
+    const displaySummary = displayOptions.locator("summary").first();
+    await expect(displayOptions).toBeVisible();
+    await expect(displaySummary).toContainText("보기 옵션");
+    await expect(displaySummary).toContainText("펼치기");
+    expect(await displayOptions.evaluate((element) => element.hasAttribute("open"))).toBe(false);
+
+    const closedMetrics = await displayOptions.evaluate((element) => {
+      const box = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return {
+        height: box.height,
+        width: box.width,
+        borderTopWidth: style.borderTopWidth,
+        borderRightWidth: style.borderRightWidth,
+        backgroundColor: style.backgroundColor,
+      };
+    });
+    expect(closedMetrics.height, `closed options should not look like an empty panel: ${JSON.stringify(closedMetrics)}`).toBeLessThanOrEqual(56);
+    expect(closedMetrics.borderTopWidth, `closed options should be a compact toggle, not a bordered panel: ${JSON.stringify(closedMetrics)}`).toBe("0px");
+    expect(closedMetrics.borderRightWidth, `closed options should be a compact toggle, not a bordered panel: ${JSON.stringify(closedMetrics)}`).toBe("0px");
+    await expect(displayOptions.locator(".table-toolbar")).toBeHidden();
+
+    await displaySummary.click();
+    await expect(displayOptions).toHaveAttribute("open", "");
+    await expect(displaySummary).toContainText("접기");
+    await expect(displayOptions.locator(".table-toolbar")).toBeVisible();
+    await expectNoHorizontalOverflow(page, 12);
+    await capture(page, `issue-239-holding-view-options-compact-toggle-${viewport.width}`);
+    await displaySummary.click();
+  }
 });
 
 test("holdings flow: create, inline edit, delete, responsive", async ({ page }) => {
@@ -605,8 +931,8 @@ test("holdings flow: create, inline edit, delete, responsive", async ({ page }) 
   const holdingToggleBox = await mobileToggleButton.boundingBox();
   expect(holdingToggleBox, "mobile holding detail toggle should have a bounding box").not.toBeNull();
   expect(
-    (holdingToggleBox?.width ?? 0) >= 40 && (holdingToggleBox?.height ?? 0) >= 40,
-    `mobile holding detail toggle should keep a 40px hit target: ${JSON.stringify(holdingToggleBox)}`,
+    (holdingToggleBox?.width ?? 0) >= 44 && (holdingToggleBox?.height ?? 0) >= 44,
+    `mobile holding detail toggle should keep a 44px hit target: ${JSON.stringify(holdingToggleBox)}`,
   ).toBe(true);
   await expectStableButtonPosition(mobileToggleButton, async () => {
     await mobileToggleButton.click({ force: true });
@@ -751,6 +1077,150 @@ test("holdings stock fields keep grouped decimals", async ({ page }) => {
   await unitCostInput.fill("9876543.21");
   await expect(quantityInput).toHaveValue("12,345.6789");
   await expect(unitCostInput).toHaveValue("9,876,543.21");
+});
+
+test("issue 200: holding type switch clears semantically different value", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("issue-200-holding-type-switch")}@example.com`;
+  const displayName = unique("issue-200-holding-type-switch-name");
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 1366, height: 960 });
+  await openTab(page, "자산");
+
+  const holdingCard = page.locator("article.card", {
+    has: page.getByRole("heading", { name: "자산 입력" }),
+  });
+  const holdingToggleButton = holdingCard.getByRole("button", { name: /자산 추가|입력 닫기/ }).first();
+  await expect(holdingToggleButton).toContainText("자산 추가");
+  await holdingToggleButton.click();
+
+  const typeSelect = labeledField(holdingCard, "유형", "select");
+  await expect(typeSelect).toHaveValue("cash");
+  const valuationInput = labeledField(holdingCard, "평가금액", "input");
+  await valuationInput.fill("100000");
+  await expect(valuationInput).toHaveValue("100,000");
+  await capture(page, "issue-200-holding-cash-value-before-type-switch");
+
+  await typeSelect.selectOption("stock");
+
+  const averageCostInput = labeledField(holdingCard, "평균단가", "input");
+  await expect(averageCostInput).toBeVisible();
+  await capture(page, "issue-200-holding-average-cost-reset-after-type-switch");
+  await expect(averageCostInput).toHaveValue("");
+  await expect(page.getByText("금액 입력값을 비웠습니다.")).toBeVisible();
+});
+
+test("issue 218: mobile holding valuation is numeric and reachable before optional account", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("issue-218-mobile-holding-keypad")}@example.com`;
+  const displayName = unique("issue-218-mobile-holding-keypad-name");
+
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openTab(page, "자산");
+  await page.waitForLoadState("networkidle");
+
+  await page.getByTestId("holdings-fab").click();
+  const holdingSheet = page.getByTestId("holding-entry-sheet");
+  await expect(holdingSheet).toBeVisible();
+
+  const valuationInput = labeledField(holdingSheet, "평가금액", "input");
+  const accountInput = labeledField(holdingSheet, "계좌", "input");
+  await expect(valuationInput).toBeVisible();
+  await expect(accountInput).toBeVisible();
+  await capture(page, "issue-218-mobile-holding-valuation-keypad");
+
+  const [valuationBox, accountBox] = await Promise.all([valuationInput.boundingBox(), accountInput.boundingBox()]);
+  expect(valuationBox?.y ?? Number.POSITIVE_INFINITY, "평가금액 input top should be inside first mobile viewport").toBeLessThan(
+    844,
+  );
+  expect(
+    valuationBox?.y ?? Number.POSITIVE_INFINITY,
+    "평가금액 should be reachable before optional 계좌",
+  ).toBeLessThan(accountBox?.y ?? Number.POSITIVE_INFINITY);
+  await expect(valuationInput).toHaveAttribute("type", "text");
+  await expect(valuationInput).toHaveAttribute("inputmode", "numeric");
+});
+
+test("issue 238: mobile holding entry opens as a focused sheet with visible submit path", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("issue-238-mobile-holding-sheet")}@example.com`;
+  const displayName = unique("issue-238-mobile-holding-sheet-name");
+
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openTab(page, "자산");
+  await page.waitForLoadState("networkidle");
+
+  await page.getByTestId("holdings-fab").click();
+  const holdingSheet = page.getByTestId("holding-entry-sheet");
+  await expect(holdingSheet).toBeVisible();
+  await expect(labeledField(holdingSheet, "자산명", "textarea")).toBeVisible();
+  await capture(page, "issue-238-mobile-holding-entry-focused-sheet");
+
+  const metrics = await page.evaluate(() => {
+    const sheet = document.querySelector("[data-testid='holding-entry-sheet']");
+    const backdrop = document.querySelector("[data-testid='holding-entry-sheet-backdrop']");
+    const actions = sheet?.querySelector(".holdings-form-actions");
+    const submitButton = sheet?.querySelector("button[type='submit']");
+    const sheetBox = sheet?.getBoundingClientRect();
+    const backdropBox = backdrop?.getBoundingClientRect();
+    const actionsBox = actions?.getBoundingClientRect();
+    const submitBox = submitButton?.getBoundingClientRect();
+    const backdropStyle = backdrop ? getComputedStyle(backdrop) : null;
+    const backdropHit = document.elementFromPoint(
+      Math.max(2, Math.floor((sheetBox?.left ?? 12) / 2)),
+      Math.floor(window.innerHeight / 2),
+    );
+
+    return {
+      viewportHeight: window.innerHeight,
+      viewportWidth: window.innerWidth,
+      sheetTop: sheetBox?.top ?? Number.POSITIVE_INFINITY,
+      sheetBottom: sheetBox?.bottom ?? Number.POSITIVE_INFINITY,
+      sheetHeight: sheetBox?.height ?? 0,
+      backdropVisible: Boolean(
+        backdrop &&
+          backdropBox &&
+          backdropBox.width >= window.innerWidth - 1 &&
+          backdropBox.height >= window.innerHeight - 1 &&
+          backdropStyle?.pointerEvents !== "none" &&
+          backdropStyle?.backgroundColor !== "rgba(0, 0, 0, 0)",
+      ),
+      backdropBlocksBackground: Boolean(backdropHit?.closest("[data-testid='holding-entry-sheet-backdrop']")),
+      submitVisibleInViewport: Boolean(
+        submitBox &&
+          submitBox.top >= 0 &&
+          submitBox.bottom <= window.innerHeight &&
+          submitBox.width >= 44 &&
+          submitBox.height >= 40,
+      ),
+      actionsBottom: actionsBox?.bottom ?? Number.POSITIVE_INFINITY,
+    };
+  });
+
+  expect(metrics.backdropVisible, `focused sheet should dim and block the list: ${JSON.stringify(metrics)}`).toBe(true);
+  expect(metrics.backdropBlocksBackground, `background list should not remain interactive: ${JSON.stringify(metrics)}`).toBe(
+    true,
+  );
+  expect(metrics.sheetTop, `sheet should take focus instead of starting inside the list: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(
+    32,
+  );
+  expect(metrics.sheetBottom, `sheet should stay inside the viewport: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(
+    metrics.viewportHeight + 1,
+  );
+  expect(metrics.sheetHeight, `sheet should use most of the viewport: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(
+    metrics.viewportHeight * 0.86,
+  );
+  expect(metrics.submitVisibleInViewport, `submit action should be reachable without hunting: ${JSON.stringify(metrics)}`).toBe(
+    true,
+  );
+  expect(metrics.actionsBottom, `actions should remain in the first viewport: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(
+    metrics.viewportHeight + 1,
+  );
 });
 
 test("mobile holding entry sheet stays within the viewport", async ({ page }) => {
