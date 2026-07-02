@@ -49,27 +49,30 @@
   1. Merge the completed `feat/*` branch into `develop` with a PR.
   2. Create a `release/vX.Y.0` branch from `develop`, incrementing the minor version by 1 and resetting the patch version to 0.
   3. Finish the release by merging the release branch back into both `develop` and `main` with `--no-ff`.
-  4. Create the annotated `vX.Y.0` tag on the `main` release merge commit, then verify tag containment from `develop`.
+  4. Create the annotated `vX.Y.0` tag on the `main` release merge commit. Do not merge the `main` merge commit or tag back into `develop` only to make the tag reachable from `develop`.
+  5. Verify `develop` contains the completed release branch tip or the release branch's final tree from the `develop` no-ff merge.
 - Existing-feature fix/refactor hotfix flow:
   1. Start from `main` and create `hotfix/vX.Y.Z`.
   2. Create `fix/*` or `refact/*` from that hotfix branch and commit only the scoped work there.
   3. Merge the completed `fix/*` or `refact/*` branch back into `hotfix/vX.Y.Z` with a PR.
   4. Finish the hotfix by merging `hotfix/vX.Y.Z` into both `main` and `develop` with `--no-ff`.
-  5. Create the annotated `vX.Y.Z` tag on the `main` hotfix merge commit, then verify tag containment from `develop`.
+  5. Create the annotated `vX.Y.Z` tag on the `main` hotfix merge commit. Do not merge the `main` merge commit or tag back into `develop` only to make the tag reachable from `develop`.
+  6. Verify `develop` contains the completed hotfix branch tip or the hotfix branch's final tree from the `develop` no-ff merge.
 - Before reusing any existing `hotfix/*`, `feat/*`, `fix/*`, `refact/*`, or `release/*` branch, verify that the branch scope, active PR, and linked issues match the current task. If they do not clearly match, create a new scoped branch instead of stacking unrelated work.
 - Hotfix/release completion means Git-flow closure, not branch CI. Do **not** report a hotfix or release complete while the work exists only on a pushed work branch.
 - Complete hotfix/release Git-flow in this repository as follows unless the user explicitly gives a different release procedure:
   1. Verify the completed work branch and confirm its scope.
   2. Verify the expected integration chain is present: `feat/* -> develop -> release/* -> main/develop`, or `fix/*`/`refact/* -> hotfix/vX.Y.Z -> main/develop`.
   3. Create the annotated version tag on the `main` merge commit.
-  4. Record explicit Git evidence for the release graph because Jenkins does not prove every step: `git cat-file -t vX.Y.Z` returns `tag`, `git rev-parse vX.Y.Z^{}` equals `main` HEAD, and `git merge-base --is-ancestor vX.Y.Z develop` succeeds after the back-merge.
-  5. Confirm `main` HEAD resolves to the exact `vX.Y.Z` tag (exact vX.Y.Z tag) before any main/prod deploy.
-  6. Before cleanup, inspect `git worktree list --porcelain`, then delete only branches that are confirmed merged into both `main` and `develop`; keep unmerged work.
+  4. Record explicit Git evidence for the release graph because Jenkins does not prove every step: `git cat-file -t vX.Y.Z` returns `tag`, `git rev-parse vX.Y.Z^{}` equals `main` HEAD, and the completed release/hotfix branch tip is contained in `develop` after the `develop` no-ff merge.
+  5. Do not require `git merge-base --is-ancestor vX.Y.Z develop`; the version tag is expected to resolve to the `main` merge commit, while `develop` must contain the release/hotfix changes rather than the `main` tag commit.
+  6. Confirm `main` HEAD resolves to the exact `vX.Y.Z` tag (exact vX.Y.Z tag) before any main/prod deploy.
+  7. Before cleanup, inspect `git worktree list --porcelain`, then delete only branches whose completed branch tip or final tree is confirmed integrated into both `main` and `develop`; keep unmerged work.
 - Hotfix/release completion is a hard gate. Do **not** report hotfix/release completion until all of the following are true:
   1. Branch scope is confirmed and the work is on a dedicated `hotfix/*` or task branch.
   2. Only intended files are staged and committed; any remaining dirty state in every linked worktree is explicitly classified as unrelated, generated evidence, or a blocker.
-  3. The branch is pushed to origin, the Git-flow merge/tag/back-merge graph above is complete, and explicit annotated-tag/develop-containment Git evidence is recorded.
-  4. Jenkins every pushed SHA check must pass for the release: the hotfix/task branch SHA, the `main` merge/tag SHA, and the develop back-merge SHA, unless the user explicitly supplied a different release procedure that omits `develop`.
+  3. The branch is pushed to origin, the Git-flow merge/tag/integration graph above is complete, and explicit annotated-tag plus develop-integration Git evidence is recorded.
+  4. Jenkins every pushed SHA check must pass for the release: the hotfix/task branch SHA, the `main` merge/tag SHA, and the `develop` integration merge SHA, unless the user explicitly supplied a different release procedure that omits `develop`.
   5. Main/prod deployment is never implied by a tag or `main` build alone; when prod deployment is explicitly requested, Jenkins must run with `ALLOW_PROD_DEPLOY=true` and verify the exact `vX.Y.Z` tag (exact vX.Y.Z tag) on `main` HEAD.
   6. When production deployment is explicitly requested, Jenkins must use `moneyflow-prod-smtp-env-file`, overlay only `SMTP_*` values, run `scripts/deploy/validate_smtp_route.py` before `docker compose up`, and fail closed on `mailpit`, `enm-mail-smtp`, `moneyflow-smtp-local`, localhost/loopback, port `1025`, `EMAIL_DELIVERY_MODE=log`, missing auth, wrong `SMTP_ACCOUNT_LABEL`, or invalid TLS; record only the redacted route summary, never SMTP secrets.
   7. Deployment reflects the expected pushed SHA/version, and the deployed target is directly verified after deployment: `dev.moneyflow.enmsoftware.com` for dev, and `moneyflow.enmsoftware.com` plus the production smoke below for prod.
