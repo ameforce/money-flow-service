@@ -377,6 +377,8 @@ class TransactionCreate(BaseModel):
     owner_user_id: str | None = Field(default=None, max_length=36)
     owner_name: str | None = Field(default=None, max_length=80)
     source_ref: str | None = Field(default=None, max_length=120)
+    anchor_transaction_id: str | None = Field(default=None, max_length=36)
+    insert_position: Literal["above", "below"] | None = None
 
     @field_validator("amount")
     @classmethod
@@ -391,7 +393,7 @@ class TransactionCreate(BaseModel):
             raise ValueError("unsupported transaction currency")
         return code
 
-    @field_validator("category_id", "owner_user_id")
+    @field_validator("category_id", "owner_user_id", "anchor_transaction_id")
     @classmethod
     def normalize_identifier(cls, value: str | None) -> str | None:
         if value is None:
@@ -459,12 +461,30 @@ class TransactionRead(BaseModel):
     amount: Decimal
     currency: str
     memo: str
+    order_key: int
     owner_user_id: str | None = None
     owner_name: str | None
     source_ref: str | None
     version: int
     created_at: datetime
     updated_at: datetime
+
+
+class TransactionBulkDeleteRequest(BaseModel):
+    transaction_ids: list[str] = Field(min_length=1, max_length=500)
+
+    @field_validator("transaction_ids")
+    @classmethod
+    def normalize_transaction_ids(cls, value: list[str]) -> list[str]:
+        ids = [str(item or "").strip() for item in value]
+        if any(not item for item in ids):
+            raise ValueError("transaction id must not be blank")
+        return ids
+
+
+class TransactionBulkDeleteResult(BaseModel):
+    deleted_count: int
+    deleted_ids: list[str]
 
 
 class TransactionHistoryPage(BaseModel):

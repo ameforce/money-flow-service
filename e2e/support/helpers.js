@@ -618,6 +618,23 @@ export function hexToRgb(hex) {
   return `rgb(${red}, ${green}, ${blue})`;
 }
 
+async function closeTransactionEntrySheetIfOpen(page, { timeout = 20_000 } = {}) {
+  const transactionSheet = page.getByTestId("transaction-entry-sheet");
+  if (!(await transactionSheet.isVisible().catch(() => false))) {
+    return;
+  }
+
+  const closeButton = transactionSheet.getByTestId("transaction-entry-sheet-close").first();
+  const clicked = await closeButton
+    .click({ timeout: Math.min(timeout, 4_000) })
+    .then(() => true)
+    .catch(() => false);
+  if (!clicked && (await transactionSheet.isVisible().catch(() => false))) {
+    await closeButton.dispatchEvent("click").catch(() => undefined);
+  }
+  await expect(transactionSheet).toBeHidden({ timeout });
+}
+
 export async function openTab(page, label) {
   const tabButton = page.getByRole("button", { name: label, exact: true }).first();
   const isAlreadyActive = await tabButton
@@ -629,8 +646,7 @@ export async function openTab(page, label) {
 
   const openTransactionSheet = page.getByTestId("transaction-entry-sheet");
   if (await openTransactionSheet.isVisible().catch(() => false)) {
-    await page.getByTestId("transaction-entry-sheet-close").click();
-    await expect(openTransactionSheet).toBeHidden({ timeout: 20_000 });
+    await closeTransactionEntrySheetIfOpen(page);
   }
 
   for (let attempt = 0; attempt < 4; attempt += 1) {
@@ -792,6 +808,26 @@ function formatGroupedNumber(value) {
   return `${sign}${body.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}`;
 }
 
+async function bringInputIntoView(locator) {
+  const scrolled = await locator
+    .scrollIntoViewIfNeeded({ timeout: 4_000 })
+    .then(() => true)
+    .catch(() => false);
+  if (!scrolled) {
+    await locator
+      .evaluate((element) => {
+        element.scrollIntoView({ block: "center", inline: "nearest" });
+      })
+      .catch(() => undefined);
+  }
+}
+
+async function expectInputReady(locator, fieldName) {
+  await bringInputIntoView(locator);
+  await expect(locator, `${fieldName} 표시 확인`).toBeVisible();
+  await expect(locator, `${fieldName} 활성 확인`).toBeEnabled();
+}
+
 async function ensureTransactionFormValues(container, { memo, amount, occurredOn = "" }) {
   const amountInput = labeledField(container, "금액", "input");
   const memoInput = labeledField(container, "메모", "input");
@@ -800,18 +836,10 @@ async function ensureTransactionFormValues(container, { memo, amount, occurredOn
 
   await expect(container.locator("form.transactions-form-grid, form.transaction-quick-form").first()).toBeVisible();
   if (dateInput) {
-    await dateInput.scrollIntoViewIfNeeded();
+    await expectInputReady(dateInput, "거래 일자");
   }
-  await amountInput.scrollIntoViewIfNeeded();
-  await memoInput.scrollIntoViewIfNeeded();
-  if (dateInput) {
-    await expect(dateInput).toBeVisible();
-    await expect(dateInput).toBeEnabled();
-  }
-  await expect(amountInput).toBeVisible();
-  await expect(memoInput).toBeVisible();
-  await expect(amountInput).toBeEnabled();
-  await expect(memoInput).toBeEnabled();
+  await expectInputReady(amountInput, "거래 금액");
+  await expectInputReady(memoInput, "거래 메모");
 
   if (dateInput) {
     await fillInputUntilValue(dateInput, occurredOn, occurredOn, "거래 일자");
@@ -855,10 +883,7 @@ export async function openTransactionEntryForm(page) {
       container: transactionSheet,
       mode: "sheet",
       close: async () => {
-        if (await transactionSheet.isVisible().catch(() => false)) {
-          await page.getByTestId("transaction-entry-sheet-close").click();
-          await expect(transactionSheet).toBeHidden({ timeout: 20_000 });
-        }
+        await closeTransactionEntrySheetIfOpen(page);
       },
     };
   }
@@ -904,10 +929,7 @@ export async function openTransactionEntryForm(page) {
     container: transactionSheet,
     mode: "sheet",
     close: async () => {
-      if (await transactionSheet.isVisible().catch(() => false)) {
-        await page.getByTestId("transaction-entry-sheet-close").click();
-        await expect(transactionSheet).toBeHidden({ timeout: 20_000 });
-      }
+      await closeTransactionEntrySheetIfOpen(page);
     },
   };
 }
@@ -918,7 +940,7 @@ async function fillInputUntilValue(locator, inputValue, expectedValue, fieldName
       return;
     }
 
-    await locator.scrollIntoViewIfNeeded();
+    await bringInputIntoView(locator);
     await locator.fill("");
     await locator.fill(inputValue);
 
@@ -1011,10 +1033,7 @@ export async function createBasicTransaction(
     await expect(txToggleButton).toContainText("거래 추가", { timeout: 20_000 });
     await expect(txToggleButton).toBeEnabled();
   } else {
-    if (await transactionSheet.isVisible().catch(() => false)) {
-      await page.getByTestId("transaction-entry-sheet-close").click();
-    }
-    await expect(transactionSheet).toBeHidden({ timeout: 20_000 });
+    await closeTransactionEntrySheetIfOpen(page);
   }
   return row;
 }

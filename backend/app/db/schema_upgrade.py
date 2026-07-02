@@ -164,11 +164,37 @@ def _create_holding_identity_index(bind, dialect_name: str) -> None:
     )
 
 
+def _backfill_transaction_order_keys(bind) -> None:
+    groups = bind.execute(
+        text(
+            "SELECT DISTINCT household_id, occurred_on "
+            "FROM transactions "
+            "WHERE order_key IS NULL OR order_key = 0"
+        )
+    ).mappings().all()
+    for group in groups:
+        rows = bind.execute(
+            text(
+                "SELECT id "
+                "FROM transactions "
+                "WHERE household_id = :household_id AND occurred_on = :occurred_on "
+                "ORDER BY created_at DESC, id DESC"
+            ),
+            {"household_id": group["household_id"], "occurred_on": group["occurred_on"]},
+        ).mappings().all()
+        for index, row in enumerate(rows, start=1):
+            bind.execute(
+                text("UPDATE transactions SET order_key = :order_key WHERE id = :id"),
+                {"order_key": index * 1024, "id": row["id"]},
+            )
+
+
 def _create_indexes(bind, dialect_name: str) -> None:
+    bind.execute(text("DROP INDEX IF EXISTS idx_tx_household_cursor"))
     bind.execute(
         text(
             "CREATE INDEX IF NOT EXISTS idx_tx_household_cursor "
-            "ON transactions (household_id, occurred_on, created_at, id)"
+            "ON transactions (household_id, occurred_on, order_key, created_at, id)"
         )
     )
     bind.execute(text("CREATE INDEX IF NOT EXISTS idx_tx_household_owner_user ON transactions (household_id, owner_user_id)"))
@@ -208,6 +234,7 @@ def upgrade_schema(bind_engine: Engine | None = None) -> None:
             f"holding_settings {json_type_name} NOT NULL DEFAULT '{{}}'",
         )
         _add_column_if_missing(conn, "transactions", "owner_user_id", "owner_user_id VARCHAR(36)")
+        _add_column_if_missing(conn, "transactions", "order_key", "order_key INTEGER NOT NULL DEFAULT 0")
         _add_column_if_missing(conn, "holdings", "owner_user_id", "owner_user_id VARCHAR(36)")
         _add_column_if_missing(conn, "holdings", "type_key", "type_key VARCHAR(80)")
         _add_column_if_missing(conn, "holdings", "display_order", "display_order INTEGER NOT NULL DEFAULT 100")
@@ -236,6 +263,7 @@ def upgrade_schema(bind_engine: Engine | None = None) -> None:
                 "registration_continuation_hash",
                 "registration_continuation_hash VARCHAR(128)",
             )
+        _backfill_transaction_order_keys(conn)
         _create_indexes(conn, dialect_name)
 
     with Session(active_engine) as db:

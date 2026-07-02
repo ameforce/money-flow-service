@@ -913,17 +913,7 @@ function recentDateRange(days = 30, todayKey = todayIso()) {
 }
 
 function compareTransactionHistoryItems(left, right) {
-  const leftDate = String(left?.occurred_on || "");
-  const rightDate = String(right?.occurred_on || "");
-  if (leftDate !== rightDate) {
-    return leftDate.localeCompare(rightDate);
-  }
-  const leftCreated = Date.parse(String(left?.created_at || ""));
-  const rightCreated = Date.parse(String(right?.created_at || ""));
-  if (Number.isFinite(leftCreated) && Number.isFinite(rightCreated) && leftCreated !== rightCreated) {
-    return leftCreated - rightCreated;
-  }
-  return String(left?.id || "").localeCompare(String(right?.id || ""));
+  return compareTransactionsByLedgerOrder(left, right, 1);
 }
 
 function mergeTransactionHistoryItems(currentItems, incomingItems) {
@@ -1327,6 +1317,8 @@ function createTransactionForm(defaultOccurredOn = todayIso()) {
     memo: "",
     owner_user_id: "",
     owner_name: "",
+    anchor_transaction_id: "",
+    insert_position: "",
   };
 }
 
@@ -1345,6 +1337,25 @@ function createRepeatTransactionForm(previousForm, fallbackOccurredOn = todayIso
     category_id: previousForm?.category_id || "",
     owner_user_id: previousForm?.owner_user_id || "",
     owner_name: previousForm?.owner_name || "",
+  };
+}
+
+function hasTransactionInsertAnchor(form) {
+  return Boolean(form?.anchor_transaction_id || form?.insert_position || form?.anchor_id || form?.mode === "insert");
+}
+
+function clearTransactionInsertAnchor(form) {
+  if (!hasTransactionInsertAnchor(form)) {
+    return form;
+  }
+  return {
+    ...form,
+    id: "",
+    version: 0,
+    anchor_id: "",
+    anchor_transaction_id: "",
+    insert_position: "",
+    mode: "",
   };
 }
 
@@ -1394,7 +1405,7 @@ function getHoldingSortValue(item, sortField, holdingUpdatedAtById) {
 }
 
 function buildTransactionPayloadFromForm(form) {
-  return {
+  const payload = {
     occurred_on: String(form.occurred_on || "").trim(),
     flow_type: String(form.flow_type || "").trim(),
     amount: stripGrouping(form.amount),
@@ -1403,6 +1414,42 @@ function buildTransactionPayloadFromForm(form) {
     owner_user_id: normalizeNullableText(form.owner_user_id),
     owner_name: normalizeNullableText(form.owner_name),
   };
+  const anchorTransactionId = String(form.anchor_transaction_id || "").trim();
+  const insertPosition = String(form.insert_position || "").trim();
+  if (anchorTransactionId || insertPosition) {
+    payload.anchor_transaction_id = anchorTransactionId || null;
+    payload.insert_position = insertPosition || null;
+  }
+  return payload;
+}
+
+function transactionOrderKey(item) {
+  const value = Number(item?.order_key);
+  return Number.isFinite(value) ? value : 0;
+}
+
+function transactionCreatedTime(item) {
+  const value = Date.parse(String(item?.created_at || ""));
+  return Number.isFinite(value) ? value : 0;
+}
+
+function compareTransactionsByLedgerOrder(left, right, dateDirection = 1) {
+  const leftDate = String(left?.occurred_on || "");
+  const rightDate = String(right?.occurred_on || "");
+  if (leftDate !== rightDate) {
+    return leftDate.localeCompare(rightDate) * dateDirection;
+  }
+  const leftOrderKey = transactionOrderKey(left);
+  const rightOrderKey = transactionOrderKey(right);
+  if (leftOrderKey !== rightOrderKey) {
+    return leftOrderKey - rightOrderKey;
+  }
+  const leftCreated = transactionCreatedTime(left);
+  const rightCreated = transactionCreatedTime(right);
+  if (leftCreated !== rightCreated) {
+    return leftCreated - rightCreated;
+  }
+  return String(left?.id || "").localeCompare(String(right?.id || ""));
 }
 
 const TX_PATCH_COMPARATORS = {
@@ -2596,19 +2643,7 @@ function App() {
   const sortedTransactions = useMemo(() => {
     const direction = transactionHistoryInitialized || txSortDirection === "asc" ? 1 : -1;
     const next = [...filteredTransactions];
-    return next.sort((left, right) => {
-      const leftDate = String(left?.occurred_on || "");
-      const rightDate = String(right?.occurred_on || "");
-      if (leftDate !== rightDate) {
-        return leftDate.localeCompare(rightDate) * direction;
-      }
-      const leftCreated = Date.parse(String(left?.created_at || ""));
-      const rightCreated = Date.parse(String(right?.created_at || ""));
-      if (Number.isFinite(leftCreated) && Number.isFinite(rightCreated) && leftCreated !== rightCreated) {
-        return (leftCreated - rightCreated) * direction;
-      }
-      return String(left?.id || "").localeCompare(String(right?.id || "")) * direction;
-    });
+    return next.sort((left, right) => compareTransactionsByLedgerOrder(left, right, direction));
   }, [filteredTransactions, transactionHistoryInitialized, txSortDirection]);
   const txFlowCategorySummary = useMemo(() => {
     const base = {
@@ -2675,6 +2710,11 @@ function App() {
     }
     return { count, amount };
   }, [selectedTransactionIds, transactionById]);
+  const selectedTransactionItems = useMemo(
+    () => Array.from(selectedTransactionIds).map((id) => transactionById.get(id)).filter(Boolean),
+    [selectedTransactionIds, transactionById]
+  );
+  const singleSelectedTransaction = selectedTransactionItems.length === 1 ? selectedTransactionItems[0] : null;
   const isTransactionFilterActive = Boolean(
     String(txListFilter.keyword || "").trim() ||
       txListFilter.flow_type !== "all" ||
@@ -3923,6 +3963,11 @@ function App() {
     clearTransactionEntryValidationFeedback();
     setTxEntrySheetStep(nextStep);
     setShowTransactionForm(true);
+  }
+
+  function openNormalTransactionEntrySheet(nextStep = "form") {
+    setTxForm((previous) => clearTransactionInsertAnchor(previous));
+    openTransactionEntrySheet(nextStep);
   }
 
   const closeTransactionEntrySheet = useCallback(async ({ skipDraftGuard = false } = {}) => {
@@ -6430,6 +6475,7 @@ function App() {
     try {
       const keepQuickEntryOpen = isCompactViewport && showTransactionForm && txEntrySheetStep === "form";
       const payload = buildTransactionPayloadFromForm(txForm);
+      const isAnchoredInsert = Boolean(payload.anchor_transaction_id && payload.insert_position);
       const repeatForm = createRepeatTransactionForm(
         txForm,
         normalizeIsoDateKey(payload.occurred_on, transactionHistoryToday || todayIso())
@@ -6449,12 +6495,14 @@ function App() {
       setShowTransactionEntryBanner(false);
       setTxEntrySheetStep("form");
       setShowTransactionQuickResume(false);
-      await revealSavedTransactionInList(createdTransaction, payload.occurred_on, { alignToEnd: true });
+      await revealSavedTransactionInList(createdTransaction, payload.occurred_on, { alignToEnd: !isAnchoredInsert });
       focusTransactionAmountForRepeatEntry();
       setMessage(
         keepQuickEntryOpen
           ? ""
-          : uiGuideMessage("거래를 등록했습니다.", "필터를 초기화하고 저장한 거래를 표시했습니다. 다음 거래 금액을 바로 입력할 수 있습니다.")
+          : isAnchoredInsert
+            ? uiGuideMessage("선택한 위치에 거래를 삽입했습니다.", "같은 기준으로 다음 거래 금액을 바로 입력할 수 있습니다.")
+            : uiGuideMessage("거래를 등록했습니다.", "필터를 초기화하고 저장한 거래를 표시했습니다. 다음 거래 금액을 바로 입력할 수 있습니다.")
       );
     } catch (error) {
       setMessage(formatApiError(error, "transaction_submit"));
@@ -6620,6 +6668,130 @@ function App() {
     );
   }
 
+  function openTransactionInlineEditor(item) {
+    if (!item || !canEditRecords) {
+      return;
+    }
+    const category = categoryById.get(String(item.category_id || ""));
+    setTxInlineEdit({
+      id: item.id,
+      version: item.version,
+      occurred_on: item.occurred_on,
+      flow_type: item.flow_type,
+      amount: normalizeDecimalInputValue(item.amount),
+      category_id: item.category_id || "",
+      category_major: category?.major || "",
+      memo: item.memo || "",
+      owner_user_id: item.owner_user_id || "",
+      owner_name: item.owner_name || "",
+      mode: "edit",
+      anchor_transaction_id: "",
+      insert_position: "",
+    });
+  }
+
+  function createAnchoredTransactionDraft(anchor, position) {
+    const category = categoryById.get(String(anchor?.category_id || ""));
+    return {
+      ...createTransactionForm(anchor?.occurred_on || transactionEntryContextDate()),
+      id: anchor?.id || "",
+      version: anchor?.version || 0,
+      occurred_on: anchor?.occurred_on || transactionEntryContextDate(),
+      flow_type: anchor?.flow_type || "expense",
+      amount: "",
+      category_id: anchor?.category_id || "",
+      category_major: category?.major || "",
+      memo: "",
+      owner_user_id: anchor?.owner_user_id || "",
+      owner_name: anchor?.owner_name || "",
+      anchor_id: anchor?.id || "",
+      anchor_transaction_id: anchor?.id || "",
+      insert_position: position,
+      mode: "insert",
+    };
+  }
+
+  function openSelectedTransactionEdit() {
+    if (!singleSelectedTransaction) {
+      return;
+    }
+    openTransactionInlineEditor(singleSelectedTransaction);
+  }
+
+  function openSelectedTransactionInsert(position) {
+    if (!singleSelectedTransaction || !canEditRecords) {
+      return;
+    }
+    const draft = createAnchoredTransactionDraft(singleSelectedTransaction, position);
+    if (isCompactViewport) {
+      setTxForm(draft);
+      setTxFormErrors(createTransactionFormErrors());
+      setTxCategoryMajor(draft.category_major || "");
+      setTxCategoryRestore(null);
+      setTxDraftTouched(false);
+      setShowTransactionEntryBanner(false);
+      setShowTransactionQuickResume(false);
+      setTxInlineEdit(null);
+      openTransactionEntrySheet("form");
+      focusTransactionAmountForRepeatEntry();
+      return;
+    }
+    setTxInlineEdit(draft);
+  }
+
+  async function removeSelectedTransactions() {
+    if (!canEditRecords) {
+      setMessage(uiGuideMessage("현재 권한으로는 거래를 삭제할 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
+      return;
+    }
+    const ids = selectedTransactionItems.map((item) => String(item.id || "").trim()).filter(Boolean);
+    if (ids.length === 0) {
+      return;
+    }
+    if (ids.length === 1) {
+      await removeTx(ids[0]);
+      return;
+    }
+    const confirmed = await requestConfirmDialog({
+      title: "선택한 거래를 삭제할까요?",
+      action: `${ids.length}건을 한 번에 삭제합니다. 삭제하려면 선택 삭제를 눌러 주세요.`,
+      confirmLabel: "선택 삭제",
+    });
+    if (!confirmed) {
+      return;
+    }
+    setLoading(true);
+    setMessage("");
+    try {
+      const result = await api(
+        `${API_PREFIX}/transactions/bulk-delete`,
+        {
+          method: "POST",
+          body: JSON.stringify({ transaction_ids: ids }),
+        },
+        token
+      );
+      const deletedIds = new Set((result?.deleted_ids || ids).map((id) => String(id || "").trim()).filter(Boolean));
+      setSelectedTransactionIds((prev) => {
+        const next = new Set(prev);
+        for (const id of deletedIds) {
+          next.delete(id);
+        }
+        return next;
+      });
+      setTransactionHistoryItems((prev) => prev.filter((item) => !deletedIds.has(String(item?.id || ""))));
+      await refreshData(false);
+      if (transactionHistoryInitialized || tab === "transactions") {
+        await refreshTransactionHistoryAtAnchor(transactionHistoryAnchorDate || transactionHistoryToday, { alignToEnd: false });
+      }
+      setMessage(uiGuideMessage("선택한 거래를 삭제했습니다.", `${deletedIds.size}건을 목록에서 제거했습니다.`));
+    } catch (error) {
+      setMessage(formatApiError(error, "transaction_delete"));
+    } finally {
+      setLoading(false);
+    }
+  }
+
   function applyTransactionOwnerOption(option) {
     setTxQuickOwnerTouched(true);
     setTxDraftTouched(true);
@@ -6733,6 +6905,22 @@ function App() {
     setMessage("");
     try {
       const payload = buildTransactionPayloadFromForm(txInlineEdit);
+      if (txInlineEdit.mode === "insert") {
+        const createdTransaction = await api(
+          `${API_PREFIX}/transactions`,
+          {
+            method: "POST",
+            body: JSON.stringify(payload),
+          },
+          token
+        );
+        closeTxInlineEdit();
+        await revealSavedTransactionInList(createdTransaction, payload.occurred_on || txInlineEdit.occurred_on, {
+          alignToEnd: false,
+        });
+        setMessage(uiGuideMessage("선택한 위치에 거래를 삽입했습니다.", "삽입한 거래를 목록에서 확인할 수 있습니다."));
+        return;
+      }
       const originalTx = transactionById.get(txInlineEdit.id);
       const originalPayload = originalTx
         ? buildTransactionPayloadFromForm({
@@ -7175,7 +7363,7 @@ function App() {
     dismissOnboardingGuide();
     setShowTransactionEntryBanner(true);
     setTab("transactions");
-    openTransactionEntrySheet("form");
+    openNormalTransactionEntrySheet("form");
   }
 
   async function copyImportReportCsv() {
@@ -8687,6 +8875,30 @@ function App() {
                   setTransactionHistoryItems((prev) =>
                     prev.filter((item) => String(item?.id || "") !== deletedId)
                   );
+                  setSelectedTransactionIds((prev) => {
+                    if (!prev.has(deletedId)) {
+                      return prev;
+                    }
+                    const next = new Set(prev);
+                    next.delete(deletedId);
+                    return next;
+                  });
+                }
+              } else if (eventName === "transaction.bulk_deleted") {
+                const deletedIds = new Set(
+                  (payload?.entity_ids || []).map((id) => String(id || "").trim()).filter(Boolean)
+                );
+                if (deletedIds.size > 0) {
+                  setTransactionHistoryItems((prev) =>
+                    prev.filter((item) => !deletedIds.has(String(item?.id || "")))
+                  );
+                  setSelectedTransactionIds((prev) => {
+                    const next = new Set(prev);
+                    for (const id of deletedIds) {
+                      next.delete(id);
+                    }
+                    return next.size === prev.size ? prev : next;
+                  });
                 }
               }
             } else if (eventName.startsWith("holding.")) {
@@ -8972,19 +9184,7 @@ function App() {
       : "positive";
   const dashboardRecentTransactions = useMemo(() => {
     return [...transactions]
-      .sort((left, right) => {
-        const leftDate = String(left?.occurred_on || "");
-        const rightDate = String(right?.occurred_on || "");
-        if (leftDate !== rightDate) {
-          return rightDate.localeCompare(leftDate);
-        }
-        const leftCreated = Date.parse(String(left?.created_at || ""));
-        const rightCreated = Date.parse(String(right?.created_at || ""));
-        if (Number.isFinite(leftCreated) && Number.isFinite(rightCreated) && leftCreated !== rightCreated) {
-          return rightCreated - leftCreated;
-        }
-        return String(right?.id || "").localeCompare(String(left?.id || ""));
-      })
+      .sort((left, right) => compareTransactionsByLedgerOrder(left, right, -1))
       .slice(0, 5);
   }, [transactions]);
   const dashboardHoldingHighlights = useMemo(() => {
@@ -10687,7 +10887,7 @@ function App() {
                     className="primary surface-heading-action transaction-desktop-add-action"
                     data-testid="transactions-desktop-add-action"
                     disabled={loading}
-                    onClick={() => openTransactionEntrySheet("form")}
+                    onClick={() => openNormalTransactionEntrySheet("form")}
                   >
                     <span aria-hidden="true">＋</span>
                     <span>거래 추가</span>
@@ -10721,6 +10921,48 @@ function App() {
                       선택 합계 {fmtKrw(selectedTransactionSummary.amount)}
                     </span>
                   </span>
+                  {selectedTransactionSummary.count === 1 && (
+                    <>
+                      <button
+                        type="button"
+                        className="secondary transaction-selection-action transaction-selection-edit"
+                        data-testid="transaction-selection-edit"
+                        disabled={!canEditRecords || loading}
+                        onClick={openSelectedTransactionEdit}
+                      >
+                        수정
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary transaction-selection-action transaction-selection-insert-above"
+                        data-testid="transaction-selection-insert-above"
+                        disabled={!canEditRecords || loading}
+                        onClick={() => openSelectedTransactionInsert("above")}
+                      >
+                        위에 삽입
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary transaction-selection-action transaction-selection-insert-below"
+                        data-testid="transaction-selection-insert-below"
+                        disabled={!canEditRecords || loading}
+                        onClick={() => openSelectedTransactionInsert("below")}
+                      >
+                        아래에 삽입
+                      </button>
+                    </>
+                  )}
+                  <button
+                    type="button"
+                    className="danger transaction-selection-action transaction-selection-delete"
+                    data-testid="transaction-selection-delete"
+                    disabled={selectedTransactionSummary.count === 0 || !canEditRecords || loading}
+                    onClick={() => {
+                      void removeSelectedTransactions();
+                    }}
+                  >
+                    {selectedTransactionSummary.count > 1 ? "선택 삭제" : "삭제"}
+                  </button>
                   <button
                     type="button"
                     className="secondary transaction-selection-clear"
@@ -10862,20 +11104,13 @@ function App() {
                 </div>
               )}
             </div>
-            {(transactionHistoryLoading.initial ||
-              transactionHistoryLoading.older ||
-              transactionHistoryLoading.newer ||
-              transactionHistoryError) && (
+            {(transactionHistoryLoading.initial || transactionHistoryError) && (
               <p
                 className={`table-summary transaction-history-status${transactionHistoryError ? " is-error" : ""}`}
                 role={transactionHistoryError ? "alert" : "status"}
               >
                 {transactionHistoryError ||
-                  (transactionHistoryLoading.initial
-                    ? "오늘 기준 거래 내역을 불러오는 중입니다."
-                    : transactionHistoryLoading.older
-                      ? "이전 거래를 불러오는 중입니다."
-                      : "다음 거래를 불러오는 중입니다.")}
+                  "오늘 기준 거래 내역을 불러오는 중입니다."}
               </p>
             )}
             <TransactionSurfaceTable
@@ -10921,7 +11156,6 @@ function App() {
               canEditHouseholdData={canEditHouseholdData}
               loading={loading}
               closeTxInlineEdit={closeTxInlineEdit}
-              removeTx={removeTx}
               mobileStickyActive={transactionsMobileStickyActive}
               handleTxInlineEditKeyDown={handleTxInlineEditKeyDown}
               handleGroupedDecimalInput={handleGroupedDecimalInput}
@@ -10931,7 +11165,6 @@ function App() {
               submitTxInlineEdit={submitTxInlineEdit}
               fmtKrw={fmtKrw}
               fmtDate={fmtDate}
-              normalizeDecimalInputValue={normalizeDecimalInputValue}
               toCategoryMajorLabel={toCategoryMajorLabel}
               toCategoryMinorLabel={toCategoryMinorLabel}
             />
@@ -10944,7 +11177,7 @@ function App() {
               data-testid="transactions-fab"
               aria-label="거래 추가"
               disabled={loading}
-              onClick={() => openTransactionEntrySheet("form")}
+              onClick={() => openNormalTransactionEntrySheet("form")}
             >
               <span aria-hidden="true">＋</span>
             </button>
