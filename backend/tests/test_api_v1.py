@@ -4776,6 +4776,73 @@ def test_transaction_create_suppresses_immediate_exact_replay_without_source_ref
         assert len(listed.json()) == 1
 
 
+def test_transaction_create_allows_anchored_duplicate_without_source_ref() -> None:
+    with TestClient(app) as client:
+        token = _auth(client, f"tx-anchor-replay-{uuid.uuid4().hex}@example.com", "Password1234", "TxAnchorReplay")
+        payload = {
+            "occurred_on": "2026-05-03",
+            "flow_type": "expense",
+            "amount": 68000,
+            "currency": "KRW",
+            "memo": "앵커 중복 장보기",
+        }
+
+        created = client.post("/api/v1/transactions", headers=_headers(token), json=payload)
+        anchored = client.post(
+            "/api/v1/transactions",
+            headers=_headers(token),
+            json={
+                **payload,
+                "anchor_transaction_id": created.json()["id"],
+                "insert_position": "below",
+            },
+        )
+
+        assert created.status_code == 201
+        assert anchored.status_code == 201
+        assert anchored.json()["id"] != created.json()["id"]
+        listed = client.get("/api/v1/transactions?year=2026&month=5", headers=_headers(token))
+        assert listed.status_code == 200
+        same_day = [item for item in listed.json() if item["occurred_on"] == "2026-05-03"]
+        assert [item["memo"] for item in same_day[:2]] == ["앵커 중복 장보기", "앵커 중복 장보기"]
+        assert [item["order_key"] for item in same_day[:2]] == [1024, 2048]
+
+
+def test_transaction_list_uses_order_key() -> None:
+    with TestClient(app) as client:
+        token = _auth(client, f"tx-order-key-{uuid.uuid4().hex}@example.com", "Password1234", "TxOrderKey")
+        first = client.post(
+            "/api/v1/transactions",
+            headers=_headers(token),
+            json={
+                "occurred_on": "2026-05-03",
+                "flow_type": "expense",
+                "amount": 1000,
+                "currency": "KRW",
+                "memo": "order-key-first",
+            },
+        )
+        second = client.post(
+            "/api/v1/transactions",
+            headers=_headers(token),
+            json={
+                "occurred_on": "2026-05-03",
+                "flow_type": "expense",
+                "amount": 2000,
+                "currency": "KRW",
+                "memo": "order-key-second",
+            },
+        )
+
+        assert first.status_code == 201
+        assert second.status_code == 201
+        listed = client.get("/api/v1/transactions?year=2026&month=5", headers=_headers(token))
+        assert listed.status_code == 200
+        items = listed.json()
+        assert [item["memo"] for item in items[:2]] == ["order-key-first", "order-key-second"]
+        assert [item["order_key"] for item in items[:2]] == [1024, 2048]
+
+
 def test_transaction_create_rejects_category_flow_type_mismatch() -> None:
     with TestClient(app) as client:
         token = _auth(client, f"tx-flow-mismatch-{uuid.uuid4().hex}@example.com", "Password1234", "TxFlow")
@@ -4898,7 +4965,11 @@ def _create_history_transaction(
     occurred_on: date,
     memo: str,
     created_at: datetime | None = None,
+    order_key: int | None = None,
 ) -> str:
+    transaction_kwargs: dict[str, Any] = {}
+    if order_key is not None:
+        transaction_kwargs["order_key"] = order_key
     with SessionLocal() as db:
         tx = Transaction(
             household_id=household_id,
@@ -4909,6 +4980,7 @@ def _create_history_transaction(
             memo=memo,
             created_at=created_at or datetime.now(UTC),
             updated_at=created_at or datetime.now(UTC),
+            **transaction_kwargs,
         )
         db.add(tx)
         db.commit()
@@ -5059,6 +5131,261 @@ def test_transaction_history_cursor_safety_and_tie_breaking() -> None:
         )
         assert blocked.status_code == 400
         assert blocked.json()["error"]["code"] == "TRANSACTION_HISTORY_CURSOR_INVALID"
+
+
+def test_transaction_history_cursor_order_key() -> None:
+    with TestClient(app) as client:
+        token = _auth(client, f"tx-history-order-key-{uuid.uuid4().hex}@example.com", "Password1234", "TxHistoryOrder")
+        household_id = client.get("/api/v1/household/current", headers=_headers(token)).json()["household"]["id"]
+        today = datetime.now(UTC).date()
+        _create_history_transaction(
+            household_id=household_id,
+            occurred_on=today,
+            memo="ledger-a",
+            created_at=datetime(2026, 1, 2, 12, 0, tzinfo=UTC),
+            order_key=1024,
+        )
+        _create_history_transaction(
+            household_id=household_id,
+            occurred_on=today,
+            memo="ledger-b",
+            created_at=datetime(2026, 1, 2, 10, 0, tzinfo=UTC),
+            order_key=2048,
+        )
+        _create_history_transaction(
+            household_id=household_id,
+            occurred_on=today,
+            memo="ledger-c",
+            created_at=datetime(2026, 1, 2, 8, 0, tzinfo=UTC),
+            order_key=3072,
+        )
+
+        initial = client.get("/api/v1/transactions/history?limit=2", headers=_headers(token))
+        assert initial.status_code == 200
+        payload = initial.json()
+        assert [item["memo"] for item in payload["items"]] == ["ledger-b", "ledger-c"]
+        assert [item["order_key"] for item in payload["items"]] == [2048, 3072]
+        assert payload["has_older"] is True
+
+        older = client.get(
+            f"/api/v1/transactions/history?direction=older&limit=2&cursor={payload['older_cursor']}",
+            headers=_headers(token),
+        )
+        assert older.status_code == 200
+        assert [item["memo"] for item in older.json()["items"]] == ["ledger-a"]
+
+
+def test_transaction_insert_position_above_and_validation() -> None:
+    with TestClient(app) as client:
+        token = _auth(client, f"tx-insert-{uuid.uuid4().hex}@example.com", "Password1234", "TxInsert")
+        other_token = _auth(client, f"tx-insert-other-{uuid.uuid4().hex}@example.com", "Password1234", "TxInsertOther")
+        base_date = "2026-05-07"
+        first = client.post(
+            "/api/v1/transactions",
+            headers=_headers(token),
+            json={
+                "occurred_on": base_date,
+                "flow_type": "expense",
+                "amount": 1000,
+                "currency": "KRW",
+                "memo": "insert-anchor-first",
+            },
+        )
+        second = client.post(
+            "/api/v1/transactions",
+            headers=_headers(token),
+            json={
+                "occurred_on": base_date,
+                "flow_type": "expense",
+                "amount": 2000,
+                "currency": "KRW",
+                "memo": "insert-anchor-second",
+            },
+        )
+        foreign = client.post(
+            "/api/v1/transactions",
+            headers=_headers(other_token),
+            json={
+                "occurred_on": base_date,
+                "flow_type": "expense",
+                "amount": 3000,
+                "currency": "KRW",
+                "memo": "insert-foreign-anchor",
+            },
+        )
+        assert first.status_code == 201
+        assert second.status_code == 201
+        assert foreign.status_code == 201
+
+        inserted = client.post(
+            "/api/v1/transactions",
+            headers=_headers(token),
+            json={
+                "occurred_on": base_date,
+                "flow_type": "expense",
+                "amount": 1500,
+                "currency": "KRW",
+                "memo": "insert-above-second",
+                "anchor_transaction_id": second.json()["id"],
+                "insert_position": "above",
+            },
+        )
+        assert inserted.status_code == 201
+        assert inserted.json()["order_key"] > first.json()["order_key"]
+        assert inserted.json()["order_key"] < second.json()["order_key"]
+
+        listed = client.get("/api/v1/transactions?year=2026&month=5", headers=_headers(token))
+        assert listed.status_code == 200
+        assert [item["memo"] for item in listed.json()[:3]] == [
+            "insert-anchor-first",
+            "insert-above-second",
+            "insert-anchor-second",
+        ]
+
+        missing_position = client.post(
+            "/api/v1/transactions",
+            headers=_headers(token),
+            json={
+                "occurred_on": base_date,
+                "flow_type": "expense",
+                "amount": 2500,
+                "currency": "KRW",
+                "memo": "insert-missing-position",
+                "anchor_transaction_id": second.json()["id"],
+            },
+        )
+        assert missing_position.status_code == 400
+        assert missing_position.json()["error"]["code"] == "TRANSACTION_INSERT_ANCHOR_REQUIRED"
+
+        mismatched_date = client.post(
+            "/api/v1/transactions",
+            headers=_headers(token),
+            json={
+                "occurred_on": "2026-05-08",
+                "flow_type": "expense",
+                "amount": 2600,
+                "currency": "KRW",
+                "memo": "insert-date-mismatch",
+                "anchor_transaction_id": second.json()["id"],
+                "insert_position": "below",
+            },
+        )
+        assert mismatched_date.status_code == 400
+        assert mismatched_date.json()["error"]["code"] == "TRANSACTION_INSERT_ANCHOR_DATE_MISMATCH"
+
+        foreign_anchor = client.post(
+            "/api/v1/transactions",
+            headers=_headers(token),
+            json={
+                "occurred_on": base_date,
+                "flow_type": "expense",
+                "amount": 2700,
+                "currency": "KRW",
+                "memo": "insert-foreign-anchor-denied",
+                "anchor_transaction_id": foreign.json()["id"],
+                "insert_position": "below",
+            },
+        )
+        assert foreign_anchor.status_code == 404
+
+
+def test_transaction_insert_position_rebalances_when_no_gap() -> None:
+    with TestClient(app) as client:
+        token = _auth(client, f"tx-insert-rebalance-{uuid.uuid4().hex}@example.com", "Password1234", "TxRebalance")
+        household_id = client.get("/api/v1/household/current", headers=_headers(token)).json()["household"]["id"]
+        first_id = _create_history_transaction(
+            household_id=household_id,
+            occurred_on=date(2026, 5, 9),
+            memo="rebalance-first",
+            created_at=datetime(2026, 1, 2, 8, 0, tzinfo=UTC),
+            order_key=1,
+        )
+        second_id = _create_history_transaction(
+            household_id=household_id,
+            occurred_on=date(2026, 5, 9),
+            memo="rebalance-second",
+            created_at=datetime(2026, 1, 2, 9, 0, tzinfo=UTC),
+            order_key=2,
+        )
+
+        inserted = client.post(
+            "/api/v1/transactions",
+            headers=_headers(token),
+            json={
+                "occurred_on": "2026-05-09",
+                "flow_type": "expense",
+                "amount": 1500,
+                "currency": "KRW",
+                "memo": "rebalance-inserted",
+                "anchor_transaction_id": second_id,
+                "insert_position": "above",
+            },
+        )
+
+        assert inserted.status_code == 201
+        with SessionLocal() as db:
+            first = db.get(Transaction, first_id)
+            second = db.get(Transaction, second_id)
+            created = db.get(Transaction, inserted.json()["id"])
+            assert first is not None
+            assert second is not None
+            assert created is not None
+            assert first.order_key < created.order_key < second.order_key
+            assert first.order_key >= 1024
+
+
+def test_transaction_bulk_delete_is_atomic() -> None:
+    with TestClient(app) as client:
+        token = _auth(client, f"tx-bulk-{uuid.uuid4().hex}@example.com", "Password1234", "TxBulk")
+        first = client.post(
+            "/api/v1/transactions",
+            headers=_headers(token),
+            json={
+                "occurred_on": "2026-05-10",
+                "flow_type": "expense",
+                "amount": 1000,
+                "currency": "KRW",
+                "memo": "bulk-first",
+            },
+        )
+        second = client.post(
+            "/api/v1/transactions",
+            headers=_headers(token),
+            json={
+                "occurred_on": "2026-05-10",
+                "flow_type": "expense",
+                "amount": 2000,
+                "currency": "KRW",
+                "memo": "bulk-second",
+            },
+        )
+        assert first.status_code == 201
+        assert second.status_code == 201
+
+        partial = client.post(
+            "/api/v1/transactions/bulk-delete",
+            headers=_headers(token),
+            json={"transaction_ids": [first.json()["id"], str(uuid.uuid4())]},
+        )
+        assert partial.status_code == 404
+        assert partial.json()["error"]["code"] == "TRANSACTION_BULK_DELETE_NOT_FOUND"
+        listed_after_failure = client.get("/api/v1/transactions?year=2026&month=5", headers=_headers(token))
+        assert listed_after_failure.status_code == 200
+        assert {item["memo"] for item in listed_after_failure.json()} >= {"bulk-first", "bulk-second"}
+
+        deleted = client.post(
+            "/api/v1/transactions/bulk-delete",
+            headers=_headers(token),
+            json={"transaction_ids": [first.json()["id"], second.json()["id"], first.json()["id"]]},
+        )
+        assert deleted.status_code == 200
+        assert deleted.json() == {
+            "deleted_count": 2,
+            "deleted_ids": [first.json()["id"], second.json()["id"]],
+        }
+        listed_after_success = client.get("/api/v1/transactions?year=2026&month=5", headers=_headers(token))
+        assert listed_after_success.status_code == 200
+        assert [item["memo"] for item in listed_after_success.json()] == []
 
 
 def test_transaction_patch_merge_conflict_and_tenant_isolation() -> None:
@@ -8101,6 +8428,78 @@ def test_migration_package_apply_replaces_existing_household_data() -> None:
         target_settings = client.get("/api/v1/household/settings", headers=_headers(target_token))
         assert target_settings.status_code == 200
         assert target_settings.json()["base_currency"] == "USD"
+
+
+def test_migration_package_apply_uses_payload_order_key_for_same_day_transactions() -> None:
+    with TestClient(app) as client:
+        source_token = _auth(client, f"migration-order-source-{uuid.uuid4().hex}@example.com", "Password1234", "OrderSource")
+        source_me = client.get("/api/v1/auth/me", headers=_headers(source_token))
+        assert source_me.status_code == 200
+        source_user_id = str(source_me.json()["id"])
+        source_household = client.get("/api/v1/household/current", headers=_headers(source_token))
+        assert source_household.status_code == 200
+        source_household_id = str(source_household.json()["household"]["id"])
+
+        with SessionLocal() as db:
+            category = Category(
+                household_id=source_household_id,
+                flow_type=FlowType.expense,
+                major="정렬",
+                minor="장부",
+                sort_order=100,
+            )
+            db.add(category)
+            db.flush()
+            for memo, order_key in [("migration-order-earlier", 1024), ("migration-order-later", 2048)]:
+                db.add(
+                    Transaction(
+                        household_id=source_household_id,
+                        category_id=category.id,
+                        flow_type=FlowType.expense,
+                        occurred_on=date(2026, 5, 17),
+                        amount=Decimal("10000"),
+                        currency="KRW",
+                        memo=memo,
+                        order_key=order_key,
+                        owner_user_id=source_user_id,
+                        owner_name="OrderSource",
+                        source_ref=f"migration-order-tx-{uuid.uuid4().hex}",
+                        version=1,
+                        created_by_user_id=source_user_id,
+                    )
+                )
+            db.commit()
+
+        export_resp = client.get("/api/v1/imports/migration-package/export", headers=_headers(source_token))
+        assert export_resp.status_code == 200
+        with zipfile.ZipFile(io.BytesIO(export_resp.content), "r") as source_archive:
+            manifest = json.loads(source_archive.read("manifest.json").decode("utf-8"))
+            payload = json.loads(source_archive.read("payload.json").decode("utf-8"))
+        payload["transactions"] = list(reversed(payload["transactions"]))
+        payload_bytes = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
+        manifest["payload_sha256"] = hashlib.sha256(payload_bytes).hexdigest()
+        manifest["payload_size_bytes"] = len(payload_bytes)
+        manifest_bytes = json.dumps(manifest, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
+        mutated_package = io.BytesIO()
+        with zipfile.ZipFile(mutated_package, "w", zipfile.ZIP_DEFLATED) as target_archive:
+            target_archive.writestr("manifest.json", manifest_bytes)
+            target_archive.writestr("payload.json", payload_bytes)
+        mutated_package.seek(0)
+
+        target_token = _auth(client, f"migration-order-target-{uuid.uuid4().hex}@example.com", "Password1234", "OrderTarget")
+        applied = client.post(
+            "/api/v1/imports/migration-package/upload?mode=apply&replace_existing=true",
+            headers=_headers(target_token),
+            files={"file": ("order-transfer.zip", mutated_package.getvalue(), "application/zip")},
+        )
+        assert applied.status_code == 200
+        assert applied.json()["applied_transactions"] == 2
+
+        target_tx = client.get("/api/v1/transactions?year=2026&month=5", headers=_headers(target_token))
+        assert target_tx.status_code == 200
+        ordered = [item for item in target_tx.json() if str(item["memo"]).startswith("migration-order-")]
+        assert [item["memo"] for item in ordered] == ["migration-order-earlier", "migration-order-later"]
+        assert [item["order_key"] for item in ordered] == [1024, 2048]
 
 
 def test_migration_package_apply_links_owner_names_with_collapsed_whitespace() -> None:

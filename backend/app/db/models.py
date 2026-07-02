@@ -262,7 +262,7 @@ class Transaction(Base):
     __table_args__ = (
         UniqueConstraint("household_id", "source_ref", name="uq_transaction_source_ref"),
         Index("idx_tx_household_date", "household_id", "occurred_on"),
-        Index("idx_tx_household_cursor", "household_id", "occurred_on", "created_at", "id"),
+        Index("idx_tx_household_cursor", "household_id", "occurred_on", "order_key", "created_at", "id"),
         Index("idx_tx_household_type_date", "household_id", "flow_type", "occurred_on"),
         Index("idx_tx_household_owner_user", "household_id", "owner_user_id"),
     )
@@ -275,6 +275,7 @@ class Transaction(Base):
     amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
     currency: Mapped[str] = mapped_column(String(8), nullable=False, default="KRW")
     memo: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    order_key: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     owner_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     owner_name: Mapped[str | None] = mapped_column(String(80), nullable=True)
     source_ref: Mapped[str | None] = mapped_column(String(120), nullable=True)
