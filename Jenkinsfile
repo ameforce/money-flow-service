@@ -778,6 +778,8 @@ validate_size "$NGINX_CLIENT_MAX_BODY_SIZE"
 validate_healthcheck_url "$HEALTHCHECK_URL"
 validate_public_base_url "$PUBLIC_BASE_URL"
 validate_remote "$REMOTE"
+INCOMING_ENV_FILE_PATH="${ENV_FILE_PATH}.incoming"
+validate_file_name "INCOMING_ENV_FILE_PATH" "$INCOMING_ENV_FILE_PATH"
 
 trap 'rm -rf "$DEPLOY_TMP_KEY_DIR"' EXIT
 
@@ -844,7 +846,7 @@ run_ssh "ensure-remote-dir" "set -e; mkdir -p '$REMOTE_DEPLOY_PATH'"
         fi
 run_scp "upload-bundle" "$BUNDLE_NAME" "$REMOTE:$REMOTE_DEPLOY_PATH/$BUNDLE_NAME"
 if [ -s "$DEPLOY_ENV_FILE" ] && [ "$(head -c 1 "$DEPLOY_ENV_FILE")" != "<" ]; then
-  run_scp "upload-env-file" "$DEPLOY_ENV_FILE" "$REMOTE:$REMOTE_DEPLOY_PATH/$ENV_FILE_PATH"
+  run_scp "upload-env-file" "$DEPLOY_ENV_FILE" "$REMOTE:$REMOTE_DEPLOY_PATH/$INCOMING_ENV_FILE_PATH"
 else
   echo "[deploy] skipped copying env file (invalid or empty credential file)"
 fi
@@ -861,10 +863,47 @@ cd "$REMOTE_DEPLOY_PATH"
 if [ -f "$ENV_FILE_PATH" ]; then cp "$ENV_FILE_PATH" "$ENV_FILE_PATH.previous"; fi
 if [ -f "$BUNDLE_NAME" ]; then tar -xzf "$BUNDLE_NAME"; fi
 rm -f "$BUNDLE_NAME"
+
+validate_env_has_assignments() {
+  local env_path="$1"
+
+  if [ ! -f "$env_path" ] || ! grep -qEq '^[A-Za-z_][A-Za-z0-9_]*=' "$env_path"; then
+    echo "[deploy] invalid env file detected: ${env_path}"
+    return 1
+  fi
+}
+
+validate_env_required_keys() {
+  local env_path="$1"
+  shift
+  local missing_keys=''
+  local key=''
+  local current_value=''
+
+  for key in "$@"; do
+    current_value="$(grep -E "^${key}=" "$env_path" | tail -n 1 | cut -d= -f2- || true)"
+    if [ -z "$current_value" ]; then
+      missing_keys="${missing_keys} ${key}"
+    fi
+  done
+  if [ -n "$missing_keys" ]; then
+    echo "[deploy] missing required env keys:${missing_keys}"
+    return 1
+  fi
+}
+
+if [ -n "${INCOMING_ENV_FILE_PATH:-}" ] && [ -f "$INCOMING_ENV_FILE_PATH" ]; then
+  validated_env_path="$INCOMING_ENV_FILE_PATH"
+  validate_env_has_assignments "$validated_env_path"
+  if [ "$ENV_FILE_PATH" = '.env' ]; then
+    validate_env_required_keys "$validated_env_path" POSTGRES_USER POSTGRES_PASSWORD SECRET_KEY SMTP_HOST SMTP_PORT SMTP_SSL SMTP_STARTTLS SMTP_FROM_EMAIL SMTP_ACCOUNT_LABEL
+  fi
+  mv "$validated_env_path" "$ENV_FILE_PATH"
+fi
 if [ ! -f "$ENV_FILE_PATH" ] && [ -f "$ENV_FILE_PATH.previous" ]; then
   cp "$ENV_FILE_PATH.previous" "$ENV_FILE_PATH"
 fi
-if [ -f "$ENV_FILE_PATH" ] && ! grep -qEq '^[A-Za-z_][A-Za-z0-9_]*=' "$ENV_FILE_PATH" && [ -f "$ENV_FILE_PATH.previous" ]; then
+if [ -f "$ENV_FILE_PATH" ] && ! validate_env_has_assignments "$ENV_FILE_PATH" && [ -f "$ENV_FILE_PATH.previous" ]; then
   echo '[deploy] invalid env file detected; restoring previous env file'
   cp "$ENV_FILE_PATH.previous" "$ENV_FILE_PATH"
 fi
@@ -955,10 +994,33 @@ for line in lines:
         key, value = line.split("=", 1)
         values[key] = value
 
-required = ("POSTGRES_USER", "POSTGRES_PASSWORD")
+required = (
+    "POSTGRES_USER",
+    "POSTGRES_PASSWORD",
+    "SECRET_KEY",
+    "SMTP_HOST",
+    "SMTP_PORT",
+    "SMTP_SSL",
+    "SMTP_STARTTLS",
+    "SMTP_FROM_EMAIL",
+    "SMTP_ACCOUNT_LABEL",
+)
 missing = [key for key in required if not values.get(key)]
 if missing:
     raise SystemExit("[deploy] missing prod env: " + " ".join(missing))
+
+shape_errors = []
+if not values["SMTP_PORT"].isdigit():
+    shape_errors.append("SMTP_PORT")
+for key in ("SMTP_SSL", "SMTP_STARTTLS"):
+    if values[key].lower() not in ("true", "false"):
+        shape_errors.append(key)
+if "@" not in values["SMTP_FROM_EMAIL"]:
+    shape_errors.append("SMTP_FROM_EMAIL")
+if values["SMTP_ACCOUNT_LABEL"] != "money-flow-prod":
+    shape_errors.append("SMTP_ACCOUNT_LABEL")
+if shape_errors:
+    raise SystemExit("[deploy] invalid prod env shape: " + " ".join(shape_errors))
 
 normalized = {
     "ENV": "prod",
@@ -988,7 +1050,7 @@ for line in lines:
     output.append(line)
 for key, value in normalized.items():
     output.append(f"{key}={value}")
-env_path.write_text("\n".join(output) + "\n")
+env_path.write_text(chr(10).join(output) + chr(10))
 PY
 
   missing_prod_env=''
@@ -1052,17 +1114,84 @@ echo '[deploy] SCHEMA_UPGRADE_OK'
 echo '[deploy] starting app after schema upgrade'
 docker compose -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" --env-file "$ENV_FILE_PATH" up -d app
 docker compose -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" --env-file "$ENV_FILE_PATH" ps
+assert_frontend_asset_version() {
+  local base_url="$1"
+  local expected_app_version="$2"
+  local host_header="${3:-}"
+  local expected_frontend_version="${expected_app_version#v}"
+  local root_html=''
+  local asset_path=''
+  local asset_url=''
+  local asset_body=''
+
+  if [ -n "$host_header" ]; then
+    root_html="$(curl -fsS -H "Host: $host_header" "${base_url%/}/")"
+  else
+    root_html="$(curl -fsS "${base_url%/}/")"
+  fi
+  asset_path="$(printf '%s' "$root_html" | sed -n 's/.*src="\([^"]*\/assets\/[^"]*[.]js\)".*/\1/p' | sed -n '1p')"
+  if [ -z "$asset_path" ]; then
+    echo "[deploy] frontend asset path not found at ${base_url%/}/"
+    exit 1
+  fi
+  case "$asset_path" in
+    http://*|https://*) asset_url="$asset_path" ;;
+    /*) asset_url="${base_url%/}${asset_path}" ;;
+    *) asset_url="${base_url%/}/${asset_path}" ;;
+  esac
+  if [ -n "$host_header" ]; then
+    asset_body="$(curl -fsS -H "Host: $host_header" "$asset_url")"
+  else
+    asset_body="$(curl -fsS "$asset_url")"
+  fi
+  if ! printf '%s' "$asset_body" | grep -Fq "$expected_frontend_version"; then
+    echo "[deploy] frontend asset version mismatch: expected ${expected_frontend_version} at ${asset_url}"
+    exit 1
+  fi
+  echo "[deploy] frontend asset version matched: ${expected_frontend_version} (${asset_url})"
+}
 if ! curl --fail --retry-all-errors --retry "$HEALTH_RETRY_MAX" --retry-delay "$HEALTH_RETRY_INTERVAL" -H "Host: $DOMAIN" "$HEALTHCHECK_URL"; then
   echo '[deploy] health check failed after retries'
   docker compose -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" --env-file "$ENV_FILE_PATH" logs --tail=200
   exit 1
 fi
 echo '[deploy] health check success'
+server_base_url="${HEALTHCHECK_URL%/healthz}"
+assert_frontend_asset_version "$server_base_url" "$APP_VERSION" "$DOMAIN"
 REMOTE_DEPLOY
 
 run_scp "upload-remote-deploy-script" "$remote_deploy_script" "$REMOTE:$REMOTE_DEPLOY_PATH/$remote_script_name"
 rm -f "$remote_deploy_script"
-run_ssh "remote-deploy" "set -euo pipefail; cd '$REMOTE_DEPLOY_PATH'; chmod 700 '$remote_script_name'; set +e; REMOTE_DEPLOY_PATH='$REMOTE_DEPLOY_PATH' ENV_FILE_PATH='$ENV_FILE_PATH' BUNDLE_NAME='$BUNDLE_NAME' NGINX_CLIENT_MAX_BODY_SIZE='$NGINX_CLIENT_MAX_BODY_SIZE' DOMAIN='$DOMAIN' VHOST_APP_PORT='$VHOST_APP_PORT' APP_VERSION='$APP_VERSION' COMPOSE_PROJECT='$COMPOSE_PROJECT' COMPOSE_FILE='$COMPOSE_FILE' HEALTH_RETRY_MAX='$HEALTH_RETRY_MAX' HEALTH_RETRY_INTERVAL='$HEALTH_RETRY_INTERVAL' HEALTHCHECK_URL='$HEALTHCHECK_URL' /usr/bin/env bash '$remote_script_name'; status=\\$?; if [ \"\\$status\" -eq 0 ]; then rm -f '$remote_script_name'; fi; exit \\$status"
+run_ssh "remote-deploy" "set -euo pipefail; cd '$REMOTE_DEPLOY_PATH'; chmod 700 '$remote_script_name'; set +e; REMOTE_DEPLOY_PATH='$REMOTE_DEPLOY_PATH' ENV_FILE_PATH='$ENV_FILE_PATH' INCOMING_ENV_FILE_PATH='$INCOMING_ENV_FILE_PATH' BUNDLE_NAME='$BUNDLE_NAME' NGINX_CLIENT_MAX_BODY_SIZE='$NGINX_CLIENT_MAX_BODY_SIZE' DOMAIN='$DOMAIN' VHOST_APP_PORT='$VHOST_APP_PORT' APP_VERSION='$APP_VERSION' COMPOSE_PROJECT='$COMPOSE_PROJECT' COMPOSE_FILE='$COMPOSE_FILE' HEALTH_RETRY_MAX='$HEALTH_RETRY_MAX' HEALTH_RETRY_INTERVAL='$HEALTH_RETRY_INTERVAL' HEALTHCHECK_URL='$HEALTHCHECK_URL' /usr/bin/env bash '$remote_script_name'; status=\\$?; if [ \"\\$status\" -eq 0 ]; then rm -f '$remote_script_name'; fi; exit \\$status"
+
+assert_frontend_asset_version() {
+  local base_url="$1"
+  local expected_app_version="$2"
+  local expected_frontend_version="${expected_app_version#v}"
+  local root_html=''
+  local asset_path=''
+  local asset_url=''
+  local asset_body=''
+
+  root_html="$(curl -fsS "${base_url%/}/")"
+  asset_path="$(printf '%s' "$root_html" | sed -n 's/.*src="\([^"]*\/assets\/[^"]*[.]js\)".*/\1/p' | sed -n '1p')"
+  if [ -z "$asset_path" ]; then
+    echo "[deploy] frontend asset path not found at ${base_url%/}/"
+    exit 1
+  fi
+  case "$asset_path" in
+    http://*|https://*) asset_url="$asset_path" ;;
+    /*) asset_url="${base_url%/}${asset_path}" ;;
+    *) asset_url="${base_url%/}/${asset_path}" ;;
+  esac
+  asset_body="$(curl -fsS "$asset_url")"
+  if ! printf '%s' "$asset_body" | grep -Fq "$expected_frontend_version"; then
+    echo "[deploy] frontend asset version mismatch: expected ${expected_frontend_version} at ${asset_url}"
+    exit 1
+  fi
+  echo "[deploy] public frontend asset version matched: ${expected_frontend_version} (${asset_url})"
+}
+assert_frontend_asset_version "$PUBLIC_BASE_URL" "$APP_VERSION"
 
 tmp_probe_file="$(mktemp)"
 tmp_probe_body="$(mktemp)"
