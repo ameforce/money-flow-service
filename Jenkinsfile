@@ -44,7 +44,7 @@ pipeline {
     )
     string(
       name: 'DEPLOY_ALLOWED_BRANCHES',
-      defaultValue: 'develop,main',
+      defaultValue: 'main',
       description: '배포 허용 브랜치 목록(쉼표 구분)'
     )
     string(
@@ -338,7 +338,7 @@ SSH_OPTS="${params.DEPLOY_SSH_OPTS}"
 HEALTH_RETRY_MAX="${healthRetryCount}"
 HEALTH_RETRY_INTERVAL="${healthIntervalSeconds}"
 
-echo "[deploy] preflight to ${remote}"
+echo "[deploy] preflight to \$REMOTE"
 ssh \$SSH_OPTS "\$REMOTE" "set -e; hostnamectl || true; whoami; id; df -h; free -h; docker --version; docker compose version; ss -lntp | head -n 10"
 ssh \$SSH_OPTS "\$REMOTE" "set -e; mkdir -p '\$REMOTE_DEPLOY_PATH'"
 
