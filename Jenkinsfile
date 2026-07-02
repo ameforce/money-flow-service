@@ -778,7 +778,7 @@ validate_size "$NGINX_CLIENT_MAX_BODY_SIZE"
 validate_healthcheck_url "$HEALTHCHECK_URL"
 validate_public_base_url "$PUBLIC_BASE_URL"
 validate_remote "$REMOTE"
-INCOMING_ENV_FILE_PATH="${ENV_FILE_PATH}.incoming"
+INCOMING_ENV_FILE_PATH="${ENV_FILE_PATH}.incoming.${APP_VERSION}.${BUILD_NUMBER:-manual}"
 validate_file_name "INCOMING_ENV_FILE_PATH" "$INCOMING_ENV_FILE_PATH"
 
 trap 'rm -rf "$DEPLOY_TMP_KEY_DIR"' EXIT
@@ -846,6 +846,7 @@ run_ssh "ensure-remote-dir" "set -e; mkdir -p '$REMOTE_DEPLOY_PATH'"
         fi
 run_scp "upload-bundle" "$BUNDLE_NAME" "$REMOTE:$REMOTE_DEPLOY_PATH/$BUNDLE_NAME"
 if [ -s "$DEPLOY_ENV_FILE" ] && [ "$(head -c 1 "$DEPLOY_ENV_FILE")" != "<" ]; then
+  run_ssh "prepare-env-upload" "set -e; cd '$REMOTE_DEPLOY_PATH'; rm -f '$INCOMING_ENV_FILE_PATH'"
   run_scp "upload-env-file" "$DEPLOY_ENV_FILE" "$REMOTE:$REMOTE_DEPLOY_PATH/$INCOMING_ENV_FILE_PATH"
 else
   echo "[deploy] skipped copying env file (invalid or empty credential file)"
