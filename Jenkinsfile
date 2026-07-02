@@ -1036,6 +1036,7 @@ missing = [key for key in required if not values.get(key)]
 if missing:
     raise SystemExit("[deploy] missing prod env: " + " ".join(missing))
 
+values["SMTP_ACCOUNT_LABEL"] = "money-flow-prod"
 shape_errors = []
 if not values["SMTP_PORT"].isdigit():
     shape_errors.append("SMTP_PORT")
