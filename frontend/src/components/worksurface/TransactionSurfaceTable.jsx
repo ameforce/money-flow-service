@@ -1,6 +1,7 @@
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 
 import { IsoDateInput } from "../IsoDateInput";
+import { TransactionCategoryQuickPicker } from "./TransactionCategoryQuickPicker";
 import { extractVisibleInitial, resolveSemanticColor, withAlpha } from "./colorSemantics";
 import { TRANSACTION_SURFACE_FIELDS, getWorkSurfaceMobilePriority } from "./fieldPriority";
 
@@ -16,12 +17,63 @@ function firstDefinedValue(values) {
   return values.find((value) => String(value || "").trim()) || "";
 }
 
+function normalizeCategoryText(value) {
+  return String(value || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .replace(/\s*\/\s*/g, "/");
+}
+
+function normalizeCategoryFlowType(value) {
+  return String(value || "expense").trim() || "expense";
+}
+
+function findCompatibleCategoryForFlow(categories, sourceCategory, flowType) {
+  if (!sourceCategory) {
+    return null;
+  }
+  const targetFlowType = normalizeCategoryFlowType(flowType);
+  const sourceMajor = normalizeCategoryText(sourceCategory.major);
+  const sourceMinor = normalizeCategoryText(sourceCategory.minor);
+  if (!sourceMajor || !sourceMinor) {
+    return null;
+  }
+  return (
+    (categories || []).find((candidate) => {
+      if (normalizeCategoryFlowType(candidate?.flow_type) !== targetFlowType) {
+        return false;
+      }
+      return (
+        normalizeCategoryText(candidate?.major) === sourceMajor &&
+        normalizeCategoryText(candidate?.minor) === sourceMinor
+      );
+    }) || null
+  );
+}
+
 function isInteractiveRowTarget(target) {
   return Boolean(
     target?.closest?.(
-      "button, input, select, textarea, a, label, summary, details, [role='button'], [data-row-action='true']"
+      "button, input, select, textarea, a, label, summary, details, [contenteditable='true'], [role='button'], [data-row-action='true']"
     )
   );
+}
+
+const ROW_SWEEP_THRESHOLD_PX = 7;
+const TOUCH_VERTICAL_SCROLL_RATIO = 1.18;
+const ROW_CLICK_SUPPRESS_MS = 360;
+const ROW_SWEEP_AUTO_SCROLL_EDGE_PX = 86;
+const ROW_SWEEP_AUTO_SCROLL_MAX_PX = 24;
+const ROW_SWEEP_AUTO_SCROLL_MIN_PX = 5;
+
+function clearRowSweepTextSelection() {
+  if (typeof window === "undefined" || typeof window.getSelection !== "function") {
+    return;
+  }
+  const selection = window.getSelection();
+  if (selection && !selection.isCollapsed) {
+    selection.removeAllRanges();
+  }
 }
 
 export function TransactionSurfaceTable({
@@ -36,14 +88,21 @@ export function TransactionSurfaceTable({
   historyLoadingOlder = false,
   historyLoadingNewer = false,
   selectedTransactionIds,
+  recentImportTransactionIds = new Set(),
+  recentSavedTransactionIds = new Set(),
   toggleTransactionSelection,
+  selectTransactionRows,
+  setTransactionRowsSelected,
   txInlineEdit,
   ownerOptionsWithFallback,
   ownerSelectValue,
   txInlineCategoryMajor,
+  txInlineCategoryOptions = [],
+  txInlineCategoryQuickChips = [],
   txInlineCategoryMajorOptions,
   txInlineCategoryMinorOptions,
   setTxInlineEdit,
+  createTxInlineCategory,
   categoryById,
   renderCategoryCell,
   FLOW_TYPE_LABELS,
@@ -57,13 +116,16 @@ export function TransactionSurfaceTable({
   expandedTransactionRows,
   toggleExpandedTransactionRow,
   canEditRecords,
+  canEditHouseholdData = false,
   loading,
   closeTxInlineEdit,
   removeTx,
   mobileStickyActive,
   handleTxInlineEditKeyDown,
   handleGroupedDecimalInput,
+  handleTransactionAmountInput,
   ownerSelectionFromValue,
+  renderLegacyOwnerRemapHelper,
   submitTxInlineEdit,
   fmtKrw,
   fmtDate,
@@ -76,7 +138,228 @@ export function TransactionSurfaceTable({
   const ownerColors = householdSettings?.holding_settings?.owner_colors || {};
   const categoryColors = householdSettings?.holding_settings?.category_colors || {};
   const transactionMobilePriority = (fieldKey) => getWorkSurfaceMobilePriority("transactions", fieldKey);
+  const allCategoryOptions = Array.from(categoryById?.values?.() || []);
   const [mobileFilterKey, setMobileFilterKey] = useState("");
+  const rowPointerGestureRef = useRef(null);
+  const suppressNextRowClickRef = useRef(false);
+  const rowClickSuppressTimerRef = useRef(null);
+  const rowSweepAutoScrollFrameRef = useRef(0);
+
+  useEffect(() => {
+    const stopAutoScroll = () => {
+      if (rowSweepAutoScrollFrameRef.current) {
+        window.cancelAnimationFrame(rowSweepAutoScrollFrameRef.current);
+        rowSweepAutoScrollFrameRef.current = 0;
+      }
+    };
+    const clearPointerGesture = () => {
+      stopAutoScroll();
+      rowPointerGestureRef.current = null;
+    };
+    window.addEventListener("pointerup", clearPointerGesture);
+    window.addEventListener("pointercancel", clearPointerGesture);
+    return () => {
+      window.removeEventListener("pointerup", clearPointerGesture);
+      window.removeEventListener("pointercancel", clearPointerGesture);
+      stopAutoScroll();
+      if (rowClickSuppressTimerRef.current) {
+        window.clearTimeout(rowClickSuppressTimerRef.current);
+      }
+    };
+  }, []);
+
+  const findTransactionIdAtPoint = (clientX, clientY, fallbackId = "") => {
+    if (typeof document === "undefined") {
+      return fallbackId;
+    }
+    const target = document.elementFromPoint(clientX, clientY);
+    return target?.closest?.("tr.transaction-row[data-transaction-id]")?.getAttribute("data-transaction-id") || fallbackId;
+  };
+
+  const stopRowSweepAutoScroll = () => {
+    if (rowSweepAutoScrollFrameRef.current && typeof window !== "undefined") {
+      window.cancelAnimationFrame(rowSweepAutoScrollFrameRef.current);
+      rowSweepAutoScrollFrameRef.current = 0;
+    }
+  };
+
+  const applyRowsDuringSweep = (transactionIds, selected) => {
+    const ids = Array.from(new Set(transactionIds.filter(Boolean)));
+    if (ids.length === 0) {
+      return;
+    }
+    if (typeof setTransactionRowsSelected === "function") {
+      setTransactionRowsSelected(ids, selected);
+      return;
+    }
+    if (selected && typeof selectTransactionRows === "function") {
+      selectTransactionRows(ids);
+      return;
+    }
+    for (const transactionId of ids) {
+      const isSelected = selectedTransactionIds.has(transactionId);
+      if (selected !== isSelected) {
+        toggleTransactionSelection(transactionId);
+      }
+    }
+  };
+
+  const visitRowDuringSweep = (gesture, transactionId) => {
+    if (!gesture || !transactionId || gesture.visitedIds.has(transactionId)) {
+      return;
+    }
+    gesture.visitedIds.add(transactionId);
+    applyRowsDuringSweep([transactionId], gesture.shouldSelect);
+  };
+
+  const updateRowSweepAutoScroll = (gesture) => {
+    if (
+      typeof window === "undefined" ||
+      !gesture?.sweepActive ||
+      gesture.touchScrollFirst ||
+      gesture.pointerType !== "mouse"
+    ) {
+      stopRowSweepAutoScroll();
+      return;
+    }
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+    if (viewportHeight <= 0) {
+      return;
+    }
+    const pointerY = gesture.lastY;
+    const upperEdge = ROW_SWEEP_AUTO_SCROLL_EDGE_PX;
+    const lowerEdge = viewportHeight - ROW_SWEEP_AUTO_SCROLL_EDGE_PX;
+    let scrollDelta = 0;
+    if (pointerY < upperEdge) {
+      const intensity = Math.min(1, Math.max(0, (upperEdge - pointerY) / ROW_SWEEP_AUTO_SCROLL_EDGE_PX));
+      scrollDelta = -Math.ceil(ROW_SWEEP_AUTO_SCROLL_MIN_PX + intensity * ROW_SWEEP_AUTO_SCROLL_MAX_PX);
+    } else if (pointerY > lowerEdge) {
+      const intensity = Math.min(1, Math.max(0, (pointerY - lowerEdge) / ROW_SWEEP_AUTO_SCROLL_EDGE_PX));
+      scrollDelta = Math.ceil(ROW_SWEEP_AUTO_SCROLL_MIN_PX + intensity * ROW_SWEEP_AUTO_SCROLL_MAX_PX);
+    }
+    if (scrollDelta === 0) {
+      stopRowSweepAutoScroll();
+      return;
+    }
+    if (rowSweepAutoScrollFrameRef.current) {
+      return;
+    }
+    rowSweepAutoScrollFrameRef.current = window.requestAnimationFrame(() => {
+      rowSweepAutoScrollFrameRef.current = 0;
+      const beforeScrollY = window.scrollY || window.pageYOffset || 0;
+      window.scrollBy({ top: scrollDelta, behavior: "auto" });
+      const rowIdAtPointer = findTransactionIdAtPoint(gesture.lastX, gesture.lastY, gesture.lastId);
+      if (rowIdAtPointer) {
+        gesture.lastId = rowIdAtPointer;
+        visitRowDuringSweep(gesture, rowIdAtPointer);
+      }
+      clearRowSweepTextSelection();
+      const afterScrollY = window.scrollY || window.pageYOffset || 0;
+      if (Math.abs(afterScrollY - beforeScrollY) > 0.5) {
+        updateRowSweepAutoScroll(gesture);
+      }
+    });
+  };
+
+  const activateSweepGesture = (gesture, transactionId) => {
+    gesture.sweepActive = true;
+    clearRowSweepTextSelection();
+    applyRowsDuringSweep([gesture.startId, transactionId], gesture.shouldSelect);
+    updateRowSweepAutoScroll(gesture);
+  };
+
+  const startRowPointerGesture = (event, transactionId, disabled) => {
+    if (
+      disabled ||
+      isInteractiveRowTarget(event.target) ||
+      event.button > 0 ||
+      event.pointerType === "pen"
+    ) {
+      rowPointerGestureRef.current = null;
+      return;
+    }
+    rowPointerGestureRef.current = {
+      pointerId: event.pointerId,
+      pointerType: event.pointerType || "mouse",
+      startX: event.clientX,
+      startY: event.clientY,
+      lastX: event.clientX,
+      lastY: event.clientY,
+      startId: transactionId,
+      lastId: transactionId,
+      visitedIds: new Set([transactionId]),
+      sweepActive: false,
+      shouldSelect: !selectedTransactionIds.has(transactionId),
+      touchScrollFirst: false,
+    };
+    if ((event.pointerType || "mouse") === "mouse" && event.cancelable) {
+      event.currentTarget?.setPointerCapture?.(event.pointerId);
+      event.preventDefault();
+    }
+  };
+
+  const updateRowPointerGesture = (event, transactionId) => {
+    const gesture = rowPointerGestureRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) {
+      return;
+    }
+    const rowIdAtPointer = findTransactionIdAtPoint(event.clientX, event.clientY, transactionId || gesture.lastId);
+    gesture.lastX = event.clientX;
+    gesture.lastY = event.clientY;
+    gesture.lastId = rowIdAtPointer;
+    const deltaX = event.clientX - gesture.startX;
+    const deltaY = event.clientY - gesture.startY;
+    const distance = Math.hypot(deltaX, deltaY);
+    if (!gesture.sweepActive && !gesture.touchScrollFirst && distance >= ROW_SWEEP_THRESHOLD_PX) {
+      const absX = Math.abs(deltaX);
+      const absY = Math.abs(deltaY);
+      if (gesture.pointerType === "touch" && absY > absX * TOUCH_VERTICAL_SCROLL_RATIO) {
+        gesture.touchScrollFirst = true;
+        return;
+      }
+      activateSweepGesture(gesture, rowIdAtPointer);
+    }
+    if (!gesture.sweepActive) {
+      return;
+    }
+    clearRowSweepTextSelection();
+    visitRowDuringSweep(gesture, rowIdAtPointer);
+    updateRowSweepAutoScroll(gesture);
+    if (event.cancelable) {
+      event.preventDefault();
+    }
+  };
+
+  const finishRowPointerGesture = (event) => {
+    const gesture = rowPointerGestureRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) {
+      return;
+    }
+    stopRowSweepAutoScroll();
+    if (event.currentTarget?.hasPointerCapture?.(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    if (gesture.sweepActive || gesture.touchScrollFirst) {
+      suppressNextRowClickRef.current = true;
+      if (rowClickSuppressTimerRef.current) {
+        window.clearTimeout(rowClickSuppressTimerRef.current);
+      }
+      rowClickSuppressTimerRef.current = window.setTimeout(() => {
+        suppressNextRowClickRef.current = false;
+        rowClickSuppressTimerRef.current = null;
+      }, ROW_CLICK_SUPPRESS_MS);
+    }
+    rowPointerGestureRef.current = null;
+  };
+
+  const shouldSuppressRowClick = () => {
+    if (suppressNextRowClickRef.current) {
+      suppressNextRowClickRef.current = false;
+      return true;
+    }
+    return false;
+  };
+
   const safeTxListFilter = txListFilter || {
     keyword: "",
     flow_type: "all",
@@ -129,6 +412,50 @@ export function TransactionSurfaceTable({
         <span>{label}</span>
         {active && <span className="ledger-head-filter-indicator" aria-hidden="true" />}
       </button>
+    );
+  };
+
+  const renderDesktopColumnHead = (field) => {
+    if (field.key === "occurred_on") {
+      return (
+        <div
+          key={field.key}
+          className={`desktop-ledger-head-cell ${field.className}`}
+          role="columnheader"
+          aria-sort={txSortDirection === "asc" ? "ascending" : "descending"}
+          data-field-key={field.key}
+        >
+          {historyMode ? (
+            <span
+              className="sort-header active sort-header-static"
+              aria-label="일자 정렬 연속 내역순 고정"
+            >
+              {field.label}
+              <span className="sort-indicator" aria-hidden="true">↑</span>
+            </span>
+          ) : (
+            <button
+              type="button"
+              className={`sort-header${txSortDirection ? " active" : ""}`}
+              aria-label={`일자 정렬 ${txSortDirection === "asc" ? "내림차순으로 변경" : "오름차순으로 변경"}`}
+              onClick={toggleTxSortDirection}
+            >
+              {field.label}
+              <span className="sort-indicator" aria-hidden="true">{txSortDirection === "asc" ? "↑" : "↓"}</span>
+            </button>
+          )}
+        </div>
+      );
+    }
+    return (
+      <div
+        key={field.key}
+        className={`desktop-ledger-head-cell ${field.className}`}
+        role="columnheader"
+        data-field-key={field.key}
+      >
+        {field.label}
+      </div>
     );
   };
 
@@ -269,6 +596,18 @@ export function TransactionSurfaceTable({
           </button>
         </div>
       )}
+      <div className="surface-ledger-desktop-head transactions-desktop-ledger-head" role="row" aria-label="거래 컬럼 제목">
+        <div className="desktop-ledger-head-cell transaction-col-select" role="columnheader">
+          <input
+            type="checkbox"
+            aria-label="표시된 거래 전체 선택"
+            checked={areAllFilteredTransactionsSelected}
+            onChange={(event) => toggleAllFilteredTransactionSelection(Boolean(event.target.checked))}
+          />
+        </div>
+        {TRANSACTION_SURFACE_FIELDS.map(renderDesktopColumnHead)}
+        <div className="desktop-ledger-head-cell transaction-col-actions" role="columnheader">동작</div>
+      </div>
       <div className="transactions-surface-scroll">
         <table
           className={`transactions-surface-table${mobileStickyActive ? " mobile-sticky-active" : " mobile-sticky-inactive"}`}
@@ -279,7 +618,7 @@ export function TransactionSurfaceTable({
               <th data-mobile-priority="hidden">
                 <input
                   type="checkbox"
-                  aria-label="표시된 거래 전체 선택"
+                  aria-label="거래 표 숨김 전체 선택"
                   checked={areAllFilteredTransactionsSelected}
                   onChange={(event) => toggleAllFilteredTransactionSelection(Boolean(event.target.checked))}
                 />
@@ -351,6 +690,15 @@ export function TransactionSurfaceTable({
             const editOwnerOptions = ownerOptionsWithFallback(editForm?.owner_user_id || "", editForm?.owner_name || "");
             const rowKey = item.id;
             const category = categoryById.get(String(item.category_id || ""));
+            const originalEditCategory = isEditing ? categoryById.get(String(item.category_id || "")) : null;
+            const currentEditCategory = isEditing ? categoryById.get(String(editForm?.category_id || "")) : null;
+            const inlineOriginalCategoryChanged = Boolean(
+              isEditing &&
+                editForm &&
+                originalEditCategory &&
+                (String(editForm.flow_type || "") !== String(item.flow_type || "") ||
+                  String(editForm.category_id || "") !== String(item.category_id || ""))
+            );
             const compactCategoryLabel = [
               category?.minor ? toCategoryMinorLabel(category.minor) : "",
               !category?.minor && category?.major ? toCategoryMajorLabel(category.major) : "",
@@ -358,6 +706,7 @@ export function TransactionSurfaceTable({
             const flowLabel = FLOW_TYPE_LABELS[item.flow_type] || item.flow_type;
             const flowShortLabel = String(flowLabel || "").slice(0, 1) || "-";
             const ownerInitial = extractVisibleInitial(item.owner_name);
+            const ownerSummaryLabel = item.owner_name || "거래자 미입력";
             const flowAccent = rowColors[item.flow_type] || DEFAULT_TRANSACTION_ROW_COLORS[item.flow_type];
             const ownerColor = resolveSemanticColor(
               item.owner_name || flowLabel,
@@ -377,13 +726,16 @@ export function TransactionSurfaceTable({
             const hasConfiguredCategoryColor = Boolean(String(configuredCategoryColor || "").trim());
             const rowAccent = hasConfiguredCategoryColor ? categoryColor : flowAccent;
             const isExpanded = expandedTransactionRows.has(item.id);
+            const isRecentlyImported = recentImportTransactionIds.has(item.id);
+            const isRecentlySaved = recentSavedTransactionIds.has(item.id);
             const previousItem = index > 0 ? sortedTransactions[index - 1] : null;
             const shouldRenderDateHeader =
               historyMode && String(previousItem?.occurred_on || "") !== String(item.occurred_on || "");
-            const handleRowToggle = (event) => {
-              if (isEditing || isInteractiveRowTarget(event.target)) {
+            const handleRowClick = (event) => {
+              if (isEditing || isInteractiveRowTarget(event.target) || shouldSuppressRowClick()) {
                 return;
               }
+              toggleTransactionSelection(item.id);
               toggleExpandedTransactionRow(item.id);
             };
             const handleEditToggle = () => {
@@ -407,6 +759,34 @@ export function TransactionSurfaceTable({
                 owner_name: item.owner_name || "",
               });
             };
+            const updateInlineFlowType = (nextFlowType) => {
+              if (!editForm) {
+                return;
+              }
+              const normalizedFlowType = normalizeCategoryFlowType(nextFlowType);
+              const compatibleCategory = findCompatibleCategoryForFlow(
+                allCategoryOptions,
+                currentEditCategory || originalEditCategory,
+                normalizedFlowType
+              );
+              setTxInlineEdit({
+                ...editForm,
+                flow_type: normalizedFlowType,
+                category_id: compatibleCategory ? String(compatibleCategory.id || "") : "",
+                category_major: compatibleCategory ? String(compatibleCategory.major || "") : "",
+              });
+            };
+            const restoreInlineOriginalCategory = () => {
+              if (!editForm || !originalEditCategory) {
+                return;
+              }
+              setTxInlineEdit({
+                ...editForm,
+                flow_type: normalizeCategoryFlowType(item.flow_type),
+                category_id: String(item.category_id || ""),
+                category_major: String(originalEditCategory.major || ""),
+              });
+            };
             return (
               <Fragment key={rowKey}>
                 {shouldRenderDateHeader && (
@@ -417,11 +797,20 @@ export function TransactionSurfaceTable({
                   </tr>
                 )}
                 <tr
-                  className={`transaction-row transaction-row-${item.flow_type} ${isEditing ? "transaction-row-editing" : ""} ${isExpanded ? "mobile-row-expanded" : ""}`}
+                  className={`transaction-row transaction-row-${item.flow_type} ${isEditing ? "transaction-row-editing" : ""} ${isExpanded ? "mobile-row-expanded" : ""} ${isRecentlyImported ? "transaction-row-imported" : ""} ${isRecentlySaved ? "transaction-row-saved" : ""}`}
                   data-row-expanded={isExpanded ? "true" : "false"}
+                  data-row-selected={selectedTransactionIds.has(item.id) ? "true" : "false"}
+                  data-import-highlight={isRecentlyImported ? "true" : undefined}
+                  data-save-highlight={isRecentlySaved ? "true" : undefined}
                   data-transaction-id={item.id}
                   data-transaction-date={item.occurred_on}
-                  onClick={handleRowToggle}
+                  aria-selected={selectedTransactionIds.has(item.id) ? "true" : "false"}
+                  onPointerDown={(event) => startRowPointerGesture(event, item.id, isEditing)}
+                  onPointerMove={(event) => updateRowPointerGesture(event, item.id)}
+                  onPointerEnter={(event) => updateRowPointerGesture(event, item.id)}
+                  onPointerUp={finishRowPointerGesture}
+                  onPointerCancel={finishRowPointerGesture}
+                  onClick={handleRowClick}
                   style={{
                     "--transaction-row-bg": rowAccent,
                     "--transaction-row-accent": rowAccent,
@@ -439,6 +828,7 @@ export function TransactionSurfaceTable({
                       type="checkbox"
                       aria-label={`${item.occurred_on} 거래 선택`}
                       checked={selectedTransactionIds.has(item.id)}
+                      onClick={(event) => event.stopPropagation()}
                       onChange={() => toggleTransactionSelection(item.id)}
                     />
                   </td>
@@ -473,6 +863,13 @@ export function TransactionSurfaceTable({
                     <span className="transaction-mobile-category-cue">{compactCategoryLabel}</span>
                     <span className="transaction-memo-text" title={item.memo || "-"} aria-label={`메모 ${item.memo || "-"}`}>
                       {item.memo || "-"}
+                    </span>
+                    <span
+                      className="transaction-owner-summary"
+                      title={ownerSummaryLabel}
+                      aria-label={`거래자 ${ownerSummaryLabel}`}
+                    >
+                      {ownerSummaryLabel}
                     </span>
                   </td>
                   <td data-label="금액" className="transaction-col-amount" data-field-key="amount" data-mobile-priority={transactionMobilePriority("amount")}>
@@ -573,14 +970,7 @@ export function TransactionSurfaceTable({
                           aria-label="유형"
                           value={editForm.flow_type}
                           disabled={!canEditRecords}
-                          onChange={(e) => {
-                            setTxInlineEdit({
-                              ...editForm,
-                              flow_type: e.target.value,
-                              category_id: "",
-                              category_major: "",
-                            });
-                          }}
+                          onChange={(e) => updateInlineFlowType(e.target.value)}
                         >
                           {FLOW_TYPE_OPTIONS.map((opt) => (
                             <option key={opt.value} value={opt.value}>
@@ -590,6 +980,49 @@ export function TransactionSurfaceTable({
                         </select>
                       </label>
                       <div className="tx-inline-category-section" aria-label="카테고리 선택">
+                        <TransactionCategoryQuickPicker
+                          categories={txInlineCategoryOptions}
+                          quickOptions={txInlineCategoryQuickChips}
+                          selectedCategoryId={editForm.category_id}
+                          disabled={!canEditRecords}
+                          allowCreate={canEditHouseholdData}
+                          createDisabled={!canEditHouseholdData || loading}
+                          onSelect={(categoryId, category) =>
+                            setTxInlineEdit({
+                              ...editForm,
+                              category_id: categoryId,
+                              category_major: category ? String(category.major || "") : "",
+                            })
+                          }
+                          onCreate={createTxInlineCategory}
+                          title="카테고리 빠른 선택"
+                          rootClassName="transaction-category-picker-inline"
+                          toCategoryMajorLabel={toCategoryMajorLabel}
+                          toCategoryMinorLabel={toCategoryMinorLabel}
+                        />
+                        {inlineOriginalCategoryChanged && (
+                          <div
+                            className="tx-category-restore-notice tx-inline-category-restore-notice"
+                            data-testid="tx-inline-category-restore-notice"
+                            role="status"
+                          >
+                            <span>
+                              <strong>원래 카테고리를 잃을 수 있습니다.</strong>
+                              <small>
+                                원래 선택: {toCategoryMajorLabel(originalEditCategory.major)} / {toCategoryMinorLabel(originalEditCategory.minor)}
+                              </small>
+                            </span>
+                            <button
+                              type="button"
+                              className="secondary"
+                              data-testid="tx-inline-category-restore-button"
+                              onClick={restoreInlineOriginalCategory}
+                              disabled={!canEditRecords}
+                            >
+                              원래 카테고리로 되돌리기
+                            </button>
+                          </div>
+                        )}
                         <label className="tx-inline-major-field">
                           <span className="tx-inline-field-label">카테고리 그룹</span>
                           <select
@@ -645,9 +1078,11 @@ export function TransactionSurfaceTable({
                           aria-label="금액"
                           placeholder="금액"
                           type="text"
-                          inputMode="decimal"
+                          inputMode="numeric"
                           value={editForm.amount}
-                          onChange={(event) => handleGroupedDecimalInput(event, setTxInlineEdit, "amount")}
+                          onChange={(event) =>
+                            (handleTransactionAmountInput || handleGroupedDecimalInput)(event, setTxInlineEdit, "amount")
+                          }
                           disabled={!canEditRecords}
                           required
                         />
@@ -676,6 +1111,18 @@ export function TransactionSurfaceTable({
                       <span className="tx-inline-updated-field" aria-label="최종 수정일">
                         -
                       </span>
+                      {typeof renderLegacyOwnerRemapHelper === "function" &&
+                        renderLegacyOwnerRemapHelper({
+                          ownerUserId: editForm.owner_user_id,
+                          ownerName: editForm.owner_name,
+                          disabled: !canEditRecords,
+                          onApply: (target) =>
+                            setTxInlineEdit({
+                              ...editForm,
+                              owner_user_id: target.value,
+                              owner_name: target.displayName,
+                            }),
+                        })}
                       <div className="inline tx-inline-editor-actions">
                         <button type="button" className="secondary" disabled={!canEditRecords} onClick={() => closeTxInlineEdit()}>
                           취소

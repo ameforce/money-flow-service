@@ -76,6 +76,12 @@ class Settings(BaseSettings):
     import_max_rows_per_sheet: int = 5000
     import_max_columns_per_sheet: int = 64
     import_read_only_mode: bool = True
+    toss_import_max_images: int = 8
+    toss_import_max_image_bytes: int = 10 * 1024 * 1024
+    toss_import_allowed_extensions: str = ".png,.jpg,.jpeg,.webp"
+    toss_import_ocr_timeout_seconds: float = 20.0
+    toss_import_ocr_executable: str = "tesseract"
+    toss_import_ocr_language: str = "kor+eng"
 
     # Collaboration / auth hardening
     register_rate_limit_window_seconds: int = 300
