@@ -70,3 +70,14 @@ def test_deploy_execute_checks_frontend_asset_version_after_remote_deploy() -> N
     assert "assert_frontend_asset_version" in source
     assert "expected_frontend_version=\"${expected_app_version#v}\"" in source
     assert "frontend asset version mismatch" in source
+
+
+def test_deploy_execute_shell_avoids_groovy_invalid_backslash_escapes() -> None:
+    source = _jenkinsfile_source()
+    deploy_stage = source[source.index("stage('Deploy Execute')") :]
+    next_stage_index = deploy_stage.find("\n    stage(", len("stage('Deploy Execute')"))
+    if next_stage_index != -1:
+        deploy_stage = deploy_stage[:next_stage_index]
+
+    assert "\\(" not in deploy_stage
+    assert "\\/" not in deploy_stage
