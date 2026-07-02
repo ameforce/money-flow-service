@@ -640,8 +640,8 @@ def test_auth_verification_ack_message_mentions_mailpit_for_internal_dev_smtp() 
         settings.smtp_host = "enm-mail-smtp"
         message = auth_route._verification_ack_message()
         assert "인증 메일을 보냈습니다" in message
-        assert "Mailpit" in message
-        assert "외부 메일함 미도착이 정상 동작" in message
+        assert "내부 캡처함" in message
+        assert "버튼 또는 6자리 번호" in message
     finally:
         settings.env = previous_env
         settings.email_delivery_mode = previous_mode
@@ -3436,6 +3436,34 @@ def test_household_invitation_accept_and_switch_household() -> None:
         assert len(members.json()) >= 2
 
 
+def test_household_invitation_accept_requires_invited_email() -> None:
+    with TestClient(app) as client:
+        owner_email = f"owner-self-accept-{uuid.uuid4().hex}@example.com"
+        guest_email = f"guest-self-accept-{uuid.uuid4().hex}@example.com"
+        token_owner = _auth(client, owner_email, "Password1234", "OwnerSelfAccept")
+
+        invite_resp = client.post(
+            "/api/v1/household/invitations",
+            headers=_headers(token_owner),
+            json={"email": guest_email, "role": "viewer"},
+        )
+        assert invite_resp.status_code == 201
+        invite_token = str(invite_resp.json().get("debug_invite_token") or "")
+        assert invite_token
+
+        blocked = client.post(
+            "/api/v1/household/invitations/accept",
+            headers=_headers(token_owner),
+            json={"token": invite_token},
+        )
+
+        assert blocked.status_code == 403
+        error_payload = blocked.json()["error"]
+        assert error_payload["code"] == "HOUSEHOLD_INVITE_EMAIL_MISMATCH"
+        assert error_payload["message"] == "로그인한 이메일과 초대 이메일이 다릅니다."
+        assert error_payload["action"] == "초대 받은 이메일로 로그인해 주세요."
+
+
 def test_household_received_invitations_can_show_inviter_and_accept_by_id() -> None:
     with TestClient(app) as client:
         owner_email = f"owner-received-{uuid.uuid4().hex}@example.com"
@@ -4651,6 +4679,56 @@ def test_transaction_category_blank_string_normalized_to_none() -> None:
         assert created.status_code == 201
         tx = created.json()
         assert tx["category_id"] is None
+
+
+def test_transaction_source_ref_is_idempotent_for_retried_seed() -> None:
+    with TestClient(app) as client:
+        token = _auth(client, f"tx-source-ref-{uuid.uuid4().hex}@example.com", "Password1234", "TxSource")
+        payload = {
+            "occurred_on": "2026-05-01",
+            "flow_type": "income",
+            "amount": 4200000,
+            "currency": "KRW",
+            "memo": "5월 급여",
+            "source_ref": "qa-sample:2026-05:salary",
+        }
+
+        created = client.post("/api/v1/transactions", headers=_headers(token), json=payload)
+        retried = client.post(
+            "/api/v1/transactions",
+            headers=_headers(token),
+            json={**payload, "memo": "재시도에서 바뀐 메모는 무시되어야 함"},
+        )
+
+        assert created.status_code == 201
+        assert retried.status_code == 200
+        assert retried.json()["id"] == created.json()["id"]
+        assert retried.json()["memo"] == "5월 급여"
+        listed = client.get("/api/v1/transactions", headers=_headers(token))
+        assert listed.status_code == 200
+        assert [item["source_ref"] for item in listed.json()] == ["qa-sample:2026-05:salary"]
+
+
+def test_transaction_create_suppresses_immediate_exact_replay_without_source_ref() -> None:
+    with TestClient(app) as client:
+        token = _auth(client, f"tx-replay-{uuid.uuid4().hex}@example.com", "Password1234", "TxReplay")
+        payload = {
+            "occurred_on": "2026-05-03",
+            "flow_type": "expense",
+            "amount": 68000,
+            "currency": "KRW",
+            "memo": "주말 장보기",
+        }
+
+        created = client.post("/api/v1/transactions", headers=_headers(token), json=payload)
+        retried = client.post("/api/v1/transactions", headers=_headers(token), json=payload)
+
+        assert created.status_code == 201
+        assert retried.status_code == 200
+        assert retried.json()["id"] == created.json()["id"]
+        listed = client.get("/api/v1/transactions", headers=_headers(token))
+        assert listed.status_code == 200
+        assert len(listed.json()) == 1
 
 
 def test_transaction_create_rejects_category_flow_type_mismatch() -> None:
