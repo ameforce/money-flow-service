@@ -242,7 +242,7 @@ pipeline {
           env.POST_DEPLOY_E2E_URL_RESOLVED = isMainBranch ? (params.POST_DEPLOY_E2E_URL?.trim() ?: 'https://moneyflow.enmsoftware.com') : 'https://dev.moneyflow.enmsoftware.com'
           env.DEPLOY_ENV_FILE_NAME = isMainBranch ? '.env' : '.env.dev'
           env.SKIP_QUALITY_GATE_FOR_BRANCH = isMainBranch ? 'false' : 'true'
-          env.SKIP_POST_DEPLOY_E2E_FOR_BRANCH = 'false'
+          env.SKIP_POST_DEPLOY_E2E_FOR_BRANCH = isMainBranch ? 'true' : 'false'
 
           echo "Resolved deploy branch=${env.DEPLOY_TARGET_BRANCH}, target_env=${env.DEPLOY_TARGET_ENV}, domain=${env.DEPLOY_DOMAIN_FOR_BRANCH}, compose=${env.DEPLOY_COMPOSE_PROJECT_RESOLVED}/${env.DEPLOY_COMPOSE_FILE_RESOLVED}, env_file=${env.DEPLOY_ENV_FILE_NAME}"
         }
@@ -1162,23 +1162,24 @@ assert_frontend_asset_version() {
 }
 assert_frontend_asset_version "$PUBLIC_BASE_URL" "$APP_VERSION"
 
-tmp_probe_file="$(mktemp)"
-tmp_probe_body="$(mktemp)"
-tmp_probe_login="$(mktemp)"
-tmp_probe_cookies="$(mktemp)"
-cleanup_probe() {
-  rm -f "$tmp_probe_file" "$tmp_probe_body" "$tmp_probe_login" "$tmp_probe_cookies"
-}
-trap 'cleanup_probe; rm -rf "$DEPLOY_TMP_KEY_DIR"' EXIT
-PYTHON_BIN="${PWD}/.venv/bin/python"
-if [ ! -x "$PYTHON_BIN" ]; then
-  PYTHON_BIN="$(command -v python3 || command -v python)"
-fi
-dd if=/dev/zero of="$tmp_probe_file" bs=1M count=2 >/dev/null 2>&1
-probe_email="jenkins-upload-probe-${BUILD_NUMBER:-manual}@example.com"
-probe_password="UploadProbe123!"
-run_ssh "seed-upload-probe-user" "set -euo pipefail; cd '$REMOTE_DEPLOY_PATH'; docker compose -p '$COMPOSE_PROJECT' -f '$COMPOSE_FILE' --env-file '$ENV_FILE_PATH' run --rm -v '$REMOTE_DEPLOY_PATH/scripts/deploy/seed_upload_probe_user.py:/tmp/seed_upload_probe_user.py:ro' app env PYTHONPATH=backend python /tmp/seed_upload_probe_user.py --email '$probe_email' --password '$probe_password' --display-name 'Upload Probe'"
-probe_login_payload="$("$PYTHON_BIN" - "$probe_email" "$probe_password" <<'PY'
+if [ "$DEPLOY_TARGET_ENV" = "dev" ]; then
+	tmp_probe_file="$(mktemp)"
+	tmp_probe_body="$(mktemp)"
+	tmp_probe_login="$(mktemp)"
+	tmp_probe_cookies="$(mktemp)"
+	cleanup_probe() {
+	  rm -f "$tmp_probe_file" "$tmp_probe_body" "$tmp_probe_login" "$tmp_probe_cookies"
+	}
+	trap 'cleanup_probe; rm -rf "$DEPLOY_TMP_KEY_DIR"' EXIT
+	PYTHON_BIN="${PWD}/.venv/bin/python"
+	if [ ! -x "$PYTHON_BIN" ]; then
+	  PYTHON_BIN="$(command -v python3 || command -v python)"
+	fi
+	dd if=/dev/zero of="$tmp_probe_file" bs=1M count=2 >/dev/null 2>&1
+	probe_email="jenkins-upload-probe-${BUILD_NUMBER:-manual}@example.com"
+	probe_password="UploadProbe123!"
+	run_ssh "seed-upload-probe-user" "set -euo pipefail; cd '$REMOTE_DEPLOY_PATH'; docker compose -p '$COMPOSE_PROJECT' -f '$COMPOSE_FILE' --env-file '$ENV_FILE_PATH' run --rm -v '$REMOTE_DEPLOY_PATH/scripts/deploy/seed_upload_probe_user.py:/tmp/seed_upload_probe_user.py:ro' app env PYTHONPATH=backend python /tmp/seed_upload_probe_user.py --email '$probe_email' --password '$probe_password' --display-name 'Upload Probe'"
+	probe_login_payload="$("$PYTHON_BIN" - "$probe_email" "$probe_password" <<'PY'
 import json
 import sys
 
@@ -1213,26 +1214,32 @@ probe_status="$(curl -sS -o "$tmp_probe_body" -w '%{http_code}' -X POST \
   -H "Origin: ${PUBLIC_BASE_URL%/}" \
   -F "file=@${tmp_probe_file};filename=upload-probe.xlsx;type=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" \
   "$probe_url" || true)"
-case "$probe_status" in
-  400)
-    echo "[deploy] UPLOAD_LIMIT_PROBE_OK_APP_REACHED HTTP $probe_status"
-    ;;
-  413)
-    echo "[deploy] upload-limit probe failed: public domain rejected multipart body with HTTP 413"
-    sed -n '1,20p' "$tmp_probe_body" || true
-    exit 1
-    ;;
-  401|403)
-    echo "[deploy] upload-limit probe failed: authenticated request was rejected with HTTP $probe_status before upload handling"
-    sed -n '1,40p' "$tmp_probe_body" || true
-    exit 1
-    ;;
-  *)
-    echo "[deploy] upload-limit probe returned unexpected HTTP $probe_status"
-    sed -n '1,40p' "$tmp_probe_body" || true
-    exit 1
-    ;;
-esac
+	case "$probe_status" in
+	  400)
+	    echo "[deploy] UPLOAD_LIMIT_PROBE_OK_APP_REACHED HTTP $probe_status"
+	    ;;
+	  413)
+	    echo "[deploy] upload-limit probe failed: public domain rejected multipart body with HTTP 413"
+	    sed -n '1,20p' "$tmp_probe_body" || true
+	    exit 1
+	    ;;
+	  401|403)
+	    echo "[deploy] upload-limit probe failed: authenticated request was rejected with HTTP $probe_status before upload handling"
+	    sed -n '1,40p' "$tmp_probe_body" || true
+	    exit 1
+	    ;;
+	  *)
+	    echo "[deploy] upload-limit probe returned unexpected HTTP $probe_status"
+	    sed -n '1,40p' "$tmp_probe_body" || true
+	    exit 1
+	    ;;
+	esac
+elif [ "$DEPLOY_TARGET_ENV" = "prod" ]; then
+	echo "[deploy] upload-limit probe skipped for ${DEPLOY_TARGET_ENV}; dev-only probe seeding is not allowed"
+else
+	echo "[deploy] invalid DEPLOY_TARGET_ENV for upload-limit probe: ${DEPLOY_TARGET_ENV}"
+	exit 1
+fi
               '''
             }
           }
