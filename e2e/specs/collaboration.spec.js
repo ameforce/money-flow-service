@@ -6,6 +6,7 @@ import {
   capture,
   expectNoHorizontalOverflow,
   labeledField,
+  openTransactionEntryForm,
   openTab,
   registerAndVerify,
   unique,
@@ -259,21 +260,11 @@ test("collaboration flow: invite, accept, switch household, responsive", async (
     await switchHouseholdButton.click();
     await expect(guestCollaborationCard.locator(".table-summary").first()).toContainText(ownerHouseholdName);
 
-    await openTab(guestPage, "거래");
-    const txCard = guestPage.locator("article.card", {
-      has: guestPage.getByRole("heading", { name: "거래 입력" }),
-    });
-    const txToggleButton = txCard.getByRole("button", { name: /거래 추가|입력 닫기/ }).first();
-    const txToggleVisible = await txToggleButton.isVisible().catch(() => false);
-    if (txToggleVisible) {
-      const txToggleText = String((await txToggleButton.textContent()) || "");
-      if (txToggleText.includes("거래 추가")) {
-        await txToggleButton.click();
-      }
-    }
-    const txSubmitButton = txCard.getByRole("button", { name: "거래 등록" });
+    const { container: txEntry, close: closeTxEntry } = await openTransactionEntryForm(guestPage);
+    const txSubmitButton = txEntry.getByRole("button", { name: "거래 등록" });
     const txSubmitDisabled = await txSubmitButton.isDisabled().catch(() => false);
     if (txSubmitDisabled) {
+      await closeTxEntry();
       await openTab(guestPage, "자산");
       const holdingCard = guestPage.locator("article.card", {
         has: guestPage.getByRole("heading", { name: "자산 입력" }),
@@ -292,6 +283,7 @@ test("collaboration flow: invite, accept, switch household, responsive", async (
       await expect(guestPage.getByRole("button", { name: "적용", exact: true })).toBeDisabled();
     } else {
       await expect(txSubmitButton).toBeEnabled();
+      await closeTxEntry();
     }
 
     const ownerMembersCard = ownerPage.locator("article.card", {
