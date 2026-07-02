@@ -100,7 +100,7 @@ Operational notes:
 - Provision Node.js/npm on the Jenkins agent or provide an equivalent maintained Playwright runner before enabling deploy jobs.
 - The pipeline uses the repository-local Playwright runner when possible and attempts `npx playwright install chromium` if the browser binary is missing.
 - Missing browser system libraries remain a build failure. Install the required OS packages on the Jenkins agent (for example with `npx playwright install --with-deps chromium` during node provisioning) and rerun.
-- Jenkins logs should show the target URL, API base/origin, and the exact `npx playwright test ... deeplink.spec.js` command.
+- Jenkins logs should show the target URL, API base/origin, and the exact `npx playwright test e2e/specs/post-deploy-smoke.spec.js --project=desktop-chromium --workers=1` command. There is no `RUN_POST_DEPLOY_E2E` skip switch for a real deploy.
 
 ## Production external mailbox smoke and cleanup
 

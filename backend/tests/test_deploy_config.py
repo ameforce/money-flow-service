@@ -36,7 +36,8 @@ def test_jenkins_post_deploy_runs_deployed_browser_flows() -> None:
     jenkinsfile = (ROOT / "Jenkinsfile").read_text(encoding="utf-8")
     post_deploy = jenkinsfile.split("stage('Post-Deploy E2E Smoke')", maxsplit=1)[1]
 
-    assert "env.SKIP_POST_DEPLOY_E2E_FOR_BRANCH = isMainBranch ? 'true' : 'false'" in jenkinsfile
+    assert "RUN_POST_DEPLOY_E2E" not in post_deploy
+    assert "SKIP_POST_DEPLOY_E2E_FOR_BRANCH" not in post_deploy
     assert "e2e/specs/post-deploy-smoke.spec.js" in post_deploy
     assert 'E2E_POST_DEPLOY_EMAIL="jenkins-upload-probe-${BUILD_NUMBER:-manual}@example.com"' in post_deploy
     assert 'E2E_POST_DEPLOY_PASSWORD="UploadProbe123!"' in post_deploy

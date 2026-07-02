@@ -1,6 +1,6 @@
 # Full E2E Feature Matrix
 
-This matrix defines the exhaustive E2E scope for local, staging, and pre-deploy Jenkins gates.
+This matrix defines the exhaustive E2E scope for local, staging, and async/on-demand Jenkins quality gates. The default deploy-blocking Jenkins path uses pytest, fail-closed deploy guardrails, and post-deploy smoke; it does not run the exhaustive E2E matrix before every deploy.
 
 ## Coverage policy
 
