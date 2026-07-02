@@ -892,10 +892,35 @@ validate_env_required_keys() {
   fi
 }
 
+append_missing_env_keys_from_fallback() {
+  local target_env_path="$1"
+  local fallback_env_path="$2"
+  shift 2
+  local key=''
+  local current_value=''
+  local fallback_line=''
+
+  if [ ! -f "$fallback_env_path" ]; then
+    return 0
+  fi
+  for key in "$@"; do
+    current_value="$(grep -E "^${key}=" "$target_env_path" | tail -n 1 | cut -d= -f2- || true)"
+    if [ -n "$current_value" ]; then
+      continue
+    fi
+    fallback_line="$(grep -E "^${key}=" "$fallback_env_path" | tail -n 1 || true)"
+    if [ -n "$fallback_line" ]; then
+      printf '%s\n' "$fallback_line" >> "$target_env_path"
+    fi
+  done
+}
+
 if [ -n "${INCOMING_ENV_FILE_PATH:-}" ] && [ -f "$INCOMING_ENV_FILE_PATH" ]; then
   validated_env_path="$INCOMING_ENV_FILE_PATH"
   validate_env_has_assignments "$validated_env_path"
   if [ "$ENV_FILE_PATH" = '.env' ]; then
+    # Server-local prod SMTP settings fill Jenkins' legacy prod env file.
+    append_missing_env_keys_from_fallback "$validated_env_path" "$ENV_FILE_PATH.previous" SMTP_HOST SMTP_PORT SMTP_SSL SMTP_STARTTLS SMTP_USER SMTP_PASS SMTP_FROM_EMAIL SMTP_FROM_NAME SMTP_ACCOUNT_LABEL
     validate_env_required_keys "$validated_env_path" POSTGRES_USER POSTGRES_PASSWORD SECRET_KEY SMTP_HOST SMTP_PORT SMTP_SSL SMTP_STARTTLS SMTP_FROM_EMAIL SMTP_ACCOUNT_LABEL
   fi
   mv "$validated_env_path" "$ENV_FILE_PATH"
