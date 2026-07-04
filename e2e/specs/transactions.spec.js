@@ -2021,6 +2021,15 @@ test("mobile quick entry selected category chip remains readable while hovered",
   const quickCategoryChip = page.getByTestId("transaction-quick-category-chip").first();
   await expect(quickCategoryChip).toBeVisible();
   await quickCategoryChip.hover();
+  await page.mouse.down();
+  try {
+    await expectTextContrast(
+      quickCategoryChip.locator("span").first(),
+      "pressed quick category chip",
+    );
+  } finally {
+    await page.mouse.up();
+  }
   await quickCategoryChip.click();
   await quickCategoryChip.hover();
   await expect(quickCategoryChip).toHaveAttribute("aria-pressed", "true");
@@ -3383,7 +3392,9 @@ test("transaction FAB and sticky toolbar stay reachable after ledger scroll", as
   await page.getByTestId("transactions-fab").evaluate((element) => element.click());
   const mobileSheet = page.getByTestId("transaction-entry-sheet");
   await expect(mobileSheet).toBeVisible();
-  await expect(labeledField(mobileSheet, "금액", "input")).toBeVisible();
+  const mobileAmountInput = labeledField(mobileSheet, "금액", "input");
+  await expect(mobileAmountInput).toBeVisible();
+  await expect(mobileAmountInput).toBeFocused();
   await capture(page, "transactions-fab-sticky-entry-sheet");
   await page.getByTestId("transaction-entry-sheet-close").click();
   await expect(mobileSheet).toBeHidden();
@@ -3706,7 +3717,7 @@ test("issue 198: mobile collapsed transaction row keeps key details and actions 
     const button = metrics.actions.find((action) => action.text === label || action.ariaLabel === label);
     expect(button, `${label} action should exist in the collapsed row: ${JSON.stringify(metrics)}`).toBeTruthy();
     expect(button?.hidden, `${label} action should be directly visible in the collapsed row: ${JSON.stringify(metrics)}`).toBe(false);
-    expect(button?.height ?? 0, `${label} action should keep a touchable height: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(32);
+    expect(button?.height ?? 0, `${label} action should keep a touchable height: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(40);
   }
   expect(
     metrics.actions.some((action) => ["수정", "삭제"].includes(action.text) || ["수정", "삭제"].includes(action.ariaLabel)),
@@ -3828,7 +3839,24 @@ test("issue 220: mobile collapsed transaction row scans as one ledger line", asy
         hidden,
       };
     };
+    const readBox = (root, selector) => {
+      const element = root?.querySelector?.(selector);
+      if (!element) {
+        return null;
+      }
+      const box = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      const hidden = style.display === "none" || style.visibility === "hidden" || box.width <= 0 || box.height <= 0;
+      return {
+        left: box.left,
+        right: box.right,
+        center: box.left + box.width / 2,
+        width: box.width,
+        hidden,
+      };
+    };
     const rowBox = row.getBoundingClientRect();
+    const ledgerHead = document.querySelector(".transactions-mobile-ledger-head");
     const buttons = Array.from(row.querySelectorAll(".transaction-col-actions button")).map((button) => {
       const box = button.getBoundingClientRect();
       const style = getComputedStyle(button);
@@ -3843,12 +3871,22 @@ test("issue 220: mobile collapsed transaction row scans as one ledger line", asy
         hidden: style.display === "none" || style.visibility === "hidden" || box.width <= 0 || box.height <= 0,
       };
     });
+    const headerAlignment = {
+      dateLeftDelta: Math.abs((readBox(ledgerHead, ".ledger-head-date")?.left ?? 0) - (readBox(row, ".transaction-col-date")?.left ?? 0)),
+      cuesCenterDelta: Math.abs((readBox(ledgerHead, ".ledger-head-cues")?.center ?? 0) - (readBox(row, ".transaction-col-type")?.center ?? 0)),
+      mainLeftDelta: Math.abs((readBox(ledgerHead, ".ledger-head-main")?.left ?? 0) - (readBox(row, ".transaction-col-memo")?.left ?? 0)),
+      amountLeftDelta: Math.abs((readBox(ledgerHead, ".ledger-head-amount")?.left ?? 0) - (readBox(row, ".transaction-col-amount")?.left ?? 0)),
+      actionsCenterDelta: Math.abs(
+        (readBox(ledgerHead, ".ledger-head-actions")?.center ?? 0) - (readBox(row, ".transaction-col-actions")?.center ?? 0)
+      ),
+    };
+    const ownerChip = read(".transaction-owner-chip");
+    const ownerSummary = read(".transaction-owner-summary");
     const lineItems = [
       read(".mobile-date-text"),
       read(".transaction-flow-short"),
       read(".transaction-mobile-category-cue"),
       read(".transaction-memo-text"),
-      read(".transaction-owner-summary"),
       read(".transaction-amount-text"),
       ...buttons,
     ].filter((item) => item && !item.hidden);
@@ -3859,6 +3897,9 @@ test("issue 220: mobile collapsed transaction row scans as one ledger line", asy
         height: rowBox.height,
         expanded: row.getAttribute("data-row-expanded"),
       },
+      headerAlignment,
+      ownerChip,
+      ownerSummary,
       lineItems,
       buttons,
       centerBandCount,
@@ -3868,7 +3909,12 @@ test("issue 220: mobile collapsed transaction row scans as one ledger line", asy
   });
 
   expect(metrics.row.expanded, `row should stay collapsed: ${JSON.stringify(metrics)}`).toBe("false");
-  expect(metrics.row.height, `collapsed row should fit a one-line ledger scan: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(58);
+  expect(metrics.row.height, `collapsed row should fit a dense one-line ledger scan: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(48);
+  for (const [key, delta] of Object.entries(metrics.headerAlignment)) {
+    expect(delta, `mobile ledger header should align with row column ${key}: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(8);
+  }
+  expect(metrics.ownerChip?.hidden, `collapsed row should keep one compact owner cue: ${JSON.stringify(metrics)}`).toBe(false);
+  expect(metrics.ownerSummary?.hidden, `collapsed row should not duplicate owner text beside the owner cue: ${JSON.stringify(metrics)}`).toBe(true);
   expect(metrics.centerBandCount, `collapsed row should not split visible content into stacked center lines: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(2);
   expect(metrics.centerSpread, `date/type/memo/amount/actions should share one scan line: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(12);
   for (const label of ["거래 세부 보기"]) {
@@ -5754,8 +5800,7 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   await expectTransparentBackground(mobileRow.locator(".transaction-col-memo").first());
   await expect(mobileRow.locator(".transaction-owner-chip").first()).toHaveText(displayName.slice(0, 1));
   await expect(mobileRow.locator(".transaction-owner-chip").first()).toBeVisible();
-  await expect(mobileRow.locator(".transaction-owner-summary").first()).toHaveText(displayName);
-  await expect(mobileRow.locator(".transaction-owner-summary").first()).toBeVisible();
+  await expect(mobileRow.locator(".transaction-owner-summary").first()).toBeHidden();
   await expect(mobileRow.locator(".transaction-flow-short").first()).toBeVisible();
   const mobileOwnerlessRow = page.locator("tr.transaction-row", { hasText: ownerlessMemo }).first();
   await expect(mobileOwnerlessRow).toBeVisible();

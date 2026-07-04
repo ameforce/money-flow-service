@@ -2329,6 +2329,9 @@ function App() {
       if (!form) {
         return;
       }
+      if (form === txQuickFormRef.current) {
+        return;
+      }
       const fields = Array.from(form.querySelectorAll(MOBILE_FORM_FIELD_SELECTOR)).filter(isSequentialEnterField);
       const currentIndex = fields.indexOf(target);
       const nextField = fields.slice(currentIndex + 1).find(isSequentialEnterField);
@@ -3733,17 +3736,35 @@ function App() {
     setHoldingColumnWidths(normalizedHoldingSettings.column_widths || {});
   }, [JSON.stringify(normalizedHoldingSettings.column_widths || {})]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!showTransactionForm) {
-      return;
+      return undefined;
     }
-    requestAnimationFrame(() => {
+    let cancelled = false;
+    let frameId = 0;
+    let timeoutId = 0;
+    const focusEntryTarget = () => {
+      if (cancelled) {
+        return;
+      }
       const focusTarget = txEntrySheetStep === "form" ? txAmountInputRef.current : txDateInputRef.current;
+      if (!focusTarget || focusTarget.disabled) {
+        return;
+      }
+      txQuickLastFocusedFieldRef.current = focusTarget;
       focusTarget?.focus?.({ preventScroll: false });
       if (focusTarget === txAmountInputRef.current) {
         setShowTransactionQuickResume(false);
       }
-    });
+    };
+    focusEntryTarget();
+    frameId = requestAnimationFrame(focusEntryTarget);
+    timeoutId = window.setTimeout(focusEntryTarget, 0);
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(frameId);
+      window.clearTimeout(timeoutId);
+    };
   }, [isCompactViewport, showTransactionForm, txEntrySheetStep]);
 
   useEffect(() => {
@@ -4272,6 +4293,18 @@ function App() {
     return true;
   }
 
+  function focusTransactionQuickMemo() {
+    const memoInput = txQuickMemoInputRef.current;
+    if (!isFocusableFormField(memoInput)) {
+      return false;
+    }
+    const restored = focusTransactionQuickTarget(memoInput);
+    if (restored && memoInput instanceof HTMLInputElement && typeof memoInput.select === "function") {
+      memoInput.select();
+    }
+    return restored;
+  }
+
   function handleTransactionQuickFormKeyDown(event) {
     if (
       event.defaultPrevented ||
@@ -4291,6 +4324,10 @@ function App() {
     if (target.tagName === "TEXTAREA" && target.getAttribute("enterkeyhint") !== "next") {
       return;
     }
+    if (target === txAmountInputRef.current && focusTransactionQuickMemo()) {
+      event.preventDefault();
+      return;
+    }
 
     const shouldSubmit = target === txQuickMemoInputRef.current || !focusNextTransactionQuickField(target);
     event.preventDefault();
@@ -4304,7 +4341,7 @@ function App() {
       return;
     }
     event.preventDefault();
-    txQuickMemoInputRef.current?.focus?.({ preventScroll: false });
+    focusTransactionQuickMemo();
   }
 
   function handleTransactionQuickMemoKeyDown(event) {

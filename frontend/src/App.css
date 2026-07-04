@@ -3103,6 +3103,26 @@ button.transaction-selection-clear {
   box-shadow: 0 10px 24px -20px rgba(13, 74, 163, 0.58);
 }
 
+.transaction-category-option:hover:not(:disabled),
+.transaction-category-option:active:not(:disabled),
+.transaction-category-option:focus-visible {
+  border-color: #a8c2e5;
+  background: #eef6ff;
+  color: #173f7a;
+  transform: none;
+  box-shadow: inset 0 0 0 1px rgba(113, 152, 205, 0.22);
+}
+
+.transaction-category-option.selected:hover:not(:disabled),
+.transaction-category-option.selected:active:not(:disabled),
+.transaction-category-option.selected:focus-visible {
+  border-color: #1d66d1;
+  background: #eaf3ff;
+  color: #0d4aa3;
+  transform: none;
+  box-shadow: 0 10px 24px -20px rgba(13, 74, 163, 0.58);
+}
+
 .transaction-quick-category-chips {
   display: flex;
   gap: 0.34rem;
@@ -3168,6 +3188,16 @@ button.transaction-selection-clear {
   background: #eaf3ff;
   color: #0d4aa3;
   box-shadow: 0 10px 24px -20px rgba(13, 74, 163, 0.58);
+}
+
+.transaction-quick-category-chip:hover:not(:disabled),
+.transaction-quick-category-chip:active:not(:disabled),
+.transaction-quick-category-chip:focus-visible {
+  border-color: #a8c2e5;
+  background: #eef6ff;
+  color: #173f7a;
+  transform: none;
+  box-shadow: inset 0 0 0 1px rgba(113, 152, 205, 0.22);
 }
 
 .transaction-quick-category-chip.selected:hover:not(:disabled),
@@ -8000,7 +8030,7 @@ tr.holding-row-imported {
   }
 
   .transactions-fab.transaction-add-fab {
-    right: calc(0.35rem + env(safe-area-inset-right));
+    right: calc(0.5rem + env(safe-area-inset-right));
   }
 
   .transactions-fab-inline,
@@ -8276,16 +8306,29 @@ tr.holding-row-imported {
     transform: translateY(0);
   }
 
+  .transactions-mobile-ledger-head,
+  .transactions-surface-table tbody tr.transaction-row {
+    --transaction-mobile-date-column-width: 2.5rem;
+    --transaction-mobile-cue-column-width: 2.5rem;
+    --transaction-mobile-amount-column-width: clamp(4.8rem, 21vw, 6.25rem);
+    --transaction-action-strip-width: 2.75rem;
+    --transaction-mobile-ledger-column-gap: 0.14rem;
+    --transaction-mobile-ledger-columns:
+      var(--transaction-mobile-date-column-width)
+      var(--transaction-mobile-cue-column-width)
+      minmax(0, 1fr)
+      var(--transaction-mobile-amount-column-width)
+      var(--transaction-action-strip-width);
+  }
+
   .transactions-mobile-ledger-head {
-    grid-template-columns: minmax(2.9rem, max-content) minmax(0, 1fr) minmax(2.6rem, max-content) minmax(2.6rem, max-content) 1.85rem;
-    grid-template-areas: "date main amount cues actions";
+    grid-template-columns: var(--transaction-mobile-ledger-columns);
+    grid-template-areas: "date cues main amount actions";
+    column-gap: var(--transaction-mobile-ledger-column-gap);
+    row-gap: 0;
   }
 
   .transactions-mobile-ledger-head .ledger-head-amount {
-    justify-content: flex-end;
-  }
-
-  .transactions-mobile-ledger-head .ledger-head-cues {
     justify-content: flex-end;
   }
 
@@ -8301,8 +8344,22 @@ tr.holding-row-imported {
   .surface-ledger-mobile-head .ledger-head-date { grid-area: date; }
   .surface-ledger-mobile-head .ledger-head-main { grid-area: main; min-width: 0; }
   .surface-ledger-mobile-head .ledger-head-amount { grid-area: amount; text-align: right; }
-  .surface-ledger-mobile-head .ledger-head-cues { grid-area: cues; text-align: right; }
+  .surface-ledger-mobile-head .ledger-head-cues { grid-area: cues; }
   .surface-ledger-mobile-head .ledger-head-actions { grid-area: actions; text-align: center; }
+
+  .transactions-mobile-ledger-head .ledger-head-cues {
+    text-align: left;
+    justify-content: flex-start;
+  }
+
+  .surface-ledger-mobile-head:not(.transactions-mobile-ledger-head) .ledger-head-cues {
+    text-align: right;
+    justify-content: flex-end;
+  }
+
+  .transactions-mobile-ledger-head .ledger-head-actions {
+    width: var(--transaction-action-strip-width);
+  }
 
   .surface-ledger-mobile-head .ledger-head-filter-trigger {
     min-height: 2.5rem;
@@ -8342,8 +8399,7 @@ tr.holding-row-imported {
     justify-content: flex-start;
   }
 
-  .surface-ledger-mobile-head .ledger-head-amount,
-  .surface-ledger-mobile-head .ledger-head-cues {
+  .surface-ledger-mobile-head .ledger-head-amount {
     justify-content: flex-end;
   }
 
@@ -8545,9 +8601,9 @@ tr.holding-row-imported {
     );
     background: linear-gradient(
       90deg,
-      color-mix(in srgb, var(--transaction-row-accent, var(--holding-row-cue, #cfe0f5)) 46%, #ffffff) 0%,
-      color-mix(in srgb, var(--transaction-row-accent, var(--holding-row-cue, #d7e6f8)) 30%, #ffffff) 42%,
-      color-mix(in srgb, var(--transaction-row-accent, var(--holding-row-cue, #e6eef8)) 16%, #ffffff) 100%
+      color-mix(in srgb, var(--transaction-row-accent, var(--holding-row-cue, #cfe0f5)) 22%, #ffffff) 0%,
+      color-mix(in srgb, var(--transaction-row-accent, var(--holding-row-cue, #d7e6f8)) 12%, #ffffff) 42%,
+      color-mix(in srgb, var(--transaction-row-accent, var(--holding-row-cue, #e6eef8)) 5%, #ffffff) 100%
     );
     box-shadow: inset 0 0 0 1px var(--transaction-row-border, var(--holding-row-border, rgba(15, 23, 42, 0.06)));
     gap: 0 0.32rem;
@@ -8606,16 +8662,15 @@ tr.holding-row-imported {
 
   .transactions-surface-table tbody tr.transaction-row {
     display: grid;
-    --transaction-action-strip-width: 2.75rem;
-    grid-template-columns: 1.92rem 1.58rem minmax(0, 1fr) minmax(3.1rem, max-content) var(--transaction-action-strip-width);
+    grid-template-columns: var(--transaction-mobile-ledger-columns);
     grid-template-areas:
       "date meta memo amount actions";
     height: auto;
-    min-height: 2.62rem;
+    min-height: 2.75rem;
     padding-top: 0;
     padding-right: 0.36rem;
     padding-bottom: 0;
-    column-gap: 0.14rem;
+    column-gap: var(--transaction-mobile-ledger-column-gap);
     row-gap: 0;
   }
 
@@ -8688,6 +8743,7 @@ tr.holding-row-imported {
     display: inline-flex;
     align-items: center;
     justify-content: flex-start;
+    flex-wrap: nowrap;
     gap: 0.1rem;
     min-width: 0;
     max-width: 100%;
@@ -8765,14 +8821,24 @@ tr.holding-row-imported {
 
   .transactions-surface-table .transaction-owner-chip {
     display: inline-flex;
+    width: 1.02rem;
+    min-width: 1.02rem;
+    height: 1.02rem;
+    font-size: 0.58rem;
+    line-height: 1;
   }
 
   .transactions-surface-table .transaction-owner-empty {
     display: inline-flex;
+    min-width: 1.02rem;
+    height: 1.02rem;
+    padding-inline: 0.1rem;
+    font-size: 0.58rem;
+    line-height: 1;
   }
 
   .transactions-surface-table .transaction-owner-summary {
-    display: inline-block;
+    display: none;
     flex: 0 1 4.8rem;
     max-width: min(34%, 4.8rem);
     align-self: center;
@@ -8792,6 +8858,14 @@ tr.holding-row-imported {
 
   .transactions-surface-table .transaction-flow-short {
     display: inline-flex;
+    width: 1.02rem;
+    min-width: 1.02rem;
+    height: 1.02rem;
+    padding: 0;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.58rem;
+    line-height: 1;
   }
 
   .transactions-surface-table tbody tr.transaction-row.mobile-row-expanded .transaction-col-category {
@@ -9523,7 +9597,7 @@ tr.holding-row-imported {
 
   .transactions-fab,
   .holdings-fab {
-    right: calc(0.35rem + env(safe-area-inset-right));
+    right: calc(0.5rem + env(safe-area-inset-right));
     bottom: calc(var(--mobile-bottom-nav-clearance, 3.15rem) + 0.35rem);
     width: 2.75rem;
     height: 2.75rem;
