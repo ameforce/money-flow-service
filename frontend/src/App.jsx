@@ -4557,10 +4557,43 @@ function App() {
       top: Math.max(targetTop, 0),
       behavior: "auto",
     });
+    keepHoldingSummaryClearOfBottomNav(summaryCard);
   }
 
   function isCurrentCompactViewport() {
     return typeof window !== "undefined" && window.innerWidth <= MOBILE_BREAKPOINT_PX;
+  }
+
+  function getFixedBottomNavTop() {
+    const nav = document.querySelector("nav.topbar-tabs");
+    const navBox = nav?.getBoundingClientRect();
+    const navStyle = nav ? getComputedStyle(nav) : null;
+    const isFixedBottomNav =
+      navBox &&
+      navStyle?.position === "fixed" &&
+      navBox.bottom >= window.innerHeight - 32 &&
+      navBox.top > window.innerHeight * 0.5;
+    return isFixedBottomNav ? navBox.top : window.innerHeight;
+  }
+
+  function keepHoldingSummaryClearOfBottomNav(summaryCard) {
+    if (!isCurrentCompactViewport() || !summaryCard?.open || typeof window === "undefined") {
+      return;
+    }
+    const labels = Array.from(summaryCard.querySelectorAll("[data-testid='portfolio-donut-slice-label']"));
+    const chart = summaryCard.querySelector(".compact-chart-wrap");
+    const measuredNodes = labels.length > 0 ? labels : chart ? [chart] : [];
+    if (measuredNodes.length === 0) {
+      return;
+    }
+    const lowestBottom = Math.max(...measuredNodes.map((node) => node.getBoundingClientRect().bottom));
+    const overflow = lowestBottom - (getFixedBottomNavTop() - 8);
+    if (overflow > 0) {
+      window.scrollBy({
+        top: Math.ceil(overflow + 8),
+        behavior: "auto",
+      });
+    }
   }
 
   function keepHoldingSummaryOpenContentVisible(summaryCard) {

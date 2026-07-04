@@ -3698,6 +3698,7 @@ test("issue 198: mobile collapsed transaction row keeps key details and actions 
       category: visible(".transaction-mobile-category-cue"),
       memo: visible(".transaction-memo-text"),
       owner: visible(".transaction-owner-summary"),
+      ownerCue: visible(".transaction-col-type .transaction-owner-chip, .transaction-col-type .transaction-owner-empty"),
       actions,
       pageOverflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
       expectedOwner,
@@ -3711,8 +3712,9 @@ test("issue 198: mobile collapsed transaction row keeps key details and actions 
   );
   expect(metrics.memo?.hidden, `collapsed memo should stay visible: ${JSON.stringify(metrics)}`).toBe(false);
   expect(metrics.memo?.text || "", `collapsed memo should keep the memo text: ${JSON.stringify(metrics)}`).toBe(memo);
-  expect(metrics.owner?.hidden, `collapsed owner summary should be visible: ${JSON.stringify(metrics)}`).toBe(false);
-  expect(metrics.owner?.text || "", `collapsed owner summary should use the full owner label: ${JSON.stringify(metrics)}`).toBe(displayName);
+  expect(metrics.owner?.hidden, `collapsed owner summary should not duplicate the compact owner cue: ${JSON.stringify(metrics)}`).toBe(true);
+  expect(metrics.ownerCue?.hidden, `collapsed owner cue should stay visible: ${JSON.stringify(metrics)}`).toBe(false);
+  expect(metrics.ownerCue?.ariaLabel || "", `collapsed owner cue should expose the full owner label: ${JSON.stringify(metrics)}`).toBe(displayName);
   for (const label of ["거래 세부 보기"]) {
     const button = metrics.actions.find((action) => action.text === label || action.ariaLabel === label);
     expect(button, `${label} action should exist in the collapsed row: ${JSON.stringify(metrics)}`).toBeTruthy();
