@@ -2329,6 +2329,9 @@ function App() {
       if (!form) {
         return;
       }
+      if (form === txQuickFormRef.current) {
+        return;
+      }
       const fields = Array.from(form.querySelectorAll(MOBILE_FORM_FIELD_SELECTOR)).filter(isSequentialEnterField);
       const currentIndex = fields.indexOf(target);
       const nextField = fields.slice(currentIndex + 1).find(isSequentialEnterField);
@@ -2518,6 +2521,7 @@ function App() {
   const holdingEntryActionRef = useRef(null);
   const holdingEntryReturnFocusRef = useRef(null);
   const holdingSummaryCardRef = useRef(null);
+  const topbarTabsRef = useRef(null);
   const receivedInviteSectionRef = useRef(null);
 
   const categoryOptions = useMemo(() => categories.filter((item) => item.flow_type === txForm.flow_type), [categories, txForm.flow_type]);
@@ -3733,17 +3737,35 @@ function App() {
     setHoldingColumnWidths(normalizedHoldingSettings.column_widths || {});
   }, [JSON.stringify(normalizedHoldingSettings.column_widths || {})]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!showTransactionForm) {
-      return;
+      return undefined;
     }
-    requestAnimationFrame(() => {
+    let cancelled = false;
+    let frameId = 0;
+    let timeoutId = 0;
+    const focusEntryTarget = () => {
+      if (cancelled) {
+        return;
+      }
       const focusTarget = txEntrySheetStep === "form" ? txAmountInputRef.current : txDateInputRef.current;
+      if (!focusTarget || focusTarget.disabled) {
+        return;
+      }
+      txQuickLastFocusedFieldRef.current = focusTarget;
       focusTarget?.focus?.({ preventScroll: false });
       if (focusTarget === txAmountInputRef.current) {
         setShowTransactionQuickResume(false);
       }
-    });
+    };
+    focusEntryTarget();
+    frameId = requestAnimationFrame(focusEntryTarget);
+    timeoutId = window.setTimeout(focusEntryTarget, 0);
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(frameId);
+      window.clearTimeout(timeoutId);
+    };
   }, [isCompactViewport, showTransactionForm, txEntrySheetStep]);
 
   useEffect(() => {
@@ -4272,6 +4294,18 @@ function App() {
     return true;
   }
 
+  function focusTransactionQuickMemo() {
+    const memoInput = txQuickMemoInputRef.current;
+    if (!isFocusableFormField(memoInput)) {
+      return false;
+    }
+    const restored = focusTransactionQuickTarget(memoInput);
+    if (restored && memoInput instanceof HTMLInputElement && typeof memoInput.select === "function") {
+      memoInput.select();
+    }
+    return restored;
+  }
+
   function handleTransactionQuickFormKeyDown(event) {
     if (
       event.defaultPrevented ||
@@ -4291,6 +4325,10 @@ function App() {
     if (target.tagName === "TEXTAREA" && target.getAttribute("enterkeyhint") !== "next") {
       return;
     }
+    if (target === txAmountInputRef.current && focusTransactionQuickMemo()) {
+      event.preventDefault();
+      return;
+    }
 
     const shouldSubmit = target === txQuickMemoInputRef.current || !focusNextTransactionQuickField(target);
     event.preventDefault();
@@ -4304,7 +4342,7 @@ function App() {
       return;
     }
     event.preventDefault();
-    txQuickMemoInputRef.current?.focus?.({ preventScroll: false });
+    focusTransactionQuickMemo();
   }
 
   function handleTransactionQuickMemoKeyDown(event) {
@@ -4520,10 +4558,43 @@ function App() {
       top: Math.max(targetTop, 0),
       behavior: "auto",
     });
+    keepHoldingSummaryClearOfBottomNav(summaryCard);
   }
 
   function isCurrentCompactViewport() {
     return typeof window !== "undefined" && window.innerWidth <= MOBILE_BREAKPOINT_PX;
+  }
+
+  function getFixedBottomNavTop() {
+    const nav = topbarTabsRef.current;
+    const navBox = nav?.getBoundingClientRect();
+    const navStyle = nav ? getComputedStyle(nav) : null;
+    const isFixedBottomNav =
+      navBox &&
+      navStyle?.position === "fixed" &&
+      navBox.bottom >= window.innerHeight - 32 &&
+      navBox.top > window.innerHeight * 0.5;
+    return isFixedBottomNav ? navBox.top : window.innerHeight;
+  }
+
+  function keepHoldingSummaryClearOfBottomNav(summaryCard) {
+    if (!isCurrentCompactViewport() || !summaryCard?.open || typeof window === "undefined") {
+      return;
+    }
+    const labels = Array.from(summaryCard.querySelectorAll(".portfolio-donut-slice-label"));
+    const chart = summaryCard.querySelector(".compact-chart-wrap");
+    const measuredNodes = labels.length > 0 ? labels : chart ? [chart] : [];
+    if (measuredNodes.length === 0) {
+      return;
+    }
+    const lowestBottom = Math.max(...measuredNodes.map((node) => node.getBoundingClientRect().bottom));
+    const overflow = lowestBottom - (getFixedBottomNavTop() - 8);
+    if (overflow > 0) {
+      window.scrollBy({
+        top: Math.ceil(overflow + 8),
+        behavior: "auto",
+      });
+    }
   }
 
   function keepHoldingSummaryOpenContentVisible(summaryCard) {
@@ -10636,7 +10707,7 @@ function App() {
         </div>
       </header>
 
-      <nav className="tabs topbar-tabs" aria-label="주요 메뉴">
+      <nav ref={topbarTabsRef} className="tabs topbar-tabs" aria-label="주요 메뉴">
         <div className="nav-brand" aria-hidden="true">
           <span className="nav-brand-mark">M</span>
           <span>
