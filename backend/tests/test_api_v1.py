@@ -5014,7 +5014,7 @@ def _create_history_transaction(
         return str(tx.id)
 
 
-def test_transaction_history_initial_older_newer_and_future_cap() -> None:
+def test_transaction_history_initial_older_newer_and_explicit_future_anchor() -> None:
     with TestClient(app) as client:
         token = _auth(client, f"tx-history-{uuid.uuid4().hex}@example.com", "Password1234", "TxHistory")
         household_id = client.get("/api/v1/household/current", headers=_headers(token)).json()["household"]["id"]
@@ -5079,12 +5079,42 @@ def test_transaction_history_initial_older_newer_and_future_cap() -> None:
         assert newer_payload["has_newer"] is False
         assert "history-future" not in [item["memo"] for item in newer_payload["items"]]
 
+        anchored_older = client.get(
+            f"/api/v1/transactions/history?anchor_date={older_date}&limit=1",
+            headers=_headers(token),
+        )
+        assert anchored_older.status_code == 200
+        anchored_older_payload = anchored_older.json()
+        assert anchored_older_payload["anchor_date"] == str(older_date)
+        assert anchored_older_payload["has_newer"] is True
+        assert [item["memo"] for item in anchored_older_payload["items"]] == ["history-older"]
+
+        anchored_newer = client.get(
+            "/api/v1/transactions/history"
+            f"?direction=newer&limit=5&anchor_date={older_date}&cursor={anchored_older_payload['newer_cursor']}",
+            headers=_headers(token),
+        )
+        assert anchored_newer.status_code == 200
+        anchored_newer_payload = anchored_newer.json()
+        assert [item["memo"] for item in anchored_newer_payload["items"]] == ["history-middle", "history-today"]
+        assert anchored_newer_payload["has_newer"] is False
+        assert "history-future" not in [item["memo"] for item in anchored_newer_payload["items"]]
+
         future_anchor = client.get(
             f"/api/v1/transactions/history?anchor_date={future_date}&limit=10",
             headers=_headers(token),
         )
         assert future_anchor.status_code == 200
-        assert future_anchor.json()["anchor_date"] == str(today)
+        future_payload = future_anchor.json()
+        assert future_payload["today"] == str(today)
+        assert future_payload["anchor_date"] == str(future_date)
+        assert future_payload["has_newer"] is False
+        assert [item["memo"] for item in future_payload["items"]] == [
+            "history-older",
+            "history-middle",
+            "history-today",
+            "history-future",
+        ]
 
 
 def test_transaction_history_cursor_safety_and_tie_breaking() -> None:

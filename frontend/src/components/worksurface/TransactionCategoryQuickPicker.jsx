@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from "react";
 
 import {
   TransactionCategoryCreateControls,
+  TransactionCategoryExistingSelect,
   TransactionCategoryOptionList,
   TransactionCategoryPickerTitle,
   TransactionCategorySearchControls,
@@ -23,8 +24,11 @@ export function TransactionCategoryQuickPicker({
   createDisabled = false,
   onSelect,
   onCreate,
-  title = "추천 카테고리",
-  selectedEmptyText = "카테고리를 검색하거나 추천 항목을 선택하세요.",
+  title = "카테고리 선택",
+  selectedEmptyText = "기존 카테고리에서 선택하세요.",
+  dropdownLabel = "기존 카테고리",
+  dropdownPlaceholder = "카테고리 선택",
+  showExistingSelect = true,
   searchLabel = "카테고리 검색",
   searchPlaceholder = "카테고리 검색",
   searchMode = "always",
@@ -97,6 +101,14 @@ export function TransactionCategoryQuickPicker({
     (createToggleVisibility !== "on-query" || createExpanded || hasSearchText);
   const showCreateFields = allowCreate && (!createIsToggle || createExpanded);
 
+  const selectOption = (option) => {
+    onSelect?.(option?.id || "", option?.category || null);
+    setQuery("");
+    if (searchIsToggle) {
+      setSearchExpanded(false);
+    }
+  };
+
   const handleCreate = async () => {
     if (isCreateDisabled) {
       return;
@@ -138,6 +150,16 @@ export function TransactionCategoryQuickPicker({
   return (
     <section className={rootClass} data-testid="transaction-category-quick-picker" aria-label={title}>
       <TransactionCategoryPickerTitle titleClassName={titleClassName} title={title} selectedText={selectedText} />
+      {showExistingSelect && (
+        <TransactionCategoryExistingSelect
+          disabled={disabled}
+          label={dropdownLabel}
+          options={normalizedOptions}
+          placeholder={dropdownPlaceholder}
+          selectedId={selectedId}
+          onSelectOption={selectOption}
+        />
+      )}
       <TransactionCategorySearchControls
         disabled={disabled}
         inputRef={searchInputRef}
@@ -159,13 +181,7 @@ export function TransactionCategoryQuickPicker({
         selectedId={selectedId}
         showOptions={showOptions}
         visibleOptions={visibleOptions}
-        onSelectOption={(option) => {
-          onSelect?.(option.id, option.category);
-          setQuery("");
-          if (searchIsToggle) {
-            setSearchExpanded(false);
-          }
-        }}
+        onSelectOption={selectOption}
       />
       <TransactionCategoryCreateControls
         createButtonLabel={createButtonLabel}
