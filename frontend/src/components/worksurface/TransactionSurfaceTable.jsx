@@ -764,6 +764,8 @@ export function TransactionSurfaceTable({
             const isExpanded = expandedTransactionRows.has(item.id);
             const isRecentlyImported = recentImportTransactionIds.has(item.id);
             const isRecentlySaved = recentSavedTransactionIds.has(item.id);
+            const amountLabel = fmtKrw(item.amount);
+            const isWideAmount = amountLabel.replace(/\s+/g, "").length >= 10;
             const previousItem = index > 0 ? sortedTransactions[index - 1] : null;
             const shouldRenderDateHeader =
               historyMode && String(previousItem?.occurred_on || "") !== String(item.occurred_on || "");
@@ -1009,8 +1011,9 @@ export function TransactionSurfaceTable({
                 )}
                 {shouldRenderInlineEditorBeforeRow && inlineEditorRow}
                 <tr
-                  className={`transaction-row transaction-row-${item.flow_type} ${isEditing ? "transaction-row-editing" : ""} ${isExpanded ? "mobile-row-expanded" : ""} ${isRecentlyImported ? "transaction-row-imported" : ""} ${isRecentlySaved ? "transaction-row-saved" : ""}`}
+                  className={`transaction-row transaction-row-${item.flow_type} ${isEditing ? "transaction-row-editing" : ""} ${isExpanded ? "mobile-row-expanded" : ""} ${isWideAmount ? "transaction-row-wide-amount" : ""} ${isRecentlyImported ? "transaction-row-imported" : ""} ${isRecentlySaved ? "transaction-row-saved" : ""}`}
                   data-row-expanded={isExpanded ? "true" : "false"}
+                  data-amount-density={isWideAmount ? "wide" : "normal"}
                   data-row-selected={selectedTransactionIds.has(item.id) ? "true" : "false"}
                   data-import-highlight={isRecentlyImported ? "true" : undefined}
                   data-save-highlight={isRecentlySaved ? "true" : undefined}
@@ -1085,7 +1088,7 @@ export function TransactionSurfaceTable({
                     </span>
                   </td>
                   <td data-label="금액" className="transaction-col-amount" data-field-key="amount" data-mobile-priority={transactionMobilePriority("amount")}>
-                    <span className="transaction-amount-text">{fmtKrw(item.amount)}</span>
+                    <span className="transaction-amount-text">{amountLabel}</span>
                   </td>
                   <td data-label="거래자명" className="transaction-col-owner transaction-mobile-detail-cell" data-field-key="owner_name" data-mobile-priority={transactionMobilePriority("owner_name")}>
                     <span className="transaction-mobile-detail-label">거래자명</span>

@@ -1609,19 +1609,24 @@
 
 .transaction-selection-action,
 .transaction-selection-clear {
+  --transaction-selection-action-min-width: 2.68rem;
+  --transaction-selection-action-min-height: 36px;
+  --transaction-selection-action-font-size: 11.84px;
+  --transaction-selection-action-padding: 0.28rem 0.62rem;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
-  min-width: 2.68rem;
-  min-height: 2.25rem;
-  padding: 0.28rem 0.62rem;
+  min-width: var(--transaction-selection-action-min-width);
+  height: var(--transaction-selection-action-min-height);
+  min-height: var(--transaction-selection-action-min-height);
+  padding: var(--transaction-selection-action-padding);
   border: 1px solid #cfdbea;
   border-radius: 0.58rem;
   background: #ffffff;
   color: #21385b;
   box-shadow: none;
-  font-size: 0.74rem;
+  font-size: var(--transaction-selection-action-font-size);
   font-weight: 800;
   line-height: 1.15;
   white-space: nowrap;
@@ -1632,15 +1637,6 @@
   border-color: rgba(11, 74, 180, 0.38);
   background: rgba(255, 255, 255, 0.86);
   color: #b42323;
-}
-
-.transaction-selection-action.transaction-selection-delete,
-.transaction-selection-action.transaction-selection-clear {
-  font-size: 0.74rem;
-  font-weight: 800;
-  line-height: 1.15;
-  min-height: 2.25rem;
-  padding: 0.28rem 0.62rem;
 }
 
 .transaction-selection-summary[data-selection-active="false"] .transaction-selection-amount {
@@ -2564,12 +2560,13 @@ button.danger:active:not(:disabled) {
 
 button.transaction-selection-action,
 button.transaction-selection-clear {
-  min-width: 2.68rem;
-  min-height: 2.25rem;
-  padding: 0.28rem 0.62rem;
+  min-width: var(--transaction-selection-action-min-width);
+  height: var(--transaction-selection-action-min-height);
+  min-height: var(--transaction-selection-action-min-height);
+  padding: var(--transaction-selection-action-padding);
   border-radius: 0.58rem;
   box-shadow: none;
-  font-size: 0.74rem;
+  font-size: var(--transaction-selection-action-font-size);
   font-weight: 800;
   line-height: 1.15;
 }
@@ -3339,21 +3336,12 @@ button.transaction-selection-clear {
   }
 
   .transaction-quick-details > summary {
-    min-height: 2.4rem;
+    min-height: 44px;
     padding: 0.34rem 0.58rem;
   }
 
   .transaction-quick-details > summary small {
     display: none;
-  }
-}
-
-@media (min-width: 821px) {
-  .transaction-sticky-toolbar button.transaction-selection-action.transaction-selection-clear {
-    height: 2.25rem;
-    min-height: 2.25rem;
-    padding: 0.28rem 0.62rem;
-    font-size: 0.74rem;
   }
 }
 
@@ -8298,9 +8286,10 @@ tr.holding-row-imported {
   }
 
   .transaction-sticky-toolbar .transaction-selection-clear {
-    min-height: 1.56rem;
-    padding: 0.18rem 0.46rem;
-    font-size: 0.66rem;
+    height: var(--transaction-selection-action-min-height);
+    min-height: var(--transaction-selection-action-min-height);
+    padding: var(--transaction-selection-action-padding);
+    font-size: var(--transaction-selection-action-font-size);
   }
 
   .transaction-sticky-toolbar .month-stepper-inline {
@@ -8783,6 +8772,16 @@ tr.holding-row-imported {
     row-gap: 0.14rem;
   }
 
+  .transactions-surface-table tbody tr.transaction-row.transaction-row-wide-amount:not(.mobile-row-expanded) {
+    grid-template-areas:
+      "date meta amount amount actions"
+      "memo memo memo memo actions";
+    min-height: 3.46rem;
+    padding-top: 0.18rem;
+    padding-bottom: 0.2rem;
+    row-gap: 0.08rem;
+  }
+
   .transactions-surface-table tbody tr.transaction-row::before,
   .holdings-surface-table tbody tr.holding-row::before {
     content: "";
@@ -8819,11 +8818,20 @@ tr.holding-row-imported {
   .transactions-surface-table .transaction-col-amount {
     grid-area: amount;
     align-self: center;
-    justify-self: start;
-    text-align: left;
+    justify-self: stretch;
+    text-align: right;
     white-space: nowrap;
-    font-size: 0.8rem;
+    max-width: 100%;
+    overflow: hidden;
+    font-size: 0.78rem;
     line-height: 1.05;
+  }
+
+  .transactions-surface-table .transaction-amount-text {
+    display: block;
+    max-width: 100%;
+    overflow: visible;
+    text-overflow: clip;
   }
 
   .transactions-surface-table .transaction-col-category {

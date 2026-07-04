@@ -3939,6 +3939,84 @@ test("issue 220: mobile collapsed transaction row scans as one ledger line", asy
   await expect(page.getByTestId("transaction-selection-delete")).toBeVisible();
 });
 
+test("mobile collapsed transaction row keeps large KRW amount readable", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("tx-large-amount-row")}@example.com`;
+  const displayName = unique("tx-large-amount-owner");
+  const memo = unique("tx-large-amount-memo");
+
+  await registerAndVerify(page, { email, displayName });
+  await createTransactionViaApi(page, {
+    memo,
+    amount: "123456789",
+    ownerName: displayName,
+  });
+  await page.reload();
+  await page.setViewportSize({ width: 360, height: 780 });
+  await openTab(page, "거래");
+  await page.waitForLoadState("networkidle");
+
+  const mobileRow = page.locator("tr.transaction-row", { hasText: memo }).first();
+  await expect(mobileRow).toBeVisible({ timeout: 20_000 });
+  await expect(mobileRow).not.toHaveClass(/mobile-row-expanded/);
+
+  const metrics = await mobileRow.evaluate((row) => {
+    const boxOf = (element) => {
+      if (!element) return null;
+      const box = element.getBoundingClientRect();
+      return {
+        left: box.left,
+        right: box.right,
+        top: box.top,
+        bottom: box.bottom,
+        width: box.width,
+        height: box.height,
+      };
+    };
+    const amountCell = row.querySelector(".transaction-col-amount");
+    const amountText = row.querySelector(".transaction-amount-text");
+    const memoText = row.querySelector(".transaction-memo-text");
+    const actionCell = row.querySelector(".transaction-col-actions");
+    return {
+      row: {
+        ...boxOf(row),
+        amountDensity: row.getAttribute("data-amount-density"),
+      },
+      amountCell: boxOf(amountCell),
+      amountText: amountText
+        ? {
+            ...boxOf(amountText),
+            text: amountText.textContent?.trim() || "",
+            clientWidth: amountText.clientWidth,
+            scrollWidth: amountText.scrollWidth,
+          }
+        : null,
+      memoText: boxOf(memoText),
+      actionCell: boxOf(actionCell),
+      pageOverflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    };
+  });
+
+  expect(metrics.row.amountDensity, `large amount should use the wide-safe mobile row: ${JSON.stringify(metrics)}`).toBe("wide");
+  expect(metrics.amountText?.text, `large amount should render the full grouped value: ${JSON.stringify(metrics)}`).toContain("123,456,789");
+  expect(
+    metrics.amountText.scrollWidth - metrics.amountText.clientWidth,
+    `large amount text should not clip: ${JSON.stringify(metrics)}`,
+  ).toBeLessThanOrEqual(1);
+  expect(
+    metrics.amountText.right,
+    `large amount should not overlap the action cell: ${JSON.stringify(metrics)}`,
+  ).toBeLessThanOrEqual(metrics.actionCell.left - 2);
+  expect(metrics.memoText.top, `memo should remain visible below the large amount: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(
+    metrics.amountText.bottom - 1,
+  );
+  expect(metrics.row.right, `large amount row should stay inside the viewport: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(361);
+  expect(metrics.pageOverflowX, `large amount row should not cause horizontal overflow: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "transactions-mobile-large-amount-readable");
+});
+
 test("issue 221: mobile transaction status chips keep clear action in viewport", async ({ page }) => {
   test.setTimeout(120_000);
 

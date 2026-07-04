@@ -2521,6 +2521,7 @@ function App() {
   const holdingEntryActionRef = useRef(null);
   const holdingEntryReturnFocusRef = useRef(null);
   const holdingSummaryCardRef = useRef(null);
+  const topbarTabsRef = useRef(null);
   const receivedInviteSectionRef = useRef(null);
 
   const categoryOptions = useMemo(() => categories.filter((item) => item.flow_type === txForm.flow_type), [categories, txForm.flow_type]);
@@ -4565,7 +4566,7 @@ function App() {
   }
 
   function getFixedBottomNavTop() {
-    const nav = document.querySelector("nav.topbar-tabs");
+    const nav = topbarTabsRef.current;
     const navBox = nav?.getBoundingClientRect();
     const navStyle = nav ? getComputedStyle(nav) : null;
     const isFixedBottomNav =
@@ -4580,7 +4581,7 @@ function App() {
     if (!isCurrentCompactViewport() || !summaryCard?.open || typeof window === "undefined") {
       return;
     }
-    const labels = Array.from(summaryCard.querySelectorAll("[data-testid='portfolio-donut-slice-label']"));
+    const labels = Array.from(summaryCard.querySelectorAll(".portfolio-donut-slice-label"));
     const chart = summaryCard.querySelector(".compact-chart-wrap");
     const measuredNodes = labels.length > 0 ? labels : chart ? [chart] : [];
     if (measuredNodes.length === 0) {
@@ -10706,7 +10707,7 @@ function App() {
         </div>
       </header>
 
-      <nav className="tabs topbar-tabs" aria-label="주요 메뉴">
+      <nav ref={topbarTabsRef} className="tabs topbar-tabs" aria-label="주요 메뉴">
         <div className="nav-brand" aria-hidden="true">
           <span className="nav-brand-mark">M</span>
           <span>
