@@ -450,12 +450,13 @@ def list_transaction_history(
 ) -> TransactionHistoryPage:
     household, _ = ctx
     today = _history_today()
-    active_anchor = min(anchor_date or today, today)
+    active_anchor = anchor_date or today
     base_query = (
         select(Transaction, User.display_name)
         .outerjoin(User, User.id == Transaction.owner_user_id)
-        .where(Transaction.household_id == household.id, Transaction.occurred_on <= today)
+        .where(Transaction.household_id == household.id)
     )
+    history_query = base_query.where(Transaction.occurred_on <= active_anchor)
 
     decoded_cursor = _decode_history_cursor(cursor, str(household.id)) if cursor else None
     fetch_limit = limit + 1
@@ -467,7 +468,7 @@ def list_transaction_history(
                 message="이전 거래를 이어 보려면 커서가 필요합니다.",
                 action="목록을 새로고침한 뒤 다시 시도해 주세요.",
             )
-        query = base_query.where(_older_than_cursor(decoded_cursor)).order_by(*_history_ordering_desc())
+        query = history_query.where(_older_than_cursor(decoded_cursor)).order_by(*_history_ordering_desc())
         raw_rows = db.execute(query.limit(fetch_limit)).all()
         has_more = len(raw_rows) > limit
         page_rows = raw_rows[:limit]
@@ -482,14 +483,19 @@ def list_transaction_history(
                 message="다음 거래를 이어 보려면 커서가 필요합니다.",
                 action="목록을 새로고침한 뒤 다시 시도해 주세요.",
             )
-        query = base_query.where(_newer_than_cursor(decoded_cursor)).order_by(*_history_ordering_asc())
+        newer_upper_bound = max(active_anchor, today)
+        query = (
+            base_query.where(Transaction.occurred_on <= newer_upper_bound)
+            .where(_newer_than_cursor(decoded_cursor))
+            .order_by(*_history_ordering_asc())
+        )
         raw_rows = db.execute(query.limit(fetch_limit)).all()
         has_more = len(raw_rows) > limit
         page_rows = raw_rows[:limit]
         has_older = True
         has_newer = has_more
     else:
-        query = base_query.where(Transaction.occurred_on <= active_anchor).order_by(*_history_ordering_desc())
+        query = history_query.order_by(*_history_ordering_desc())
         raw_rows = db.execute(query.limit(fetch_limit)).all()
         has_more = len(raw_rows) > limit
         page_rows = raw_rows[:limit]

@@ -851,6 +851,11 @@ function currentMonth() {
   return { year: now.getFullYear(), month: now.getMonth() + 1 };
 }
 
+function millisecondsUntilNextLocalDay(now = new Date()) {
+  const nextDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 100);
+  return Math.max(100, nextDay.getTime() - now.getTime());
+}
+
 function yearMonthFromIsoDate(value, fallback = todayIso()) {
   const normalized = normalizeIsoDateKey(value, fallback);
   const [year, month] = normalized.split("-").map((part) => Number(part));
@@ -2400,10 +2405,12 @@ function App() {
   const priceRefreshPollFailureCountRef = useRef(0);
   const realtimeFallbackSyncInFlightRef = useRef(false);
   const tabRef = useRef(tab);
+  const transactionTabEntryScrollPendingRef = useRef(tab === "transactions");
   const transactionHistoryLoadingRef = useRef({ initial: false, older: false, newer: false });
   const transactionHistoryInitializedRef = useRef(false);
   const transactionHistoryAnchorDateRef = useRef(todayIso());
   const transactionHistoryTodayRef = useRef(todayIso());
+  const transactionLocalTodayRef = useRef(todayIso());
   const transactionHistoryTopSentinelRef = useRef(null);
   const transactionHistoryBottomSentinelRef = useRef(null);
   const transactionHistoryScrollDirectionRef = useRef("");
@@ -3499,7 +3506,7 @@ function App() {
       return;
     }
     if (!transactionHistoryInitialized && !transactionHistoryLoadingRef.current.initial) {
-      refreshTransactionHistoryAtAnchor(transactionHistoryToday || todayIso(), { alignToEnd: false }).catch(() => undefined);
+      refreshTransactionHistoryAtAnchor(transactionHistoryToday || todayIso(), { alignToEnd: true }).catch(() => undefined);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [household?.id, tab, token, transactionHistoryInitialized]);
@@ -3509,15 +3516,96 @@ function App() {
     setTxForm((prev) => {
       const pristineDefaultDraft =
         !txDraftTouched &&
+        !hasTransactionInsertAnchor(prev) &&
         !prev.amount &&
-        !prev.memo &&
-        !prev.category_id;
+        !prev.memo;
       if (!pristineDefaultDraft || prev.occurred_on === nextDefaultDate) {
         return prev;
       }
       return { ...prev, occurred_on: nextDefaultDate };
     });
   }, [transactionEntryContextDate, txDraftTouched]);
+
+  useEffect(() => {
+    if (tab !== "transactions" || !transactionHistoryInitialized || !transactionTabEntryScrollPendingRef.current) {
+      return;
+    }
+    transactionTabEntryScrollPendingRef.current = false;
+    scrollTransactionHistoryToEnd();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, transactionHistoryInitialized, transactionHistoryItems.length]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+    let timeoutId = 0;
+    const syncLocalToday = () => {
+      const nextToday = todayIso();
+      const previousLocalToday = normalizeIsoDateKey(transactionLocalTodayRef.current, nextToday);
+      if (nextToday === previousLocalToday) {
+        return;
+      }
+      const currentHistoryToday = normalizeIsoDateKey(
+        transactionHistoryTodayRef.current || transactionHistoryToday,
+        previousLocalToday
+      );
+      const previousAnchor = normalizeIsoDateKey(
+        transactionHistoryAnchorDateRef.current || transactionHistoryAnchorDate || previousLocalToday,
+        previousLocalToday
+      );
+      const shouldFollowToday = !previousAnchor || previousAnchor === previousLocalToday;
+      const nextHistoryToday = currentHistoryToday > nextToday ? currentHistoryToday : nextToday;
+      transactionLocalTodayRef.current = nextToday;
+      transactionHistoryTodayRef.current = nextHistoryToday;
+      setTransactionHistoryToday(nextHistoryToday);
+      if (shouldFollowToday) {
+        transactionHistoryAnchorDateRef.current = nextToday;
+        setTransactionHistoryAnchorDate(nextToday);
+      }
+      setTxForm((prev) => {
+        const draftDate = normalizeIsoDateKey(prev.occurred_on, "");
+        const canAdvanceDefaultDraft =
+          !txDraftTouched &&
+          draftDate === previousLocalToday &&
+          !prev.amount &&
+          !prev.memo &&
+          !hasTransactionInsertAnchor(prev);
+        if (!canAdvanceDefaultDraft) {
+          return prev;
+        }
+        return { ...prev, occurred_on: nextToday };
+      });
+      if (!token || !household?.id || tabRef.current !== "transactions") {
+        return;
+      }
+      const refreshAnchor = shouldFollowToday ? nextToday : previousAnchor;
+      refreshTransactionHistoryAtAnchor(refreshAnchor, {
+        alignToEnd: shouldFollowToday,
+        preserveScroll: !shouldFollowToday,
+        silent: true,
+      }).catch(() => undefined);
+    };
+    const scheduleNextDayCheck = () => {
+      timeoutId = window.setTimeout(() => {
+        syncLocalToday();
+        scheduleNextDayCheck();
+      }, millisecondsUntilNextLocalDay());
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        syncLocalToday();
+      }
+    };
+    syncLocalToday();
+    scheduleNextDayCheck();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      window.clearTimeout(timeoutId);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [household?.id, token, transactionHistoryAnchorDate, transactionHistoryToday, txDraftTouched]);
 
   useEffect(() => {
     if (!token || !household?.id || tab !== "transactions" || !transactionHistoryInitialized) {
@@ -4717,6 +4805,13 @@ function App() {
     setSavedTabId(tab);
     syncUrlTabParam(tab);
     setMessage((prev) => (prev ? "" : prev));
+    if (tab === "transactions") {
+      transactionTabEntryScrollPendingRef.current = true;
+      if (transactionHistoryInitializedRef.current) {
+        scrollTransactionHistoryToEnd();
+      }
+      return;
+    }
     if (typeof window !== "undefined") {
       window.requestAnimationFrame(() => {
         window.scrollTo({ top: 0, left: 0, behavior: "auto" });
@@ -5019,12 +5114,17 @@ function App() {
     };
   }
 
-  function setTransactionHistoryLoadingMode(mode, value) {
+  function setTransactionHistoryLoadingMode(mode, value, options = {}) {
+    const expose = options.expose !== false;
     transactionHistoryLoadingRef.current = {
       ...transactionHistoryLoadingRef.current,
       [mode]: value,
     };
-    setTransactionHistoryLoading((prev) => ({ ...prev, [mode]: value }));
+    if (expose) {
+      setTransactionHistoryLoading((prev) => ({ ...prev, [mode]: value }));
+    } else if (!value) {
+      setTransactionHistoryLoading((prev) => (prev[mode] ? { ...prev, [mode]: false } : prev));
+    }
   }
 
   function resetTransactionHistoryState() {
@@ -5035,6 +5135,7 @@ function App() {
     transactionHistoryMonthSyncScrollYRef.current = typeof window === "undefined" ? 0 : window.scrollY || 0;
     transactionHistoryAnchorDateRef.current = today;
     transactionHistoryTodayRef.current = today;
+    transactionLocalTodayRef.current = today;
     pendingTransactionHistoryScrollAnchorRef.current = null;
     setTransactionHistoryItems([]);
     setTransactionHistoryOlderCursor("");
@@ -5197,6 +5298,36 @@ function App() {
     };
   }
 
+  function captureDocumentScrollPosition() {
+    if (typeof document === "undefined" || typeof window === "undefined") {
+      return null;
+    }
+    return {
+      left: window.scrollX || document.documentElement.scrollLeft || 0,
+      top: window.scrollY || document.documentElement.scrollTop || 0,
+    };
+  }
+
+  function restoreDocumentScrollPosition(snapshot) {
+    if (!snapshot || typeof document === "undefined" || typeof window === "undefined") {
+      return;
+    }
+    let attempts = 0;
+    const restore = () => {
+      const maxTop = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+      window.scrollTo({
+        top: Math.min(snapshot.top, maxTop),
+        left: snapshot.left,
+        behavior: "auto",
+      });
+      attempts += 1;
+      if (attempts < 8) {
+        window.setTimeout(() => window.requestAnimationFrame(restore), attempts < 3 ? 0 : 80);
+      }
+    };
+    window.requestAnimationFrame(restore);
+  }
+
   function restoreTransactionHistoryScrollAnchor(anchor) {
     if (!anchor?.id || typeof document === "undefined" || typeof window === "undefined") {
       return;
@@ -5279,15 +5410,21 @@ function App() {
 
     const preserveAnchor = Boolean(options.preserveScroll);
     const scrollAnchor = preserveAnchor ? captureTransactionHistoryScrollAnchor() : null;
-    setTransactionHistoryLoadingMode(direction, true);
+    const exposeLoading = !options.silent || direction !== "initial";
+    setTransactionHistoryLoadingMode(direction, true, { expose: exposeLoading });
     try {
+      const requestAnchorDate = normalizeIsoDateKey(
+        options.anchorDate ||
+          transactionHistoryAnchorDateRef.current ||
+          transactionHistoryAnchorDate ||
+          transactionHistoryToday,
+        todayIso()
+      );
       const params = new URLSearchParams({
         direction,
         limit: String(TRANSACTION_HISTORY_PAGE_LIMIT),
       });
-      if (direction === "initial" || options.anchorDate) {
-        params.set("anchor_date", normalizeIsoDateKey(options.anchorDate || transactionHistoryToday));
-      }
+      params.set("anchor_date", requestAnchorDate);
       if (cursor) {
         params.set("cursor", cursor);
       }
@@ -5296,13 +5433,30 @@ function App() {
         return null;
       }
       const pageItems = Array.isArray(payload?.items) ? payload.items : [];
-      const nextToday = normalizeIsoDateKey(payload?.today, transactionHistoryToday || todayIso());
+      const localToday = todayIso();
+      const previousToday = normalizeIsoDateKey(
+        transactionHistoryTodayRef.current || transactionHistoryToday || localToday,
+        localToday
+      );
+      const payloadToday = normalizeIsoDateKey(payload?.today, localToday);
+      const nextToday = [previousToday, payloadToday, localToday].reduce((latest, candidate) =>
+        candidate > latest ? candidate : latest
+      );
       const currentAnchorDate =
         transactionHistoryAnchorDateRef.current || transactionHistoryAnchorDate || transactionHistoryToday || nextToday;
-      const nextAnchorDate =
-        direction === "initial"
-          ? normalizeIsoDateKey(payload?.anchor_date, nextToday)
-          : normalizeIsoDateKey(currentAnchorDate, nextToday);
+      const requestedAnchorDate = requestAnchorDate ? normalizeIsoDateKey(requestAnchorDate, nextToday) : "";
+      const payloadAnchorDate = normalizeIsoDateKey(payload?.anchor_date, requestedAnchorDate || nextToday);
+      let nextAnchorDate =
+        direction === "initial" ? payloadAnchorDate : normalizeIsoDateKey(currentAnchorDate, nextToday);
+      if (
+        direction === "initial" &&
+        requestedAnchorDate &&
+        requestedAnchorDate >= previousToday &&
+        requestedAnchorDate <= nextToday &&
+        nextAnchorDate < requestedAnchorDate
+      ) {
+        nextAnchorDate = requestedAnchorDate;
+      }
       transactionHistoryTodayRef.current = nextToday;
       transactionHistoryAnchorDateRef.current = nextAnchorDate;
       transactionHistoryInitializedRef.current = true;
@@ -5369,7 +5523,7 @@ function App() {
       return null;
     } finally {
       if (direction !== "initial" || requestGeneration === transactionHistoryRequestGenerationRef.current) {
-        setTransactionHistoryLoadingMode(direction, false);
+        setTransactionHistoryLoadingMode(direction, false, { expose: exposeLoading });
       }
     }
   }
@@ -7728,6 +7882,12 @@ function App() {
   }
 
   async function refreshPriceNow() {
+    const shouldPreserveTransactionScroll = tabRef.current === "transactions";
+    const transactionScrollAnchor =
+      shouldPreserveTransactionScroll && transactionHistoryInitializedRef.current
+        ? captureTransactionHistoryScrollAnchor()
+        : null;
+    const transactionDocumentScroll = shouldPreserveTransactionScroll ? captureDocumentScrollPosition() : null;
     setLoading(true);
     try {
       const refreshResp = await requestPriceRefresh({ silent: false, origin: "manual" });
@@ -7736,6 +7896,12 @@ function App() {
       }
     } finally {
       setLoading(false);
+      if (transactionScrollAnchor && tabRef.current === "transactions") {
+        restoreTransactionHistoryScrollAnchor(transactionScrollAnchor);
+      }
+      if (transactionDocumentScroll && tabRef.current === "transactions") {
+        restoreDocumentScrollPosition(transactionDocumentScroll);
+      }
     }
   }
 
@@ -10965,7 +11131,7 @@ function App() {
                   </button>
                   <button
                     type="button"
-                    className="secondary transaction-selection-clear"
+                    className="secondary transaction-selection-action transaction-selection-clear"
                     disabled={selectedTransactionSummary.count === 0}
                     onClick={() => setSelectedTransactionIds(new Set())}
                   >

@@ -1,0 +1,182 @@
+import { expect, test } from "@playwright/test";
+
+import {
+  capture,
+  createTransactionViaApi,
+  currentE2EHistoryDateIso,
+  expectNoHorizontalOverflow,
+  labeledField,
+  openTab,
+  registerAndVerify,
+  unique,
+} from "../support/helpers";
+
+function installAdvancingDateMock(page, isoInstant) {
+  return page.addInitScript((startIso) => {
+    const OriginalDate = Date;
+    const startReal = OriginalDate.now();
+    const startMock = OriginalDate.parse(startIso);
+
+    class AdvancingMockDate extends OriginalDate {
+      constructor(...args) {
+        if (args.length === 0) {
+          super(startMock + (OriginalDate.now() - startReal));
+        } else {
+          super(...args);
+        }
+      }
+
+      static now() {
+        return startMock + (OriginalDate.now() - startReal);
+      }
+    }
+
+    AdvancingMockDate.parse = OriginalDate.parse;
+    AdvancingMockDate.UTC = OriginalDate.UTC;
+    Object.setPrototypeOf(AdvancingMockDate, OriginalDate);
+    window.Date = AdvancingMockDate;
+  }, isoInstant);
+}
+
+test("issue #265: transaction tab rolls local date at midnight and refreshes the today anchor", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+
+  const historyAnchors = [];
+  await page.route("**/api/v1/transactions/history**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.get("direction") === "initial") {
+      historyAnchors.push(url.searchParams.get("anchor_date"));
+    }
+    await route.continue();
+  });
+
+  const email = `${unique("tx-midnight-rollover")}@example.com`;
+  const displayName = unique("tx-midnight-rollover-name");
+  await registerAndVerify(page, { email, displayName });
+  await installAdvancingDateMock(page, "2026-07-03T14:59:55.500Z");
+  await page.reload();
+  await page.waitForLoadState("networkidle");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openTab(page, "거래");
+  await expect.poll(() => historyAnchors.includes("2026-07-03")).toBe(true);
+
+  await page.getByTestId("transactions-fab").click();
+  const sheet = page.getByTestId("transaction-entry-sheet");
+  await expect(sheet).toBeVisible();
+  const dateInput = labeledField(sheet, "일자", "input");
+  await expect(dateInput).toHaveValue("2026-07-03");
+
+  await expect.poll(async () => dateInput.inputValue(), { timeout: 8_000 }).toBe("2026-07-04");
+  await expect.poll(() => historyAnchors.includes("2026-07-04"), { timeout: 8_000 }).toBe(true);
+
+  const rolloverMemo = unique("tx-midnight-visible-row");
+  await page.getByTestId("transaction-quick-amount").fill("12345");
+  await labeledField(sheet, "메모", "input").fill(rolloverMemo);
+  await page.getByTestId("transaction-quick-save").click();
+  await expect(page.locator("tr.transaction-row", { hasText: rolloverMemo }).first()).toBeVisible({
+    timeout: 30_000,
+  });
+  await expectNoHorizontalOverflow(page, 12);
+});
+
+test("issues #265/#268: transaction tab opens at latest rows and price refresh preserves scroll", async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+
+  await page.route("**/api/v1/prices/refresh", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ ok: true, in_progress: false, updated: 0, failed: 0 }),
+    });
+  });
+
+  const email = `${unique("tx-latest-anchor")}@example.com`;
+  const displayName = unique("tx-latest-anchor-name");
+  const memoPrefix = unique("tx-latest-anchor-row");
+  const anchorMemo = `${memoPrefix}-scroll-anchor`;
+  const latestMemo = `${memoPrefix}-latest`;
+
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 1366, height: 540 });
+
+  for (let index = 34; index > 0; index -= 1) {
+    await createTransactionViaApi(page, {
+      memo: index === 14 ? anchorMemo : `${memoPrefix}-${String(index).padStart(2, "0")}`,
+      amount: String(20_000 + index),
+      occurredOn: currentE2EHistoryDateIso(-index),
+      ownerName: displayName,
+    });
+  }
+  await createTransactionViaApi(page, {
+    memo: latestMemo,
+    amount: "77777",
+    occurredOn: currentE2EHistoryDateIso(),
+    ownerName: displayName,
+  });
+
+  await page.reload();
+  await openTab(page, "거래");
+  const latestRow = page.locator("tr.transaction-row", { hasText: latestMemo }).first();
+  await expect(latestRow).toBeVisible({ timeout: 30_000 });
+
+  const beforeRefresh = await page.evaluate((memo) => {
+    const row = Array.from(document.querySelectorAll("tr.transaction-row")).find((candidate) =>
+      candidate.textContent?.includes(memo)
+    );
+    const box = row?.getBoundingClientRect();
+    return {
+      scrollY: window.scrollY,
+      maxScrollY: Math.max(0, document.documentElement.scrollHeight - window.innerHeight),
+      rowBottom: box?.bottom ?? 0,
+      viewportHeight: window.innerHeight,
+    };
+  }, latestMemo);
+  expect(beforeRefresh.scrollY, `latest row should require and keep bottom-oriented scroll: ${JSON.stringify(beforeRefresh)}`).toBeGreaterThan(0);
+  expect(beforeRefresh.rowBottom, `latest row should stay visible: ${JSON.stringify(beforeRefresh)}`).toBeLessThanOrEqual(
+    beforeRefresh.viewportHeight + 1
+  );
+
+  await expect(latestRow).toBeVisible();
+  await capture(page, "transactions-latest-anchor");
+  await expectNoHorizontalOverflow(page, 8);
+
+  const anchorRow = page.locator("tr.transaction-row", { hasText: anchorMemo }).first();
+  await expect(anchorRow).toBeVisible({ timeout: 30_000 });
+  await anchorRow.evaluate((row) => row.scrollIntoView({ block: "center", inline: "nearest" }));
+
+  const before = await page.evaluate((memo) => {
+    const row = Array.from(document.querySelectorAll("tr.transaction-row")).find((candidate) =>
+      candidate.textContent?.includes(memo)
+    );
+    const box = row?.getBoundingClientRect();
+    return { scrollY: window.scrollY, rowTop: box?.top ?? 0 };
+  }, anchorMemo);
+  expect(before.scrollY, `setup should place the ledger away from the page top: ${JSON.stringify(before)}`).toBeGreaterThan(0);
+  await page.evaluate((snapshot) => {
+    window.__txRefreshScrollBefore = snapshot.scrollY;
+    window.__txRefreshRowTopBefore = snapshot.rowTop;
+  }, before);
+
+  const refreshResponse = page.waitForResponse(
+    (response) => response.url().includes("/api/v1/prices/refresh") && response.status() === 200
+  );
+  await page.locator(".topbar-price-refresh-action").evaluate((button) => button.click());
+  await refreshResponse;
+
+  await expect.poll(async () => {
+    return page.evaluate((memo) => {
+      const row = Array.from(document.querySelectorAll("tr.transaction-row")).find((candidate) =>
+        candidate.textContent?.includes(memo)
+      );
+      const box = row?.getBoundingClientRect();
+      return Math.max(
+        Math.abs(window.scrollY - window.__txRefreshScrollBefore),
+        Math.abs((box?.top ?? 0) - window.__txRefreshRowTopBefore)
+      );
+    }, anchorMemo);
+  }).toBeLessThanOrEqual(2);
+});
