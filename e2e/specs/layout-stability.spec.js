@@ -143,13 +143,22 @@ async function expectMobileTabBarStable(page) {
     const style = getComputedStyle(element);
     return {
       position: style.position,
+      top: box.top,
+      bottom: box.bottom,
       height: box.height,
       viewportHeight: window.innerHeight,
     };
   });
 
-  expect(navMetrics.position).not.toBe("fixed");
   expect(navMetrics.height).toBeLessThan(navMetrics.viewportHeight * 0.34);
+  if (navMetrics.position === "fixed") {
+    expect(navMetrics.top, `fixed mobile nav should stay in the lower screen: ${JSON.stringify(navMetrics)}`).toBeGreaterThan(
+      navMetrics.viewportHeight * 0.58,
+    );
+    expect(navMetrics.bottom, `fixed mobile nav should stay inside the viewport: ${JSON.stringify(navMetrics)}`).toBeLessThanOrEqual(
+      navMetrics.viewportHeight,
+    );
+  }
 }
 
 async function expectMobileBottomClearance(page) {
@@ -250,6 +259,7 @@ async function expectPageChromeConsistent(page, tabLabel) {
     });
     return {
       viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
       topbarTitle: document.querySelector(".topbar h1")?.textContent?.trim() || "",
       visibleText: document.body.textContent || "",
       topbar: boxOf(".topbar"),
@@ -272,7 +282,11 @@ async function expectPageChromeConsistent(page, tabLabel) {
   expect(metrics.topbar).not.toBeNull();
   expect(metrics.nav).not.toBeNull();
   expect(metrics.firstContent).not.toBeNull();
-  const chromeReferenceBottom = metrics.viewportWidth <= 820 ? metrics.nav.bottom : metrics.topbar.bottom;
+  const navIsBottomFixed =
+    metrics.viewportWidth <= 820 &&
+    metrics.nav.top > metrics.viewportHeight * 0.5 &&
+    metrics.nav.bottom >= metrics.viewportHeight - 32;
+  const chromeReferenceBottom = metrics.viewportWidth <= 820 && !navIsBottomFixed ? metrics.nav.bottom : metrics.topbar.bottom;
   expect(metrics.firstContent.top - chromeReferenceBottom).toBeGreaterThanOrEqual(8);
   expect(metrics.firstContent.top - chromeReferenceBottom).toBeLessThanOrEqual(24);
 
@@ -448,6 +462,7 @@ async function expectLandscapeWorkspaceControlVisible(page, locator, label, { mi
     return {
       viewportHeight: window.innerHeight,
       topbarBottom: topbarBox?.bottom ?? 0,
+      navTop: navBox?.top ?? window.innerHeight,
       navBottom: navBox?.bottom ?? 0,
       sampleTop: box.top,
       sampleBottom: box.bottom,
@@ -456,7 +471,13 @@ async function expectLandscapeWorkspaceControlVisible(page, locator, label, { mi
     };
   });
 
-  expect(metrics.navBottom, `${label} chrome should leave most of 568x320 for work: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(104);
+  if (metrics.navTop > metrics.viewportHeight * 0.5) {
+    expect(metrics.sampleBottom, `${label} first work control should clear bottom navigation: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(
+      metrics.navTop - 6,
+    );
+  } else {
+    expect(metrics.navBottom, `${label} chrome should leave most of 568x320 for work: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(104);
+  }
   expect(metrics.sampleTop, `${label} first work control should start inside first viewport: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(286);
   expect(
     metrics.visibleHeight,
