@@ -1625,7 +1625,10 @@ if curl -fsS "$TARGET_URL/healthz"; then
   sleep "$RETRY_INTERVAL"
 done
             '''
-            sh '''
+            if ((env.DEPLOY_TARGET_ENV ?: '').trim() == 'prod') {
+              echo '[deploy-e2e] prod target skips dev-only seeded-account Playwright smoke; run scripts/prod_email_smoke.py --verification-mode browser for external mailbox proof.'
+            } else {
+              sh '''
 set -eu
 . ./scripts/ci/ensure-node.sh
 if ! command -v npm >/dev/null 2>&1; then
@@ -1669,6 +1672,7 @@ echo "[deploy-e2e] command: npx playwright test e2e/specs/post-deploy-smoke.spec
 npx playwright test e2e/specs/post-deploy-smoke.spec.js --project=desktop-chromium --workers=1
 echo "[deploy-e2e] post-deploy Playwright smoke completed"
             '''
+            }
           }
         }
       }
