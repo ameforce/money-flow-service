@@ -38,6 +38,10 @@ def test_jenkins_post_deploy_runs_deployed_browser_flows() -> None:
 
     assert "RUN_POST_DEPLOY_E2E" not in post_deploy
     assert "SKIP_POST_DEPLOY_E2E_FOR_BRANCH" not in post_deploy
+    assert "prod target skips dev-only seeded-account Playwright smoke" in post_deploy
+    assert post_deploy.index("prod target skips dev-only seeded-account Playwright smoke") < post_deploy.index(
+        'E2E_POST_DEPLOY_EMAIL="jenkins-upload-probe-${BUILD_NUMBER:-manual}@example.com"'
+    )
     assert "e2e/specs/post-deploy-smoke.spec.js" in post_deploy
     assert 'E2E_POST_DEPLOY_EMAIL="jenkins-upload-probe-${BUILD_NUMBER:-manual}@example.com"' in post_deploy
     assert 'E2E_POST_DEPLOY_PASSWORD="UploadProbe123!"' in post_deploy
