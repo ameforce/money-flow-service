@@ -56,6 +56,47 @@ export function TransactionCategorySearchControls({
   );
 }
 
+export function TransactionCategoryExistingSelect({
+  disabled,
+  label,
+  options,
+  placeholder,
+  selectedId,
+  onSelectOption,
+}) {
+  if (!options.length) {
+    return null;
+  }
+
+  return (
+    <label className="transaction-category-picker-select" data-testid="transaction-category-existing-select">
+      <span>{label}</span>
+      <select
+        data-testid="transaction-category-list"
+        value={selectedId}
+        disabled={disabled}
+        onChange={(event) => {
+          if (!event.target.value) {
+            onSelectOption(null);
+            return;
+          }
+          const option = options.find((item) => item.id === event.target.value);
+          if (option) {
+            onSelectOption(option);
+          }
+        }}
+      >
+        <option value="">{placeholder}</option>
+        {options.map((option) => (
+          <option key={option.id} value={option.id}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 export function TransactionCategoryOptionList({
   disabled,
   hasVisibleOptions,
