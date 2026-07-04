@@ -3979,10 +3979,7 @@ test("mobile collapsed transaction row keeps large KRW amount readable", async (
     const memoText = row.querySelector(".transaction-memo-text");
     const actionCell = row.querySelector(".transaction-col-actions");
     return {
-      row: {
-        ...boxOf(row),
-        amountDensity: row.getAttribute("data-amount-density"),
-      },
+      row: boxOf(row),
       amountCell: boxOf(amountCell),
       amountText: amountText
         ? {
@@ -3994,11 +3991,11 @@ test("mobile collapsed transaction row keeps large KRW amount readable", async (
         : null,
       memoText: boxOf(memoText),
       actionCell: boxOf(actionCell),
+      viewportWidth: window.innerWidth,
       pageOverflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
     };
   });
 
-  expect(metrics.row.amountDensity, `large amount should use the wide-safe mobile row: ${JSON.stringify(metrics)}`).toBe("wide");
   expect(metrics.amountText?.text, `large amount should render the full grouped value: ${JSON.stringify(metrics)}`).toContain("123,456,789");
   expect(
     metrics.amountText.scrollWidth - metrics.amountText.clientWidth,
@@ -4011,7 +4008,9 @@ test("mobile collapsed transaction row keeps large KRW amount readable", async (
   expect(metrics.memoText.top, `memo should remain visible below the large amount: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(
     metrics.amountText.bottom - 1,
   );
-  expect(metrics.row.right, `large amount row should stay inside the viewport: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(361);
+  expect(metrics.row.right, `large amount row should stay inside the viewport: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(
+    metrics.viewportWidth + 1,
+  );
   expect(metrics.pageOverflowX, `large amount row should not cause horizontal overflow: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
   await expectNoHorizontalOverflow(page, 12);
   await capture(page, "transactions-mobile-large-amount-readable");

@@ -1013,7 +1013,6 @@ export function TransactionSurfaceTable({
                 <tr
                   className={`transaction-row transaction-row-${item.flow_type} ${isEditing ? "transaction-row-editing" : ""} ${isExpanded ? "mobile-row-expanded" : ""} ${isWideAmount ? "transaction-row-wide-amount" : ""} ${isRecentlyImported ? "transaction-row-imported" : ""} ${isRecentlySaved ? "transaction-row-saved" : ""}`}
                   data-row-expanded={isExpanded ? "true" : "false"}
-                  data-amount-density={isWideAmount ? "wide" : "normal"}
                   data-row-selected={selectedTransactionIds.has(item.id) ? "true" : "false"}
                   data-import-highlight={isRecentlyImported ? "true" : undefined}
                   data-save-highlight={isRecentlySaved ? "true" : undefined}
