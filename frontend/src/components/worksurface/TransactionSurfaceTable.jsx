@@ -662,6 +662,17 @@ export function TransactionSurfaceTable({
           className={`transactions-surface-table${mobileStickyActive ? " mobile-sticky-active" : " mobile-sticky-inactive"}`}
           aria-label="거래 작업 표"
         >
+          <colgroup>
+            <col className="transaction-col-select" />
+            <col className="transaction-col-date" />
+            <col className="transaction-col-type" />
+            <col className="transaction-col-category" />
+            <col className="transaction-col-memo" />
+            <col className="transaction-col-amount" />
+            <col className="transaction-col-owner" />
+            <col className="transaction-col-updated" />
+            <col className="transaction-col-actions" />
+          </colgroup>
           <thead>
             <tr>
               <th data-mobile-priority="hidden">선택</th>
