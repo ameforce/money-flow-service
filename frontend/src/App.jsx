@@ -3516,6 +3516,7 @@ function App() {
     setTxForm((prev) => {
       const pristineDefaultDraft =
         !txDraftTouched &&
+        !hasTransactionInsertAnchor(prev) &&
         !prev.amount &&
         !prev.memo;
       if (!pristineDefaultDraft || prev.occurred_on === nextDefaultDate) {
