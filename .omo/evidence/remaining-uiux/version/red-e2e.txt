@@ -1,0 +1,140 @@
+
+> money-flow-workspace@0.1.0 e2e
+> uv run python scripts/run_e2e_with_orchestrator.py e2e/specs/client-version.spec.js --project=desktop-chromium
+
+[e2e-runner] isolated run -> backend:5602, frontend:5603, mode:dev, db:e2e_run_7b656ea2d0d64a9d9ac5f26c81d4629f.db
+[orchestrator] frontend/node_modules missing -> run npm install
+
+added 160 packages, and audited 161 packages in 3s
+
+33 packages are looking for funding
+  run `npm fund` for details
+
+4 vulnerabilities (2 low, 1 moderate, 1 high)
+
+To address all issues, run:
+  npm audit fix
+
+Run `npm audit` for details.
+npm warn allow-scripts 1 package has install scripts not yet covered by allowScripts:
+npm warn allow-scripts   esbuild@0.27.3 (postinstall: node install.js)
+npm warn allow-scripts
+npm warn allow-scripts Run `npm approve-scripts --allow-scripts-pending` to review, or `npm approve-scripts <pkg>` to allow.
+[orchestrator] backend start: C:\Users\enmso\.codex\worktrees\4e5e\money-flow-service\.omo\teams\team-358f7305\worktrees\VER\.venv\Scripts\python.exe -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 5602 --use-colors
+[orchestrator] waiting backend ready: http://127.0.0.1:5602/healthz
+2026-07-05 11:43:17 [backend] [32mINFO[0m:     Started server process [[36m25304[0m]
+2026-07-05 11:43:17 [backend] [32mINFO[0m:     Waiting for application startup.
+2026-07-05 11:43:17 [backend] [32mINFO[0m:     Application startup complete.
+2026-07-05 11:43:17 [backend] [32mINFO[0m:     Uvicorn running on [1mhttp://127.0.0.1:5602[0m (Press CTRL+C to quit)
+2026-07-05 11:43:17 [backend] [32mINFO[0m:     127.0.0.1:10708 - "[1mGET /healthz HTTP/1.1[0m" [32m200 OK[0m
+[orchestrator] backend is ready
+[orchestrator] frontend start: cmd /c npm run dev --prefix frontend -- --strictPort --host 127.0.0.1 --port 5603
+2026-07-05 11:43:17 [frontend]
+2026-07-05 11:43:17 [frontend] > frontend@0.0.0 dev
+2026-07-05 11:43:17 [frontend] > vite --strictPort --host 127.0.0.1 --port 5603
+2026-07-05 11:43:17 [frontend]
+2026-07-05 11:43:17 [backend] [32mINFO[0m:     127.0.0.1:10709 - "[1mGET /healthz HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 11:43:18 [frontend]
+2026-07-05 11:43:18 [frontend]   [32m[1mVITE[22m v7.3.3[39m  [2mready in [0m[1m546[22m[2m[0m ms[22m
+2026-07-05 11:43:18 [frontend]
+2026-07-05 11:43:18 [frontend]   [32m?[39m  [1mLocal[22m:   [36mhttp://127.0.0.1:[1m5603[22m/[39m
+
+Running 1 test using 1 worker
+
+2026-07-05 11:43:21 [frontend] [BABEL] Note: The code generator has deoptimised the styling of C:\Users\enmso\.codex\worktrees\4e5e\money-flow-service\.omo\teams\team-358f7305\worktrees\VER\frontend\src\App.jsx as it exceeds the max of 500KB.
+2026-07-05 11:43:22 [backend] [32mINFO[0m:     127.0.0.1:10675 - "[1mGET /api/v1/auth/client-config HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 11:43:22 [backend] [32mINFO[0m:     127.0.0.1:10677 - "[1mGET /api/v1/household/current HTTP/1.1[0m" [31m401 Unauthorized[0m
+2026-07-05 11:43:22 [backend] [32mINFO[0m:     127.0.0.1:10678 - "[1mGET /api/v1/household/list HTTP/1.1[0m" [31m401 Unauthorized[0m
+2026-07-05 11:43:22 [backend] [32mINFO[0m:     127.0.0.1:10676 - "[1mGET /api/v1/auth/me HTTP/1.1[0m" [31m401 Unauthorized[0m
+2026-07-05 11:43:22 [backend] [32mINFO[0m:     127.0.0.1:10679 - "[1mPOST /api/v1/auth/refresh HTTP/1.1[0m" [31m401 Unauthorized[0m
+2026-07-05 11:43:22 [backend] [32mINFO[0m:     127.0.0.1:1538 - "[1mGET /api/v1/auth/client-config HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 11:43:22 [backend] [32mINFO[0m:     127.0.0.1:6027 - "[1mPOST /api/v1/auth/register HTTP/1.1[0m" [32m201 Created[0m
+2026-07-05 11:43:34 [backend] [32mINFO[0m:     127.0.0.1:2281 - "[1mGET /api/v1/auth/client-config HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 11:43:34 [backend] [32mINFO[0m:     127.0.0.1:13818 - "[1mPOST /api/v1/auth/verify-email HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 11:43:34 [backend] [32mINFO[0m:     127.0.0.1:2879 - "[1mGET /api/v1/auth/me HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 11:43:34 [backend] [32mINFO[0m:     127.0.0.1:5976 - "[1mGET /api/v1/household/current HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 11:43:34 [backend] [32mINFO[0m:     127.0.0.1:5977 - "[1mGET /api/v1/household/list HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 11:43:34 [backend] [32mINFO[0m:     127.0.0.1:1836 - "[1mGET /api/v1/household/settings HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 11:43:34 [backend] [32mINFO[0m:     127.0.0.1:1837 - "[1mGET /api/v1/categories HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 11:43:34 [backend] [32mINFO[0m:     127.0.0.1:3806 - "[1mGET /api/v1/household/members HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 11:43:34 [backend] [32mINFO[0m:     127.0.0.1:9476 - "[1mGET /api/v1/household/invitations/received HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 11:43:34 [backend] [32mINFO[0m:     127.0.0.1:9475 - "[1mGET /api/v1/household/invitations HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 11:43:34 [backend] [32mINFO[0m:     127.0.0.1:3883 - "[1mGET /api/v1/transactions?year=2026&month=7&limit=1000 HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 11:43:34 [backend] [32mINFO[0m:     127.0.0.1:5142 - "[1mGET /api/v1/dashboard/overview?year=2026&month=7 HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 11:43:34 [backend] [32mINFO[0m:     127.0.0.1:5480 - "[1mGET /api/v1/holdings HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 11:43:34 [backend] [32mINFO[0m:     127.0.0.1:5482 - "[1mGET /api/v1/prices/status HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 11:43:34 [backend] [32mINFO[0m:     127.0.0.1:5481 - "[1mGET /api/v1/dashboard/portfolio HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 11:43:34 [backend] [32mINFO[0m:     127.0.0.1:10291 - "[1mPOST /api/v1/household/ws-ticket HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 11:43:34 [backend] [32mINFO[0m:     127.0.0.1:6095 - "WebSocket /ws/v1/household/d9e724e1-c600-4b27-a2f7-1b4693da493a" [accepted]
+2026-07-05 11:43:34 [backend] [32mINFO[0m:     connection open
+2026-07-05 11:43:34 [backend] [32mINFO[0m:     127.0.0.1:14104 - "[1mGET /api/v1/dashboard/overview?year=2026&month=7 HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 11:43:34 [backend] [32mINFO[0m:     127.0.0.1:2932 - "[1mGET /api/v1/auth/me HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 11:43:35 [backend] [32mINFO[0m:     127.0.0.1:3599 - "[1mGET /api/v1/holdings HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 11:43:35 [backend] [32mINFO[0m:     127.0.0.1:5541 - "[1mGET /api/v1/transactions?year=2026&month=7&limit=1000 HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 11:43:35 [backend] [32mINFO[0m:     127.0.0.1:2931 - "[1mGET /api/v1/prices/status HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 11:43:35 [backend] [32mINFO[0m:     127.0.0.1:3148 - "[1mGET /api/v1/household/list HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 11:43:35 [backend] [32mINFO[0m:     127.0.0.1:4019 - "[1mGET /api/v1/household/invitations HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 11:43:35 [backend] [32mINFO[0m:     127.0.0.1:10546 - "[1mGET /api/v1/household/members HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 11:43:35 [backend] [32mINFO[0m:     127.0.0.1:3147 - "[1mGET /api/v1/household/current HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 11:43:35 [backend] [32mINFO[0m:     127.0.0.1:2635 - "[1mGET /api/v1/household/invitations/received HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 11:43:35 [backend] [32mINFO[0m:     127.0.0.1:2930 - "[1mGET /api/v1/dashboard/portfolio HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 11:43:35 [backend] [32mINFO[0m:     127.0.0.1:14390 - "[1mGET /api/v1/household/settings HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 11:43:35 [backend] [32mINFO[0m:     127.0.0.1:8280 - "[1mGET /api/v1/categories HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 11:43:45 [backend] [32mINFO[0m:     connection closed
+  x  1 [desktop-chromium] › e2e\specs\client-version.spec.js:5:5 › issue #282: open mobile tab surfaces reload CTA after server client version changes (23.7s)
+
+
+  1) [desktop-chromium] › e2e\specs\client-version.spec.js:5:5 › issue #282: open mobile tab surfaces reload CTA after server client version changes
+
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
+
+    Locator: locator('.client-version-chip')
+    Expected: visible
+    Timeout: 10000ms
+    Error: element(s) not found
+
+    Call log:
+    [2m  - Expect "toBeVisible" with timeout 10000ms[22m
+    [2m  - waiting for locator('.client-version-chip')[22m
+
+
+      35 |
+      36 |   const updateChip = page.locator(".client-version-chip");
+    > 37 |   await expect(updateChip).toBeVisible();
+         |                            ^
+      38 |   await expect(updateChip).toContainText("새 버전");
+      39 |   await expect(page.getByRole("button", { name: "새 버전 적용" })).toBeVisible();
+      40 |   await capture(page, "issue-282-client-version-update");
+        at C:\Users\enmso\.codex\worktrees\4e5e\money-flow-service\.omo\teams\team-358f7305\worktrees\VER\e2e\specs\client-version.spec.js:37:28
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results\client-version-issue-282-o-a5a6c-rver-client-version-changes-desktop-chromium\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results\client-version-issue-282-o-a5a6c-rver-client-version-changes-desktop-chromium\video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results\client-version-issue-282-o-a5a6c-rver-client-version-changes-desktop-chromium\error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results\client-version-issue-282-o-a5a6c-rver-client-version-changes-desktop-chromium\trace.zip
+    Usage:
+
+        npx playwright show-trace test-results\client-version-issue-282-o-a5a6c-rver-client-version-changes-desktop-chromium\trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  1 failed
+    [desktop-chromium] › e2e\specs\client-version.spec.js:5:5 › issue #282: open mobile tab surfaces reload CTA after server client version changes
+[e2e-runner] stop orchestrator
+^C
+[orchestrator] shutdown signal received(signum=21)
+[orchestrator] shutdown requested -> cleanup all
+[orchestrator] terminate frontend(pid=10408)
+2026-07-05 11:43:45 [frontend] ^C
+[orchestrator] terminate backend(pid=18712)
+2026-07-05 11:43:45 [backend] [32mINFO[0m:     Shutting down
+2026-07-05 11:43:45 [backend] [32mINFO[0m:     Waiting for application shutdown.
+2026-07-05 11:43:45 [backend] [32mINFO[0m:     Application shutdown complete.
+2026-07-05 11:43:45 [backend] [32mINFO[0m:     Finished server process [[36m25304[0m]

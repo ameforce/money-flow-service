@@ -6539,6 +6539,10 @@ tr.holding-row-imported {
     text-overflow: ellipsis;
   }
 
+  .topbar-actions .topbar-action-label {
+    display: none;
+  }
+
   .topbar-actions button::before {
     content: none;
     display: none;

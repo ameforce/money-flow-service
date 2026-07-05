@@ -14,7 +14,13 @@ export function TransactionListTablePanel({
   formatters,
 }) {
   const { DEFAULT_TRANSACTION_ROW_COLORS, FLOW_TYPE_LABELS, FLOW_TYPE_OPTIONS } = constants;
-  const { canEditHouseholdData, canEditRecords, isCompactViewport, loading } = permissions;
+  const {
+    canEditHouseholdData,
+    canEditRecords,
+    isCompactViewport,
+    isLedgerCompactViewport = isCompactViewport,
+    loading,
+  } = permissions;
   const { expandedTransactionRows, recentImportTransactionIds, recentSavedTransactionIds, showTransactionScrollTop, sortedTransactions, transactionsMobileStickyActive, txListFilter, txSortDirection } = listState;
   const { categoryById, householdSettings, normalizeTransactionRowColors, renderCategoryCell } = listLookups;
   const { clearTxListFilter, selectTransactionRows, scrollTransactionListToTop, toggleExpandedTransactionRow, toggleTxSortDirection, updateTransactionRowsExpanded, updateTransactionRowsSelected, updateTxListFilter } = listActions;
@@ -76,7 +82,7 @@ export function TransactionListTablePanel({
         canEditRecords={canEditRecords}
         canEditHouseholdData={canEditHouseholdData}
         loading={loading}
-        isCompactViewport={isCompactViewport}
+        isCompactViewport={isLedgerCompactViewport}
         closeTxInlineEdit={closeTxInlineEdit}
         mobileStickyActive={transactionsMobileStickyActive}
         handleTxInlineEditKeyDown={handleTxInlineEditKeyDown}

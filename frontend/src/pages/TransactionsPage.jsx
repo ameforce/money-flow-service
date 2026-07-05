@@ -29,6 +29,7 @@ export function TransactionsPage({
     canEditHouseholdData,
     canEditRecords,
     isCompactViewport,
+    isLedgerCompactViewport = isCompactViewport,
     loading,
   } = permissions;
   const {
@@ -162,7 +163,7 @@ export function TransactionsPage({
     <section className="grid-1 transaction-page-section">
       <TransactionListCard
         constants={{ DEFAULT_TRANSACTION_ROW_COLORS, FLOW_TYPE_LABELS, FLOW_TYPE_OPTIONS }}
-        permissions={{ canEditHouseholdData, canEditRecords, isCompactViewport, loading }}
+        permissions={{ canEditHouseholdData, canEditRecords, isCompactViewport, isLedgerCompactViewport, loading }}
         monthFilter={{ handleMoveToCurrentMonth, handleShiftYearMonth, handleYearMonthInputKeyDown, isMonthFilterPending, isNextMonthDisabled, isPrevMonthDisabled, maxMonth, minMonth, updateYearMonthInput, yearMonth }}
         listState={{ expandedTransactionRows, isTransactionFilterActive, recentImportTransactionIds, recentSavedTransactionIds, selectedTransactionSummary, showTransactionFilterPanel, showTransactionScrollTop, sortedTransactions, transactionSortSummary, transactionsMobileStickyActive, txListFilter, txSortDirection }}
         listRefs={{ transactionListCardRef, transactionListHeadingRef, transactionStickyToolbarRef }}

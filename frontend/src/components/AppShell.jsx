@@ -144,6 +144,7 @@ export function AppShell({
   clientVersionStatusLabel,
   onClientVersionReload,
   dashboardLoading,
+  topbarRefreshStatus,
   onRefreshData,
   priceRefreshDisabled,
   isPriceRefreshActive,
@@ -226,10 +227,20 @@ export function AppShell({
           </div>
         </div>
         <div className="actions topbar-actions">
-          <button className="secondary topbar-action-button topbar-refresh-action" onClick={onRefreshData} disabled={dashboardLoading}>
+          <button
+            className="secondary topbar-action-button topbar-refresh-action"
+            onClick={onRefreshData}
+            disabled={dashboardLoading}
+            aria-label="새로고침"
+            aria-describedby="topbar-refresh-status"
+            title={dashboardLoading ? "새로고침 불러오는 중" : "새로고침"}
+          >
             <span className="topbar-action-icon"><TopbarActionIcon action="refresh" /></span>
             <span className="topbar-action-label">{dashboardLoading ? "불러오는 중..." : "새로고침"}</span>
           </button>
+          <span id="topbar-refresh-status" className="topbar-action-status" role="status" aria-live="polite" aria-atomic="true">
+            {topbarRefreshStatus}
+          </span>
           <button
             className={`secondary topbar-action-button topbar-price-refresh-action${isPriceRefreshActive ? " is-active" : ""}`}
             onClick={onRefreshPrice}
@@ -244,7 +255,12 @@ export function AppShell({
           <span id="topbar-price-refresh-status" className="topbar-action-status" role="status" aria-live="polite" aria-atomic="true">
             {topbarPriceRefreshStatus}
           </span>
-          <button className="danger topbar-action-button topbar-logout-action" onClick={onLogout}>
+          <button
+            className="danger topbar-action-button topbar-logout-action"
+            onClick={onLogout}
+            aria-label="로그아웃"
+            title="로그아웃"
+          >
             <span className="topbar-action-icon"><TopbarActionIcon action="logout" /></span>
             <span className="topbar-action-label">로그아웃</span>
           </button>
