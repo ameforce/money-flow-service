@@ -1,84 +1,129 @@
 import { IsoDateInput } from "../components/IsoDateInput";
 import { TransactionSurfaceTable } from "../components/worksurface/TransactionSurfaceTable";
 
-export function TransactionsPage({ view }) {
+export function TransactionsPage({
+  constants,
+  permissions,
+  monthFilter,
+  listState,
+  listRefs,
+  listLookups,
+  listActions,
+  selection,
+  entrySheet,
+  inlineEdit,
+  categoryManager,
+  history,
+  support,
+  breakdown,
+  ownerHelpers,
+  formatters,
+}) {
   const {
     DEFAULT_TRANSACTION_ROW_COLORS,
     FLOW_TYPE_LABELS,
     FLOW_TYPE_OPTIONS,
-    areAllFilteredTransactionsSelected,
+  } = constants;
+  const {
     canEditHouseholdData,
     canEditRecords,
-    categoryById,
-    clearTxListFilter,
-    closeTransactionEntrySheet,
-    closeTxInlineEdit,
-    createAndApplyTxInlineCategory,
-    expandedTransactionRows,
-    fmtDate,
-    fmtKrw,
-    formatSharePercent,
-    handleGroupedDecimalInput,
+    isCompactViewport,
+    loading,
+  } = permissions;
+  const {
     handleMoveToCurrentMonth,
     handleShiftYearMonth,
-    handleTransactionAmountInput,
-    handleTxInlineEditKeyDown,
     handleYearMonthInputKeyDown,
-    householdSettings,
-    isCompactViewport,
     isMonthFilterPending,
     isNextMonthDisabled,
     isPrevMonthDisabled,
-    isTransactionFilterActive,
-    loading,
     maxMonth,
     minMonth,
-    normalizeTransactionRowColors,
-    openNormalTransactionEntrySheet,
-    openSelectedTransactionEdit,
-    openSelectedTransactionInsert,
-    openTransactionInlineEditor,
-    ownerOptionsWithFallback,
-    ownerSelectValue,
-    ownerSelectionFromValue,
+    updateYearMonthInput,
+    yearMonth,
+  } = monthFilter;
+  const {
+    expandedTransactionRows,
+    isTransactionFilterActive,
     recentImportTransactionIds,
     recentSavedTransactionIds,
-    removeSelectedTransactions,
-    renderCategoryCell,
-    renderLegacyOwnerRemapHelper,
-    renderTransactionCategoryManagerContent,
-    renderTransactionFormFields,
-    scrollTransactionListToTop,
-    selectTransactionRows,
-    selectedTransactionIds,
     selectedTransactionSummary,
-    setSelectedTransactionIds,
-    setShowTransactionFilterPanel,
-    setShowTxCategoryManager,
-    setTransactionRowsExpanded,
-    setTransactionRowsSelected,
-    setTransactionSupportOpen,
-    setTxEntrySheetStep,
-    setTxFlowBreakdownExpanded,
-    setTxInlineEdit,
-    setTxListFilter,
     showTransactionFilterPanel,
-    showTransactionForm,
     showTransactionScrollTop,
-    showTxCategoryManager,
     sortedTransactions,
-    submitTxInlineEdit,
-    toCategoryMajorLabel,
-    toCategoryMinorLabel,
-    toYearMonthKey,
-    toggleAllFilteredTransactionSelection,
+    transactionSortSummary,
+    transactionsMobileStickyActive,
+    txListFilter,
+    txSortDirection,
+  } = listState;
+  const {
+    transactionListCardRef,
+    transactionListHeadingRef,
+    transactionStickyToolbarRef,
+  } = listRefs;
+  const {
+    categoryById,
+    householdSettings,
+    normalizeTransactionRowColors,
+    renderCategoryCell,
+  } = listLookups;
+  const {
+    clearTxListFilter,
+    selectTransactionRows,
+    scrollTransactionListToTop,
     toggleExpandedTransactionRow,
-    toggleTransactionCategoryManager,
-    toggleTransactionSelection,
     toggleTxSortDirection,
+    updateShowTransactionFilterPanel,
+    updateTransactionRowsExpanded,
+    updateTransactionRowsSelected,
+    updateTxListFilter,
+  } = listActions;
+  const {
+    areAllFilteredTransactionsSelected,
+    openSelectedTransactionEdit,
+    openSelectedTransactionInsert,
+    removeSelectedTransactions,
+    selectedTransactionIds,
+    toggleAllFilteredTransactionSelection,
+    toggleTransactionSelection,
+    updateSelectedTransactionIds,
+  } = selection;
+  const {
+    closeTransactionEntrySheet,
+    openNormalTransactionEntrySheet,
+    renderTransactionFormFields,
+    showTransactionForm,
     transactionDesktopAddActionRef,
     transactionEntryBanner,
     transactionFabRef,
+    txEntrySheetStep,
+    updateTxEntrySheetStep,
+  } = entrySheet;
+  const {
+    closeTxInlineEdit,
+    createAndApplyTxInlineCategory,
+    handleGroupedDecimalInput,
+    handleTransactionAmountInput,
+    handleTxInlineEditKeyDown,
+    openTransactionInlineEditor,
+    submitTxInlineEdit,
+    txInlineEdit,
+    updateTxInlineEdit,
+  } = inlineEdit;
+  const {
+    renderLegacyOwnerRemapHelper,
+    renderTransactionCategoryManagerContent,
+    showTxCategoryManager,
+    toggleTransactionCategoryManager,
+    txCategoryManagerRef,
+    txInlineCategoryMajor,
+    txInlineCategoryMajorOptions,
+    txInlineCategoryMinorOptions,
+    txInlineCategoryOptions,
+    txInlineCategoryQuickChips,
+    updateShowTxCategoryManager,
+  } = categoryManager;
+  const {
     transactionHistoryAnchorDate,
     transactionHistoryBottomSentinelRef,
     transactionHistoryError,
@@ -87,28 +132,30 @@ export function TransactionsPage({ view }) {
     transactionHistoryToday,
     transactionHistoryTopSentinelRef,
     transactionLedgerItems,
-    transactionListCardRef,
-    transactionListHeadingRef,
-    transactionSortSummary,
-    transactionStickyToolbarRef,
+  } = history;
+  const {
     transactionSupportDetailsRef,
     transactionSupportOpen,
-    transactionsMobileStickyActive,
-    txCategoryManagerRef,
-    txEntrySheetStep,
+    updateTransactionSupportOpen,
+  } = support;
+  const {
     txFlowBreakdownExpanded,
     txFlowSummaryCards,
-    txInlineCategoryMajor,
-    txInlineCategoryMajorOptions,
-    txInlineCategoryMinorOptions,
-    txInlineCategoryOptions,
-    txInlineCategoryQuickChips,
-    txInlineEdit,
-    txListFilter,
-    txSortDirection,
-    updateYearMonthInput,
-    yearMonth,
-  } = view;
+    updateTxFlowBreakdownExpanded,
+  } = breakdown;
+  const {
+    ownerOptionsWithFallback,
+    ownerSelectValue,
+    ownerSelectionFromValue,
+  } = ownerHelpers;
+  const {
+    fmtDate,
+    fmtKrw,
+    formatSharePercent,
+    toCategoryMajorLabel,
+    toCategoryMinorLabel,
+    toYearMonthKey,
+  } = formatters;
 
   return (
     <section className="grid-1 transaction-page-section">
@@ -213,7 +260,7 @@ export function TransactionsPage({ view }) {
                         type="button"
                         className="secondary transaction-selection-action transaction-selection-clear"
                         disabled={selectedTransactionSummary.count === 0}
-                        onClick={() => setSelectedTransactionIds(new Set())}
+                        onClick={() => updateSelectedTransactionIds(new Set())}
                       >
                         선택 해제
                       </button>
@@ -288,7 +335,7 @@ export function TransactionsPage({ view }) {
                           className="secondary"
                           aria-expanded={showTransactionFilterPanel ? "true" : "false"}
                           aria-controls="transaction-filter-panel"
-                          onClick={() => setShowTransactionFilterPanel((prev) => !prev)}
+                          onClick={() => updateShowTransactionFilterPanel((prev) => !prev)}
                         >
                           {showTransactionFilterPanel ? "필터 닫기" : "필터 열기"}
                         </button>
@@ -308,7 +355,7 @@ export function TransactionsPage({ view }) {
                         <input
                           placeholder="검색"
                           value={txListFilter.keyword}
-                          onChange={(e) => setTxListFilter({ ...txListFilter, keyword: e.target.value })}
+                          onChange={(e) => updateTxListFilter({ ...txListFilter, keyword: e.target.value })}
                           enterKeyHint="search"
                         />
                       </label>
@@ -316,7 +363,7 @@ export function TransactionsPage({ view }) {
                         <span>유형</span>
                         <select
                           value={txListFilter.flow_type}
-                          onChange={(e) => setTxListFilter({ ...txListFilter, flow_type: e.target.value })}
+                          onChange={(e) => updateTxListFilter({ ...txListFilter, flow_type: e.target.value })}
                         >
                           <option value="all">전체</option>
                           {FLOW_TYPE_OPTIONS.map((item) => (
@@ -330,14 +377,14 @@ export function TransactionsPage({ view }) {
                         <span>시작</span>
                         <IsoDateInput
                           value={txListFilter.start}
-                          onValueChange={(value) => setTxListFilter({ ...txListFilter, start: value })}
+                          onValueChange={(value) => updateTxListFilter({ ...txListFilter, start: value })}
                         />
                       </label>
                       <label className="tx-header-filter">
                         <span>종료</span>
                         <IsoDateInput
                           value={txListFilter.end}
-                          onValueChange={(value) => setTxListFilter({ ...txListFilter, end: value })}
+                          onValueChange={(value) => updateTxListFilter({ ...txListFilter, end: value })}
                         />
                       </label>
                       <button
@@ -375,8 +422,8 @@ export function TransactionsPage({ view }) {
                   recentSavedTransactionIds={recentSavedTransactionIds}
                   toggleTransactionSelection={toggleTransactionSelection}
                   selectTransactionRows={selectTransactionRows}
-                  setTransactionRowsSelected={setTransactionRowsSelected}
-                  setTransactionRowsExpanded={setTransactionRowsExpanded}
+                  updateTransactionRowsSelected={updateTransactionRowsSelected}
+                  updateTransactionRowsExpanded={updateTransactionRowsExpanded}
                   txInlineEdit={txInlineEdit}
                   ownerOptionsWithFallback={ownerOptionsWithFallback}
                   ownerSelectValue={ownerSelectValue}
@@ -385,7 +432,7 @@ export function TransactionsPage({ view }) {
                   txInlineCategoryQuickChips={txInlineCategoryQuickChips}
                   txInlineCategoryMajorOptions={txInlineCategoryMajorOptions}
                   txInlineCategoryMinorOptions={txInlineCategoryMinorOptions}
-                  setTxInlineEdit={setTxInlineEdit}
+                  updateTxInlineEdit={updateTxInlineEdit}
                   createTxInlineCategory={createAndApplyTxInlineCategory}
                   openTransactionInlineEditor={openTransactionInlineEditor}
                   categoryById={categoryById}
@@ -393,7 +440,7 @@ export function TransactionsPage({ view }) {
                   FLOW_TYPE_LABELS={FLOW_TYPE_LABELS}
                   FLOW_TYPE_OPTIONS={FLOW_TYPE_OPTIONS}
                   txListFilter={txListFilter}
-                  setTxListFilter={setTxListFilter}
+                  updateTxListFilter={updateTxListFilter}
                   clearTxListFilter={clearTxListFilter}
                   householdSettings={householdSettings}
                   normalizeTransactionRowColors={normalizeTransactionRowColors}
@@ -451,9 +498,9 @@ export function TransactionsPage({ view }) {
                 open={transactionSupportOpen}
                 onToggle={(event) => {
                   const nextOpen = event.currentTarget.open;
-                  setTransactionSupportOpen(nextOpen);
+                  updateTransactionSupportOpen(nextOpen);
                   if (!nextOpen) {
-                    setShowTxCategoryManager(false);
+                    updateShowTxCategoryManager(false);
                   }
                 }}
               >
@@ -479,7 +526,7 @@ export function TransactionsPage({ view }) {
                               aria-expanded={expanded}
                               aria-label={`${FLOW_TYPE_LABELS[flowSummary.flowType] || flowSummary.flowType} 카테고리 집계 ${expanded ? "접기" : "상세 보기"}`}
                               onClick={() =>
-                                setTxFlowBreakdownExpanded((prev) => ({
+                                updateTxFlowBreakdownExpanded((prev) => ({
                                   ...prev,
                                   [flowSummary.flowType]: !expanded,
                                 }))
@@ -616,7 +663,7 @@ export function TransactionsPage({ view }) {
                           <button
                             type="button"
                             className="secondary"
-                            onClick={() => setTxEntrySheetStep("form")}
+                            onClick={() => updateTxEntrySheetStep("form")}
                           >
                             거래 입력으로 돌아가기
                           </button>

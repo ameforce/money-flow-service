@@ -1,6 +1,16 @@
 import { Fragment } from "react";
 
-export function SettingsPage({ view }) {
+export function SettingsPage({
+  constants,
+  permissions,
+  profile,
+  householdAdmin,
+  holdingTypes,
+  categoryDrafts,
+  categoryLists,
+  categoryActions,
+  formatters,
+}) {
   const {
     ASSET_TYPE_OPTIONS,
     COLLAB_ROLE_LABELS,
@@ -8,9 +18,45 @@ export function SettingsPage({ view }) {
     DISPLAY_NAME_MODE_OPTIONS,
     FLOW_TYPE_LABELS,
     FLOW_TYPE_OPTIONS,
+  } = constants;
+  const {
     canEditHouseholdData,
     canManageHousehold,
-    categories,
+  } = permissions;
+  const {
+    profileDisplayModeLabel,
+    profileForm,
+    saveProfileSettings,
+    user,
+    updateProfileForm,
+  } = profile;
+  const {
+    handleHouseholdSwitchChange,
+    household,
+    householdList,
+    householdRole,
+    householdRoleLabel,
+    householdSettings,
+    householdSettingsForm,
+    householdSwitchDisabled,
+    saveHouseholdSettings,
+    updateHouseholdSettingsForm,
+  } = householdAdmin;
+  const {
+    clearHoldingTypeDraft,
+    editHoldingType,
+    holdingCategoryNames,
+    holdingOwnerNames,
+    holdingTypeDraft,
+    holdingTypeEditKey,
+    holdingTypeOptions,
+    moveHoldingTypeOrder,
+    removeHoldingTypeDefinition,
+    saveHoldingTypeDefinition,
+    updateHoldingColorInForm,
+    updateHoldingTypeDraft,
+  } = holdingTypes;
+  const {
     categoryDraft,
     categoryDraftGuideText,
     categoryDraftMajorOptions,
@@ -20,6 +66,10 @@ export function SettingsPage({ view }) {
     categoryDraftSummaryText,
     categoryEditForm,
     categoryEditId,
+    majorRenameDrafts,
+  } = categoryDrafts;
+  const {
+    categories,
     categoryGroups,
     categoryMajorCount,
     categoryQuickActionText,
@@ -29,55 +79,31 @@ export function SettingsPage({ view }) {
     categoryUsageById,
     categoryUsageExpanded,
     categoryUsageLoadingId,
-    clearHoldingTypeDraft,
+    settingsPermissionLabel,
+  } = categoryLists;
+  const {
     createCategoryPair,
     deleteCategoryPair,
     deleteSelectedCategoryQuick,
-    editHoldingType,
     editSelectedCategoryQuick,
-    fmtKrw,
-    handleHouseholdSwitchChange,
-    holdingCategoryNames,
-    holdingOwnerNames,
-    holdingTypeDraft,
-    holdingTypeEditKey,
-    holdingTypeOptions,
-    household,
-    householdList,
-    householdRole,
-    householdRoleLabel,
-    householdSettings,
-    householdSettingsForm,
-    householdSwitchDisabled,
-    majorRenameDrafts,
-    moveHoldingTypeOrder,
-    profileDisplayModeLabel,
-    profileForm,
-    removeHoldingTypeDefinition,
     renameCategoryMajorGroup,
     renderBreakableInlineText,
     saveCategoryEdit,
-    saveHoldingTypeDefinition,
-    saveHouseholdSettings,
-    saveProfileSettings,
-    setCategoryDraft,
-    setCategoryDraftMajorSelect,
-    setCategoryDraftMinorSelect,
-    setCategoryEditForm,
-    setCategoryEditId,
-    setCategoryQuickSelectedId,
-    setHoldingColorInForm,
-    setHoldingTypeDraft,
-    setHouseholdSettingsForm,
-    setMajorRenameDrafts,
-    setProfileForm,
-    settingsPermissionLabel,
     toCategoryMajorLabel,
     toCategoryMinorLabel,
     toCategoryPairLabel,
     toggleCategoryUsageDetails,
-    user,
-  } = view;
+    updateCategoryDraft,
+    updateCategoryDraftMajorSelect,
+    updateCategoryDraftMinorSelect,
+    updateCategoryEditForm,
+    updateCategoryEditId,
+    updateCategoryQuickSelectedId,
+    updateMajorRenameDrafts,
+  } = categoryActions;
+  const {
+    fmtKrw,
+  } = formatters;
 
   return (
     <section className="grid-2 settings-grid secondary-surface-grid">
@@ -97,7 +123,7 @@ export function SettingsPage({ view }) {
                     본명
                     <input
                       value={profileForm.real_name}
-                      onChange={(event) => setProfileForm((prev) => ({ ...prev, real_name: event.target.value }))}
+                      onChange={(event) => updateProfileForm((prev) => ({ ...prev, real_name: event.target.value }))}
                       required
                     />
                   </label>
@@ -105,7 +131,7 @@ export function SettingsPage({ view }) {
                     닉네임
                     <input
                       value={profileForm.nickname}
-                      onChange={(event) => setProfileForm((prev) => ({ ...prev, nickname: event.target.value }))}
+                      onChange={(event) => updateProfileForm((prev) => ({ ...prev, nickname: event.target.value }))}
                       placeholder="선택 입력"
                     />
                   </label>
@@ -113,7 +139,7 @@ export function SettingsPage({ view }) {
                     표시명 방식
                     <select
                       value={profileForm.display_name_mode}
-                      onChange={(event) => setProfileForm((prev) => ({ ...prev, display_name_mode: event.target.value }))}
+                      onChange={(event) => updateProfileForm((prev) => ({ ...prev, display_name_mode: event.target.value }))}
                     >
                       {DISPLAY_NAME_MODE_OPTIONS.map((option) => (
                         <option key={option.value} value={option.value}>
@@ -147,7 +173,7 @@ export function SettingsPage({ view }) {
                     가계 이름
                     <input
                       value={householdSettingsForm.name}
-                      onChange={(event) => setHouseholdSettingsForm((prev) => ({ ...prev, name: event.target.value }))}
+                      onChange={(event) => updateHouseholdSettingsForm((prev) => ({ ...prev, name: event.target.value }))}
                       required
                     />
                   </label>
@@ -189,7 +215,7 @@ export function SettingsPage({ view }) {
                           type="color"
                           value={colorValue}
                           onChange={(event) =>
-                            setHouseholdSettingsForm((prev) => ({
+                            updateHouseholdSettingsForm((prev) => ({
                               ...prev,
                               transaction_row_colors: {
                                 ...prev.transaction_row_colors,
@@ -225,7 +251,7 @@ export function SettingsPage({ view }) {
                     유형 키
                     <input
                       value={holdingTypeDraft.key}
-                      onChange={(event) => setHoldingTypeDraft((prev) => ({ ...prev, key: event.target.value }))}
+                      onChange={(event) => updateHoldingTypeDraft((prev) => ({ ...prev, key: event.target.value }))}
                       placeholder="예: deposit"
                       required
                     />
@@ -234,7 +260,7 @@ export function SettingsPage({ view }) {
                     유형 이름
                     <input
                       value={holdingTypeDraft.label}
-                      onChange={(event) => setHoldingTypeDraft((prev) => ({ ...prev, label: event.target.value }))}
+                      onChange={(event) => updateHoldingTypeDraft((prev) => ({ ...prev, label: event.target.value }))}
                       placeholder="예: 예적금"
                       required
                     />
@@ -243,7 +269,7 @@ export function SettingsPage({ view }) {
                     기준 asset_type
                     <select
                       value={holdingTypeDraft.asset_type}
-                      onChange={(event) => setHoldingTypeDraft((prev) => ({ ...prev, asset_type: event.target.value }))}
+                      onChange={(event) => updateHoldingTypeDraft((prev) => ({ ...prev, asset_type: event.target.value }))}
                     >
                       {ASSET_TYPE_OPTIONS.map((item) => (
                         <option key={item.value} value={item.value}>
@@ -256,7 +282,7 @@ export function SettingsPage({ view }) {
                     <input
                       type="checkbox"
                       checked={holdingTypeDraft.tracked}
-                      onChange={(event) => setHoldingTypeDraft((prev) => ({ ...prev, tracked: event.target.checked }))}
+                      onChange={(event) => updateHoldingTypeDraft((prev) => ({ ...prev, tracked: event.target.checked }))}
                     />
                     시장 추적형 유형
                   </label>
@@ -264,7 +290,7 @@ export function SettingsPage({ view }) {
                     <input
                       type="checkbox"
                       checked={holdingTypeDraft.show_average_cost}
-                      onChange={(event) => setHoldingTypeDraft((prev) => ({ ...prev, show_average_cost: event.target.checked }))}
+                      onChange={(event) => updateHoldingTypeDraft((prev) => ({ ...prev, show_average_cost: event.target.checked }))}
                     />
                     평균단가/평가금액 입력 표시
                   </label>
@@ -272,7 +298,7 @@ export function SettingsPage({ view }) {
                     <input
                       type="checkbox"
                       checked={holdingTypeDraft.show_gain_loss}
-                      onChange={(event) => setHoldingTypeDraft((prev) => ({ ...prev, show_gain_loss: event.target.checked }))}
+                      onChange={(event) => updateHoldingTypeDraft((prev) => ({ ...prev, show_gain_loss: event.target.checked }))}
                     />
                     손익 표시
                   </label>
@@ -323,7 +349,7 @@ export function SettingsPage({ view }) {
                         <input
                           type="color"
                           value={colorValue}
-                          onChange={(event) => setHoldingColorInForm("type_colors", typeItem.key, event.target.value)}
+                          onChange={(event) => updateHoldingColorInForm("type_colors", typeItem.key, event.target.value)}
                           disabled={!canManageHousehold}
                         />
                         <code>{colorValue}</code>
@@ -338,7 +364,7 @@ export function SettingsPage({ view }) {
                         <input
                           type="color"
                           value={colorValue}
-                          onChange={(event) => setHoldingColorInForm("owner_colors", ownerName, event.target.value)}
+                          onChange={(event) => updateHoldingColorInForm("owner_colors", ownerName, event.target.value)}
                           disabled={!canManageHousehold}
                         />
                         <code>{colorValue}</code>
@@ -353,7 +379,7 @@ export function SettingsPage({ view }) {
                         <input
                           type="color"
                           value={colorValue}
-                          onChange={(event) => setHoldingColorInForm("category_colors", categoryName, event.target.value)}
+                          onChange={(event) => updateHoldingColorInForm("category_colors", categoryName, event.target.value)}
                           disabled={!canManageHousehold}
                         />
                         <code>{colorValue}</code>
@@ -435,10 +461,10 @@ export function SettingsPage({ view }) {
                       value={categoryDraft.flow_type}
                       onChange={(event) => {
                         const nextFlowType = event.target.value;
-                        setCategoryDraft((prev) => ({ ...prev, flow_type: nextFlowType, major: "", minor: "" }));
-                        setCategoryDraftMajorSelect("__custom__");
-                        setCategoryDraftMinorSelect("__custom__");
-                        setCategoryQuickSelectedId("");
+                        updateCategoryDraft((prev) => ({ ...prev, flow_type: nextFlowType, major: "", minor: "" }));
+                        updateCategoryDraftMajorSelect("__custom__");
+                        updateCategoryDraftMinorSelect("__custom__");
+                        updateCategoryQuickSelectedId("");
                       }}
                       disabled={!canEditHouseholdData}
                     >
@@ -455,12 +481,12 @@ export function SettingsPage({ view }) {
                       value={categoryDraftMajorSelect}
                       onChange={(event) => {
                         const nextMajorSelect = event.target.value;
-                        setCategoryDraftMajorSelect(nextMajorSelect);
-                        setCategoryDraftMinorSelect("__custom__");
+                        updateCategoryDraftMajorSelect(nextMajorSelect);
+                        updateCategoryDraftMinorSelect("__custom__");
                         if (nextMajorSelect === "__custom__") {
-                          setCategoryDraft((prev) => ({ ...prev, major: "", minor: "" }));
+                          updateCategoryDraft((prev) => ({ ...prev, major: "", minor: "" }));
                         } else {
-                          setCategoryDraft((prev) => ({ ...prev, major: nextMajorSelect, minor: "" }));
+                          updateCategoryDraft((prev) => ({ ...prev, major: nextMajorSelect, minor: "" }));
                         }
                       }}
                       disabled={!canEditHouseholdData}
@@ -479,11 +505,11 @@ export function SettingsPage({ view }) {
                       value={categoryDraftMinorSelect}
                       onChange={(event) => {
                         const nextMinorSelect = event.target.value;
-                        setCategoryDraftMinorSelect(nextMinorSelect);
+                        updateCategoryDraftMinorSelect(nextMinorSelect);
                         if (nextMinorSelect === "__custom__") {
-                          setCategoryDraft((prev) => ({ ...prev, minor: "" }));
+                          updateCategoryDraft((prev) => ({ ...prev, minor: "" }));
                         } else {
-                          setCategoryDraft((prev) => ({ ...prev, minor: nextMinorSelect }));
+                          updateCategoryDraft((prev) => ({ ...prev, minor: nextMinorSelect }));
                         }
                       }}
                       disabled={!canEditHouseholdData || (categoryDraftMajorSelect === "__custom__" && !String(categoryDraft.major || "").trim())}
@@ -501,7 +527,7 @@ export function SettingsPage({ view }) {
                       새 대분류 입력
                       <input
                         value={categoryDraft.major}
-                        onChange={(event) => setCategoryDraft((prev) => ({ ...prev, major: event.target.value }))}
+                        onChange={(event) => updateCategoryDraft((prev) => ({ ...prev, major: event.target.value }))}
                         placeholder="예: 생활비"
                         required
                         disabled={!canEditHouseholdData}
@@ -513,7 +539,7 @@ export function SettingsPage({ view }) {
                       첫 중분류 입력
                       <input
                         value={categoryDraft.minor}
-                        onChange={(event) => setCategoryDraft((prev) => ({ ...prev, minor: event.target.value }))}
+                        onChange={(event) => updateCategoryDraft((prev) => ({ ...prev, minor: event.target.value }))}
                         placeholder="예: 식비"
                         required
                         disabled={!canEditHouseholdData}
@@ -533,7 +559,7 @@ export function SettingsPage({ view }) {
                     기존 카테고리 선택
                     <select
                       value={categoryQuickSelectedId}
-                      onChange={(event) => setCategoryQuickSelectedId(event.target.value)}
+                      onChange={(event) => updateCategoryQuickSelectedId(event.target.value)}
                       disabled={!canEditHouseholdData}
                     >
                       <option value="">(선택 안함)</option>
@@ -581,7 +607,7 @@ export function SettingsPage({ view }) {
                                 <input
                                   value={majorRenameDrafts[`${flowGroup.value}:${major}`] || ""}
                                   onChange={(event) =>
-                                    setMajorRenameDrafts((prev) => ({
+                                    updateMajorRenameDrafts((prev) => ({
                                       ...prev,
                                       [`${flowGroup.value}:${major}`]: event.target.value,
                                     }))
@@ -610,14 +636,14 @@ export function SettingsPage({ view }) {
                                     <span className="settings-category-major">{toCategoryMajorLabel(category.major)}</span>
                                     <input
                                       value={categoryEditForm.minor}
-                                      onChange={(event) => setCategoryEditForm((prev) => ({ ...prev, major: category.major, minor: event.target.value }))}
+                                      onChange={(event) => updateCategoryEditForm((prev) => ({ ...prev, major: category.major, minor: event.target.value }))}
                                       required
                                       disabled={!canEditHouseholdData}
                                     />
                                     <span className="settings-category-usage">사용 {category.usage_count}건</span>
                                     <div className="inline">
                                       <button type="submit" disabled={!canEditHouseholdData}>저장</button>
-                                      <button type="button" className="secondary" onClick={() => { setCategoryEditId(""); setCategoryEditForm({ major: "", minor: "" }); }}>
+                                      <button type="button" className="secondary" onClick={() => { updateCategoryEditId(""); updateCategoryEditForm({ major: "", minor: "" }); }}>
                                         취소
                                       </button>
                                     </div>
@@ -644,8 +670,8 @@ export function SettingsPage({ view }) {
                                           className="secondary"
                                           disabled={!canEditHouseholdData}
                                           onClick={() => {
-                                            setCategoryEditId(category.id);
-                                            setCategoryEditForm({ major: category.major, minor: category.minor });
+                                            updateCategoryEditId(category.id);
+                                            updateCategoryEditForm({ major: category.major, minor: category.minor });
                                           }}
                                         >
                                           중분류 수정

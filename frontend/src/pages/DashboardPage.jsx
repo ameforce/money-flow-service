@@ -1,65 +1,88 @@
 import { Doughnut, Line } from "react-chartjs-2";
 import { ChartBreakdownList, FlowTrendValueTable } from "../components/worksurface/ChartAccessibleSummary";
 
-export function DashboardPage({ view }) {
+export function DashboardPage({
+  constants,
+  filters,
+  summary,
+  portfolioView,
+  charts,
+  formatters,
+  renderers,
+  navigation,
+}) {
   const {
     COLLAB_ROLE_LABELS,
     FINANCIAL_SUMMARY_LABELS,
     FLOW_TYPE_LABELS,
     PORTFOLIO_VIEW_OPTIONS,
     SOCKET_STATUS_LABELS,
+  } = constants;
+  const {
     applyMonthFilter,
-    categoryById,
-    dashboardFlowChartDescription,
-    dashboardFlowTrendRows,
-    dashboardGainLossRatioText,
-    dashboardHoldingHighlights,
-    dashboardImportStatus,
-    dashboardKpiCards,
-    dashboardLoading,
-    dashboardPortfolioBreakdownItems,
-    dashboardPortfolioCenterLabel,
-    dashboardPortfolioChartData,
-    dashboardPortfolioChartDescription,
-    dashboardPortfolioChartSource,
-    dashboardPortfolioViewMode,
-    dashboardPriceTone,
-    dashboardRecentTransactions,
-    donutChartOptions,
-    extractVisibleInitial,
     filterMode,
-    fmt,
-    fmtDate,
-    fmtDateTime,
-    fmtKrw,
     handleMoveToCurrentMonth,
     handleRangeInputChange,
     handleRangePreset,
     handleShiftYearMonth,
     handleSwitchToRangeFilter,
     handleYearMonthInputKeyDown,
-    householdMembers,
-    importReport,
-    isDashboardInitialLoading,
     isMonthFilterPending,
     isNextMonthDisabled,
     isPrevMonthDisabled,
-    latestRefreshAt,
-    lineChartOptions,
-    portfolio,
-    priceSummaryRows,
     range,
-    refreshStateLabel,
-    renderDonutCenterLabel,
-    renderDonutSliceLabels,
-    setDashboardPortfolioViewMode,
-    setTab,
-    socketStatus,
-    toCategoryPairLabel,
-    trendChartData,
     updateYearMonthInput,
     yearMonth,
-  } = view;
+  } = filters;
+  const {
+    categoryById,
+    dashboardFlowTrendRows,
+    dashboardGainLossRatioText,
+    dashboardHoldingHighlights,
+    dashboardImportStatus,
+    dashboardKpiCards,
+    dashboardLoading,
+    dashboardPriceTone,
+    dashboardRecentTransactions,
+    householdMembers,
+    importReport,
+    isDashboardInitialLoading,
+    latestRefreshAt,
+    priceSummaryRows,
+    refreshStateLabel,
+    socketStatus,
+  } = summary;
+  const {
+    dashboardPortfolioBreakdownItems,
+    dashboardPortfolioCenterLabel,
+    dashboardPortfolioChartData,
+    dashboardPortfolioChartDescription,
+    dashboardPortfolioChartSource,
+    dashboardPortfolioViewMode,
+    portfolio,
+    updateDashboardPortfolioViewMode,
+  } = portfolioView;
+  const {
+    dashboardFlowChartDescription,
+    donutChartOptions,
+    lineChartOptions,
+    trendChartData,
+  } = charts;
+  const {
+    extractVisibleInitial,
+    fmt,
+    fmtDate,
+    fmtDateTime,
+    fmtKrw,
+    toCategoryPairLabel,
+  } = formatters;
+  const {
+    renderDonutCenterLabel,
+    renderDonutSliceLabels,
+  } = renderers;
+  const {
+    navigateToTab,
+  } = navigation;
 
   return (
     <section className="dashboard-command-center grid-2" aria-busy={dashboardLoading ? "true" : "false"}>
@@ -258,7 +281,7 @@ export function DashboardPage({ view }) {
                         aria-label="포트폴리오 보기 기준"
                         value={dashboardPortfolioViewMode}
                         disabled={dashboardLoading}
-                        onChange={(event) => setDashboardPortfolioViewMode(event.target.value)}
+                        onChange={(event) => updateDashboardPortfolioViewMode(event.target.value)}
                       >
                         {PORTFOLIO_VIEW_OPTIONS.map((option) => (
                           <option key={option.value} value={option.value}>
@@ -378,7 +401,7 @@ export function DashboardPage({ view }) {
                       })
                     )}
                   </div>
-                  <button type="button" className="text-button dashboard-card-footer-action" onClick={() => setTab("transactions")}>전체 보기</button>
+                  <button type="button" className="text-button dashboard-card-footer-action" onClick={() => navigateToTab("transactions")}>전체 보기</button>
                 </article>
 
                 <article className="card dashboard-side-card dashboard-holdings-card">
@@ -403,7 +426,7 @@ export function DashboardPage({ view }) {
                       ))
                     )}
                   </div>
-                  <button type="button" className="text-button dashboard-card-footer-action" onClick={() => setTab("holdings")}>전체 보기</button>
+                  <button type="button" className="text-button dashboard-card-footer-action" onClick={() => navigateToTab("holdings")}>전체 보기</button>
                 </article>
               </div>
             </section>

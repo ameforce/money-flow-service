@@ -2,38 +2,92 @@ import { Doughnut } from "react-chartjs-2";
 import { ChartBreakdownList } from "../components/worksurface/ChartAccessibleSummary";
 import { HoldingSurfaceTable } from "../components/worksurface/HoldingSurfaceTable";
 
-export function HoldingsPage({ view }) {
+export function HoldingsPage({
+  constants,
+  permissions,
+  entryState,
+  entryActions,
+  entryLookups,
+  listState,
+  listActions,
+  portfolioSummary,
+  formatters,
+  renderers,
+}) {
   const {
     DEFAULT_HOLDING_TYPES,
-    activeHoldingTabLabel,
-    activeHoldingTypeFilterLabel,
-    applyHoldingOwnerOption,
+  } = constants;
+  const {
     canEditRecords,
-    closeHoldingEntrySheet,
-    createHoldingForm,
-    donutChartOptions,
-    dynamicHoldingTabs,
-    filteredHoldingItems,
-    fmtKrw,
-    fmtSignedPercent,
-    groupedHoldingSections,
-    handleHoldingEntryDecimalInput,
-    handleHoldingSummarySummaryClick,
-    handleHoldingSummaryToggle,
-    holdingColorMode,
-    holdingColorModeLabel,
-    holdingColumnWidths,
+    isCompactViewport,
+    loading,
+  } = permissions;
+  const {
     holdingEntryActionRef,
     holdingForm,
     holdingFormOwnerOptions,
     holdingFormShowAverageCost,
     holdingFormTracked,
     holdingFormType,
+    holdingNameInputRef,
+    showHoldingForm,
+  } = entryState;
+  const {
+    applyHoldingOwnerOption,
+    closeHoldingEntrySheet,
+    createHoldingForm,
+    handleHoldingEntryDecimalInput,
+    nextAverageCostForHoldingTypeChange,
+    openHoldingEntrySheet,
+    ownerSelectionFromValue,
+    resolveHoldingCategoryOnTypeChange,
+    shouldExplainHoldingValueReset,
+    submitHolding,
+    uiGuideMessage,
+    updateHoldingDraftTouched,
+    updateHoldingForm,
+    updateHoldingOwnerTouched,
+    notifyMessage,
+  } = entryActions;
+  const {
+    holdingTypeByKey,
+    holdingTypeOptions,
+    holdingValuationInputMode,
+    normalizeHoldingTypeKey,
+    ownerSelectValue,
+  } = entryLookups;
+  const {
+    activeHoldingTabLabel,
+    activeHoldingTypeFilterLabel,
+    dynamicHoldingTabs,
+    filteredHoldingItems,
+    groupedHoldingSections,
+    holdingColorMode,
+    holdingColorModeLabel,
+    holdingColumnWidths,
     holdingGroupByColor,
     holdingItems,
     holdingListTab,
     holdingListTabAriaLabel,
-    holdingNameInputRef,
+    holdingSortSummary,
+    holdingTypeFilter,
+    selectedHoldingSummary,
+    sortedHoldingItems,
+  } = listState;
+  const {
+    moveHoldingCategoryOrder,
+    scrollToHoldingSummary,
+    updateHoldingColumnWidth,
+    updateHoldingColorMode,
+    updateHoldingGroupByColor,
+    updateHoldingListTab,
+    updateHoldingTypeFilter,
+    updateSelectedHoldingIds,
+  } = listActions;
+  const {
+    donutChartOptions,
+    handleHoldingSummarySummaryClick,
+    handleHoldingSummaryToggle,
     holdingPortfolioBreakdownCanFilter,
     holdingPortfolioBreakdownItems,
     holdingPortfolioCenterLabel,
@@ -42,24 +96,18 @@ export function HoldingsPage({ view }) {
     holdingPortfolioChartSource,
     holdingPortfolioGainTone,
     holdingPortfolioReturnRatio,
-    holdingSortSummary,
     holdingSummaryCardRef,
     holdingSummaryOpen,
     holdingSummarySource,
     holdingSummaryViewMode,
-    holdingTypeByKey,
-    holdingTypeFilter,
-    holdingTypeOptions,
-    holdingValuationInputMode,
-    isCompactViewport,
-    loading,
-    moveHoldingCategoryOrder,
-    nextAverageCostForHoldingTypeChange,
-    normalizeHoldingTypeKey,
-    openHoldingEntrySheet,
-    ownerSelectValue,
-    ownerSelectionFromValue,
     portfolio,
+    updateHoldingSummaryViewMode,
+  } = portfolioSummary;
+  const {
+    fmtKrw,
+    fmtSignedPercent,
+  } = formatters;
+  const {
     renderDonutCenterLabel,
     renderDonutSliceLabels,
     renderHoldingRow,
@@ -67,26 +115,7 @@ export function HoldingsPage({ view }) {
     renderHoldingSortHeader,
     renderLegacyOwnerRemapHelper,
     renderOwnerQuickSelect,
-    resolveHoldingCategoryOnTypeChange,
-    scrollToHoldingSummary,
-    selectedHoldingSummary,
-    setHoldingColorMode,
-    setHoldingDraftTouched,
-    setHoldingForm,
-    setHoldingGroupByColor,
-    setHoldingListTab,
-    setHoldingOwnerTouched,
-    setHoldingSummaryViewMode,
-    setHoldingTypeFilter,
-    setMessage,
-    setSelectedHoldingIds,
-    shouldExplainHoldingValueReset,
-    showHoldingForm,
-    sortedHoldingItems,
-    submitHolding,
-    uiGuideMessage,
-    updateHoldingColumnWidth,
-  } = view;
+  } = renderers;
 
   return (
     <section className="grid-1">
@@ -139,21 +168,21 @@ export function HoldingsPage({ view }) {
                           value={holdingForm.type_key}
                           disabled={!canEditRecords}
                           onChange={(event) => {
-                            setHoldingDraftTouched(true);
+                            updateHoldingDraftTouched(true);
                             const nextTypeKey = normalizeHoldingTypeKey(event.target.value || "");
                             const nextType = holdingTypeByKey.get(nextTypeKey) || holdingTypeOptions[0] || DEFAULT_HOLDING_TYPES[0];
                             const previousType =
                               holdingTypeByKey.get(normalizeHoldingTypeKey(holdingForm.type_key || holdingForm.asset_type || "")) ||
                               holdingFormType;
                             if (shouldExplainHoldingValueReset(holdingForm.average_cost, previousType, nextType)) {
-                              setMessage(
+                              notifyMessage(
                                 uiGuideMessage(
                                   "자산 유형을 변경했습니다.",
                                   "평가금액과 평균단가의 의미가 달라 금액 입력값을 비웠습니다."
                                 )
                               );
                             }
-                            setHoldingForm((prev) => ({
+                            updateHoldingForm((prev) => ({
                               ...createHoldingForm(nextType.asset_type || "other", nextType.key, nextType.label),
                               name: prev.name,
                               category: resolveHoldingCategoryOnTypeChange(
@@ -182,8 +211,8 @@ export function HoldingsPage({ view }) {
                           ref={holdingNameInputRef}
                           value={holdingForm.name}
                           onChange={(event) => {
-                            setHoldingDraftTouched(true);
-                            setHoldingForm({ ...holdingForm, name: event.target.value });
+                            updateHoldingDraftTouched(true);
+                            updateHoldingForm({ ...holdingForm, name: event.target.value });
                           }}
                           disabled={!canEditRecords}
                           required
@@ -197,8 +226,8 @@ export function HoldingsPage({ view }) {
                         <input
                           value={holdingForm.category}
                           onChange={(event) => {
-                            setHoldingDraftTouched(true);
-                            setHoldingForm({ ...holdingForm, category: event.target.value });
+                            updateHoldingDraftTouched(true);
+                            updateHoldingForm({ ...holdingForm, category: event.target.value });
                           }}
                           disabled={!canEditRecords}
                         />
@@ -209,9 +238,9 @@ export function HoldingsPage({ view }) {
                           value={ownerSelectValue(holdingForm.owner_user_id, holdingForm.owner_name)}
                           disabled={!canEditRecords}
                           onChange={(event) => {
-                            setHoldingOwnerTouched(true);
-                            setHoldingDraftTouched(true);
-                            setHoldingForm({
+                            updateHoldingOwnerTouched(true);
+                            updateHoldingDraftTouched(true);
+                            updateHoldingForm({
                               ...holdingForm,
                               ...ownerSelectionFromValue(event.target.value, holdingFormOwnerOptions),
                             });
@@ -237,9 +266,9 @@ export function HoldingsPage({ view }) {
                         ownerName: holdingForm.owner_name,
                         disabled: !canEditRecords,
                         onApply: (target) => {
-                          setHoldingOwnerTouched(true);
-                          setHoldingDraftTouched(true);
-                          setHoldingForm((prev) => ({
+                          updateHoldingOwnerTouched(true);
+                          updateHoldingDraftTouched(true);
+                          updateHoldingForm((prev) => ({
                             ...prev,
                             owner_user_id: target.value,
                             owner_name: target.displayName,
@@ -253,8 +282,8 @@ export function HoldingsPage({ view }) {
                             <input
                               value={holdingForm.symbol}
                               onChange={(event) => {
-                                setHoldingDraftTouched(true);
-                                setHoldingForm({ ...holdingForm, symbol: event.target.value });
+                                updateHoldingDraftTouched(true);
+                                updateHoldingForm({ ...holdingForm, symbol: event.target.value });
                               }}
                               disabled={!canEditRecords}
                               required
@@ -265,8 +294,8 @@ export function HoldingsPage({ view }) {
                             <input
                               value={holdingForm.market_symbol}
                               onChange={(event) => {
-                                setHoldingDraftTouched(true);
-                                setHoldingForm({ ...holdingForm, market_symbol: event.target.value });
+                                updateHoldingDraftTouched(true);
+                                updateHoldingForm({ ...holdingForm, market_symbol: event.target.value });
                               }}
                               disabled={!canEditRecords}
                             />
@@ -318,8 +347,8 @@ export function HoldingsPage({ view }) {
                         <input
                           value={holdingForm.account_name}
                           onChange={(event) => {
-                            setHoldingDraftTouched(true);
-                            setHoldingForm({ ...holdingForm, account_name: event.target.value });
+                            updateHoldingDraftTouched(true);
+                            updateHoldingForm({ ...holdingForm, account_name: event.target.value });
                           }}
                           disabled={!canEditRecords}
                         />
@@ -329,8 +358,8 @@ export function HoldingsPage({ view }) {
                         <input
                           value={holdingForm.currency}
                           onChange={(event) => {
-                            setHoldingDraftTouched(true);
-                            setHoldingForm({ ...holdingForm, currency: event.target.value.toUpperCase() });
+                            updateHoldingDraftTouched(true);
+                            updateHoldingForm({ ...holdingForm, currency: event.target.value.toUpperCase() });
                           }}
                           disabled={!canEditRecords}
                           required
@@ -343,9 +372,9 @@ export function HoldingsPage({ view }) {
                         className="secondary"
                         disabled={!canEditRecords}
                         onClick={() => {
-                          setHoldingOwnerTouched(false);
-                          setHoldingDraftTouched(false);
-                          setHoldingForm(createHoldingForm(holdingForm.asset_type, holdingForm.type_key, holdingFormType?.label));
+                          updateHoldingOwnerTouched(false);
+                          updateHoldingDraftTouched(false);
+                          updateHoldingForm(createHoldingForm(holdingForm.asset_type, holdingForm.type_key, holdingFormType?.label));
                         }}
                       >
                         초기화
@@ -400,7 +429,7 @@ export function HoldingsPage({ view }) {
                     <span>
                       유형 필터: <strong>{activeHoldingTypeFilterLabel}</strong>
                     </span>
-                    <button type="button" className="secondary" onClick={() => setHoldingTypeFilter("all")}>
+                    <button type="button" className="secondary" onClick={() => updateHoldingTypeFilter("all")}>
                       유형 필터 해제
                     </button>
                   </div>
@@ -413,7 +442,7 @@ export function HoldingsPage({ view }) {
                       role="tab"
                       aria-selected={holdingListTab === tabItem.value}
                       className={holdingListTab === tabItem.value ? "active" : ""}
-                      onClick={() => setHoldingListTab(tabItem.value)}
+                      onClick={() => updateHoldingListTab(tabItem.value)}
                     >
                       {tabItem.label}
                     </button>
@@ -428,7 +457,7 @@ export function HoldingsPage({ view }) {
                   <div className="table-toolbar">
                     <label>
                       색상 기준
-                      <select value={holdingColorMode} onChange={(event) => setHoldingColorMode(event.target.value)}>
+                      <select value={holdingColorMode} onChange={(event) => updateHoldingColorMode(event.target.value)}>
                         <option value="none">없음</option>
                         <option value="owner">보유자</option>
                         <option value="category">카테고리</option>
@@ -439,7 +468,7 @@ export function HoldingsPage({ view }) {
                       <input
                         type="checkbox"
                         checked={holdingGroupByColor}
-                        onChange={(event) => setHoldingGroupByColor(Boolean(event.target.checked))}
+                        onChange={(event) => updateHoldingGroupByColor(Boolean(event.target.checked))}
                       />
                       색상 그룹 우선 정렬
                     </label>
@@ -478,7 +507,7 @@ export function HoldingsPage({ view }) {
                     <span>
                       선택 {selectedHoldingSummary.count}건 · 평가 합계 {fmtKrw(selectedHoldingSummary.amount)}
                     </span>
-                    <button type="button" className="message-close secondary" onClick={() => setSelectedHoldingIds(new Set())}>
+                    <button type="button" className="message-close secondary" onClick={() => updateSelectedHoldingIds(new Set())}>
                       선택 해제
                     </button>
                   </div>
@@ -513,7 +542,7 @@ export function HoldingsPage({ view }) {
                         <select
                           aria-label="자산 요약 보기 기준"
                           value={holdingSummaryViewMode}
-                          onChange={(event) => setHoldingSummaryViewMode(event.target.value)}
+                          onChange={(event) => updateHoldingSummaryViewMode(event.target.value)}
                         >
                           <option value="type">자산 유형</option>
                           <option value="category">자산 분류</option>
@@ -559,12 +588,12 @@ export function HoldingsPage({ view }) {
                       activeKey={holdingTypeFilter}
                       onItemAction={
                         holdingPortfolioBreakdownCanFilter
-                          ? (item) => setHoldingTypeFilter((current) => (current === item.key ? "all" : item.key))
+                          ? (item) => updateHoldingTypeFilter((current) => (current === item.key ? "all" : item.key))
                           : undefined
                       }
                     />
                     {holdingTypeFilter !== "all" && (
-                      <button type="button" className="secondary portfolio-filter-reset" onClick={() => setHoldingTypeFilter("all")}>
+                      <button type="button" className="secondary portfolio-filter-reset" onClick={() => updateHoldingTypeFilter("all")}>
                         자산 유형 필터 해제
                       </button>
                     )}

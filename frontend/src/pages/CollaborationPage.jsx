@@ -1,17 +1,27 @@
-export function CollaborationPage({ view }) {
+export function CollaborationPage({
+  constants,
+  permissions,
+  householdContext,
+  inviteAcceptance,
+  inviteFormState,
+  receivedInvites,
+  sentInvites,
+  members,
+  formatters,
+  userContext,
+}) {
   const {
     COLLAB_ROLE_LABELS,
     COLLAB_ROLE_OPTIONS,
     INVITATION_STATUS_LABELS,
-    acceptHouseholdInvite,
-    acceptReceivedHouseholdInvite,
+  } = constants;
+  const {
     canAssignOwner,
     canManageHousehold,
-    changeMemberRole,
-    collaborationInviteSummary,
+    loading,
+  } = permissions;
+  const {
     compactHouseholdSelectOptionName,
-    createHouseholdInvite,
-    fmtDateTime,
     handleHouseholdSwitchChange,
     household,
     householdList,
@@ -19,36 +29,55 @@ export function CollaborationPage({ view }) {
     householdRole,
     householdRoleLabel,
     householdSwitchDisabled,
+    selectActiveHousehold,
+  } = householdContext;
+  const {
+    acceptHouseholdInvite,
     inviteAcceptToken,
     inviteAcceptanceCanSwitch,
     inviteAcceptanceNotice,
+    updateInviteAcceptToken,
+  } = inviteAcceptance;
+  const {
+    createHouseholdInvite,
     inviteEmailInputRef,
     inviteForm,
     inviteFormErrors,
-    loading,
-    memberRoleOptions,
-    mySentInvites,
+    updateInviteForm,
+    updateInviteFormErrors,
+  } = inviteFormState;
+  const {
+    acceptReceivedHouseholdInvite,
     receivedHouseholdInvites,
     receivedInviteSectionRef,
     receivedInviteTab,
     receivedNewInvites,
     receivedPastInvites,
     recentInviteIds,
-    removeHouseholdMember,
+    visibleReceivedInvites,
+    updateReceivedInviteTab,
+  } = receivedInvites;
+  const {
+    mySentInvites,
     revokeHouseholdInvite,
-    selectActiveHousehold,
     sentInviteTab,
     sentNewInvites,
     sentPastInvites,
-    setInviteAcceptToken,
-    setInviteForm,
-    setInviteFormErrors,
-    setReceivedInviteTab,
-    setSentInviteTab,
-    user,
-    visibleReceivedInvites,
     visibleSentInvites,
-  } = view;
+    updateSentInviteTab,
+  } = sentInvites;
+  const {
+    changeMemberRole,
+    memberRoleOptions,
+    removeHouseholdMember,
+  } = members;
+  const {
+    fmtDateTime,
+  } = formatters;
+  const {
+    user,
+    collaborationInviteSummary,
+  } = userContext;
 
   return (
     <section className="grid-1 secondary-surface-grid collaboration-surface-grid">
@@ -101,7 +130,7 @@ export function CollaborationPage({ view }) {
                         type="button"
                         className="secondary"
                         onClick={() => {
-                          setReceivedInviteTab("new");
+                          updateReceivedInviteTab("new");
                           window.setTimeout(() => {
                             receivedInviteSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
                           }, 0);
@@ -147,8 +176,8 @@ export function CollaborationPage({ view }) {
                       value={inviteForm.email}
                       onChange={(event) => {
                         event.target.setCustomValidity("");
-                        setInviteFormErrors({ email: "" });
-                        setInviteForm((prev) => ({ ...prev, email: event.target.value }));
+                        updateInviteFormErrors({ email: "" });
+                        updateInviteForm((prev) => ({ ...prev, email: event.target.value }));
                       }}
                       placeholder="example@email.com"
                       disabled={loading || !canManageHousehold}
@@ -166,7 +195,7 @@ export function CollaborationPage({ view }) {
                     권한
                     <select
                       value={inviteForm.role}
-                      onChange={(event) => setInviteForm((prev) => ({ ...prev, role: event.target.value }))}
+                      onChange={(event) => updateInviteForm((prev) => ({ ...prev, role: event.target.value }))}
                       disabled={loading || !canManageHousehold}
                     >
                       {COLLAB_ROLE_OPTIONS.filter((item) => item.value !== "owner").map((item) => (
@@ -192,7 +221,7 @@ export function CollaborationPage({ view }) {
                       초대 수락 토큰
                       <input
                         value={inviteAcceptToken}
-                        onChange={(event) => setInviteAcceptToken(event.target.value)}
+                        onChange={(event) => updateInviteAcceptToken(event.target.value)}
                         placeholder="초대 token"
                         aria-describedby="invite-accept-token-helper"
                       />
@@ -225,11 +254,11 @@ export function CollaborationPage({ view }) {
                   <p className="table-summary">전체 {receivedHouseholdInvites.length}건 · 신규 {receivedNewInvites.length}건</p>
                 </div>
                 <div className="tabs sub-tabs" role="tablist" aria-label="받은 초대 분류">
-                  <button type="button" role="tab" className={receivedInviteTab === "new" ? "active" : ""} onClick={() => setReceivedInviteTab("new")}>
+                  <button type="button" role="tab" className={receivedInviteTab === "new" ? "active" : ""} onClick={() => updateReceivedInviteTab("new")}>
                     <span>신규</span>
                     {receivedNewInvites.length > 0 && <span className="sub-tab-badge" aria-hidden="true">{receivedNewInvites.length}</span>}
                   </button>
-                  <button type="button" role="tab" className={receivedInviteTab === "history" ? "active" : ""} onClick={() => setReceivedInviteTab("history")}>
+                  <button type="button" role="tab" className={receivedInviteTab === "history" ? "active" : ""} onClick={() => updateReceivedInviteTab("history")}>
                     <span>이전</span>
                     {receivedPastInvites.length > 0 && <span className="sub-tab-badge" aria-hidden="true">{receivedPastInvites.length}</span>}
                   </button>
@@ -367,11 +396,11 @@ export function CollaborationPage({ view }) {
                   <p className="table-summary">전체 {mySentInvites.length}건 · 신규 {sentNewInvites.length}건</p>
                 </div>
                 <div className="tabs sub-tabs" role="tablist" aria-label="보낸 초대 분류">
-                  <button type="button" role="tab" className={sentInviteTab === "new" ? "active" : ""} onClick={() => setSentInviteTab("new")}>
+                  <button type="button" role="tab" className={sentInviteTab === "new" ? "active" : ""} onClick={() => updateSentInviteTab("new")}>
                     <span>신규</span>
                     {sentNewInvites.length > 0 && <span className="sub-tab-badge" aria-hidden="true">{sentNewInvites.length}</span>}
                   </button>
-                  <button type="button" role="tab" className={sentInviteTab === "history" ? "active" : ""} onClick={() => setSentInviteTab("history")}>
+                  <button type="button" role="tab" className={sentInviteTab === "history" ? "active" : ""} onClick={() => updateSentInviteTab("history")}>
                     <span>이전</span>
                     {sentPastInvites.length > 0 && <span className="sub-tab-badge" aria-hidden="true">{sentPastInvites.length}</span>}
                   </button>

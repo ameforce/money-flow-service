@@ -1,35 +1,44 @@
-export function ImportPage({ view }) {
+export function ImportPage({
+  constants,
+  permissions,
+  workbook,
+  reportState,
+  reportActions,
+  migration,
+  ownerCleanup,
+  toss,
+  helpers,
+  dragDrop,
+}) {
   const {
     FLOW_TYPE_OPTIONS,
     IMPORT_MODE_LABELS,
     IMPORT_REPORT_SORT_OPTIONS,
     IMPORT_SOURCE_MODES,
     TOSS_IMAGE_ACCEPT,
-    applyLegacyOwnerRemap,
+  } = constants;
+  const {
     canEditRecords,
-    categories,
-    categoryById,
-    copyImportReportCsv,
-    defaultOwnerRemapOption,
-    displayImportFileName,
+  } = permissions;
+  const {
     doImport,
-    doMigrationImport,
-    doTossApply,
-    doTossPreview,
-    downloadImportReportCsv,
-    exportMigrationPackage,
-    fmt,
-    formatTechnicalReportJson,
-    hasImportPostApplyTargets,
+    importFile,
+    importFileInputRef,
+    importLoadingMode,
+    importMode,
+    importStateLabel,
+    workbookActionsDisabled,
+    workbookMissingFile,
+    workbookUploadPlaceholder,
+    updateImportFile,
+    updateImportMode,
+  } = workbook;
+  const {
     importAppliedHoldingRefs,
     importAppliedTransactionRefs,
     importBusy,
-    importFile,
-    importFileInputRef,
     importIssuePreview,
-    importLoadingMode,
     importMismatchPreview,
-    importMode,
     importReport,
     importReportRows,
     importReportSearch,
@@ -39,10 +48,23 @@ export function ImportPage({ view }) {
     importReportTypeFilter,
     importReportTypeOptions,
     importReportVisibleRows,
-    importStateLabel,
-    isDragOver,
-    legacyOwnerCleanupRows,
-    legacyOwnerCountText,
+  } = reportState;
+  const {
+    copyImportReportCsv,
+    downloadImportReportCsv,
+    formatTechnicalReportJson,
+    hasImportPostApplyTargets,
+    showImportedHoldings,
+    showImportedTransactions,
+    startImportedCorrection,
+    updateImportReportSearch,
+    updateImportReportSeverityFilter,
+    updateImportReportSort,
+    updateImportReportTypeFilter,
+  } = reportActions;
+  const {
+    doMigrationImport,
+    exportMigrationPackage,
     migrationExporting,
     migrationIssuePreview,
     migrationLoadingMode,
@@ -51,26 +73,24 @@ export function ImportPage({ view }) {
     migrationPackageUploadPlaceholder,
     migrationReport,
     migrationStateLabel,
+    packageActionsDisabled,
+    packageMissingFile,
+    updateMigrationPackageFile,
+  } = migration;
+  const {
+    applyLegacyOwnerRemap,
+    defaultOwnerRemapOption,
+    legacyOwnerCleanupRows,
+    legacyOwnerCountText,
     ownerMemberOptions,
     ownerRemapTargets,
     ownerRemappingKey,
-    packageActionsDisabled,
-    packageMissingFile,
-    setImportFile,
-    setImportMode,
-    setImportReportSearch,
-    setImportReportSeverityFilter,
-    setImportReportSort,
-    setImportReportTypeFilter,
-    setIsDragOver,
-    setMigrationPackageFile,
-    setOwnerRemapTargets,
-    setTossImportFiles,
-    showImportedHoldings,
-    showImportedTransactions,
+    updateOwnerRemapTargets,
+  } = ownerCleanup;
+  const {
+    doTossApply,
+    doTossPreview,
     startCategoryDraftFromTossRecommendation,
-    startImportedCorrection,
-    toCategoryPairLabel,
     tossApplyReport,
     tossDuplicateCount,
     tossExcludedCandidates,
@@ -82,10 +102,19 @@ export function ImportPage({ view }) {
     tossRows,
     tossUploadPlaceholder,
     updateTossPreviewRow,
-    workbookActionsDisabled,
-    workbookMissingFile,
-    workbookUploadPlaceholder,
-  } = view;
+    updateTossImportFiles,
+  } = toss;
+  const {
+    categories,
+    categoryById,
+    displayImportFileName,
+    fmt,
+    toCategoryPairLabel,
+  } = helpers;
+  const {
+    isDragOver,
+    updateIsDragOver,
+  } = dragDrop;
 
   return (
     <section className="grid-1 secondary-surface-grid import-surface-grid">
@@ -137,7 +166,7 @@ export function ImportPage({ view }) {
                                 value={targetValue}
                                 disabled={!canEditRecords || remapping || ownerMemberOptions.length === 0}
                                 onChange={(event) =>
-                                  setOwnerRemapTargets((prev) => ({
+                                  updateOwnerRemapTargets((prev) => ({
                                     ...prev,
                                     [row.key]: event.target.value,
                                   }))
@@ -193,8 +222,8 @@ export function ImportPage({ view }) {
                           type="button"
                           className={importMode === mode.value ? "active" : "secondary"}
                           onClick={() => {
-                            setImportMode(mode.value);
-                            setIsDragOver(false);
+                            updateImportMode(mode.value);
+                            updateIsDragOver(false);
                           }}
                           disabled={importBusy}
                         >
@@ -209,17 +238,17 @@ export function ImportPage({ view }) {
                       className={`file-drop-area ${isDragOver ? "drag-over" : ""}`}
                       onDragOver={(e) => {
                         e.preventDefault();
-                        if (!importBusy && canEditRecords) setIsDragOver(true);
+                        if (!importBusy && canEditRecords) updateIsDragOver(true);
                       }}
                       onDragLeave={(e) => {
                         e.preventDefault();
-                        setIsDragOver(false);
+                        updateIsDragOver(false);
                       }}
                       onDrop={(e) => {
                         e.preventDefault();
-                        setIsDragOver(false);
+                        updateIsDragOver(false);
                         if (!importBusy && canEditRecords && e.dataTransfer.files?.[0]) {
-                          setImportFile(e.dataTransfer.files[0]);
+                          updateImportFile(e.dataTransfer.files[0]);
                         }
                       }}
                       onClick={() => {
@@ -230,7 +259,7 @@ export function ImportPage({ view }) {
                         ref={importFileInputRef}
                         type="file"
                         accept=".xlsx"
-                        onChange={(e) => setImportFile(e.target.files?.[0] || null)}
+                        onChange={(e) => updateImportFile(e.target.files?.[0] || null)}
                         className="visually-hidden-file-input"
                         aria-label="엑셀 파일 업로드"
                         disabled={importBusy || !canEditRecords}
@@ -377,7 +406,7 @@ export function ImportPage({ view }) {
                                   type="search"
                                   aria-label="정리 표 검색"
                                   value={importReportSearch}
-                                  onChange={(event) => setImportReportSearch(event.target.value)}
+                                  onChange={(event) => updateImportReportSearch(event.target.value)}
                                   placeholder="시트, 행, 유형, 메시지"
                                 />
                               </label>
@@ -386,7 +415,7 @@ export function ImportPage({ view }) {
                                 <select
                                   aria-label="심각도 필터"
                                   value={importReportSeverityFilter}
-                                  onChange={(event) => setImportReportSeverityFilter(event.target.value)}
+                                  onChange={(event) => updateImportReportSeverityFilter(event.target.value)}
                                 >
                                   <option value="all">전체</option>
                                   {importReportSeverityOptions.map((option) => (
@@ -401,7 +430,7 @@ export function ImportPage({ view }) {
                                 <select
                                   aria-label="유형 필터"
                                   value={importReportTypeFilter}
-                                  onChange={(event) => setImportReportTypeFilter(event.target.value)}
+                                  onChange={(event) => updateImportReportTypeFilter(event.target.value)}
                                 >
                                   <option value="all">전체</option>
                                   {importReportTypeOptions.map((option) => (
@@ -416,7 +445,7 @@ export function ImportPage({ view }) {
                                 <select
                                   aria-label="정렬"
                                   value={importReportSort}
-                                  onChange={(event) => setImportReportSort(event.target.value)}
+                                  onChange={(event) => updateImportReportSort(event.target.value)}
                                 >
                                   {IMPORT_REPORT_SORT_OPTIONS.map((option) => (
                                     <option key={option.value} value={option.value}>
@@ -497,17 +526,17 @@ export function ImportPage({ view }) {
                       className={`file-drop-area toss-drop-area ${isDragOver ? "drag-over" : ""}`}
                       onDragOver={(e) => {
                         e.preventDefault();
-                        if (!importBusy && canEditRecords) setIsDragOver(true);
+                        if (!importBusy && canEditRecords) updateIsDragOver(true);
                       }}
                       onDragLeave={(e) => {
                         e.preventDefault();
-                        setIsDragOver(false);
+                        updateIsDragOver(false);
                       }}
                       onDrop={(e) => {
                         e.preventDefault();
-                        setIsDragOver(false);
+                        updateIsDragOver(false);
                         if (!importBusy && canEditRecords && e.dataTransfer.files?.length) {
-                          setTossImportFiles(e.dataTransfer.files);
+                          updateTossImportFiles(e.dataTransfer.files);
                         }
                       }}
                       onClick={() => {
@@ -519,7 +548,7 @@ export function ImportPage({ view }) {
                         type="file"
                         accept={TOSS_IMAGE_ACCEPT}
                         multiple
-                        onChange={(e) => setTossImportFiles(e.target.files)}
+                        onChange={(e) => updateTossImportFiles(e.target.files)}
                         className="visually-hidden-file-input"
                         aria-label="토스 스크린샷 업로드"
                         disabled={importBusy || !canEditRecords}
@@ -750,7 +779,7 @@ export function ImportPage({ view }) {
                       ref={migrationPackageInputRef}
                       type="file"
                       accept=".zip"
-                      onChange={(e) => setMigrationPackageFile(e.target.files?.[0] || null)}
+                      onChange={(e) => updateMigrationPackageFile(e.target.files?.[0] || null)}
                       className="visually-hidden-file-input"
                       aria-label="이식 패키지 업로드"
                       disabled={Boolean(migrationLoadingMode) || migrationExporting || !canEditRecords}
