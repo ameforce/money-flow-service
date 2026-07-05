@@ -4390,32 +4390,13 @@ table {
   overflow: visible;
 }
 
-.transactions-surface-table .transaction-col-actions .inline,
 .holdings-surface-table .holding-col-actions .inline {
   flex-wrap: nowrap;
   justify-content: flex-end;
 }
 
-.transactions-surface-table .transaction-col-actions .inline {
-  gap: 0.28rem;
-}
-
 .holdings-surface-table .holding-col-actions .inline {
   gap: 0.24rem;
-}
-
-.transactions-surface-table .transaction-col-actions button:not(.mobile-toggle-btn) {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 1.62rem;
-  min-width: 2.2rem;
-  padding: 0.2rem 0.42rem;
-  border-radius: 0.48rem;
-  box-shadow: none;
-  font-size: 0.72rem;
-  line-height: 1;
-  white-space: nowrap;
 }
 
 @media (min-width: 821px) and (max-width: 1100px) {
@@ -4473,15 +4454,6 @@ table {
   .transactions-surface-table th,
   .transactions-surface-table td {
     padding-inline: 0.26rem;
-  }
-
-  .transactions-surface-table .transaction-col-actions .inline {
-    gap: 0.16rem;
-  }
-
-  .transactions-surface-table .transaction-col-actions button:not(.mobile-toggle-btn) {
-    min-width: 2.75rem;
-    padding-inline: 0.32rem;
   }
 
   .transactions-surface-table .transaction-col-date .desktop-date-text,
@@ -4590,64 +4562,6 @@ thead {
   font-size: 0.66rem;
   font-weight: 800;
   line-height: 1;
-}
-
-.transactions-surface-table .transaction-col-actions button.mobile-select-btn,
-.transactions-surface-table .mobile-select-btn {
-  display: none;
-}
-
-.transaction-history-status {
-  margin: 0.35rem 0 0.45rem;
-  color: #355177;
-}
-
-.transaction-history-status.is-error {
-  color: #b42318;
-}
-
-.transaction-history-date-row td {
-  padding: 0.22rem 0.46rem 0.16rem;
-  background: linear-gradient(180deg, #f8fbff, #ffffff);
-  border-top: 1px solid #e2ebf7;
-  border-bottom: 1px solid #edf3fb;
-  color: #496586;
-  font-size: 0.74rem;
-  font-weight: 800;
-  letter-spacing: 0;
-}
-
-.transaction-history-date-row span {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-}
-
-.transaction-history-date-row span::before {
-  content: "";
-  width: 0.42rem;
-  height: 0.42rem;
-  border-radius: 999px;
-  background: #9cb8dd;
-}
-
-.transaction-history-sentinel td {
-  height: 1px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: transparent;
-  font-size: 0;
-  line-height: 0;
-}
-
-.transaction-history-sentinel td:not(:empty) {
-  height: auto;
-  padding: 0.18rem 0.46rem;
-  color: #5f7596;
-  font-size: 0.72rem;
-  line-height: 1.2;
-  text-align: center;
 }
 
 .report {
@@ -5938,7 +5852,6 @@ tr.holding-row-imported {
   display: inline;
 }
 
-.transaction-mobile-expanded-actions-row,
 .holding-mobile-expanded-actions-row {
   display: none;
 }
@@ -7470,12 +7383,10 @@ tr.holding-row-imported {
   td[data-label="세부"]::before {
     display: none;
   }
-  tr.transaction-row td[data-label="세부"] .inline,
   tr.holding-row td[data-label="동작"] .inline {
     justify-content: flex-end;
     width: 100%;
   }
-  tr.transaction-row:not(.mobile-row-expanded) td[data-label="세부"] .inline > button:not(.mobile-toggle-btn):not(.mobile-select-btn),
   tr.holding-row:not(.mobile-row-expanded) td[data-label="동작"] .inline > button:not(.mobile-toggle-btn) {
     display: none;
   }
@@ -8787,33 +8698,6 @@ tr.holding-row-imported {
     box-shadow: none;
   }
 
-  .transactions-surface-table tbody tr.transaction-history-date-row,
-  .transactions-surface-table tbody tr.transaction-history-sentinel {
-    display: block;
-    margin: 0;
-    padding: 0;
-    border: 0;
-    background: transparent;
-    box-shadow: none;
-  }
-
-  .transactions-surface-table tbody tr.transaction-history-date-row td {
-    display: flex;
-    min-height: 1.28rem;
-    align-items: center;
-    padding: 0.16rem 0.58rem;
-    border: 0;
-    border-bottom: 1px solid #edf3fb;
-    background: #f7fbff;
-    font-size: 0.7rem;
-  }
-
-  .transactions-surface-table tbody tr.transaction-history-sentinel td {
-    display: block;
-    height: 1px;
-    padding: 0;
-  }
-
   .transactions-surface-table td,
   .holdings-surface-table td {
     display: block;
@@ -8857,7 +8741,6 @@ tr.holding-row-imported {
 
   .transactions-surface-table tbody tr.transaction-row {
     cursor: pointer;
-    touch-action: pan-y;
     scroll-margin-top: calc(
       var(--surface-ledger-sticky-top, 0px) + var(--surface-ledger-head-height, 0px) + 0.9rem
     );
@@ -8869,14 +8752,6 @@ tr.holding-row-imported {
       var(--surface-ledger-sticky-top, 0px) + var(--surface-ledger-head-height, 0px) +
         var(--tx-ledger-filter-panel-clearance)
     );
-  }
-
-  .transaction-list-card:has(> .tx-ledger-filter-panel) .transactions-surface-table tbody tr.transaction-row .transaction-col-actions button {
-    scroll-margin-top: calc(
-      var(--surface-ledger-sticky-top, 0px) + var(--surface-ledger-head-height, 0px) +
-        var(--tx-ledger-filter-panel-clearance)
-    );
-    scroll-margin-bottom: calc(var(--transaction-fab-clearance, 5.6rem) + 0.9rem);
   }
 
   .transactions-surface-table tbody tr.transaction-row:first-child,
@@ -9258,17 +9133,9 @@ tr.holding-row-imported {
     display: none !important;
   }
 
-  .transactions-surface-table tbody tr.transaction-row .transaction-col-actions .inline {
-    display: none;
-  }
-
   .holdings-surface-table tbody tr.holding-row .holding-col-actions .inline {
     justify-content: flex-start;
     width: 2.75rem;
-  }
-
-  .transactions-surface-table tbody tr.transaction-row .transaction-col-actions .inline {
-    display: none;
   }
 
   .transactions-surface-table tbody tr.transaction-row:not(.mobile-row-expanded) .transaction-col-actions,
@@ -9278,54 +9145,6 @@ tr.holding-row-imported {
 
   .holdings-surface-table tbody tr.holding-row .holding-col-actions .inline > button:not(.mobile-toggle-btn) {
     display: none;
-  }
-
-  .transactions-surface-table tbody tr.transaction-row:not(.mobile-row-expanded) td.transaction-col-actions .inline > button.row-edit-btn,
-  .transactions-surface-table tbody tr.transaction-row .transaction-col-actions .row-edit-btn {
-    display: none;
-  }
-
-  .transactions-surface-table tbody tr.transaction-row:not(.mobile-row-expanded) td.transaction-col-actions .inline > button.row-delete-btn,
-  .transactions-surface-table tbody tr.transaction-row .transaction-col-actions .row-delete-btn {
-    display: none;
-  }
-
-  .transactions-surface-table tbody tr.transaction-row .transaction-col-actions .mobile-toggle-btn {
-    display: none;
-  }
-
-  .transactions-surface-table tbody tr.transaction-row .transaction-col-actions button:not(.mobile-toggle-btn) {
-    align-items: center;
-    justify-content: center;
-    min-height: 2rem;
-    width: 1.55rem;
-    min-width: 1.55rem;
-    padding: 0;
-    font-size: 0.58rem;
-    font-weight: 800;
-  }
-
-  .transactions-surface-table tbody tr.transaction-row .transaction-col-actions .mobile-select-btn {
-    display: none;
-  }
-
-  .transactions-surface-table tbody tr.transaction-row .transaction-col-actions .mobile-select-btn[aria-pressed="true"] {
-    border-color: rgba(15, 124, 255, 0.32);
-    background: linear-gradient(180deg, #ffffff, #eaf4ff);
-    color: var(--mf-color-blue-700);
-  }
-
-  .transactions-surface-table .mobile-select-icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 100%;
-    height: 100%;
-  }
-
-  .transactions-surface-table .mobile-select-icon svg {
-    width: 1rem;
-    height: 1rem;
   }
 
   .transactions-surface-table .transaction-col-select,
@@ -9617,7 +9436,6 @@ tr.holding-row-imported {
     min-width: 0;
   }
 
-  .transactions-surface-table .mobile-toggle-btn,
   .holdings-surface-table .mobile-toggle-btn {
     width: 2.75rem;
     min-width: 2.75rem;
@@ -9633,7 +9451,6 @@ tr.holding-row-imported {
       0 10px 18px -20px rgba(15, 23, 42, 0.55);
   }
 
-  .transactions-surface-table .mobile-toggle-btn:hover,
   .holdings-surface-table .mobile-toggle-btn:hover {
     transform: translateY(-1px);
     border-color: rgba(37, 99, 235, 0.28);
@@ -9644,7 +9461,6 @@ tr.holding-row-imported {
       0 12px 20px -20px rgba(37, 99, 235, 0.38);
   }
 
-  .transactions-surface-table .mobile-toggle-icon,
   .holdings-surface-table .mobile-toggle-icon {
     display: inline-flex;
     align-items: center;
@@ -9653,25 +9469,21 @@ tr.holding-row-imported {
     height: 100%;
   }
 
-  .transactions-surface-table .mobile-toggle-icon svg,
   .holdings-surface-table .mobile-toggle-icon svg {
     width: 0.98rem;
     height: 0.98rem;
     transition: transform 180ms ease;
   }
 
-  .transactions-surface-table .mobile-toggle-btn[aria-expanded="true"] .mobile-toggle-icon svg,
   .holdings-surface-table .mobile-toggle-btn[aria-expanded="true"] .mobile-toggle-icon svg {
     transform: rotate(90deg);
   }
 
-  .transactions-surface-table .mobile-toggle-btn[aria-expanded="true"],
   .holdings-surface-table .mobile-toggle-btn[aria-expanded="true"] {
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.995), rgba(233, 242, 255, 0.96));
     color: #173f7a;
   }
 
-  .transaction-mobile-expanded-actions-row,
   .holding-mobile-expanded-actions-row {
     display: block;
     position: relative;
@@ -9679,7 +9491,6 @@ tr.holding-row-imported {
     margin-top: -0.02rem;
   }
 
-  .transaction-mobile-expanded-actions-row > td,
   .holding-mobile-expanded-actions-row > td {
     display: block;
     position: relative;
@@ -9994,7 +9805,6 @@ tr.holding-row-imported {
     box-shadow: inset 0 2px 8px rgba(8, 103, 232, 0.18);
   }
 
-  .transactions-surface-table .mobile-toggle-btn:hover,
   .holdings-surface-table .mobile-toggle-btn:hover {
     transform: none;
     border-color: var(--transaction-row-border, var(--holding-row-border, rgba(151, 172, 201, 0.55)));

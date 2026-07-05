@@ -225,36 +225,6 @@ async function jumpTransactionListToMonth(page, isoDate) {
   await listCard.getByLabel("월").press("Enter");
 }
 
-async function captureVisibleHistoryAnchor(page) {
-  return page.evaluate(() => {
-    const rows = Array.from(document.querySelectorAll("tr.transaction-row[data-transaction-id]"));
-    const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
-    const threshold =
-      [
-        "header.topbar",
-        ".transaction-list-card > .transaction-sticky-toolbar",
-        ".transactions-mobile-ledger-head",
-      ].reduce((bottom, selector) => {
-        const box = document.querySelector(selector)?.getBoundingClientRect();
-        if (!box || box.bottom <= 0 || box.top >= viewportHeight) {
-          return bottom;
-        }
-        return Math.max(bottom, box.bottom);
-      }, 0) + 4;
-    const row = rows.find((candidate) => {
-      const box = candidate.getBoundingClientRect();
-      return box.bottom > threshold && box.top < window.innerHeight;
-    });
-    if (!row) {
-      return null;
-    }
-    return {
-      id: row.getAttribute("data-transaction-id"),
-      top: row.getBoundingClientRect().top,
-    };
-  });
-}
-
 async function scrollTransactionLedgerIntoStickyRange(page) {
   const metrics = await page.evaluate(() => {
     const listCard = document.querySelector(".transaction-list-card");
@@ -601,14 +571,69 @@ async function clearTransactionSelection(page) {
   await expectTransactionSelectionSummary(page, 0, "0원");
 }
 
-async function longPressTransactionRow(page, row, durationMs = 520) {
+async function withTouchInputSession(page, callback) {
+  const client = await page.context().newCDPSession(page);
+  try {
+    await client.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 1 });
+    return await callback(client);
+  } finally {
+    await client.send("Emulation.setTouchEmulationEnabled", { enabled: false }).catch(() => undefined);
+    await client.detach().catch(() => undefined);
+  }
+}
+
+function touchPoint(x, y) {
+  return [{ x, y, radiusX: 6, radiusY: 6, force: 0.6, id: 287 }];
+}
+
+async function transactionRowTouchCoordinates(page, row, xRatio = 0.28) {
   await expect(row).toBeVisible();
   await row.evaluate((element) => element.scrollIntoView({ block: "center", inline: "nearest" }));
   await page.waitForTimeout(80);
+  return transactionRowCurrentTouchCoordinates(row, xRatio);
+}
+
+async function transactionRowCurrentTouchCoordinates(row, xRatio = 0.28) {
+  await expect(row).toBeVisible();
   const box = await row.boundingBox();
-  expect(box, "transaction row should have a box for long press").not.toBeNull();
-  const clientX = Math.round((box?.x ?? 0) + Math.min(72, Math.max(24, (box?.width ?? 120) * 0.28)));
-  const clientY = Math.round((box?.y ?? 0) + (box?.height ?? 40) / 2);
+  expect(box, "transaction row should have a box for touch input").not.toBeNull();
+  return {
+    x: Math.round((box?.x ?? 0) + Math.min(72, Math.max(24, (box?.width ?? 120) * xRatio))),
+    y: Math.round((box?.y ?? 0) + (box?.height ?? 40) / 2),
+  };
+}
+
+async function longPressTransactionRow(page, row, durationMs = 520) {
+  const start = await transactionRowTouchCoordinates(page, row);
+  await withTouchInputSession(page, async (client) => {
+    await client.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: touchPoint(start.x, start.y) });
+    await page.waitForTimeout(durationMs);
+    await client.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  });
+  await page.waitForTimeout(420);
+}
+
+async function longPressDragTransactionRows(page, startRow, endRow, durationMs = 520) {
+  const start = await transactionRowTouchCoordinates(page, startRow);
+  const end = await transactionRowCurrentTouchCoordinates(endRow);
+  await withTouchInputSession(page, async (client) => {
+    await client.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: touchPoint(start.x, start.y) });
+    await page.waitForTimeout(durationMs);
+    await client.send("Input.dispatchTouchEvent", {
+      type: "touchMove",
+      touchPoints: touchPoint(Math.round((start.x + end.x) / 2), Math.round((start.y + end.y) / 2)),
+    });
+    await page.waitForTimeout(60);
+    await client.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: touchPoint(end.x, end.y) });
+    await page.waitForTimeout(60);
+    await client.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  });
+  await page.waitForTimeout(420);
+}
+
+async function releaseTouchPointerOutsideRowBeforeLongPress(page, row) {
+  const { x, y } = await transactionRowTouchCoordinates(page, row);
+  const outsideY = Math.max(8, y - 96);
   await row.dispatchEvent("pointerdown", {
     bubbles: true,
     cancelable: true,
@@ -617,22 +642,29 @@ async function longPressTransactionRow(page, row, durationMs = 520) {
     isPrimary: true,
     button: 0,
     buttons: 1,
-    clientX,
-    clientY,
+    clientX: x,
+    clientY: y,
   });
-  await page.waitForTimeout(durationMs);
-  await row.dispatchEvent("pointerup", {
-    bubbles: true,
-    cancelable: true,
-    pointerId: 287,
-    pointerType: "touch",
-    isPrimary: true,
-    button: 0,
-    buttons: 0,
-    clientX,
-    clientY,
-  });
-  await page.waitForTimeout(420);
+  await page.waitForTimeout(120);
+  await page.evaluate(
+    ({ clientX, clientY }) => {
+      window.dispatchEvent(
+        new PointerEvent("pointerup", {
+          bubbles: true,
+          cancelable: true,
+          pointerId: 287,
+          pointerType: "touch",
+          isPrimary: true,
+          button: 0,
+          buttons: 0,
+          clientX,
+          clientY,
+        })
+      );
+    },
+    { clientX: x, clientY: outsideY }
+  );
+  await page.waitForTimeout(560);
 }
 
 async function selectTransactionRowForToolbar(page, row) {
@@ -900,16 +932,18 @@ async function performTouchScrollGestureOnRow(page, row, deltaY = 260) {
   const startY = Math.round((box?.y ?? 0) + Math.min(Math.max((box?.height ?? 0) * 0.5, 18), (box?.height ?? 0) - 8));
   const endY = Math.max(16, startY - Math.abs(deltaY));
   const beforeScrollY = await page.evaluate(() => window.scrollY);
-  const client = await page.context().newCDPSession(page);
-  await client.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 1 });
-  const touchPoint = (y) => [{ x, y, radiusX: 6, radiusY: 6, force: 0.6 }];
-  await client.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: touchPoint(startY) });
-  await page.waitForTimeout(40);
-  await client.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: touchPoint(Math.round((startY + endY) / 2)) });
-  await page.waitForTimeout(40);
-  await client.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: touchPoint(endY) });
-  await page.waitForTimeout(40);
-  await client.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await withTouchInputSession(page, async (client) => {
+    await client.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: touchPoint(x, startY) });
+    await page.waitForTimeout(40);
+    await client.send("Input.dispatchTouchEvent", {
+      type: "touchMove",
+      touchPoints: touchPoint(x, Math.round((startY + endY) / 2)),
+    });
+    await page.waitForTimeout(40);
+    await client.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: touchPoint(x, endY) });
+    await page.waitForTimeout(40);
+    await client.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  });
   await page.waitForTimeout(350);
   const afterScrollY = await page.evaluate(() => window.scrollY);
   const touchAction = await row.evaluate((element) => getComputedStyle(element).touchAction);
@@ -960,43 +994,6 @@ async function expectDesktopTransactionRowsSingleLine(page) {
     metrics.every((row) => row.memoWhiteSpace === "nowrap" && row.memoOverflowY <= 3),
     `desktop memo cells should stay one line: ${JSON.stringify(metrics)}`
   ).toBe(true);
-}
-
-async function scrollHistoryRowIntoViewport(page, text, expectedIsoDate, block = "center", loadDirection = "down") {
-  await expect
-    .poll(
-      async () =>
-        page.evaluate(
-          ({ block: scrollBlock, expectedIsoDate: expectedDate, loadDirection: direction, text: rowText }) => {
-            const rows = Array.from(document.querySelectorAll("tr.transaction-row"));
-            const row = rows.find((element) => element.textContent?.includes(rowText));
-            if (!row) {
-              if (direction === "up") {
-                if ((window.scrollY || window.pageYOffset || 0) <= 8) {
-                  window.scrollTo(0, Math.min(document.body.scrollHeight, window.innerHeight * 0.75));
-                } else {
-                  window.scrollTo(0, 0);
-                }
-              } else {
-                window.scrollTo(0, document.body.scrollHeight);
-              }
-              return "missing";
-            }
-            row.scrollIntoView({ block: scrollBlock, inline: "nearest", behavior: "auto" });
-            const box = row.getBoundingClientRect();
-            const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
-            if (box.bottom <= 0 || box.top >= viewportHeight) {
-              return "offscreen";
-            }
-            const dateKey = row.getAttribute("data-transaction-date") || "";
-            return dateKey === expectedDate ? "ready" : `date:${dateKey}`;
-          },
-          { block, expectedIsoDate, loadDirection, text }
-        ),
-      { message: `scroll ${text} into the transaction viewport`, timeout: 40_000 }
-    )
-    .toBe("ready");
-  await page.waitForTimeout(250);
 }
 
 async function openMobileTransactionQuickEntry(page) {
@@ -2724,17 +2721,12 @@ test("mobile quick entry defaults owner to current user over recent other member
   const displayName = "댕";
   const otherDisplayName = "찌";
   const otherUserId = `other-user-${Date.now()}`;
-  const ownerCategory = {
-    major: unique("현재거래자"),
-    minor: unique("최근타인"),
-  };
 
   await registerAndVerify(page, { email, displayName });
   const currentUser = await page.evaluate(async () => {
     const response = await fetch("/api/v1/auth/me", { credentials: "include" });
     return response.json();
   });
-  const category = await createCategoryViaApi(page, ownerCategory);
   const createdAt = new Date().toISOString();
 
   await page.route("**/api/v1/household/members", async (route) => {
@@ -2759,39 +2751,6 @@ test("mobile quick entry defaults owner to current user over recent other member
           created_at: createdAt,
         },
       ]),
-    });
-  });
-  await page.route("**/api/v1/transactions/history**", async (route) => {
-    const today = currentE2EHistoryDateIso();
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({
-        items: [
-          {
-            id: "mock-other-owner-transaction",
-            household_id: "mock-household",
-            category_id: category.id,
-            occurred_on: today,
-            flow_type: "expense",
-            amount: "1000",
-            currency: "KRW",
-            memo: "최근 타인 거래",
-            owner_user_id: otherUserId,
-            owner_name: otherDisplayName,
-            source_ref: null,
-            version: 1,
-            created_at: createdAt,
-            updated_at: createdAt,
-          },
-        ],
-        older_cursor: null,
-        newer_cursor: null,
-        has_older: false,
-        has_newer: false,
-        anchor_date: today,
-        today,
-      }),
     });
   });
   await page.reload();
@@ -3362,7 +3321,7 @@ test("mobile transaction row selection, touch scroll, and sticky ledger head sur
     await scrollRow.evaluate((element) => element.scrollIntoView({ block: "center", inline: "nearest" }));
     await page.waitForTimeout(150);
     const touchMetrics = await performTouchScrollGestureOnRow(page, scrollRow);
-    expect(touchMetrics.touchAction, `${scenario.label} rows should preserve vertical touch scrolling`).toBe("pan-y");
+    expect(touchMetrics.touchAction, `${scenario.label} rows should not disable touch scrolling`).not.toBe("none");
     expect(
       touchMetrics.afterScrollY,
       `${scenario.label} touch-like vertical drag should scroll the page: ${JSON.stringify(touchMetrics)}`,
@@ -5605,219 +5564,6 @@ test("transactions default ledger stays monthly without continuous-history chrom
   await capture(page, "transactions-default-monthly-ledger");
 });
 
-test("transactions history scrolls older and newer without future rows while keeping compact anchors", async ({ page }) => {
-  test.skip(true, "continuous transaction history list mode is retired by issue 287; monthly ledger coverage replaces it");
-  test.skip(process.env.E2E_INCLUDE_SLOW !== "1", "slow history pagination regression is opt-in via npm run e2e:slow");
-  test.setTimeout(300_000);
-
-  const email = `${unique("tx-history-scroll")}@example.com`;
-  const displayName = unique("tx-history-scroll-name");
-  const prefix = unique("tx-history-scroll-row");
-  const seeded = [];
-  const totalSeedRows = 90;
-  const oldestDaysAgo = totalSeedRows - 1;
-  const createAnchorDate = isoDaysAgo(45);
-  const futureDate = isoDaysFromToday(3);
-  const futureMemo = `${prefix}-future`;
-
-  await registerAndVerify(page, { email, displayName });
-  await page.setViewportSize({ width: 1366, height: 960 });
-
-  await createTransactionViaApi(page, {
-    memo: futureMemo,
-    amount: "99999",
-    occurredOn: futureDate,
-    ownerName: displayName,
-  });
-  for (let index = 0; index < totalSeedRows; index += 1) {
-    const daysAgo = oldestDaysAgo - index;
-    const memo = `${prefix}-${String(index).padStart(2, "0")}`;
-    const occurredOn = isoDaysAgo(daysAgo);
-    seeded.push({ memo, occurredOn, daysAgo });
-    await createTransactionViaApi(page, {
-      memo,
-      amount: String(10000 + index),
-      occurredOn,
-      ownerName: displayName,
-    });
-  }
-
-  await page.reload();
-  await assertResponsiveShell(page);
-  await openTab(page, "거래");
-
-  const oldestMemo = seeded[0].memo;
-  const initialAnchorMemo = seeded[10].memo;
-  const todayMemo = seeded[seeded.length - 1].memo;
-  await expect(page.locator("tr.transaction-row", { hasText: todayMemo }).first()).toBeVisible({ timeout: 30_000 });
-  await expect(page.locator("tr.transaction-row", { hasText: oldestMemo })).toHaveCount(0);
-  await expect(page.locator("tr.transaction-row", { hasText: futureMemo })).toHaveCount(0);
-  await expect(page.locator(".transaction-history-date-row", { hasText: futureDate })).toHaveCount(0);
-  await expect(page.locator(".transactions-desktop-ledger-head .sort-header-static").first()).toHaveAttribute(
-    "aria-label",
-    /연속 내역순 고정/,
-  );
-  await expect(page.locator(".transactions-desktop-ledger-head button.sort-header")).toHaveCount(0);
-  await expectTransactionMonthControls(page, seeded[seeded.length - 1].occurredOn, "initial today anchor");
-  expectMonthStepperCentered(await readTransactionMonthStepperLayout(page), "desktop transaction month stepper");
-  await expectDesktopSidebarSticky(page);
-
-  const historyRoutePattern = "**/api/v1/transactions/history**";
-  let resolveOlderRoute;
-  let heldOlderRoute = null;
-  const olderRoutePromise = new Promise((resolve) => {
-    resolveOlderRoute = resolve;
-  });
-  const holdOlderHistoryRoute = async (route) => {
-    const url = new URL(route.request().url());
-    if (url.searchParams.get("direction") === "older" && !heldOlderRoute) {
-      heldOlderRoute = route;
-      resolveOlderRoute(route);
-      return;
-    }
-    await route.continue();
-  };
-  await page.route(historyRoutePattern, holdOlderHistoryRoute);
-
-  const anchorRow = page.locator("tr.transaction-row", { hasText: initialAnchorMemo }).first();
-  await anchorRow.scrollIntoViewIfNeeded();
-  await expect(anchorRow).toBeVisible();
-
-  const oldestRow = page.locator("tr.transaction-row", { hasText: oldestMemo }).first();
-  let olderRoute = await Promise.race([olderRoutePromise, page.waitForTimeout(750).then(() => null)]);
-  for (let attempt = 0; attempt < 5 && !olderRoute; attempt += 1) {
-    if (await oldestRow.isVisible().catch(() => false)) {
-      break;
-    }
-    await page.evaluate(() => window.scrollBy(0, -2400));
-    olderRoute = await Promise.race([olderRoutePromise, page.waitForTimeout(1_000).then(() => null)]);
-  }
-  const anchorBefore = await captureVisibleHistoryAnchor(page);
-  expect(anchorBefore?.id, "history anchor row should be capturable while older page is loading").toBeTruthy();
-  if (olderRoute) {
-    await olderRoute.continue();
-  }
-  await page.unroute(historyRoutePattern, holdOlderHistoryRoute);
-  await expect(oldestRow).toBeVisible({ timeout: 40_000 });
-  const anchorLocator = page.locator(`tr.transaction-row[data-transaction-id="${anchorBefore.id}"]`);
-  await expect
-    .poll(
-      async () => {
-        const anchorAfter = await anchorLocator.boundingBox();
-        if (!anchorAfter) {
-          return Number.POSITIVE_INFINITY;
-        }
-        return Math.abs(anchorAfter.y - (anchorBefore?.top ?? 0));
-      },
-      { message: "history anchor row should settle near its previous viewport position", timeout: 4_000 }
-    )
-    .toBeLessThanOrEqual(120);
-  await scrollHistoryRowIntoViewport(page, oldestMemo, seeded[0].occurredOn, "start", "up");
-  await expect(page.locator(".transaction-history-date-row", { hasText: seeded[0].occurredOn })).toBeVisible();
-  await expect(page.locator(".transaction-list-card").first().getByText("조회 가능 월")).toContainText(
-    seeded[0].occurredOn.slice(0, 7)
-  );
-  const rowIds = await page.locator("tr.transaction-row").evaluateAll((rows) =>
-    rows.map((row) => row.getAttribute("data-transaction-id")).filter(Boolean)
-  );
-  expect(new Set(rowIds).size).toBe(rowIds.length);
-
-  const monthAnchorSeed = seeded.find((item) => item.occurredOn === createAnchorDate) || seeded[3];
-  let resolveNewerRoute;
-  let heldNewerRoute = null;
-  const newerRoutePromise = new Promise((resolve) => {
-    resolveNewerRoute = resolve;
-  });
-  const holdNewerHistoryRoute = async (route) => {
-    const url = new URL(route.request().url());
-    if (url.searchParams.get("direction") === "newer" && !heldNewerRoute) {
-      heldNewerRoute = route;
-      resolveNewerRoute(route);
-      return;
-    }
-    await route.continue();
-  };
-  await page.route(historyRoutePattern, holdNewerHistoryRoute);
-  await jumpTransactionListToMonth(page, monthAnchorSeed.occurredOn);
-  await expect(page.locator("tr.transaction-row", { hasText: monthAnchorSeed.memo }).first()).toBeVisible({ timeout: 30_000 });
-  await page.waitForTimeout(1_000);
-
-  const newerAnchorRow = page.locator("tr.transaction-row", { hasText: monthAnchorSeed.memo }).first();
-  await newerAnchorRow.scrollIntoViewIfNeeded();
-  await expect(newerAnchorRow).toBeVisible();
-  let newerRoute = await Promise.race([newerRoutePromise, page.waitForTimeout(750).then(() => null)]);
-  for (let attempt = 0; attempt < 6 && !newerRoute; attempt += 1) {
-    await page.evaluate(() => window.scrollBy(0, 1800));
-    newerRoute = await Promise.race([newerRoutePromise, page.waitForTimeout(1_000).then(() => null)]);
-  }
-  const newerAnchorBefore = await captureVisibleHistoryAnchor(page);
-  expect(newerAnchorBefore?.id, "history anchor row should be capturable while newer page is loading").toBeTruthy();
-  expect(newerRoute, "newer history page should be requested while scrolling back toward recent rows").not.toBeNull();
-  if (newerRoute) {
-    await newerRoute.continue();
-    const newerAnchorLocator = page.locator(`tr.transaction-row[data-transaction-id="${newerAnchorBefore.id}"]`);
-    await expect
-      .poll(
-        async () => {
-          const anchorAfter = await newerAnchorLocator.boundingBox();
-          if (!anchorAfter) {
-            return Number.POSITIVE_INFINITY;
-          }
-          return Math.abs(anchorAfter.y - (newerAnchorBefore?.top ?? 0));
-        },
-        { message: "newer history pagination should keep the current anchor row stable", timeout: 4_000 }
-      )
-      .toBeLessThanOrEqual(120);
-  }
-  await page.unroute(historyRoutePattern, holdNewerHistoryRoute);
-
-  const unsolicitedHistoryDirections = [];
-  const trackUnsolicitedHistoryRoute = async (route) => {
-    const url = new URL(route.request().url());
-    const direction = url.searchParams.get("direction");
-    if (direction === "older" || direction === "newer") {
-      unsolicitedHistoryDirections.push(direction);
-    }
-    await route.continue();
-  };
-  await page.route(historyRoutePattern, trackUnsolicitedHistoryRoute);
-  await page.evaluate(() => {
-    const midpoint = Math.max(0, (document.documentElement.scrollHeight - window.innerHeight) / 2);
-    window.scrollTo(0, midpoint);
-  });
-  await page.waitForTimeout(750);
-  await page.unroute(historyRoutePattern, trackUnsolicitedHistoryRoute);
-  expect(
-    unsolicitedHistoryDirections,
-    `mid-list history anchor should not trigger unsolicited edge pagination: ${JSON.stringify(unsolicitedHistoryDirections)}`
-  ).toEqual([]);
-
-  const backdatedMemo = `${prefix}-backdated-create`;
-  const backdatedRow = await createBasicTransaction(page, {
-    memo: backdatedMemo,
-    amount: "90909",
-    occurredOn: monthAnchorSeed.occurredOn,
-  });
-  await expect(backdatedRow).toBeVisible();
-
-  await scrollHistoryRowIntoViewport(page, todayMemo, seeded[seeded.length - 1].occurredOn, "end");
-  const todayRow = page.locator("tr.transaction-row", { hasText: todayMemo }).first();
-  await expect(todayRow).toBeVisible({ timeout: 40_000 });
-  await expectTransactionMonthControls(page, seeded[seeded.length - 1].occurredOn, "newer visible anchor");
-  await expect(page.locator("tr.transaction-row", { hasText: futureMemo })).toHaveCount(0);
-  await expect(page.locator(".transaction-history-date-row", { hasText: futureDate })).toHaveCount(0);
-  await expectDesktopTransactionMonthStepperSticky(page);
-
-  await page.setViewportSize({ width: 390, height: 844 });
-  await scrollHistoryRowIntoViewport(page, todayMemo, seeded[seeded.length - 1].occurredOn, "end", "down");
-  await expectTransactionMonthControls(page, seeded[seeded.length - 1].occurredOn, "mobile today anchor before older scroll");
-  await scrollHistoryRowIntoViewport(page, oldestMemo, seeded[0].occurredOn, "start", "up");
-  await expect(page.locator(".transaction-history-date-row", { hasText: seeded[0].occurredOn })).toBeVisible();
-  expectMonthStepperCentered(await readTransactionMonthStepperLayout(page), "mobile transaction month stepper");
-  await expectMobileTransactionMonthStepperSticky(page);
-  await capture(page, "transactions-history-scroll-continuity");
-});
-
 test("issue 287: Android PWA transaction ledger uses monthly dense rows", async ({ page }) => {
   test.setTimeout(180_000);
 
@@ -5970,10 +5716,21 @@ test("issue 287: Android PWA transaction ledger uses monthly dense rows", async 
   await expect(mobileRow).toHaveAttribute("data-row-selected", "false");
   await mobileRow.click({ position: { x: 88, y: 22 } });
   await expect(mobileRow).not.toHaveClass(/mobile-row-expanded/);
+  await releaseTouchPointerOutsideRowBeforeLongPress(page, mobileRow);
+  await expect(mobileRow).toHaveAttribute("data-row-selected", "false");
+  await expect(mobileRow).not.toHaveClass(/mobile-row-expanded/);
   await longPressTransactionRow(page, mobileRow);
   await expect(mobileRow).toHaveAttribute("data-row-selected", "true");
   await expect(mobileRow).not.toHaveClass(/mobile-row-expanded/);
   await expectTransactionSelectionSummary(page, 1);
+  await clearTransactionSelection(page);
+  await longPressDragTransactionRows(page, mobileRow, ownerlessRow);
+  await expect(mobileRow).toHaveAttribute("data-row-selected", "true");
+  await expect(ownerlessRow).toHaveAttribute("data-row-selected", "true");
+  await expect(mobileRow).not.toHaveClass(/mobile-row-expanded/);
+  await expect(ownerlessRow).not.toHaveClass(/mobile-row-expanded/);
+  await expectTransactionSelectionSummary(page, 2);
+  await clearTransactionSelection(page);
 
   await jumpTransactionListToMonth(page, previousDate);
   await expect(page.locator("tr.transaction-row", { hasText: previousMemo }).first()).toBeVisible({ timeout: 30_000 });

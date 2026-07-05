@@ -125,9 +125,6 @@ const PRICE_REFRESH_STATUS_FAILURE_LIMIT = 3;
 const WS_REFRESH_DEBOUNCE_MS = 300;
 const REALTIME_FALLBACK_SYNC_INTERVAL_MS = 45_000;
 const COLLAB_ACTIVE_SYNC_INTERVAL_MS = 8_000;
-const TRANSACTION_HISTORY_PAGE_LIMIT = 80;
-const TRANSACTION_HISTORY_AUTO_FILL_THRESHOLD = 12;
-const TRANSACTION_HISTORY_SENTINEL_ROOT_MARGIN = "360px 0px";
 const IMPORT_MISMATCH_PREVIEW_LIMIT = 20;
 const IMPORT_ISSUE_PREVIEW_LIMIT = 20;
 const IMPORT_REPORT_SORT_OPTIONS = [
@@ -846,33 +843,6 @@ function recentDateRange(days = 30, todayKey = todayIso()) {
     start: isoDateFromUtcDate(startDate),
     end,
   };
-}
-
-function compareTransactionHistoryItems(left, right) {
-  return compareTransactionsByLedgerOrder(left, right, 1);
-}
-
-function mergeTransactionHistoryItems(currentItems, incomingItems) {
-  const byId = new Map();
-  for (const item of currentItems || []) {
-    if (item?.id) {
-      byId.set(String(item.id), item);
-    }
-  }
-  for (const item of incomingItems || []) {
-    if (item?.id) {
-      byId.set(String(item.id), item);
-    }
-  }
-  return Array.from(byId.values()).sort(compareTransactionHistoryItems);
-}
-
-function filterTransactionHistoryItemsToToday(items, todayKey = todayIso()) {
-  const normalizedToday = normalizeIsoDateKey(todayKey);
-  return (items || []).filter((item) => {
-    const occurredOn = normalizeIsoDateKey(item?.occurred_on, "");
-    return Boolean(occurredOn) && occurredOn <= normalizedToday;
-  });
 }
 
 function shiftMonth(base, delta) {
@@ -2287,20 +2257,6 @@ function App() {
   const [transactions, setTransactions] = useState([]);
   const [ownerCleanupTransactions, setOwnerCleanupTransactions] = useState([]);
   const [ownerCleanupTransactionsLoaded, setOwnerCleanupTransactionsLoaded] = useState(false);
-  const [transactionHistoryItems, setTransactionHistoryItems] = useState([]);
-  const [transactionHistoryOlderCursor, setTransactionHistoryOlderCursor] = useState("");
-  const [transactionHistoryNewerCursor, setTransactionHistoryNewerCursor] = useState("");
-  const [transactionHistoryHasOlder, setTransactionHistoryHasOlder] = useState(false);
-  const [transactionHistoryHasNewer, setTransactionHistoryHasNewer] = useState(false);
-  const [transactionHistoryAnchorDate, setTransactionHistoryAnchorDate] = useState(todayIso());
-  const [transactionHistoryToday, setTransactionHistoryToday] = useState(todayIso());
-  const [transactionHistoryInitialized, setTransactionHistoryInitialized] = useState(false);
-  const [transactionHistoryLoading, setTransactionHistoryLoading] = useState({
-    initial: false,
-    older: false,
-    newer: false,
-  });
-  const [transactionHistoryError, setTransactionHistoryError] = useState("");
   const [holdings, setHoldings] = useState([]);
   const [priceStatus, setPriceStatus] = useState(null);
   const [importReport, setImportReport] = useState(null);
@@ -2345,21 +2301,8 @@ function App() {
   const priceRefreshPollFailureCountRef = useRef(0);
   const realtimeFallbackSyncInFlightRef = useRef(false);
   const tabRef = useRef(tab);
-  const transactionTabEntryScrollPendingRef = useRef(tab === "transactions");
-  const transactionHistoryLoadingRef = useRef({ initial: false, older: false, newer: false });
-  const transactionHistoryInitializedRef = useRef(false);
-  const transactionHistoryAnchorDateRef = useRef(todayIso());
-  const transactionHistoryTodayRef = useRef(todayIso());
   const transactionLocalTodayRef = useRef(todayIso());
-  const transactionHistoryTopSentinelRef = useRef(null);
-  const transactionHistoryBottomSentinelRef = useRef(null);
-  const transactionHistoryScrollDirectionRef = useRef("");
-  const transactionHistoryMonthSyncScrollYRef = useRef(0);
-  const transactionHistoryMonthSyncFrameRef = useRef(0);
-  const transactionHistoryRequestGenerationRef = useRef(0);
-  const pendingTransactionHistoryScrollAnchorRef = useRef(null);
   const transactionEntryDefaultDateRef = useRef(todayIso());
-  const transactionHistoryListMode = false;
   const roleNoticeStateRef = useRef({ householdId: "", role: "" });
   const receivedInviteIdsRef = useRef(new Set());
   const activeDeepLinkFlowRef = useRef({ type: "", token: "" });
@@ -2367,19 +2310,16 @@ function App() {
   const confirmResolveRef = useRef(null);
 
   const transactionEntryTodayDate = useCallback(() => {
-    return normalizeIsoDateKey(transactionHistoryTodayRef.current || transactionHistoryToday, todayIso());
-  }, [transactionHistoryToday]);
+    return normalizeIsoDateKey(transactionLocalTodayRef.current, todayIso());
+  }, []);
 
   const transactionEntryContextDate = useCallback(() => {
     const todayDate = transactionEntryTodayDate();
-    if (!transactionHistoryListMode && filterModeRef.current === "month") {
+    if (filterModeRef.current === "month") {
       return yearMonthEndDateKey(appliedYearMonthRef.current || yearMonthRef.current, todayDate);
     }
-    return normalizeIsoDateKey(
-      transactionHistoryAnchorDateRef.current || transactionHistoryAnchorDate || todayDate,
-      todayDate
-    );
-  }, [transactionEntryTodayDate, transactionHistoryAnchorDate, transactionHistoryListMode]);
+    return todayDate;
+  }, [transactionEntryTodayDate]);
 
   const [confirmDialog, setConfirmDialog] = useState({
     open: false,
@@ -2691,10 +2631,10 @@ function App() {
     const savedId = String(transaction?.id || "").trim();
     const savedDate = normalizeIsoDateKey(
       transaction?.occurred_on || fallbackDate,
-      transactionHistoryTodayRef.current || transactionHistoryToday || todayIso()
+      todayIso()
     );
-    const targetMonth = yearMonthFromIsoDate(savedDate, transactionHistoryTodayRef.current || transactionHistoryToday || todayIso());
-    const targetRange = yearMonthFullDateRange(targetMonth, transactionHistoryTodayRef.current || transactionHistoryToday || todayIso());
+    const targetMonth = yearMonthFromIsoDate(savedDate, todayIso());
+    const targetRange = yearMonthFullDateRange(targetMonth, todayIso());
 
     clearTxListFilter();
     setRecentSavedTransactionIds(savedId ? new Set([savedId]) : new Set());
@@ -2710,11 +2650,7 @@ function App() {
     setRange(targetRange);
 
     await refreshData(false, token, { filterMode: "month", yearMonth: targetMonth });
-    if (transactionHistoryListMode && (transactionHistoryInitialized || tab === "transactions")) {
-      await refreshTransactionHistoryAtAnchor(savedDate, {
-        alignToEnd: options.alignToEnd !== false,
-      });
-    }
+    void options;
     if (savedId) {
       scrollToDataRow("data-transaction-id", savedId);
     }
@@ -3404,58 +3340,6 @@ function App() {
   }
 
   useEffect(() => {
-    transactionHistoryInitializedRef.current = transactionHistoryInitialized;
-  }, [transactionHistoryInitialized]);
-
-  useEffect(() => {
-    transactionHistoryAnchorDateRef.current = transactionHistoryAnchorDate;
-  }, [transactionHistoryAnchorDate]);
-
-  useEffect(() => {
-    transactionHistoryTodayRef.current = transactionHistoryToday;
-  }, [transactionHistoryToday]);
-
-  useEffect(() => {
-    resetTransactionHistoryState();
-  }, [household?.id]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return undefined;
-    }
-    let lastScrollY = window.scrollY;
-    const updateScrollDirection = () => {
-      const nextScrollY = window.scrollY;
-      if (Math.abs(nextScrollY - lastScrollY) > 2) {
-        transactionHistoryScrollDirectionRef.current = nextScrollY > lastScrollY ? "down" : "up";
-      }
-      lastScrollY = nextScrollY;
-      requestTransactionHistoryMonthSync();
-    };
-    window.addEventListener("scroll", updateScrollDirection, { passive: true });
-    window.addEventListener("resize", requestTransactionHistoryMonthSync, { passive: true });
-    return () => {
-      window.removeEventListener("scroll", updateScrollDirection);
-      window.removeEventListener("resize", requestTransactionHistoryMonthSync);
-      if (transactionHistoryMonthSyncFrameRef.current) {
-        window.cancelAnimationFrame(transactionHistoryMonthSyncFrameRef.current);
-        transactionHistoryMonthSyncFrameRef.current = 0;
-      }
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    if (!transactionHistoryListMode || !token || !household?.id || tab !== "transactions") {
-      return;
-    }
-    if (!transactionHistoryInitialized && !transactionHistoryLoadingRef.current.initial) {
-      refreshTransactionHistoryAtAnchor(transactionHistoryToday || todayIso(), { alignToEnd: true }).catch(() => undefined);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [household?.id, tab, token, transactionHistoryInitialized]);
-
-  useEffect(() => {
     const nextDefaultDate = transactionEntryContextDate();
     const previousDefaultDate = transactionEntryDefaultDateRef.current || transactionEntryTodayDate();
     transactionEntryDefaultDateRef.current = nextDefaultDate;
@@ -3474,15 +3358,6 @@ function App() {
   }, [transactionEntryContextDate, transactionEntryTodayDate, txDraftTouched]);
 
   useEffect(() => {
-    if (tab !== "transactions" || !transactionHistoryInitialized || !transactionTabEntryScrollPendingRef.current) {
-      return;
-    }
-    transactionTabEntryScrollPendingRef.current = false;
-    scrollTransactionHistoryToEnd();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, transactionHistoryInitialized, transactionHistoryItems.length]);
-
-  useEffect(() => {
     if (typeof window === "undefined") {
       return undefined;
     }
@@ -3493,22 +3368,19 @@ function App() {
       if (nextToday === previousLocalToday) {
         return;
       }
-      const currentHistoryToday = normalizeIsoDateKey(
-        transactionHistoryTodayRef.current || transactionHistoryToday,
-        previousLocalToday
-      );
-      const previousAnchor = normalizeIsoDateKey(
-        transactionHistoryAnchorDateRef.current || transactionHistoryAnchorDate || previousLocalToday,
-        previousLocalToday
-      );
-      const shouldFollowToday = !previousAnchor || previousAnchor === previousLocalToday;
-      const nextHistoryToday = currentHistoryToday > nextToday ? currentHistoryToday : nextToday;
       transactionLocalTodayRef.current = nextToday;
-      transactionHistoryTodayRef.current = nextHistoryToday;
-      setTransactionHistoryToday(nextHistoryToday);
-      if (shouldFollowToday) {
-        transactionHistoryAnchorDateRef.current = nextToday;
-        setTransactionHistoryAnchorDate(nextToday);
+      const previousMonth = yearMonthFromIsoDate(previousLocalToday, previousLocalToday);
+      const nextMonth = yearMonthFromIsoDate(nextToday, nextToday);
+      if (
+        filterModeRef.current === "month" &&
+        compareYearMonth(previousMonth, nextMonth) !== 0 &&
+        compareYearMonth(appliedYearMonthRef.current, previousMonth) === 0
+      ) {
+        yearMonthRef.current = nextMonth;
+        appliedYearMonthRef.current = nextMonth;
+        setMonthFilterPending(false);
+        setYearMonth(nextMonth);
+        refreshDataWithUiFeedback({ filterMode: "month", yearMonth: nextMonth }).catch(() => undefined);
       }
       setTxForm((prev) => {
         const draftDate = normalizeIsoDateKey(prev.occurred_on, "");
@@ -3523,15 +3395,6 @@ function App() {
         }
         return { ...prev, occurred_on: nextToday };
       });
-      if (!transactionHistoryListMode || !token || !household?.id || tabRef.current !== "transactions") {
-        return;
-      }
-      const refreshAnchor = shouldFollowToday ? nextToday : previousAnchor;
-      refreshTransactionHistoryAtAnchor(refreshAnchor, {
-        alignToEnd: shouldFollowToday,
-        preserveScroll: !shouldFollowToday,
-        silent: true,
-      }).catch(() => undefined);
     };
     const scheduleNextDayCheck = () => {
       timeoutId = window.setTimeout(() => {
@@ -3552,109 +3415,7 @@ function App() {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [household?.id, token, transactionHistoryAnchorDate, transactionHistoryToday, txDraftTouched]);
-
-  useEffect(() => {
-    if (!transactionHistoryListMode || !token || !household?.id || tab !== "transactions" || !transactionHistoryInitialized) {
-      return undefined;
-    }
-    if (typeof IntersectionObserver === "undefined") {
-      return undefined;
-    }
-    const topSentinel = transactionHistoryTopSentinelRef.current;
-    const bottomSentinel = transactionHistoryBottomSentinelRef.current;
-    if (!topSentinel && !bottomSentinel) {
-      return undefined;
-    }
-    const isNearDocumentEnd = () => {
-      if (typeof document === "undefined" || typeof window === "undefined") {
-        return false;
-      }
-      const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
-      const scrollY = window.scrollY || window.pageYOffset || 0;
-      return scrollY + viewportHeight >= document.documentElement.scrollHeight - 8;
-    };
-    const isSentinelWithinObserverMargin = (target) => {
-      if (!target || typeof window === "undefined" || typeof target.getBoundingClientRect !== "function") {
-        return false;
-      }
-      const rootMargin = Number.parseFloat(TRANSACTION_HISTORY_SENTINEL_ROOT_MARGIN) || 0;
-      const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
-      const rect = target.getBoundingClientRect();
-      return rect.bottom >= -rootMargin && rect.top <= viewportHeight + rootMargin;
-    };
-    const maybeLoadHistoryEdge = (target) => {
-      const direction = transactionHistoryScrollDirectionRef.current;
-      if (
-        target === topSentinel &&
-        direction === "up" &&
-        transactionHistoryHasOlder &&
-        transactionHistoryOlderCursor &&
-        !transactionHistoryLoadingRef.current.older
-      ) {
-        loadOlderTransactionHistory().catch(() => undefined);
-      }
-      if (
-        target === bottomSentinel &&
-        (direction !== "up" || isNearDocumentEnd()) &&
-        transactionHistoryHasNewer &&
-        transactionHistoryNewerCursor &&
-        !transactionHistoryLoadingRef.current.newer
-      ) {
-        loadNewerTransactionHistory().catch(() => undefined);
-      }
-    };
-    const maybeLoadVisibleHistoryEdge = (target) => {
-      if (!isSentinelWithinObserverMargin(target) && !(target === bottomSentinel && isNearDocumentEnd())) {
-        return;
-      }
-      maybeLoadHistoryEdge(target);
-    };
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          if (entry.isIntersecting) {
-            maybeLoadHistoryEdge(entry.target);
-          }
-        }
-      },
-      { root: null, rootMargin: TRANSACTION_HISTORY_SENTINEL_ROOT_MARGIN, threshold: 0 }
-    );
-    if (topSentinel) {
-      observer.observe(topSentinel);
-    }
-    if (bottomSentinel) {
-      observer.observe(bottomSentinel);
-    }
-    const kickFrame =
-      typeof window === "undefined"
-        ? 0
-        : window.requestAnimationFrame(() => {
-            if (topSentinel) {
-              maybeLoadVisibleHistoryEdge(topSentinel);
-            }
-            if (bottomSentinel) {
-              maybeLoadVisibleHistoryEdge(bottomSentinel);
-            }
-          });
-    return () => {
-      if (kickFrame) {
-        window.cancelAnimationFrame(kickFrame);
-      }
-      observer.disconnect();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    household?.id,
-    tab,
-    token,
-    transactionHistoryHasNewer,
-    transactionHistoryHasOlder,
-    transactionHistoryInitialized,
-    transactionHistoryNewerCursor,
-    transactionHistoryOlderCursor,
-    sortedTransactions.length,
-  ]);
+  }, [txDraftTouched]);
 
   useEffect(() => {
     setSelectedHoldingIds((prev) => {
@@ -3940,9 +3701,6 @@ function App() {
     showTransactionFilterPanel,
     selectedTransactionSummary.count,
     selectedTransactionSummary.amount,
-    transactionHistoryInitialized,
-    transactionHistoryAnchorDate,
-    transactionHistoryToday,
     transactionSortSummary,
     isTransactionFilterActive,
   ]);
@@ -4015,13 +3773,9 @@ function App() {
     }
     const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
     target.scrollIntoView({ block: "start", inline: "nearest", behavior: reduceMotion ? "auto" : "smooth" });
-    requestTransactionHistoryMonthSync();
   }
 
   function toggleTxSortDirection() {
-    if (transactionHistoryListMode && transactionHistoryInitialized) {
-      return;
-    }
     setTxSortDirection((prev) => (prev === "asc" ? "desc" : "asc"));
   }
 
@@ -4891,13 +4645,7 @@ function App() {
     setSavedTabId(tab);
     syncUrlTabParam(tab);
     setMessage((prev) => (prev ? "" : prev));
-    if (tab === "transactions") {
-      transactionTabEntryScrollPendingRef.current = true;
-      if (transactionHistoryInitializedRef.current) {
-        scrollTransactionHistoryToEnd();
-      }
-      return;
-    }
+    if (tab === "transactions") return;
     if (typeof window !== "undefined") {
       window.requestAnimationFrame(() => {
         window.scrollTo({ top: 0, left: 0, behavior: "auto" });
@@ -5200,190 +4948,6 @@ function App() {
     };
   }
 
-  function setTransactionHistoryLoadingMode(mode, value, options = {}) {
-    const expose = options.expose !== false;
-    transactionHistoryLoadingRef.current = {
-      ...transactionHistoryLoadingRef.current,
-      [mode]: value,
-    };
-    if (expose) {
-      setTransactionHistoryLoading((prev) => ({ ...prev, [mode]: value }));
-    } else if (!value) {
-      setTransactionHistoryLoading((prev) => (prev[mode] ? { ...prev, [mode]: false } : prev));
-    }
-  }
-
-  function resetTransactionHistoryState() {
-    const today = todayIso();
-    transactionHistoryRequestGenerationRef.current += 1;
-    transactionHistoryLoadingRef.current = { initial: false, older: false, newer: false };
-    transactionHistoryInitializedRef.current = false;
-    transactionHistoryMonthSyncScrollYRef.current = typeof window === "undefined" ? 0 : window.scrollY || 0;
-    transactionHistoryAnchorDateRef.current = today;
-    transactionHistoryTodayRef.current = today;
-    transactionLocalTodayRef.current = today;
-    pendingTransactionHistoryScrollAnchorRef.current = null;
-    setTransactionHistoryItems([]);
-    setTransactionHistoryOlderCursor("");
-    setTransactionHistoryNewerCursor("");
-    setTransactionHistoryHasOlder(false);
-    setTransactionHistoryHasNewer(false);
-    setTransactionHistoryAnchorDate(today);
-    setTransactionHistoryToday(today);
-    setTransactionHistoryInitialized(false);
-    setTransactionHistoryLoading({ initial: false, older: false, newer: false });
-    setTransactionHistoryError("");
-  }
-
-  function findVisibleTransactionHistoryDateKey() {
-    if (typeof document === "undefined" || typeof window === "undefined") {
-      return "";
-    }
-    const rows = Array.from(document.querySelectorAll("tr.transaction-row[data-transaction-id]"));
-    const threshold = getTransactionHistoryViewportThreshold();
-    const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
-    const currentScrollY = window.scrollY || window.pageYOffset || 0;
-    const previousSyncScrollY = transactionHistoryMonthSyncScrollYRef.current;
-    const inferredDirection =
-      Math.abs(currentScrollY - previousSyncScrollY) > 2
-        ? currentScrollY > previousSyncScrollY
-          ? "down"
-          : "up"
-        : transactionHistoryScrollDirectionRef.current;
-    const latestRow = rows[rows.length - 1];
-    const latestRowBox = latestRow?.getBoundingClientRect();
-    const isLatestRowVisible =
-      Boolean(latestRowBox) && latestRowBox.bottom > threshold && latestRowBox.top < viewportHeight;
-    const preferLatestVisible =
-      isLatestRowVisible ||
-      inferredDirection !== "up" ||
-      currentScrollY + viewportHeight >= document.documentElement.scrollHeight - 8;
-    let fallbackDateKey = "";
-    let fallbackDistance = Number.POSITIVE_INFINITY;
-    for (const row of rows) {
-      const box = row.getBoundingClientRect();
-      if (box.bottom <= threshold || box.top >= viewportHeight) {
-        continue;
-      }
-      const dateKey =
-        row.getAttribute("data-transaction-date") ||
-        row.querySelector(".desktop-date-text")?.textContent ||
-        "";
-      const normalizedDateKey = normalizeIsoDateKey(dateKey, "");
-      if (!normalizedDateKey) {
-        continue;
-      }
-      const distance = preferLatestVisible ? Math.abs(viewportHeight - box.bottom) : Math.abs(box.top - threshold);
-      if (distance < fallbackDistance) {
-        fallbackDateKey = normalizedDateKey;
-        fallbackDistance = distance;
-      }
-    }
-    return fallbackDateKey;
-  }
-
-  function syncTransactionHistoryMonthFromViewport() {
-    if (tabRef.current !== "transactions" || !transactionHistoryInitializedRef.current) {
-      return;
-    }
-    if (typeof document === "undefined") {
-      return;
-    }
-    const currentScrollY = typeof window === "undefined" ? 0 : window.scrollY || window.pageYOffset || 0;
-    const activeElement = document.activeElement;
-    const isEditingMonthStepper =
-      activeElement instanceof HTMLElement && activeElement.closest(".transaction-list-card .month-stepper");
-    if (isEditingMonthStepper || isMonthFilterPendingRef.current) {
-      return;
-    }
-    const visibleDateKey = findVisibleTransactionHistoryDateKey();
-    if (typeof window !== "undefined") {
-      transactionHistoryMonthSyncScrollYRef.current = currentScrollY;
-    }
-    if (!visibleDateKey) {
-      return;
-    }
-    if (transactionHistoryAnchorDateRef.current !== visibleDateKey) {
-      transactionHistoryAnchorDateRef.current = visibleDateKey;
-      setTransactionHistoryAnchorDate(visibleDateKey);
-    }
-    const visibleYearMonth = parseYearMonthKey(visibleDateKey.slice(0, 7));
-    if (!visibleYearMonth) {
-      return;
-    }
-    if (compareYearMonth(visibleYearMonth, yearMonthRef.current) === 0) {
-      return;
-    }
-    const nextYearMonth = { ...visibleYearMonth };
-    yearMonthRef.current = nextYearMonth;
-    appliedYearMonthRef.current = nextYearMonth;
-    setMonthFilterPending(false);
-    setYearMonth(nextYearMonth);
-  }
-
-  function requestTransactionHistoryMonthSync() {
-    if (!transactionHistoryListMode || typeof window === "undefined" || transactionHistoryMonthSyncFrameRef.current) {
-      return;
-    }
-    transactionHistoryMonthSyncFrameRef.current = window.requestAnimationFrame(() => {
-      transactionHistoryMonthSyncFrameRef.current = 0;
-      syncTransactionHistoryMonthFromViewport();
-    });
-  }
-
-  function getTransactionHistoryViewportThreshold() {
-    if (typeof document === "undefined" || typeof window === "undefined") {
-      return 0;
-    }
-    const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
-    return (
-      [
-        "header.topbar",
-        ".transaction-list-card > .transaction-sticky-toolbar",
-        ".transactions-desktop-ledger-head",
-        ".transactions-mobile-ledger-head",
-      ].reduce((bottom, selector) => {
-        const box = document.querySelector(selector)?.getBoundingClientRect();
-        if (!box || box.bottom <= 0 || box.top >= viewportHeight) {
-          return bottom;
-        }
-        return Math.max(bottom, box.bottom);
-      }, 0) + 4
-    );
-  }
-
-  function captureTransactionHistoryScrollAnchor() {
-    if (typeof document === "undefined" || typeof window === "undefined") {
-      return null;
-    }
-    const rows = Array.from(document.querySelectorAll("tr.transaction-row[data-transaction-id]"));
-    const threshold = getTransactionHistoryViewportThreshold();
-    const visibleAnchorRow = rows.find((row) => {
-      const box = row.getBoundingClientRect();
-      return box.bottom > threshold && box.top < window.innerHeight;
-    });
-    const anchorRow =
-      visibleAnchorRow ||
-      rows.reduce((best, row) => {
-        const box = row.getBoundingClientRect();
-        if (box.bottom <= threshold - 4 || box.top >= window.innerHeight + 720) {
-          return best;
-        }
-        const distance = Math.abs(box.top - threshold);
-        if (!best || distance < best.distance) {
-          return { row, distance };
-        }
-        return best;
-      }, null)?.row;
-    if (!anchorRow) {
-      return null;
-    }
-    return {
-      id: anchorRow.getAttribute("data-transaction-id"),
-      top: anchorRow.getBoundingClientRect().top,
-    };
-  }
-
   function captureDocumentScrollPosition() {
     if (typeof document === "undefined" || typeof window === "undefined") {
       return null;
@@ -5412,238 +4976,6 @@ function App() {
       }
     };
     window.requestAnimationFrame(restore);
-  }
-
-  function restoreTransactionHistoryScrollAnchor(anchor) {
-    if (!anchor?.id || typeof document === "undefined" || typeof window === "undefined") {
-      return;
-    }
-    let attempts = 0;
-    const maxAttempts = 8;
-    const minAttempts = 4;
-    const restore = () => {
-      const row = Array.from(document.querySelectorAll("tr.transaction-row[data-transaction-id]")).find(
-        (element) => element.getAttribute("data-transaction-id") === anchor.id
-      );
-      if (!row) {
-        attempts += 1;
-        if (attempts <= maxAttempts) {
-          window.requestAnimationFrame(restore);
-        }
-        return;
-      }
-      const delta = row.getBoundingClientRect().top - anchor.top;
-      if (Math.abs(delta) > 1) {
-        window.scrollBy({ top: delta, behavior: "auto" });
-      }
-      requestTransactionHistoryMonthSync();
-      attempts += 1;
-      if ((attempts < minAttempts || Math.abs(delta) > 2) && attempts <= maxAttempts) {
-        window.requestAnimationFrame(restore);
-      }
-    };
-    requestAnimationFrame(() => {
-      requestAnimationFrame(restore);
-    });
-  }
-
-  useLayoutEffect(() => {
-    const pendingAnchor = pendingTransactionHistoryScrollAnchorRef.current;
-    if (tab !== "transactions" || !pendingAnchor?.id) {
-      return;
-    }
-    pendingTransactionHistoryScrollAnchorRef.current = null;
-    restoreTransactionHistoryScrollAnchor(pendingAnchor);
-    // The restore helper reads current DOM/refs; only history list commits and
-    // tab changes should consume a queued anchor.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, transactionHistoryItems]);
-
-  function scrollTransactionHistoryToEnd() {
-    if (typeof document === "undefined") {
-      return;
-    }
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        const rows = document.querySelectorAll("tr.transaction-row[data-transaction-id]");
-        const lastRow = rows[rows.length - 1];
-        lastRow?.scrollIntoView?.({ block: "end", inline: "nearest", behavior: "auto" });
-        requestTransactionHistoryMonthSync();
-      });
-    });
-  }
-
-  async function loadTransactionHistoryPage(options = {}) {
-    if (!transactionHistoryListMode) {
-      return null;
-    }
-    const direction = ["older", "newer"].includes(options.direction) ? options.direction : "initial";
-    const cursor = String(options.cursor || "").trim();
-    const nextToken = options.nextToken || token;
-    if (!nextToken || (direction !== "initial" && !cursor)) {
-      return null;
-    }
-    if (direction !== "initial" && transactionHistoryLoadingRef.current[direction]) {
-      return null;
-    }
-    const requestGeneration =
-      direction === "initial"
-        ? transactionHistoryRequestGenerationRef.current + 1
-        : transactionHistoryRequestGenerationRef.current;
-    if (direction === "initial") {
-      transactionHistoryRequestGenerationRef.current = requestGeneration;
-    }
-    if (direction === "initial") {
-      transactionHistoryScrollDirectionRef.current = "";
-    }
-
-    const preserveAnchor = Boolean(options.preserveScroll);
-    const scrollAnchor = preserveAnchor ? captureTransactionHistoryScrollAnchor() : null;
-    const exposeLoading = !options.silent || direction !== "initial";
-    setTransactionHistoryLoadingMode(direction, true, { expose: exposeLoading });
-    try {
-      const requestAnchorDate = normalizeIsoDateKey(
-        options.anchorDate ||
-          transactionHistoryAnchorDateRef.current ||
-          transactionHistoryAnchorDate ||
-          transactionHistoryToday,
-        todayIso()
-      );
-      const params = new URLSearchParams({
-        direction,
-        limit: String(TRANSACTION_HISTORY_PAGE_LIMIT),
-      });
-      params.set("anchor_date", requestAnchorDate);
-      if (cursor) {
-        params.set("cursor", cursor);
-      }
-      const payload = await api(`${API_PREFIX}/transactions/history?${params.toString()}`, {}, nextToken);
-      if (requestGeneration !== transactionHistoryRequestGenerationRef.current) {
-        return null;
-      }
-      const pageItems = Array.isArray(payload?.items) ? payload.items : [];
-      const localToday = todayIso();
-      const previousToday = normalizeIsoDateKey(
-        transactionHistoryTodayRef.current || transactionHistoryToday || localToday,
-        localToday
-      );
-      const payloadToday = normalizeIsoDateKey(payload?.today, localToday);
-      const nextToday = [previousToday, payloadToday, localToday].reduce((latest, candidate) =>
-        candidate > latest ? candidate : latest
-      );
-      const currentAnchorDate =
-        transactionHistoryAnchorDateRef.current || transactionHistoryAnchorDate || transactionHistoryToday || nextToday;
-      const requestedAnchorDate = requestAnchorDate ? normalizeIsoDateKey(requestAnchorDate, nextToday) : "";
-      const payloadAnchorDate = normalizeIsoDateKey(payload?.anchor_date, requestedAnchorDate || nextToday);
-      let nextAnchorDate =
-        direction === "initial" ? payloadAnchorDate : normalizeIsoDateKey(currentAnchorDate, nextToday);
-      if (
-        direction === "initial" &&
-        requestedAnchorDate &&
-        requestedAnchorDate >= previousToday &&
-        requestedAnchorDate <= nextToday &&
-        nextAnchorDate < requestedAnchorDate
-      ) {
-        nextAnchorDate = requestedAnchorDate;
-      }
-      transactionHistoryTodayRef.current = nextToday;
-      transactionHistoryAnchorDateRef.current = nextAnchorDate;
-      transactionHistoryInitializedRef.current = true;
-      setTransactionHistoryToday(nextToday);
-      setTransactionHistoryAnchorDate(nextAnchorDate);
-      setTransactionHistoryInitialized(true);
-      setTransactionHistoryError("");
-
-      if (direction === "older") {
-        const restoreAnchor = preserveAnchor ? captureTransactionHistoryScrollAnchor() || scrollAnchor : null;
-        if (restoreAnchor) {
-          pendingTransactionHistoryScrollAnchorRef.current = restoreAnchor;
-        }
-        setTransactionHistoryItems((prev) => mergeTransactionHistoryItems(prev, pageItems));
-        setTransactionHistoryOlderCursor(String(payload?.older_cursor || ""));
-        setTransactionHistoryHasOlder(Boolean(payload?.has_older));
-      } else if (direction === "newer") {
-        const restoreAnchor = preserveAnchor ? captureTransactionHistoryScrollAnchor() || scrollAnchor : null;
-        if (restoreAnchor) {
-          pendingTransactionHistoryScrollAnchorRef.current = restoreAnchor;
-        }
-        setTransactionHistoryItems((prev) => mergeTransactionHistoryItems(prev, pageItems));
-        setTransactionHistoryNewerCursor(String(payload?.newer_cursor || ""));
-        setTransactionHistoryHasNewer(Boolean(payload?.has_newer));
-      } else {
-        if (preserveAnchor && scrollAnchor) {
-          pendingTransactionHistoryScrollAnchorRef.current = scrollAnchor;
-        }
-        setTransactionHistoryItems(mergeTransactionHistoryItems([], pageItems));
-        setTransactionHistoryOlderCursor(String(payload?.older_cursor || ""));
-        setTransactionHistoryNewerCursor(String(payload?.newer_cursor || ""));
-        setTransactionHistoryHasOlder(Boolean(payload?.has_older));
-        setTransactionHistoryHasNewer(Boolean(payload?.has_newer));
-      }
-
-      if (preserveAnchor && direction === "initial") {
-        // Scroll restoration is performed from useLayoutEffect after React has
-        // committed the new history rows. Restoring immediately here can race
-        // the commit and exhaust its retry loop against the pre-update DOM.
-      } else if (options.alignToEnd && pageItems.length > 0) {
-        scrollTransactionHistoryToEnd();
-      }
-      if (
-        direction === "initial" &&
-        pageItems.length < TRANSACTION_HISTORY_AUTO_FILL_THRESHOLD &&
-        Boolean(payload?.has_newer) &&
-        String(payload?.newer_cursor || "") &&
-        !transactionHistoryLoadingRef.current.newer
-      ) {
-        await loadTransactionHistoryPage({
-          direction: "newer",
-          cursor: String(payload?.newer_cursor || ""),
-          preserveScroll: true,
-          silent: true,
-          nextToken,
-        });
-      }
-      return payload;
-    } catch (error) {
-      setTransactionHistoryError(formatApiError(error, "transaction_history"));
-      if (!options.silent) {
-        setMessage(formatApiError(error, "transaction_history"));
-      }
-      return null;
-    } finally {
-      if (direction !== "initial" || requestGeneration === transactionHistoryRequestGenerationRef.current) {
-        setTransactionHistoryLoadingMode(direction, false, { expose: exposeLoading });
-      }
-    }
-  }
-
-  function refreshTransactionHistoryAtAnchor(anchorDate = transactionHistoryToday, options = {}) {
-    return loadTransactionHistoryPage({
-      direction: "initial",
-      anchorDate: normalizeIsoDateKey(anchorDate, transactionHistoryToday || todayIso()),
-      preserveScroll: Boolean(options.preserveScroll),
-      alignToEnd: options.alignToEnd !== false,
-      silent: options.silent,
-      nextToken: options.nextToken,
-    });
-  }
-
-  function loadOlderTransactionHistory() {
-    return loadTransactionHistoryPage({
-      direction: "older",
-      cursor: transactionHistoryOlderCursor,
-      preserveScroll: true,
-      silent: true,
-    });
-  }
-
-  function loadNewerTransactionHistory() {
-    return loadTransactionHistoryPage({
-      direction: "newer",
-      cursor: transactionHistoryNewerCursor,
-      preserveScroll: true,
-      silent: true,
-    });
   }
 
   function applyPriceStatus(nextStatus) {
@@ -5776,19 +5108,6 @@ function App() {
           setOverview(item.data);
         } else if (item.key === "transactions") {
           setTransactions(item.data);
-          if (tabRef.current === "transactions" && transactionHistoryInitializedRef.current) {
-            const historyToday = transactionHistoryTodayRef.current || transactionHistoryToday || todayIso();
-            const historyMergeAnchor = captureTransactionHistoryScrollAnchor();
-            if (historyMergeAnchor) {
-              pendingTransactionHistoryScrollAnchorRef.current = historyMergeAnchor;
-            }
-            setTransactionHistoryItems((prev) =>
-              mergeTransactionHistoryItems(
-                filterTransactionHistoryItemsToToday(prev, historyToday),
-                filterTransactionHistoryItemsToToday(item.data, historyToday)
-              )
-            );
-          }
         } else if (item.key === "holdings") {
           setHoldings(item.data);
         } else if (item.key === "portfolio") {
@@ -5800,16 +5119,6 @@ function App() {
             releasePriceRefreshLock();
           }
         }
-      }
-      if (transactionHistoryListMode && includeTransactions && transactionHistoryInitializedRef.current) {
-        const historyAnchor =
-          transactionHistoryAnchorDateRef.current || transactionHistoryTodayRef.current || todayIso();
-        await refreshTransactionHistoryAtAnchor(historyAnchor, {
-          preserveScroll: tabRef.current === "transactions",
-          alignToEnd: false,
-          silent: true,
-          nextToken,
-        });
       }
       setDashboardLoaded(true);
     } finally {
@@ -5859,12 +5168,6 @@ function App() {
     appliedYearMonthRef.current = normalized;
     setMonthFilterPending(false);
     setYearMonth(normalized);
-    if (transactionHistoryListMode && (tab === "transactions" || transactionHistoryInitialized)) {
-      refreshTransactionHistoryAtAnchor(yearMonthEndDateKey(normalized, transactionHistoryToday || todayIso()), {
-        alignToEnd: true,
-        silent: true,
-      }).catch(() => undefined);
-    }
     refreshDataWithUiFeedback({ filterMode: "month", yearMonth: normalized }).catch(() => undefined);
   }
 
@@ -5894,12 +5197,6 @@ function App() {
     if (!nextRange.start || !nextRange.end) {
       return;
     }
-    if (transactionHistoryListMode && (tab === "transactions" || transactionHistoryInitialized)) {
-      refreshTransactionHistoryAtAnchor(normalizeIsoDateKey(nextRange.end, transactionHistoryToday || todayIso()), {
-        alignToEnd: true,
-        silent: true,
-      }).catch(() => undefined);
-    }
     refreshDataWithUiFeedback({ filterMode: "range", range: nextRange }).catch(() => undefined);
   }
 
@@ -5909,7 +5206,7 @@ function App() {
 
   function handleSwitchToRangeFilter() {
     const nextRange = filterModeRef.current === "month"
-      ? yearMonthFullDateRange(yearMonthRef.current, transactionHistoryTodayRef.current || todayIso())
+      ? yearMonthFullDateRange(yearMonthRef.current, transactionLocalTodayRef.current || todayIso())
       : rangeRef.current;
     applyRangeFilter(nextRange);
   }
@@ -5919,11 +5216,11 @@ function App() {
       const nextMonth = currentMonth();
       yearMonthRef.current = nextMonth;
       setYearMonth(nextMonth);
-      applyRangeFilter(yearMonthFullDateRange(nextMonth, transactionHistoryTodayRef.current || todayIso()));
+      applyRangeFilter(yearMonthFullDateRange(nextMonth, transactionLocalTodayRef.current || todayIso()));
       return;
     }
     if (preset === "recent_30") {
-      applyRangeFilter(recentDateRange(30, transactionHistoryTodayRef.current || todayIso()));
+      applyRangeFilter(recentDateRange(30, transactionLocalTodayRef.current || todayIso()));
     }
   }
 
@@ -6721,7 +6018,7 @@ function App() {
       const isAnchoredInsert = Boolean(payload.anchor_transaction_id && payload.insert_position);
       const repeatForm = createRepeatTransactionForm(
         txForm,
-        normalizeIsoDateKey(payload.occurred_on, transactionHistoryToday || todayIso())
+        normalizeIsoDateKey(payload.occurred_on, transactionLocalTodayRef.current || todayIso())
       );
       const createdTransaction = await api(
         `${API_PREFIX}/transactions`,
@@ -6867,15 +6164,6 @@ function App() {
       );
       await refreshData(false);
       await loadOwnerCleanupTransactions(token);
-      if (
-        transactionHistoryListMode &&
-        Number(remapResult?.remapped_transactions || 0) > 0 &&
-        (transactionHistoryInitialized || tab === "transactions")
-      ) {
-        await refreshTransactionHistoryAtAnchor(transactionHistoryAnchorDate || transactionHistoryToday || todayIso(), {
-          alignToEnd: false,
-        });
-      }
       const total = Number(remapResult?.remapped_transactions || 0) + Number(remapResult?.remapped_holdings || 0);
       const targetDisplayName = remapResult?.target_owner_name || target.displayName;
       setMessage(
@@ -7030,11 +6318,7 @@ function App() {
         }
         return next;
       });
-      setTransactionHistoryItems((prev) => prev.filter((item) => !deletedIds.has(String(item?.id || ""))));
       await refreshData(false);
-      if (transactionHistoryListMode && (transactionHistoryInitialized || tab === "transactions")) {
-        await refreshTransactionHistoryAtAnchor(transactionHistoryAnchorDate || transactionHistoryToday, { alignToEnd: false });
-      }
       setMessage(uiGuideMessage("선택한 거래를 삭제했습니다.", `${deletedIds.size}건을 목록에서 제거했습니다.`));
     } catch (error) {
       setMessage(formatApiError(error, "transaction_delete"));
@@ -7199,7 +6483,7 @@ function App() {
       closeTxInlineEdit();
       await revealSavedTransactionInList(
         updatedTransaction,
-        dirtyPatch.occurred_on || txInlineEdit.occurred_on || transactionHistoryAnchorDate || transactionHistoryToday,
+        dirtyPatch.occurred_on || txInlineEdit.occurred_on || transactionLocalTodayRef.current || todayIso(),
         { alignToEnd: true }
       );
       setMessage(uiGuideMessage("거래를 수정했습니다.", "필터를 초기화하고 수정한 거래를 표시했습니다."));
@@ -7980,10 +7264,6 @@ function App() {
 
   async function refreshPriceNow() {
     const shouldPreserveTransactionScroll = tabRef.current === "transactions";
-    const transactionScrollAnchor =
-      shouldPreserveTransactionScroll && transactionHistoryInitializedRef.current
-        ? captureTransactionHistoryScrollAnchor()
-        : null;
     const transactionDocumentScroll = shouldPreserveTransactionScroll ? captureDocumentScrollPosition() : null;
     setLoading(true);
     try {
@@ -7993,9 +7273,6 @@ function App() {
       }
     } finally {
       setLoading(false);
-      if (transactionScrollAnchor && tabRef.current === "transactions") {
-        restoreTransactionHistoryScrollAnchor(transactionScrollAnchor);
-      }
       if (transactionDocumentScroll && tabRef.current === "transactions") {
         restoreDocumentScrollPosition(transactionDocumentScroll);
       }
@@ -8052,9 +7329,6 @@ function App() {
     try {
       await api(`${API_PREFIX}/transactions/${id}`, { method: "DELETE" }, token);
       await refreshData(false);
-      if (transactionHistoryListMode && (transactionHistoryInitialized || tab === "transactions")) {
-        await refreshTransactionHistoryAtAnchor(transactionHistoryAnchorDate || transactionHistoryToday, { alignToEnd: false });
-      }
       setMessage(uiGuideMessage("거래를 삭제했습니다.", "필요하면 새 거래를 다시 등록해 주세요."));
     } catch (error) {
       setMessage(formatApiError(error, "transaction_delete"));
@@ -9193,9 +8467,6 @@ function App() {
               if (eventName === "transaction.deleted") {
                 const deletedId = String(payload?.entity_id || "").trim();
                 if (deletedId) {
-                  setTransactionHistoryItems((prev) =>
-                    prev.filter((item) => String(item?.id || "") !== deletedId)
-                  );
                   setSelectedTransactionIds((prev) => {
                     if (!prev.has(deletedId)) {
                       return prev;
@@ -9210,9 +8481,6 @@ function App() {
                   (payload?.entity_ids || []).map((id) => String(id || "").trim()).filter(Boolean)
                 );
                 if (deletedIds.size > 0) {
-                  setTransactionHistoryItems((prev) =>
-                    prev.filter((item) => !deletedIds.has(String(item?.id || "")))
-                  );
                   setSelectedTransactionIds((prev) => {
                     const next = new Set(prev);
                     for (const id of deletedIds) {
@@ -10836,6 +10104,7 @@ function App() {
       showTransactionScrollTop,
       sortedTransactions,
       transactionSortSummary,
+      transactionLedgerItems,
       transactionsMobileStickyActive,
       txListFilter,
       txSortDirection,
@@ -10906,16 +10175,6 @@ function App() {
       txInlineCategoryOptions,
       txInlineCategoryQuickChips,
       updateShowTxCategoryManager: (nextOpen) => setShowTxCategoryManager(nextOpen),
-    },
-    history: {
-      transactionHistoryAnchorDate,
-      transactionHistoryBottomSentinelRef,
-      transactionHistoryError,
-      transactionHistoryInitialized: transactionHistoryListMode,
-      transactionHistoryLoading,
-      transactionHistoryToday,
-      transactionHistoryTopSentinelRef,
-      transactionLedgerItems,
     },
     support: {
       transactionSupportDetailsRef,
