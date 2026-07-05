@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, Fragment } from "react";
+// SIZE_OK issue-248 app-shell; maxPureLoc=10852; transitional shell debt must shrink or stay flat until later extraction.
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ArcElement,
   CategoryScale,
@@ -10,13 +11,16 @@ import {
   PointElement,
   Tooltip,
 } from "chart.js";
-import { Doughnut, Line } from "react-chartjs-2";
-import { IsoDateInput } from "./components/IsoDateInput";
 import { AppShell, TAB_IDS } from "./components/AppShell";
-import { ChartBreakdownList, FlowTrendValueTable } from "./components/worksurface/ChartAccessibleSummary";
-import { HoldingSurfaceTable } from "./components/worksurface/HoldingSurfaceTable";
+import { IsoDateInput } from "./components/IsoDateInput";
+import { useCompactViewport } from "./hooks/useCompactViewport";
+import { CollaborationPage } from "./pages/CollaborationPage";
+import { DashboardPage } from "./pages/DashboardPage";
+import { HoldingsPage } from "./pages/HoldingsPage";
+import { ImportPage } from "./pages/ImportPage";
+import { SettingsPage } from "./pages/SettingsPage";
+import { TransactionsPage } from "./pages/TransactionsPage";
 import { TransactionCategoryQuickPicker } from "./components/worksurface/TransactionCategoryQuickPicker";
-import { TransactionSurfaceTable } from "./components/worksurface/TransactionSurfaceTable";
 import { extractVisibleInitial, resolveSemanticColor, withAlpha } from "./components/worksurface/colorSemantics";
 import { getWorkSurfaceMobilePriority } from "./components/worksurface/fieldPriority";
 import "./App.css";
@@ -2185,9 +2189,7 @@ function App() {
   const [holdingDraftTouched, setHoldingDraftTouched] = useState(false);
   const [holdingSummaryOpen, setHoldingSummaryOpen] = useState(true);
   const [tab, setTab] = useState(() => getInitialTabId());
-  const [isCompactViewport, setIsCompactViewport] = useState(
-    () => (typeof window !== "undefined" ? window.innerWidth <= MOBILE_BREAKPOINT_PX : false)
-  );
+  const isCompactViewport = useCompactViewport(MOBILE_BREAKPOINT_PX);
   const [socketStatus, setSocketStatus] = useState("disconnected");
   const [dashboardPortfolioViewMode, setDashboardPortfolioViewMode] = useState("holding_type");
   const [holdingTypeFilter, setHoldingTypeFilter] = useState("all");
@@ -3839,30 +3841,6 @@ function App() {
     });
   }, [showHoldingForm]);
 
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return undefined;
-    }
-    const mediaQuery = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT_PX}px)`);
-    const syncViewportMode = (event) => {
-      setIsCompactViewport(Boolean(event?.matches ?? mediaQuery.matches));
-    };
-    syncViewportMode(mediaQuery);
-    const syncViewportModeFromResize = () => syncViewportMode(mediaQuery);
-    window.addEventListener("resize", syncViewportModeFromResize);
-    if (typeof mediaQuery.addEventListener === "function") {
-      mediaQuery.addEventListener("change", syncViewportMode);
-      return () => {
-        window.removeEventListener("resize", syncViewportModeFromResize);
-        mediaQuery.removeEventListener("change", syncViewportMode);
-      };
-    }
-    mediaQuery.addListener(syncViewportMode);
-    return () => {
-      window.removeEventListener("resize", syncViewportModeFromResize);
-      mediaQuery.removeListener(syncViewportMode);
-    };
-  }, []);
 
   useLayoutEffect(() => {
     if (typeof window === "undefined" || tab !== "transactions") {
@@ -10681,6 +10659,601 @@ function App() {
     );
   }
 
+  const dashboardPageProps = {
+    constants: {
+      COLLAB_ROLE_LABELS,
+      FINANCIAL_SUMMARY_LABELS,
+      FLOW_TYPE_LABELS,
+      PORTFOLIO_VIEW_OPTIONS,
+      SOCKET_STATUS_LABELS,
+    },
+    filters: {
+      applyMonthFilter,
+      filterMode,
+      handleMoveToCurrentMonth,
+      handleRangeInputChange,
+      handleRangePreset,
+      handleShiftYearMonth,
+      handleSwitchToRangeFilter,
+      handleYearMonthInputKeyDown,
+      isMonthFilterPending,
+      isNextMonthDisabled,
+      isPrevMonthDisabled,
+      range,
+      updateYearMonthInput,
+      yearMonth,
+    },
+    summary: {
+      categoryById,
+      dashboardFlowTrendRows,
+      dashboardGainLossRatioText,
+      dashboardHoldingHighlights,
+      dashboardImportStatus,
+      dashboardKpiCards,
+      dashboardLoading,
+      dashboardPriceTone,
+      dashboardRecentTransactions,
+      householdMembers,
+      importReport,
+      isDashboardInitialLoading,
+      latestRefreshAt,
+      priceSummaryRows,
+      refreshStateLabel,
+      socketStatus,
+    },
+    portfolioView: {
+      dashboardPortfolioBreakdownItems,
+      dashboardPortfolioCenterLabel,
+      dashboardPortfolioChartData,
+      dashboardPortfolioChartDescription,
+      dashboardPortfolioChartSource,
+      dashboardPortfolioViewMode,
+      portfolio,
+      updateDashboardPortfolioViewMode: (nextMode) => setDashboardPortfolioViewMode(nextMode),
+    },
+    charts: {
+      dashboardFlowChartDescription,
+      donutChartOptions,
+      lineChartOptions,
+      trendChartData,
+    },
+    formatters: {
+      extractVisibleInitial,
+      fmt,
+      fmtDate,
+      fmtDateTime,
+      fmtKrw,
+      toCategoryPairLabel,
+    },
+    renderers: {
+      renderDonutCenterLabel,
+      renderDonutSliceLabels,
+    },
+    navigation: {
+      navigateToTab: (nextTab) => setTab(nextTab),
+    },
+  };
+
+  const transactionsPageProps = {
+    constants: {
+      DEFAULT_TRANSACTION_ROW_COLORS,
+      FLOW_TYPE_LABELS,
+      FLOW_TYPE_OPTIONS,
+    },
+    permissions: {
+      canEditHouseholdData,
+      canEditRecords,
+      isCompactViewport,
+      loading,
+    },
+    monthFilter: {
+      handleMoveToCurrentMonth,
+      handleShiftYearMonth,
+      handleYearMonthInputKeyDown,
+      isMonthFilterPending,
+      isNextMonthDisabled,
+      isPrevMonthDisabled,
+      maxMonth,
+      minMonth,
+      updateYearMonthInput,
+      yearMonth,
+    },
+    listState: {
+      expandedTransactionRows,
+      isTransactionFilterActive,
+      recentImportTransactionIds,
+      recentSavedTransactionIds,
+      selectedTransactionSummary,
+      showTransactionFilterPanel,
+      showTransactionScrollTop,
+      sortedTransactions,
+      transactionSortSummary,
+      transactionsMobileStickyActive,
+      txListFilter,
+      txSortDirection,
+    },
+    listRefs: {
+      transactionListCardRef,
+      transactionListHeadingRef,
+      transactionStickyToolbarRef,
+    },
+    listLookups: {
+      categoryById,
+      householdSettings,
+      normalizeTransactionRowColors,
+      renderCategoryCell,
+    },
+    listActions: {
+      clearTxListFilter,
+      selectTransactionRows,
+      scrollTransactionListToTop,
+      toggleExpandedTransactionRow,
+      toggleTxSortDirection,
+      updateShowTransactionFilterPanel: (nextOpen) => setShowTransactionFilterPanel(nextOpen),
+      updateTransactionRowsExpanded: (transactionIds, expanded) => setTransactionRowsExpanded(transactionIds, expanded),
+      updateTransactionRowsSelected: (transactionIds, selected) => setTransactionRowsSelected(transactionIds, selected),
+      updateTxListFilter: (nextFilter) => setTxListFilter(nextFilter),
+    },
+    selection: {
+      areAllFilteredTransactionsSelected,
+      openSelectedTransactionEdit,
+      openSelectedTransactionInsert,
+      removeSelectedTransactions,
+      selectedTransactionIds,
+      toggleAllFilteredTransactionSelection,
+      toggleTransactionSelection,
+      updateSelectedTransactionIds: (nextIds) => setSelectedTransactionIds(nextIds),
+    },
+    entrySheet: {
+      closeTransactionEntrySheet,
+      openNormalTransactionEntrySheet,
+      renderTransactionFormFields,
+      showTransactionForm,
+      transactionDesktopAddActionRef,
+      transactionEntryBanner,
+      transactionFabRef,
+      txEntrySheetStep,
+      updateTxEntrySheetStep: (nextStep) => setTxEntrySheetStep(nextStep),
+    },
+    inlineEdit: {
+      closeTxInlineEdit,
+      createAndApplyTxInlineCategory,
+      handleGroupedDecimalInput,
+      handleTransactionAmountInput,
+      handleTxInlineEditKeyDown,
+      openTransactionInlineEditor,
+      submitTxInlineEdit,
+      txInlineEdit,
+      updateTxInlineEdit: (nextEdit) => setTxInlineEdit(nextEdit),
+    },
+    categoryManager: {
+      renderLegacyOwnerRemapHelper,
+      renderTransactionCategoryManagerContent,
+      showTxCategoryManager,
+      toggleTransactionCategoryManager,
+      txCategoryManagerRef,
+      txInlineCategoryMajor,
+      txInlineCategoryMajorOptions,
+      txInlineCategoryMinorOptions,
+      txInlineCategoryOptions,
+      txInlineCategoryQuickChips,
+      updateShowTxCategoryManager: (nextOpen) => setShowTxCategoryManager(nextOpen),
+    },
+    history: {
+      transactionHistoryAnchorDate,
+      transactionHistoryBottomSentinelRef,
+      transactionHistoryError,
+      transactionHistoryInitialized,
+      transactionHistoryLoading,
+      transactionHistoryToday,
+      transactionHistoryTopSentinelRef,
+      transactionLedgerItems,
+    },
+    support: {
+      transactionSupportDetailsRef,
+      transactionSupportOpen,
+      updateTransactionSupportOpen: (nextOpen) => setTransactionSupportOpen(nextOpen),
+    },
+    breakdown: {
+      txFlowBreakdownExpanded,
+      txFlowSummaryCards,
+      updateTxFlowBreakdownExpanded: (nextExpanded) => setTxFlowBreakdownExpanded(nextExpanded),
+    },
+    ownerHelpers: {
+      ownerOptionsWithFallback,
+      ownerSelectValue,
+      ownerSelectionFromValue,
+    },
+    formatters: {
+      fmtDate,
+      fmtKrw,
+      formatSharePercent,
+      toCategoryMajorLabel,
+      toCategoryMinorLabel,
+      toYearMonthKey,
+    },
+  };
+
+  const holdingsPageProps = {
+    constants: {
+      DEFAULT_HOLDING_TYPES,
+    },
+    permissions: {
+      canEditRecords,
+      isCompactViewport,
+      loading,
+    },
+    entryState: {
+      holdingEntryActionRef,
+      holdingForm,
+      holdingFormOwnerOptions,
+      holdingFormShowAverageCost,
+      holdingFormTracked,
+      holdingFormType,
+      holdingNameInputRef,
+      showHoldingForm,
+    },
+    entryActions: {
+      applyHoldingOwnerOption,
+      closeHoldingEntrySheet,
+      createHoldingForm,
+      handleHoldingEntryDecimalInput,
+      nextAverageCostForHoldingTypeChange,
+      openHoldingEntrySheet,
+      ownerSelectionFromValue,
+      resolveHoldingCategoryOnTypeChange,
+      shouldExplainHoldingValueReset,
+      submitHolding,
+      uiGuideMessage,
+      updateHoldingDraftTouched: (nextTouched) => setHoldingDraftTouched(nextTouched),
+      updateHoldingForm: (nextForm) => setHoldingForm(nextForm),
+      updateHoldingOwnerTouched: (nextTouched) => setHoldingOwnerTouched(nextTouched),
+      notifyMessage: (nextMessage) => setMessage(nextMessage),
+    },
+    entryLookups: {
+      holdingTypeByKey,
+      holdingTypeOptions,
+      holdingValuationInputMode,
+      normalizeHoldingTypeKey,
+      ownerSelectValue,
+    },
+    listState: {
+      activeHoldingTabLabel,
+      activeHoldingTypeFilterLabel,
+      dynamicHoldingTabs,
+      filteredHoldingItems,
+      groupedHoldingSections,
+      holdingColorMode,
+      holdingColorModeLabel,
+      holdingColumnWidths,
+      holdingGroupByColor,
+      holdingItems,
+      holdingListTab,
+      holdingListTabAriaLabel,
+      holdingSortSummary,
+      holdingTypeFilter,
+      selectedHoldingSummary,
+      sortedHoldingItems,
+    },
+    listActions: {
+      moveHoldingCategoryOrder,
+      scrollToHoldingSummary,
+      updateHoldingColumnWidth,
+      updateHoldingColorMode: (nextMode) => setHoldingColorMode(nextMode),
+      updateHoldingGroupByColor: (nextValue) => setHoldingGroupByColor(nextValue),
+      updateHoldingListTab: (nextTab) => setHoldingListTab(nextTab),
+      updateHoldingTypeFilter: (nextType) => setHoldingTypeFilter(nextType),
+      updateSelectedHoldingIds: (nextIds) => setSelectedHoldingIds(nextIds),
+    },
+    portfolioSummary: {
+      donutChartOptions,
+      handleHoldingSummarySummaryClick,
+      handleHoldingSummaryToggle,
+      holdingPortfolioBreakdownCanFilter,
+      holdingPortfolioBreakdownItems,
+      holdingPortfolioCenterLabel,
+      holdingPortfolioChartData,
+      holdingPortfolioChartDescription,
+      holdingPortfolioChartSource,
+      holdingPortfolioGainTone,
+      holdingPortfolioReturnRatio,
+      holdingSummaryCardRef,
+      holdingSummaryOpen,
+      holdingSummarySource,
+      holdingSummaryViewMode,
+      portfolio,
+      updateHoldingSummaryViewMode: (nextMode) => setHoldingSummaryViewMode(nextMode),
+    },
+    formatters: {
+      fmtKrw,
+      fmtSignedPercent,
+    },
+    renderers: {
+      renderDonutCenterLabel,
+      renderDonutSliceLabels,
+      renderHoldingRow,
+      renderHoldingSortAria,
+      renderHoldingSortHeader,
+      renderLegacyOwnerRemapHelper,
+      renderOwnerQuickSelect,
+    },
+  };
+
+  const settingsPageProps = {
+    constants: {
+      ASSET_TYPE_OPTIONS,
+      COLLAB_ROLE_LABELS,
+      DEFAULT_TRANSACTION_ROW_COLORS,
+      DISPLAY_NAME_MODE_OPTIONS,
+      FLOW_TYPE_LABELS,
+      FLOW_TYPE_OPTIONS,
+    },
+    permissions: {
+      canEditHouseholdData,
+      canManageHousehold,
+    },
+    profile: {
+      profileDisplayModeLabel,
+      profileForm,
+      saveProfileSettings,
+      user,
+      updateProfileForm: (nextForm) => setProfileForm(nextForm),
+    },
+    householdAdmin: {
+      handleHouseholdSwitchChange,
+      household,
+      householdList,
+      householdRole,
+      householdRoleLabel,
+      householdSettings,
+      householdSettingsForm,
+      householdSwitchDisabled,
+      saveHouseholdSettings,
+      updateHouseholdSettingsForm: (nextForm) => setHouseholdSettingsForm(nextForm),
+    },
+    holdingTypes: {
+      clearHoldingTypeDraft,
+      editHoldingType,
+      holdingCategoryNames,
+      holdingOwnerNames,
+      holdingTypeDraft,
+      holdingTypeEditKey,
+      holdingTypeOptions,
+      moveHoldingTypeOrder,
+      removeHoldingTypeDefinition,
+      saveHoldingTypeDefinition,
+      updateHoldingColorInForm: (section, key, color) => setHoldingColorInForm(section, key, color),
+      updateHoldingTypeDraft: (nextDraft) => setHoldingTypeDraft(nextDraft),
+    },
+    categoryDrafts: {
+      categoryDraft,
+      categoryDraftGuideText,
+      categoryDraftMajorOptions,
+      categoryDraftMajorSelect,
+      categoryDraftMinorOptions,
+      categoryDraftMinorSelect,
+      categoryDraftSummaryText,
+      categoryEditForm,
+      categoryEditId,
+      majorRenameDrafts,
+    },
+    categoryLists: {
+      categories,
+      categoryGroups,
+      categoryMajorCount,
+      categoryQuickActionText,
+      categoryQuickOptions,
+      categoryQuickSelectedId,
+      categoryQuickSelectionInUse,
+      categoryUsageById,
+      categoryUsageExpanded,
+      categoryUsageLoadingId,
+      settingsPermissionLabel,
+    },
+    categoryActions: {
+      createCategoryPair,
+      deleteCategoryPair,
+      deleteSelectedCategoryQuick,
+      editSelectedCategoryQuick,
+      renameCategoryMajorGroup,
+      renderBreakableInlineText,
+      saveCategoryEdit,
+      toCategoryMajorLabel,
+      toCategoryMinorLabel,
+      toCategoryPairLabel,
+      toggleCategoryUsageDetails,
+      updateCategoryDraft: (nextDraft) => setCategoryDraft(nextDraft),
+      updateCategoryDraftMajorSelect: (nextMajor) => setCategoryDraftMajorSelect(nextMajor),
+      updateCategoryDraftMinorSelect: (nextMinor) => setCategoryDraftMinorSelect(nextMinor),
+      updateCategoryEditForm: (nextForm) => setCategoryEditForm(nextForm),
+      updateCategoryEditId: (nextId) => setCategoryEditId(nextId),
+      updateCategoryQuickSelectedId: (nextId) => setCategoryQuickSelectedId(nextId),
+      updateMajorRenameDrafts: (nextDrafts) => setMajorRenameDrafts(nextDrafts),
+    },
+    formatters: {
+      fmtKrw,
+    },
+  };
+
+  const collaborationPageProps = {
+    constants: {
+      COLLAB_ROLE_LABELS,
+      COLLAB_ROLE_OPTIONS,
+      INVITATION_STATUS_LABELS,
+    },
+    permissions: {
+      canAssignOwner,
+      canManageHousehold,
+      loading,
+    },
+    householdContext: {
+      compactHouseholdSelectOptionName,
+      handleHouseholdSwitchChange,
+      household,
+      householdList,
+      householdMembers,
+      householdRole,
+      householdRoleLabel,
+      householdSwitchDisabled,
+      selectActiveHousehold,
+    },
+    inviteAcceptance: {
+      acceptHouseholdInvite,
+      inviteAcceptToken,
+      inviteAcceptanceCanSwitch,
+      inviteAcceptanceNotice,
+      updateInviteAcceptToken: (nextToken) => setInviteAcceptToken(nextToken),
+    },
+    inviteFormState: {
+      createHouseholdInvite,
+      inviteEmailInputRef,
+      inviteForm,
+      inviteFormErrors,
+      updateInviteForm: (nextForm) => setInviteForm(nextForm),
+      updateInviteFormErrors: (nextErrors) => setInviteFormErrors(nextErrors),
+    },
+    receivedInvites: {
+      acceptReceivedHouseholdInvite,
+      receivedHouseholdInvites,
+      receivedInviteSectionRef,
+      receivedInviteTab,
+      receivedNewInvites,
+      receivedPastInvites,
+      recentInviteIds,
+      visibleReceivedInvites,
+      updateReceivedInviteTab: (nextTab) => setReceivedInviteTab(nextTab),
+    },
+    sentInvites: {
+      mySentInvites,
+      revokeHouseholdInvite,
+      sentInviteTab,
+      sentNewInvites,
+      sentPastInvites,
+      visibleSentInvites,
+      updateSentInviteTab: (nextTab) => setSentInviteTab(nextTab),
+    },
+    members: {
+      changeMemberRole,
+      memberRoleOptions,
+      removeHouseholdMember,
+    },
+    formatters: {
+      fmtDateTime,
+    },
+    userContext: {
+      user,
+      collaborationInviteSummary,
+    },
+  };
+
+  const importPageProps = {
+    constants: {
+      FLOW_TYPE_OPTIONS,
+      IMPORT_MODE_LABELS,
+      IMPORT_REPORT_SORT_OPTIONS,
+      IMPORT_SOURCE_MODES,
+      TOSS_IMAGE_ACCEPT,
+    },
+    permissions: {
+      canEditRecords,
+    },
+    workbook: {
+      doImport,
+      importFile,
+      importFileInputRef,
+      importLoadingMode,
+      importMode,
+      importStateLabel,
+      workbookActionsDisabled,
+      workbookMissingFile,
+      workbookUploadPlaceholder,
+      updateImportFile: (nextFile) => setImportFile(nextFile),
+      updateImportMode: (nextMode) => setImportMode(nextMode),
+    },
+    reportState: {
+      importAppliedHoldingRefs,
+      importAppliedTransactionRefs,
+      importBusy,
+      importIssuePreview,
+      importMismatchPreview,
+      importReport,
+      importReportRows,
+      importReportSearch,
+      importReportSeverityFilter,
+      importReportSeverityOptions,
+      importReportSort,
+      importReportTypeFilter,
+      importReportTypeOptions,
+      importReportVisibleRows,
+    },
+    reportActions: {
+      copyImportReportCsv,
+      downloadImportReportCsv,
+      formatTechnicalReportJson,
+      hasImportPostApplyTargets,
+      showImportedHoldings,
+      showImportedTransactions,
+      startImportedCorrection,
+      updateImportReportSearch: (nextSearch) => setImportReportSearch(nextSearch),
+      updateImportReportSeverityFilter: (nextFilter) => setImportReportSeverityFilter(nextFilter),
+      updateImportReportSort: (nextSort) => setImportReportSort(nextSort),
+      updateImportReportTypeFilter: (nextFilter) => setImportReportTypeFilter(nextFilter),
+    },
+    migration: {
+      doMigrationImport,
+      exportMigrationPackage,
+      migrationExporting,
+      migrationIssuePreview,
+      migrationLoadingMode,
+      migrationPackageFile,
+      migrationPackageInputRef,
+      migrationPackageUploadPlaceholder,
+      migrationReport,
+      migrationStateLabel,
+      packageActionsDisabled,
+      packageMissingFile,
+      updateMigrationPackageFile: (nextFile) => setMigrationPackageFile(nextFile),
+    },
+    ownerCleanup: {
+      applyLegacyOwnerRemap,
+      defaultOwnerRemapOption,
+      legacyOwnerCleanupRows,
+      legacyOwnerCountText,
+      ownerMemberOptions,
+      ownerRemapTargets,
+      ownerRemappingKey,
+      updateOwnerRemapTargets: (nextTargets) => setOwnerRemapTargets(nextTargets),
+    },
+    toss: {
+      doTossApply,
+      doTossPreview,
+      startCategoryDraftFromTossRecommendation,
+      tossApplyReport,
+      tossDuplicateCount,
+      tossExcludedCandidates,
+      tossFileInputRef,
+      tossFiles,
+      tossIncludedCount,
+      tossLoadingMode,
+      tossPreview,
+      tossRows,
+      tossUploadPlaceholder,
+      updateTossPreviewRow,
+      updateTossImportFiles: (nextFiles) => setTossImportFiles(nextFiles),
+    },
+    helpers: {
+      categories,
+      categoryById,
+      displayImportFileName,
+      fmt,
+      toCategoryPairLabel,
+    },
+    dragDrop: {
+      isDragOver,
+      updateIsDragOver: (nextIsDragOver) => setIsDragOver(nextIsDragOver),
+    },
+  };
+
   return (
     <AppShell
       userName={user?.display_name}
@@ -10736,3117 +11309,17 @@ function App() {
         </section>
       )}
 
-      {tab === "dashboard" && (
-        <section className="dashboard-command-center grid-2" aria-busy={dashboardLoading ? "true" : "false"}>
-          {isDashboardInitialLoading && (
-            <div className="dashboard-loading-banner" role="status" aria-live="polite">
-              대시보드 데이터를 불러오는 중입니다.
-            </div>
-          )}
+      {tab === "dashboard" && <DashboardPage {...dashboardPageProps} />}
 
-          <article className="card summary-card dashboard-hero-card">
-            <div className="dashboard-hero-copy">
-              <span className="dashboard-eyebrow">요약</span>
-              <h2>요약</h2>
-              <p>
-                {filterMode === "month"
-                  ? `${yearMonth.year}년 ${yearMonth.month}월 기준으로 현금흐름과 자산 상태를 한눈에 확인합니다.`
-                  : `${range.start || "시작일"}부터 ${range.end || "종료일"}까지의 흐름을 요약합니다.`}
-              </p>
-            </div>
-            <div className="dashboard-hero-metric" data-tone={Number(portfolio?.total_gain_loss_krw || 0) >= 0 ? "positive" : "negative"}>
-              <span>총자산(KRW)</span>
-              <strong>{fmtKrw(portfolio?.total_market_value_krw)}</strong>
-              <small>평가손익 {fmtKrw(portfolio?.total_gain_loss_krw)} <b>{dashboardGainLossRatioText}</b></small>
-            </div>
-            <div className="dashboard-kpi-grid" aria-busy={dashboardLoading ? "true" : "false"}>
-              {isDashboardInitialLoading
-                ? FINANCIAL_SUMMARY_LABELS.map((label) => (
-                    <div key={label} className="dashboard-kpi-card summary-placeholder">
-                      <span>{label}</span>
-                      <strong>불러오는 중...</strong>
-                    </div>
-                  ))
-                : dashboardKpiCards.map((item) => (
-                    <div key={item.label} className="dashboard-kpi-card" data-tone={item.tone}>
-                      <span>{item.label}</span>
-                      <strong className={item.meta ? "dashboard-kpi-value-line" : undefined}>
-                        <span className="dashboard-kpi-value-main">{item.value}</span>
-                        {item.meta && <em className="dashboard-kpi-value-meta">{item.meta}</em>}
-                      </strong>
-                      <small>{item.helper}</small>
-                    </div>
-                  ))}
-            </div>
-            <div className="dashboard-market-strip">
-              {priceSummaryRows.map((item) => (
-                <div key={item.label} data-tone={item.label === "시세 갱신 상태" ? dashboardPriceTone : undefined}>
-                  <span>{item.label}</span>
-                  <strong>{item.value}</strong>
-                </div>
-              ))}
-            </div>
-          </article>
+      {tab === "transactions" && <TransactionsPage {...transactionsPageProps} />}
 
-          <article className="card filter-card dashboard-filter-card">
-            <div className="dashboard-filter-heading">
-                  <span className="dashboard-eyebrow">기간 필터</span>
-              <strong>{filterMode === "month" ? "월별 리포트" : "기간 리포트"}</strong>
-            </div>
-            <div className="filter-container">
-              <div className="filter-modes-segmented">
-                <button className={filterMode === "month" ? "active" : ""} onClick={() => applyMonthFilter(yearMonth)}>월별</button>
-                <button className={filterMode === "range" ? "active" : ""} onClick={handleSwitchToRangeFilter}>기간</button>
-              </div>
-              <div className="filter-inputs-wrapper">
-                {filterMode === "month" ? (
-                  <>
-                    <div className="month-stepper">
-                    <button
-                      type="button"
-                      className="icon-btn"
-                      aria-label="이전 달"
-                      disabled={isPrevMonthDisabled}
-                      onClick={() => handleShiftYearMonth(-1)}
-                    >
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
-                    </button>
-                    <div className="date-inputs">
-                      <span className="month-value-group">
-                        <input
-                          type="number"
-                          aria-label="연도"
-                          value={yearMonth.year}
-                          onChange={(e) => updateYearMonthInput("year", e.target.value)}
-                          onKeyDown={handleYearMonthInputKeyDown}
-                          enterKeyHint="done"
-                        />
-                        <span aria-hidden="true">년</span>
-                      </span>
-                      <span className="month-value-group month-value-group-month">
-                        <input
-                          type="number"
-                          min="1"
-                          max="12"
-                          aria-label="월"
-                          value={yearMonth.month}
-                          onChange={(e) => updateYearMonthInput("month", e.target.value)}
-                          onKeyDown={handleYearMonthInputKeyDown}
-                          enterKeyHint="done"
-                        />
-                        <span aria-hidden="true">월</span>
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      className="icon-btn"
-                      aria-label="다음 달"
-                      disabled={isNextMonthDisabled}
-                      onClick={() => handleShiftYearMonth(1)}
-                    >
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
-                    </button>
-                    <button
-                      type="button"
-                      className="text-btn"
-                      onClick={handleMoveToCurrentMonth}
-                    >
-                      이번 달
-                    </button>
-                    </div>
-                    {isMonthFilterPending && (
-                      <p className="filter-pending-status" data-testid="transaction-month-pending-status" aria-live="polite">
-                        변경됨 · Enter로 조회 적용
-                      </p>
-                    )}
-                  </>
-                ) : (
-                  <div className="range-filter-stack">
-                    <div className="range-picker">
-                      <label className="range-date-field">
-                        <span className="range-date-label">시작일</span>
-                        <input
-                          type="date"
-                          aria-label="시작일"
-                          value={range.start}
-                          onChange={(e) => handleRangeInputChange("start", e.target.value)}
-                          enterKeyHint="done"
-                        />
-                        <span className="range-date-value" aria-hidden="true">{range.start}</span>
-                      </label>
-                      <span className="range-separator">~</span>
-                      <label className="range-date-field">
-                        <span className="range-date-label">종료일</span>
-                        <input
-                          type="date"
-                          aria-label="종료일"
-                          value={range.end}
-                          onChange={(e) => handleRangeInputChange("end", e.target.value)}
-                          enterKeyHint="done"
-                        />
-                        <span className="range-date-value" aria-hidden="true">{range.end}</span>
-                      </label>
-                    </div>
-                    <div className="range-preset-row" aria-label="기간 빠른 선택">
-                      <button type="button" onClick={() => handleRangePreset("current_month")}>이번 달</button>
-                      <button type="button" onClick={() => handleRangePreset("recent_30")}>최근 30일</button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </article>
+      {tab === "holdings" && <HoldingsPage {...holdingsPageProps} />}
 
-          <div className="dashboard-main-grid">
-            <article className="card chart-card dashboard-flow-card">
-              <div className="dashboard-card-heading">
-                <div>
-                  <span className="dashboard-eyebrow">현금 흐름</span>
-                  <h2>월별 흐름</h2>
-                </div>
-                <span className="dashboard-chip">현금흐름 추이</span>
-              </div>
-              <div className={`chart-wrap dashboard-line-chart-wrap${isDashboardInitialLoading || trendChartData ? "" : " chart-wrap-empty"}`}>
-                {isDashboardInitialLoading ? (
-                  <div className="chart-loading" role="status" aria-live="polite">
-                    <span className="loading-spinner" aria-hidden="true" />
-                    <p>차트 데이터를 불러오는 중...</p>
-                  </div>
-                ) : trendChartData ? (
-                  <Line data={trendChartData} options={lineChartOptions} role="img" aria-label={dashboardFlowChartDescription} />
-                ) : (
-                  <p className="dashboard-empty-state">데이터 없음</p>
-                )}
-              </div>
-              <FlowTrendValueTable rows={dashboardFlowTrendRows} formatCurrency={fmtKrw} />
-            </article>
+      {tab === "settings" && <SettingsPage {...settingsPageProps} />}
 
-            <article className="card chart-card dashboard-portfolio-card">
-              <div className="inline chart-card-header dashboard-card-heading">
-                <div>
-                  <span className="dashboard-eyebrow">자산 구성</span>
-                  <h2>포트폴리오 및 거래내역 차트</h2>
-                </div>
-                <label className="compact-inline-select dashboard-portfolio-chart-select">
-                  보기 기준
-                  <select
-                    aria-label="포트폴리오 보기 기준"
-                    value={dashboardPortfolioViewMode}
-                    disabled={dashboardLoading}
-                    onChange={(event) => setDashboardPortfolioViewMode(event.target.value)}
-                  >
-                    {PORTFOLIO_VIEW_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-              <div
-                className={`chart-wrap dashboard-donut-wrap${isDashboardInitialLoading || dashboardPortfolioChartData ? "" : " chart-wrap-empty"}`}
-                aria-label={dashboardPortfolioChartDescription}
-              >
-                {isDashboardInitialLoading ? (
-                  <div className="chart-loading" role="status" aria-live="polite">
-                    <span className="loading-spinner" aria-hidden="true" />
-                    <p>차트 데이터를 불러오는 중...</p>
-                  </div>
-                ) : dashboardPortfolioChartData ? (
-                  <>
-                    <Doughnut data={dashboardPortfolioChartData} options={donutChartOptions} role="img" aria-label={dashboardPortfolioChartDescription} />
-                    {renderDonutSliceLabels(dashboardPortfolioChartSource.items, {
-                      testId: "portfolio-donut-slice-label",
-                      labelPrefix: dashboardPortfolioChartSource.title,
-                    })}
-                    {renderDonutCenterLabel(dashboardPortfolioCenterLabel, {
-                      testId: "portfolio-donut-center-label",
-                      labelPrefix: dashboardPortfolioChartSource.title,
-                    })}
-                  </>
-                ) : (
-                  <p className="dashboard-empty-state">데이터 없음</p>
-                )}
-              </div>
-              <ChartBreakdownList
-                items={dashboardPortfolioBreakdownItems}
-                ariaLabel={`${dashboardPortfolioChartSource.title} 수치 대체 목록`}
-                testId="dashboard-portfolio-breakdown"
-                className="dashboard-portfolio-breakdown"
-              />
-            </article>
-          </div>
+      {tab === "collaboration" && <CollaborationPage {...collaborationPageProps} />}
 
-          <div className="dashboard-side-grid">
-            <article className="card dashboard-side-card dashboard-status-card">
-              <div className="dashboard-card-heading">
-                <div>
-                  <span className="dashboard-eyebrow">상태</span>
-                  <h2>가져오기 & 상태</h2>
-                </div>
-              </div>
-              <div className="dashboard-status-list">
-                <div>
-                  <span>실시간 연결</span>
-                  <strong>{SOCKET_STATUS_LABELS[socketStatus] || socketStatus}</strong>
-                </div>
-                <div data-tone={dashboardPriceTone}>
-                  <span>시세 정산</span>
-                  <strong>{refreshStateLabel}</strong>
-                  <small>{latestRefreshAt ? fmtDateTime(latestRefreshAt) : "시세 갱신 기록 없음"}</small>
-                </div>
-                <div>
-                  <span>가져오기 상태</span>
-                  <strong>{dashboardImportStatus}</strong>
-                  {importReport && <small>이슈 {fmt((importReport.issues || []).length)}건 · 수식 불일치 {fmt(importReport.monthly_formula_mismatch_count)}건</small>}
-                </div>
-              </div>
-            </article>
-
-            <article className="card dashboard-side-card dashboard-members-card">
-              <div className="dashboard-card-heading">
-                <div>
-                  <span className="dashboard-eyebrow">협업</span>
-                  <h2>협업 멤버</h2>
-                </div>
-                <span className="dashboard-chip">{fmt(householdMembers.length)}명</span>
-              </div>
-              <div className="dashboard-member-stack">
-                {householdMembers.length === 0 ? (
-                  <p className="dashboard-empty-state">등록된 멤버가 없습니다.</p>
-                ) : (
-                  householdMembers.slice(0, 5).map((member) => (
-                    <div key={member.member_id || member.user_id || member.email} className="dashboard-member-row">
-                      <span className="member-avatar" aria-hidden="true">{extractVisibleInitial(member.display_name || member.email || "?")}</span>
-                      <div>
-                        <strong>{member.display_name || member.email || "이름 없음"}</strong>
-                        <small>{COLLAB_ROLE_LABELS[member.role] || member.role || "권한 없음"}</small>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </article>
-
-            <article className="card dashboard-side-card dashboard-recent-card">
-              <div className="dashboard-card-heading">
-                <div>
-                  <span className="dashboard-eyebrow">최근</span>
-                  <h2>최근 거래</h2>
-                </div>
-              </div>
-              <div className="dashboard-activity-list">
-                {dashboardRecentTransactions.length === 0 ? (
-                  <p className="dashboard-empty-state">최근 거래가 없습니다.</p>
-                ) : (
-                  dashboardRecentTransactions.map((item) => {
-                    const category = categoryById.get(String(item.category_id || ""));
-                    return (
-                      <div key={item.id} className="dashboard-activity-row" data-flow={item.flow_type}>
-                        <div>
-                          <strong>{item.memo || FLOW_TYPE_LABELS[item.flow_type] || "거래"}</strong>
-                          <small>{fmtDate(item.occurred_on)} · {category ? toCategoryPairLabel(category) : "미분류"}</small>
-                        </div>
-                        <span>{fmtKrw(item.amount)}</span>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-              <button type="button" className="text-button dashboard-card-footer-action" onClick={() => setTab("transactions")}>전체 보기</button>
-            </article>
-
-            <article className="card dashboard-side-card dashboard-holdings-card">
-              <div className="dashboard-card-heading">
-                <div>
-                  <span className="dashboard-eyebrow">자산</span>
-                  <h2>보유 자산</h2>
-                </div>
-              </div>
-              <div className="dashboard-activity-list holdings-highlight-list">
-                {dashboardHoldingHighlights.length === 0 ? (
-                  <p className="dashboard-empty-state">보유 자산이 없습니다.</p>
-                ) : (
-                  dashboardHoldingHighlights.map((item) => (
-                    <div key={item.holding_id || item.id || item.name} className="dashboard-activity-row">
-                      <div>
-                        <strong>{item.name || item.symbol || "자산"}</strong>
-                        <small>{item.owner_name || "보유자 미지정"} · {item.category || "기타"}</small>
-                      </div>
-                      <span>{fmtKrw(item.market_value_krw)}</span>
-                    </div>
-                  ))
-                )}
-              </div>
-              <button type="button" className="text-button dashboard-card-footer-action" onClick={() => setTab("holdings")}>전체 보기</button>
-            </article>
-          </div>
-        </section>
-      )}
-
-      {tab === "transactions" && (
-        <section className="grid-1 transaction-page-section">
-          <article ref={transactionListCardRef} className="card table-card surface-list-card transaction-list-card">
-            <div
-              ref={transactionStickyToolbarRef}
-              className="transaction-sticky-toolbar"
-              data-testid="transaction-sticky-toolbar"
-            >
-              <div ref={transactionListHeadingRef} className="surface-list-heading">
-                <div className="work-surface-title">
-                  <span className="surface-eyebrow">작업 원장</span>
-                  <h2>거래 목록</h2>
-                </div>
-                <p className="table-summary surface-count-summary">
-                  {transactionHistoryInitialized ? "불러온" : "총"} {transactionLedgerItems.length}건 중 {sortedTransactions.length}건 표시
-                </p>
-                {!isCompactViewport && !txInlineEdit && (
-                  <button
-                    ref={transactionDesktopAddActionRef}
-                    type="button"
-                    className="primary surface-heading-action transaction-desktop-add-action"
-                    data-testid="transactions-desktop-add-action"
-                    disabled={loading}
-                    onClick={() => openNormalTransactionEntrySheet("form")}
-                  >
-                    <span aria-hidden="true">＋</span>
-                    <span>거래 추가</span>
-                  </button>
-                )}
-              </div>
-              <div className="surface-control-strip" aria-label="거래 목록 상태">
-                <span className="surface-chip surface-chip-strong">{transactionSortSummary}</span>
-                {transactionHistoryInitialized && (
-                  <span className="surface-chip surface-chip-muted">
-                    기준 {transactionHistoryAnchorDate || transactionHistoryToday}
-                  </span>
-                )}
-                <span className={`surface-chip${isTransactionFilterActive ? " surface-chip-strong" : " surface-chip-muted"}`}>
-                  필터 {isTransactionFilterActive ? "적용됨" : "기본"}
-                </span>
-                <span
-                  className="transaction-selection-summary"
-                  data-testid="transaction-selection-summary"
-                  data-selection-active={selectedTransactionSummary.count > 0 ? "true" : "false"}
-                >
-                  <span className="transaction-selection-status" role="status" aria-live="polite" aria-atomic="true">
-                    <span
-                      className={`surface-chip${
-                        selectedTransactionSummary.count > 0 ? " surface-chip-strong" : " surface-chip-muted"
-                      }`}
-                    >
-                      선택 {selectedTransactionSummary.count}건
-                    </span>
-                    <span className="surface-chip transaction-selection-amount">
-                      선택 합계 {fmtKrw(selectedTransactionSummary.amount)}
-                    </span>
-                  </span>
-                  {selectedTransactionSummary.count === 1 && (
-                    <>
-                      <button
-                        type="button"
-                        className="secondary transaction-selection-action transaction-selection-edit"
-                        data-testid="transaction-selection-edit"
-                        disabled={!canEditRecords || loading}
-                        onClick={openSelectedTransactionEdit}
-                      >
-                        수정
-                      </button>
-                      <button
-                        type="button"
-                        className="secondary transaction-selection-action transaction-selection-insert-above"
-                        data-testid="transaction-selection-insert-above"
-                        disabled={!canEditRecords || loading}
-                        onClick={() => openSelectedTransactionInsert("above")}
-                      >
-                        위에 삽입
-                      </button>
-                      <button
-                        type="button"
-                        className="secondary transaction-selection-action transaction-selection-insert-below"
-                        data-testid="transaction-selection-insert-below"
-                        disabled={!canEditRecords || loading}
-                        onClick={() => openSelectedTransactionInsert("below")}
-                      >
-                        아래에 삽입
-                      </button>
-                    </>
-                  )}
-                  <button
-                    type="button"
-                    className="danger transaction-selection-action transaction-selection-delete"
-                    data-testid="transaction-selection-delete"
-                    disabled={selectedTransactionSummary.count === 0 || !canEditRecords || loading}
-                    onClick={() => {
-                      void removeSelectedTransactions();
-                    }}
-                  >
-                    {selectedTransactionSummary.count > 1 ? "선택 삭제" : "삭제"}
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary transaction-selection-action transaction-selection-clear"
-                    disabled={selectedTransactionSummary.count === 0}
-                    onClick={() => setSelectedTransactionIds(new Set())}
-                  >
-                    선택 해제
-                  </button>
-                </span>
-              </div>
-              <div className="table-header-group">
-                <div className="month-stepper-inline">
-                  <div className="month-stepper">
-                    <button
-                      type="button"
-                      className="icon-btn"
-                      aria-label="이전 달"
-                      disabled={isPrevMonthDisabled}
-                      onClick={() => handleShiftYearMonth(-1)}
-                    >
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
-                    </button>
-                    <div className="date-inputs">
-                      <span className="month-value-group">
-                        <input
-                          type="number"
-                          aria-label="연도"
-                          value={yearMonth.year}
-                          onChange={(event) => updateYearMonthInput("year", event.target.value)}
-                          onKeyDown={handleYearMonthInputKeyDown}
-                          enterKeyHint="done"
-                        />
-                        <span aria-hidden="true">년</span>
-                      </span>
-                      <span className="month-value-group month-value-group-month">
-                        <input
-                          type="number"
-                          min="1"
-                          max="12"
-                          aria-label="월"
-                          value={yearMonth.month}
-                          onChange={(event) => updateYearMonthInput("month", event.target.value)}
-                          onKeyDown={handleYearMonthInputKeyDown}
-                          enterKeyHint="done"
-                        />
-                        <span aria-hidden="true">월</span>
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      className="icon-btn"
-                      aria-label="다음 달"
-                      disabled={isNextMonthDisabled}
-                      onClick={() => handleShiftYearMonth(1)}
-                    >
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
-                    </button>
-                    <button type="button" className="text-btn" onClick={handleMoveToCurrentMonth}>
-                      이번 달
-                    </button>
-                  </div>
-                  <p className="table-summary">
-                    조회 가능 월: {toYearMonthKey(minMonth)} ~ {toYearMonthKey(maxMonth)}
-                  </p>
-                  {isMonthFilterPending && (
-                    <p className="filter-pending-status" data-testid="transaction-month-pending-status" aria-live="polite">
-                      변경됨 · Enter로 조회 적용
-                    </p>
-                  )}
-                </div>
-              </div>
-              {(!isCompactViewport || isTransactionFilterActive) && (
-                <div className="transaction-filter-actions" aria-label="거래 필터 빠른 조작">
-                  {!isCompactViewport && (
-                    <button
-                      type="button"
-                      className="secondary"
-                      aria-expanded={showTransactionFilterPanel ? "true" : "false"}
-                      aria-controls="transaction-filter-panel"
-                      onClick={() => setShowTransactionFilterPanel((prev) => !prev)}
-                    >
-                      {showTransactionFilterPanel ? "필터 닫기" : "필터 열기"}
-                    </button>
-                  )}
-                  {isTransactionFilterActive && (
-                    <button type="button" className="secondary tx-header-filter-reset" onClick={clearTxListFilter}>
-                      필터 초기화
-                    </button>
-                  )}
-                  {!isCompactViewport && <span className="table-summary">현재 불러온 거래 목록 기준 필터입니다.</span>}
-                </div>
-              )}
-              {showTransactionFilterPanel && (
-                <div id="transaction-filter-panel" className="tx-header-filters" aria-label="거래 제목행 필터">
-                  <label className="tx-header-filter tx-header-filter-search">
-                    <span>메모</span>
-                    <input
-                      placeholder="검색"
-                      value={txListFilter.keyword}
-                      onChange={(e) => setTxListFilter({ ...txListFilter, keyword: e.target.value })}
-                      enterKeyHint="search"
-                    />
-                  </label>
-                  <label className="tx-header-filter tx-header-filter-type">
-                    <span>유형</span>
-                    <select
-                      value={txListFilter.flow_type}
-                      onChange={(e) => setTxListFilter({ ...txListFilter, flow_type: e.target.value })}
-                    >
-                      <option value="all">전체</option>
-                      {FLOW_TYPE_OPTIONS.map((item) => (
-                        <option key={item.value} value={item.value}>
-                          {item.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="tx-header-filter">
-                    <span>시작</span>
-                    <IsoDateInput
-                      value={txListFilter.start}
-                      onValueChange={(value) => setTxListFilter({ ...txListFilter, start: value })}
-                    />
-                  </label>
-                  <label className="tx-header-filter">
-                    <span>종료</span>
-                    <IsoDateInput
-                      value={txListFilter.end}
-                      onValueChange={(value) => setTxListFilter({ ...txListFilter, end: value })}
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    className="secondary tx-header-filter-reset"
-                    onClick={clearTxListFilter}
-                  >
-                    초기화
-                  </button>
-                </div>
-              )}
-            </div>
-            {(transactionHistoryLoading.initial || transactionHistoryError) && (
-              <p
-                className={`table-summary transaction-history-status${transactionHistoryError ? " is-error" : ""}`}
-                role={transactionHistoryError ? "alert" : "status"}
-              >
-                {transactionHistoryError ||
-                  "오늘 기준 거래 내역을 불러오는 중입니다."}
-              </p>
-            )}
-            <TransactionSurfaceTable
-              sortedTransactions={sortedTransactions}
-              areAllFilteredTransactionsSelected={areAllFilteredTransactionsSelected}
-              toggleAllFilteredTransactionSelection={toggleAllFilteredTransactionSelection}
-              txSortDirection={transactionHistoryInitialized ? "asc" : txSortDirection}
-              toggleTxSortDirection={toggleTxSortDirection}
-              historyMode={transactionHistoryInitialized}
-              historyTopSentinelRef={transactionHistoryTopSentinelRef}
-              historyBottomSentinelRef={transactionHistoryBottomSentinelRef}
-              historyLoadingOlder={transactionHistoryLoading.older}
-              historyLoadingNewer={transactionHistoryLoading.newer}
-              selectedTransactionIds={selectedTransactionIds}
-              recentImportTransactionIds={recentImportTransactionIds}
-              recentSavedTransactionIds={recentSavedTransactionIds}
-              toggleTransactionSelection={toggleTransactionSelection}
-              selectTransactionRows={selectTransactionRows}
-              setTransactionRowsSelected={setTransactionRowsSelected}
-              setTransactionRowsExpanded={setTransactionRowsExpanded}
-              txInlineEdit={txInlineEdit}
-              ownerOptionsWithFallback={ownerOptionsWithFallback}
-              ownerSelectValue={ownerSelectValue}
-              txInlineCategoryMajor={txInlineCategoryMajor}
-              txInlineCategoryOptions={txInlineCategoryOptions}
-              txInlineCategoryQuickChips={txInlineCategoryQuickChips}
-              txInlineCategoryMajorOptions={txInlineCategoryMajorOptions}
-              txInlineCategoryMinorOptions={txInlineCategoryMinorOptions}
-              setTxInlineEdit={setTxInlineEdit}
-              createTxInlineCategory={createAndApplyTxInlineCategory}
-              openTransactionInlineEditor={openTransactionInlineEditor}
-              categoryById={categoryById}
-              renderCategoryCell={renderCategoryCell}
-              FLOW_TYPE_LABELS={FLOW_TYPE_LABELS}
-              FLOW_TYPE_OPTIONS={FLOW_TYPE_OPTIONS}
-              txListFilter={txListFilter}
-              setTxListFilter={setTxListFilter}
-              clearTxListFilter={clearTxListFilter}
-              householdSettings={householdSettings}
-              normalizeTransactionRowColors={normalizeTransactionRowColors}
-              DEFAULT_TRANSACTION_ROW_COLORS={DEFAULT_TRANSACTION_ROW_COLORS}
-              expandedTransactionRows={expandedTransactionRows}
-              toggleExpandedTransactionRow={toggleExpandedTransactionRow}
-              canEditRecords={canEditRecords}
-              canEditHouseholdData={canEditHouseholdData}
-              loading={loading}
-              isCompactViewport={isCompactViewport}
-              closeTxInlineEdit={closeTxInlineEdit}
-              mobileStickyActive={transactionsMobileStickyActive}
-              handleTxInlineEditKeyDown={handleTxInlineEditKeyDown}
-              handleGroupedDecimalInput={handleGroupedDecimalInput}
-              handleTransactionAmountInput={handleTransactionAmountInput}
-              ownerSelectionFromValue={ownerSelectionFromValue}
-              renderLegacyOwnerRemapHelper={renderLegacyOwnerRemapHelper}
-              submitTxInlineEdit={submitTxInlineEdit}
-              fmtKrw={fmtKrw}
-              fmtDate={fmtDate}
-              toCategoryMajorLabel={toCategoryMajorLabel}
-              toCategoryMinorLabel={toCategoryMinorLabel}
-            />
-            {showTransactionScrollTop && (
-              <button
-                type="button"
-                className="transactions-scroll-top"
-                data-testid="transactions-scroll-top"
-                aria-label="거래 목록 맨 위로 이동"
-                onClick={scrollTransactionListToTop}
-              >
-                <svg viewBox="0 0 16 16" focusable="false" aria-hidden="true">
-                  <path d="M8 3.25 3.75 7.5M8 3.25l4.25 4.25M8 3.25v9.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-                <span>맨 위로</span>
-              </button>
-            )}
-          </article>
-          {isCompactViewport && !txInlineEdit && (
-            <button
-              ref={transactionFabRef}
-              type="button"
-              className="transactions-fab transaction-add-fab"
-              data-testid="transactions-fab"
-              aria-label="거래 추가"
-              disabled={loading}
-              onClick={() => openNormalTransactionEntrySheet("form")}
-            >
-              <span aria-hidden="true">＋</span>
-            </button>
-          )}
-          <details
-            ref={transactionSupportDetailsRef}
-            className="card compact-support-card transaction-support-card surface-support-card"
-            open={transactionSupportOpen}
-            onToggle={(event) => {
-              const nextOpen = event.currentTarget.open;
-              setTransactionSupportOpen(nextOpen);
-              if (!nextOpen) {
-                setShowTxCategoryManager(false);
-              }
-            }}
-          >
-            <summary>
-              분석·관리 {transactionSupportOpen ? "접기" : "열기"}
-            </summary>
-            <p className="table-summary compact-support-summary">집계와 카테고리 관리는 필요할 때만 펼쳐 확인합니다. 포트폴리오와 자산 요약은 자산 탭으로 이동했습니다.</p>
-            <div className="compact-support-grid">
-              <section className="compact-support-section">
-                <div className="inline compact-support-header">
-                  <h3>유형별 카테고리 집계</h3>
-                  <span className="table-summary">수입·지출·투자 흐름 요약</span>
-                </div>
-                <div className="settings-category-flows compact-flow-stack">
-                  {txFlowSummaryCards.map((flowSummary) => {
-                    const expanded = Boolean(txFlowBreakdownExpanded[flowSummary.flowType]);
-                    return (
-                      <div key={flowSummary.flowType} className="settings-category-flow compact-flow-card">
-                        <button
-                          type="button"
-                          className={`secondary compact-flow-toggle${expanded ? " is-expanded" : ""}`}
-                          data-testid={`tx-flow-summary-toggle-${flowSummary.flowType}`}
-                          aria-expanded={expanded}
-                          aria-label={`${FLOW_TYPE_LABELS[flowSummary.flowType] || flowSummary.flowType} 카테고리 집계 ${expanded ? "접기" : "상세 보기"}`}
-                          onClick={() =>
-                            setTxFlowBreakdownExpanded((prev) => ({
-                              ...prev,
-                              [flowSummary.flowType]: !expanded,
-                            }))
-                          }
-                        >
-                          <span className="tx-flow-summary-line" data-testid="tx-flow-summary-line">
-                            <strong>{FLOW_TYPE_LABELS[flowSummary.flowType] || flowSummary.flowType}</strong>
-                            <span>{fmtKrw(flowSummary.total)}</span>
-                            <span>전체 {flowSummary.totalShareText}</span>
-                          </span>
-                          <span className="compact-flow-toggle-meta">
-                            대표 {flowSummary.leadingCategoryLabel} {flowSummary.leadingCategoryShareText}
-                          </span>
-                        </button>
-                        {expanded && (
-                          <div
-                            className="compact-flow-detail-panel"
-                            data-testid={`tx-flow-summary-panel-${flowSummary.flowType}`}
-                          >
-                            <div className="compact-flow-detail-metrics">
-                              <span>합계 {fmtKrw(flowSummary.total)}</span>
-                              <span>전체 대비 {flowSummary.totalShareText}</span>
-                              <span>대표 카테고리 {flowSummary.leadingCategoryLabel} {flowSummary.leadingCategoryShareText}</span>
-                            </div>
-                            <div
-                              className="compact-flow-chart"
-                              data-testid={`tx-flow-summary-chart-${flowSummary.flowType}`}
-                            >
-                              {flowSummary.categories.length === 0 ? (
-                                <p className="table-summary">집계된 카테고리가 없습니다.</p>
-                              ) : (
-                                flowSummary.categories.slice(0, 5).map((categoryItem) => {
-                                  const amountShare = flowSummary.total > 0
-                                    ? (Number(categoryItem.amount || 0) / flowSummary.total) * 100
-                                    : 0;
-                                  return (
-                                    <div key={`${flowSummary.flowType}:${categoryItem.label}`} className="compact-flow-chart-row">
-                                      <div className="compact-flow-chart-copy">
-                                        <strong>{categoryItem.label}</strong>
-                                        <span>{fmtKrw(categoryItem.amount)} · {formatSharePercent(amountShare)}</span>
-                                      </div>
-                                      <div className="compact-flow-chart-bar-track" aria-hidden="true">
-                                        <span
-                                          className={`compact-flow-chart-bar compact-flow-chart-bar-${flowSummary.flowType}`}
-                                          style={{ width: `${Math.max(amountShare, 6)}%` }}
-                                        />
-                                      </div>
-                                    </div>
-                                  );
-                                })
-                              )}
-                            </div>
-                            <div className="settings-category-list">
-                              {flowSummary.categories.length === 0 ? (
-                                <p className="table-summary">집계된 카테고리가 없습니다.</p>
-                              ) : (
-                                flowSummary.categories.map((categoryItem) => {
-                                  const amountShare = flowSummary.total > 0
-                                    ? (Number(categoryItem.amount || 0) / flowSummary.total) * 100
-                                    : 0;
-                                  return (
-                                    <div key={`${flowSummary.flowType}:${categoryItem.label}`} className="settings-category-row">
-                                      <span className="settings-category-major">{categoryItem.label}</span>
-                                      <span className="settings-category-minor">{fmtKrw(categoryItem.amount)}</span>
-                                      <span className="settings-category-usage">{formatSharePercent(amountShare)}</span>
-                                      <span />
-                                    </div>
-                                  );
-                                })
-                              )}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
-              <section ref={txCategoryManagerRef} className="compact-support-section">
-                <div className="inline compact-support-header">
-                  <h3>거래 탭 카테고리 관리</h3>
-                  <button type="button" className="secondary" onClick={() => toggleTransactionCategoryManager()}>
-                    {showTxCategoryManager ? "닫기" : "열기"}
-                  </button>
-                </div>
-                {showTxCategoryManager ? (
-                  renderTransactionCategoryManagerContent()
-                ) : (
-                  <p className="table-summary compact-support-summary">필요할 때만 열어 추가·수정·삭제를 진행합니다.</p>
-                )}
-              </section>
-            </div>
-          </details>
-          {showTransactionForm && (
-            <div
-              className={`transaction-entry-sheet-backdrop${isCompactViewport ? " transaction-entry-sheet-backdrop-compact" : " transaction-entry-sheet-backdrop-desktop"}`}
-              role="presentation"
-              onClick={closeTransactionEntrySheet}
-            >
-              <section
-                className={`transaction-entry-sheet${isCompactViewport ? " transaction-entry-sheet-compact" : " transaction-entry-sheet-desktop"}`}
-                data-testid="transaction-entry-sheet"
-                aria-modal="true"
-                role="dialog"
-                aria-label={txEntrySheetStep === "category" ? "거래 카테고리 관리 레이어" : "거래 추가 레이어"}
-                onClick={(event) => event.stopPropagation()}
-              >
-                <div className="transaction-entry-sheet-header">
-                  <div>
-                    <h3>{txEntrySheetStep === "category" ? "카테고리 관리" : "거래 등록"}</h3>
-                    <p className="table-summary">
-                      {txEntrySheetStep === "category"
-                        ? "같은 레이어 안에서 카테고리를 정리합니다."
-                        : "금액, 카테고리, 메모 순서로 바로 저장합니다."}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    className="secondary"
-                    data-testid="transaction-entry-sheet-close"
-                    onClick={closeTransactionEntrySheet}
-                  >
-                    닫기
-                  </button>
-                </div>
-                {!canEditRecords && (
-                  <p className="table-summary transaction-entry-readonly-note">
-                    거래 등록/수정/삭제는 편집자 이상 권한에서만 가능합니다.
-                  </p>
-                )}
-                {txEntrySheetStep === "category" ? (
-                  <>
-                    <div className="transaction-entry-sheet-actions">
-                      <button
-                        type="button"
-                        className="secondary"
-                        onClick={() => setTxEntrySheetStep("form")}
-                      >
-                        거래 입력으로 돌아가기
-                      </button>
-                    </div>
-                    {renderTransactionCategoryManagerContent({ sheetMode: true })}
-                  </>
-                ) : (
-                  <>
-                    {transactionEntryBanner}
-                    {renderTransactionFormFields({ sheetMode: true })}
-                  </>
-                )}
-              </section>
-            </div>
-          )}
-        </section>
-      )}
-
-      {tab === "holdings" && (
-        <section className="grid-1">
-          {isCompactViewport && showHoldingForm && (
-            <div
-              className="holding-entry-sheet-backdrop"
-              data-testid="holding-entry-sheet-backdrop"
-              aria-hidden="true"
-              onClick={closeHoldingEntrySheet}
-            />
-          )}
-          <article
-            className={`card surface-entry-card holding-entry-card${isCompactViewport && showHoldingForm ? " holding-entry-sheet" : ""}`}
-            data-testid={isCompactViewport && showHoldingForm ? "holding-entry-sheet" : undefined}
-            role={isCompactViewport && showHoldingForm ? "dialog" : undefined}
-            aria-modal={isCompactViewport && showHoldingForm ? "true" : undefined}
-            aria-label={isCompactViewport && showHoldingForm ? "자산 추가 레이어" : undefined}
-          >
-            <div className="work-surface-header">
-              <div className="work-surface-title">
-                <span className="surface-eyebrow">자산 입력 흐름</span>
-                <h2>자산 입력</h2>
-              </div>
-              <button
-                type="button"
-                className="secondary"
-                ref={holdingEntryActionRef}
-                data-testid={isCompactViewport && showHoldingForm ? "holding-entry-sheet-close" : undefined}
-                onClick={(event) => (showHoldingForm ? closeHoldingEntrySheet() : openHoldingEntrySheet(event))}
-              >
-                {showHoldingForm ? "입력 닫기" : "자산 추가"}
-              </button>
-            </div>
-            <p className="table-summary">필요할 때만 입력창을 엽니다.</p>
-            <div className="surface-control-strip" aria-label="자산 입력 상태">
-              <span className="surface-chip surface-chip-strong">{canEditRecords ? "편집 가능" : "읽기 전용"}</span>
-              <span className="surface-chip">유형·보유자·계좌 정리</span>
-              <span className="surface-chip surface-chip-muted">평가금액 자동 정렬</span>
-            </div>
-            {!canEditRecords && (
-              <p className="table-summary">자산 등록/수정/삭제는 편집자 이상 권한에서만 가능합니다.</p>
-            )}
-            {showHoldingForm && (
-              <div className="holdings-form-container">
-              <form className="holdings-form-grid" onSubmit={submitHolding} noValidate>
-                <div className="holdings-form-fields">
-                  <label>
-                    유형
-                    <select
-                      value={holdingForm.type_key}
-                      disabled={!canEditRecords}
-                      onChange={(event) => {
-                        setHoldingDraftTouched(true);
-                        const nextTypeKey = normalizeHoldingTypeKey(event.target.value || "");
-                        const nextType = holdingTypeByKey.get(nextTypeKey) || holdingTypeOptions[0] || DEFAULT_HOLDING_TYPES[0];
-                        const previousType =
-                          holdingTypeByKey.get(normalizeHoldingTypeKey(holdingForm.type_key || holdingForm.asset_type || "")) ||
-                          holdingFormType;
-                        if (shouldExplainHoldingValueReset(holdingForm.average_cost, previousType, nextType)) {
-                          setMessage(
-                            uiGuideMessage(
-                              "자산 유형을 변경했습니다.",
-                              "평가금액과 평균단가의 의미가 달라 금액 입력값을 비웠습니다."
-                            )
-                          );
-                        }
-                        setHoldingForm((prev) => ({
-                          ...createHoldingForm(nextType.asset_type || "other", nextType.key, nextType.label),
-                          name: prev.name,
-                          category: resolveHoldingCategoryOnTypeChange(
-                            prev.category,
-                            previousType,
-                            nextType
-                          ),
-                          owner_user_id: prev.owner_user_id,
-                          owner_name: prev.owner_name,
-                          account_name: prev.account_name,
-                          average_cost: nextAverageCostForHoldingTypeChange(prev.average_cost, previousType, nextType),
-                        }));
-                      }}
-                    >
-                      {holdingTypeOptions.map((item) => (
-                        <option key={item.key} value={item.key}>
-                          {item.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    자산명
-                    <textarea
-                      rows={2}
-                      ref={holdingNameInputRef}
-                      value={holdingForm.name}
-                      onChange={(event) => {
-                        setHoldingDraftTouched(true);
-                        setHoldingForm({ ...holdingForm, name: event.target.value });
-                      }}
-                      disabled={!canEditRecords}
-                      required
-                    />
-                  </label>
-                  <div className="settings-preview">
-                    선택 유형: <strong>{holdingFormType?.label || "-"}</strong>
-                  </div>
-                  <label>
-                    카테고리
-                    <input
-                      value={holdingForm.category}
-                      onChange={(event) => {
-                        setHoldingDraftTouched(true);
-                        setHoldingForm({ ...holdingForm, category: event.target.value });
-                      }}
-                      disabled={!canEditRecords}
-                    />
-                  </label>
-                  <label>
-                    보유자
-                    <select
-                      value={ownerSelectValue(holdingForm.owner_user_id, holdingForm.owner_name)}
-                      disabled={!canEditRecords}
-                      onChange={(event) => {
-                        setHoldingOwnerTouched(true);
-                        setHoldingDraftTouched(true);
-                        setHoldingForm({
-                          ...holdingForm,
-                          ...ownerSelectionFromValue(event.target.value, holdingFormOwnerOptions),
-                        });
-                      }}
-                    >
-                      <option value="">(선택 안함)</option>
-                      {holdingFormOwnerOptions.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  {renderOwnerQuickSelect({
-                    ownerLabel: "보유자",
-                    testId: "holding-owner-quick-select",
-                    selectedValue: holdingForm.owner_user_id,
-                    disabled: !canEditRecords,
-                    onSelect: applyHoldingOwnerOption,
-                  })}
-                  {renderLegacyOwnerRemapHelper({
-                    ownerUserId: holdingForm.owner_user_id,
-                    ownerName: holdingForm.owner_name,
-                    disabled: !canEditRecords,
-                    onApply: (target) => {
-                      setHoldingOwnerTouched(true);
-                      setHoldingDraftTouched(true);
-                      setHoldingForm((prev) => ({
-                        ...prev,
-                        owner_user_id: target.value,
-                        owner_name: target.displayName,
-                      }));
-                    },
-                  })}
-                  {holdingFormTracked ? (
-                    <>
-                      <label>
-                        심볼
-                        <input
-                          value={holdingForm.symbol}
-                          onChange={(event) => {
-                            setHoldingDraftTouched(true);
-                            setHoldingForm({ ...holdingForm, symbol: event.target.value });
-                          }}
-                          disabled={!canEditRecords}
-                          required
-                        />
-                      </label>
-                      <label>
-                        시장심볼
-                        <input
-                          value={holdingForm.market_symbol}
-                          onChange={(event) => {
-                            setHoldingDraftTouched(true);
-                            setHoldingForm({ ...holdingForm, market_symbol: event.target.value });
-                          }}
-                          disabled={!canEditRecords}
-                        />
-                      </label>
-                      <label>
-                        수량
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          value={holdingForm.quantity}
-                          onChange={(event) => handleHoldingEntryDecimalInput(event, "quantity")}
-                          disabled={!canEditRecords}
-                          required
-                        />
-                      </label>
-                      {holdingFormShowAverageCost && (
-                        <label>
-                          평균단가
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            value={holdingForm.average_cost}
-                            onChange={(event) => handleHoldingEntryDecimalInput(event, "average_cost")}
-                            disabled={!canEditRecords}
-                            required
-                          />
-                        </label>
-                      )}
-                    </>
-                  ) : (
-                    holdingFormShowAverageCost ? (
-                      <label>
-                        평가금액
-                        <input
-                          type="text"
-                          inputMode={holdingValuationInputMode(holdingForm.currency)}
-                          value={holdingForm.average_cost}
-                          onChange={(event) => handleHoldingEntryDecimalInput(event, "average_cost")}
-                          disabled={!canEditRecords}
-                          required
-                        />
-                      </label>
-                    ) : (
-                      <div className="settings-preview">선택한 유형은 평균단가/손익 입력이 필요하지 않습니다.</div>
-                    )
-                  )}
-                  <label>
-                    계좌
-                    <input
-                      value={holdingForm.account_name}
-                      onChange={(event) => {
-                        setHoldingDraftTouched(true);
-                        setHoldingForm({ ...holdingForm, account_name: event.target.value });
-                      }}
-                      disabled={!canEditRecords}
-                    />
-                  </label>
-                  <label>
-                    통화
-                    <input
-                      value={holdingForm.currency}
-                      onChange={(event) => {
-                        setHoldingDraftTouched(true);
-                        setHoldingForm({ ...holdingForm, currency: event.target.value.toUpperCase() });
-                      }}
-                      disabled={!canEditRecords}
-                      required
-                    />
-                  </label>
-                </div>
-                <div className="holdings-form-actions">
-                  <button
-                    type="button"
-                    className="secondary"
-                    disabled={!canEditRecords}
-                    onClick={() => {
-                      setHoldingOwnerTouched(false);
-                      setHoldingDraftTouched(false);
-                      setHoldingForm(createHoldingForm(holdingForm.asset_type, holdingForm.type_key, holdingFormType?.label));
-                    }}
-                  >
-                    초기화
-                  </button>
-                  <button type="submit" className="primary" disabled={!canEditRecords}>자산 등록</button>
-                </div>
-              </form>
-              </div>
-            )}
-          </article>
-          <article className="card table-card surface-list-card holding-list-card">
-            <div className="surface-list-heading">
-              <div className="work-surface-title">
-                <span className="surface-eyebrow">자산 원장</span>
-                <h2>자산 목록</h2>
-              </div>
-              {isCompactViewport && (
-                <button
-                  type="button"
-                  className="holdings-fab holdings-fab-inline surface-heading-action"
-                  data-testid="holdings-fab"
-                  aria-label="자산 추가"
-                  disabled={loading}
-                  onClick={openHoldingEntrySheet}
-                >
-                  <span aria-hidden="true">＋</span>
-                </button>
-              )}
-              <p className="table-summary surface-count-summary">
-                총 {holdingItems.length}건 중 {filteredHoldingItems.length}건 표시
-              </p>
-            </div>
-            <div className="surface-control-strip" aria-label="자산 목록 상태">
-              <span className="surface-chip surface-chip-strong">{activeHoldingTabLabel}</span>
-              {holdingTypeFilter !== "all" && <span className="surface-chip surface-chip-strong">유형 {activeHoldingTypeFilterLabel}</span>}
-              <span className="surface-chip">{holdingSortSummary}</span>
-              <span className={`surface-chip${holdingColorMode === "none" ? " surface-chip-muted" : " surface-chip-strong"}`}>
-                {holdingColorModeLabel}
-              </span>
-              <span className="surface-chip">선택 {selectedHoldingSummary.count}건</span>
-            </div>
-            <button
-              type="button"
-              className="secondary holdings-summary-jump-cue"
-              data-testid="holdings-summary-jump-cue"
-              onClick={scrollToHoldingSummary}
-            >
-              자산 포트폴리오 요약 보기
-            </button>
-            {holdingTypeFilter !== "all" && (
-              <div className="holding-type-filter-status" data-testid="holding-type-filter-status" role="status" aria-live="polite">
-                <span>
-                  유형 필터: <strong>{activeHoldingTypeFilterLabel}</strong>
-                </span>
-                <button type="button" className="secondary" onClick={() => setHoldingTypeFilter("all")}>
-                  유형 필터 해제
-                </button>
-              </div>
-            )}
-            <div className="tabs sub-tabs" role="tablist" aria-label={holdingListTabAriaLabel}>
-              {dynamicHoldingTabs.map((tabItem) => (
-                <button
-                  key={tabItem.value}
-                  type="button"
-                  role="tab"
-                  aria-selected={holdingListTab === tabItem.value}
-                  className={holdingListTab === tabItem.value ? "active" : ""}
-                  onClick={() => setHoldingListTab(tabItem.value)}
-                >
-                  {tabItem.label}
-                </button>
-              ))}
-            </div>
-            <details className="holding-display-options compact-inline-details">
-              <summary>
-                <span>보기 옵션</span>
-                <span className="holding-display-options-state holding-display-options-state-closed">펼치기</span>
-                <span className="holding-display-options-state holding-display-options-state-open">접기</span>
-              </summary>
-              <div className="table-toolbar">
-                <label>
-                  색상 기준
-                  <select value={holdingColorMode} onChange={(event) => setHoldingColorMode(event.target.value)}>
-                    <option value="none">없음</option>
-                    <option value="owner">보유자</option>
-                    <option value="category">카테고리</option>
-                    <option value="type">유형</option>
-                  </select>
-                </label>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={holdingGroupByColor}
-                    onChange={(event) => setHoldingGroupByColor(Boolean(event.target.checked))}
-                  />
-                  색상 그룹 우선 정렬
-                </label>
-              </div>
-              <details className="holding-column-width-editor">
-                <summary>열 너비 조정</summary>
-                <div className="form-grid settings-form-grid">
-                  {[
-                    ["name", "이름"],
-                    ["type", "유형"],
-                    ["owner", "보유자"],
-                    ["category", "카테고리"],
-                    ["quantity", "수량"],
-                    ["average_cost", "평균단가"],
-                    ["market_value_krw", "평가(KRW)"],
-                    ["gain_loss_krw", "손익(KRW)"],
-                    ["updated_at", "최종 수정일"],
-                    ["actions", "동작"],
-                  ].map(([columnKey, label]) => (
-                    <label key={columnKey}>
-                      {label}
-                      <input
-                        type="range"
-                        min="80"
-                        max="600"
-                        value={Number(holdingColumnWidths[columnKey] || 140)}
-                        onChange={(event) => updateHoldingColumnWidth(columnKey, event.target.value)}
-                      />
-                    </label>
-                  ))}
-                </div>
-              </details>
-            </details>
-            {selectedHoldingSummary.count > 0 && (
-              <div className="message" role="status">
-                <span>
-                  선택 {selectedHoldingSummary.count}건 · 평가 합계 {fmtKrw(selectedHoldingSummary.amount)}
-                </span>
-                <button type="button" className="message-close secondary" onClick={() => setSelectedHoldingIds(new Set())}>
-                  선택 해제
-                </button>
-              </div>
-            )}
-            <HoldingSurfaceTable
-              holdingColumnWidths={holdingColumnWidths}
-              sortedHoldingItems={sortedHoldingItems}
-              holdingListTab={holdingListTab}
-              groupedHoldingSections={groupedHoldingSections}
-              renderHoldingSortAria={renderHoldingSortAria}
-              renderHoldingSortHeader={renderHoldingSortHeader}
-              renderHoldingRow={renderHoldingRow}
-              moveHoldingCategoryOrder={moveHoldingCategoryOrder}
-              fmtKrw={fmtKrw}
-            />
-          </article>
-          <details
-            ref={holdingSummaryCardRef}
-            className="card compact-support-card holding-summary-card surface-support-card"
-            open={holdingSummaryOpen}
-            onToggle={handleHoldingSummaryToggle}
-          >
-            <summary onClick={handleHoldingSummarySummaryClick}>
-              <span>자산 포트폴리오 차트 {holdingSummaryOpen ? "접기" : "열기"}</span>
-            </summary>
-            <div className="compact-support-grid">
-              <section className="compact-support-section">
-                <div className="inline compact-support-header asset-portfolio-chart-header">
-                  <h3>자산 포트폴리오</h3>
-                  <label className="compact-inline-select asset-portfolio-chart-select">
-                    보기 기준
-                    <select
-                      aria-label="자산 요약 보기 기준"
-                      value={holdingSummaryViewMode}
-                      onChange={(event) => setHoldingSummaryViewMode(event.target.value)}
-                    >
-                      <option value="type">자산 유형</option>
-                      <option value="category">자산 분류</option>
-                      <option value="owner">보유자</option>
-                    </select>
-                  </label>
-                </div>
-                <div className="asset-portfolio-metrics" aria-label="자산 포트폴리오 핵심 지표">
-                  <div>
-                    <span>총 평가금액</span>
-                    <strong>{fmtKrw(portfolio?.total_market_value_krw)}</strong>
-                  </div>
-                  <div data-tone={holdingPortfolioGainTone}>
-                    <span>평가손익</span>
-                    <strong>{fmtKrw(portfolio?.total_gain_loss_krw)}</strong>
-                  </div>
-                  <div data-tone={holdingPortfolioGainTone}>
-                    <span>수익률</span>
-                    <strong>{fmtSignedPercent(holdingPortfolioReturnRatio)}</strong>
-                  </div>
-                </div>
-                <div className={`chart-wrap compact-chart-wrap${holdingPortfolioChartData ? "" : " chart-wrap-empty"}`}>
-                  {holdingPortfolioChartData ? (
-                    <>
-                      <Doughnut data={holdingPortfolioChartData} options={donutChartOptions} role="img" aria-label={holdingPortfolioChartDescription} />
-                      {renderDonutSliceLabels(holdingPortfolioChartSource.items, {
-                        testId: "portfolio-donut-slice-label",
-                        labelPrefix: holdingPortfolioChartSource.title,
-                      })}
-                      {renderDonutCenterLabel(holdingPortfolioCenterLabel, {
-                        testId: "portfolio-donut-center-label",
-                        labelPrefix: "자산 포트폴리오",
-                      })}
-                    </>
-                  ) : (
-                    <p>표시할 포트폴리오 데이터가 없습니다.</p>
-                  )}
-                </div>
-                <ChartBreakdownList
-                  items={holdingPortfolioBreakdownItems}
-                  ariaLabel={`${holdingPortfolioChartSource.title} 평가금액`}
-                  testId="holding-portfolio-breakdown"
-                  activeKey={holdingTypeFilter}
-                  onItemAction={
-                    holdingPortfolioBreakdownCanFilter
-                      ? (item) => setHoldingTypeFilter((current) => (current === item.key ? "all" : item.key))
-                      : undefined
-                  }
-                />
-                {holdingTypeFilter !== "all" && (
-                  <button type="button" className="secondary portfolio-filter-reset" onClick={() => setHoldingTypeFilter("all")}>
-                    자산 유형 필터 해제
-                  </button>
-                )}
-              </section>
-              <section className="compact-support-section">
-                <div className="inline compact-support-header">
-                  <h3>{holdingSummarySource.title} 상위 항목</h3>
-                  <span className="table-summary">상위 {Math.min(holdingSummarySource.items.length, 5)}개</span>
-                </div>
-                <div className="settings-category-list">
-                  {holdingSummarySource.items.length === 0 ? (
-                    <p className="table-summary">표시할 카테고리 합계가 없습니다.</p>
-                  ) : (
-                    holdingSummarySource.items.slice(0, 5).map((item) => (
-                      <div key={item.label} className="settings-category-row compact-category-row">
-                        <span className="settings-category-major">{item.label}</span>
-                        <span className="settings-category-minor">{fmtKrw(item.value)}</span>
-                        <span className="settings-category-usage">{holdingSummarySource.title}</span>
-                        <span />
-                      </div>
-                    ))
-                  )}
-                </div>
-              </section>
-            </div>
-          </details>
-        </section>
-      )}
-
-      {tab === "settings" && (
-        <section className="grid-2 settings-grid secondary-surface-grid">
-          <article className="card secondary-surface-card settings-profile-card">
-            <div className="secondary-surface-header">
-              <div className="work-surface-title">
-                <span className="surface-eyebrow">개인 설정</span>
-                <h2>내 프로필</h2>
-              </div>
-              <div className="surface-control-strip secondary-control-strip" aria-label="프로필 설정 상태">
-                <span className="surface-chip surface-chip-strong">{user?.display_name || "표시명 대기"}</span>
-                <span className="surface-chip">{profileDisplayModeLabel}</span>
-              </div>
-            </div>
-            <form className="form-grid settings-form-grid" onSubmit={saveProfileSettings}>
-              <label>
-                본명
-                <input
-                  value={profileForm.real_name}
-                  onChange={(event) => setProfileForm((prev) => ({ ...prev, real_name: event.target.value }))}
-                  required
-                />
-              </label>
-              <label>
-                닉네임
-                <input
-                  value={profileForm.nickname}
-                  onChange={(event) => setProfileForm((prev) => ({ ...prev, nickname: event.target.value }))}
-                  placeholder="선택 입력"
-                />
-              </label>
-              <label>
-                표시명 방식
-                <select
-                  value={profileForm.display_name_mode}
-                  onChange={(event) => setProfileForm((prev) => ({ ...prev, display_name_mode: event.target.value }))}
-                >
-                  {DISPLAY_NAME_MODE_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <div className="settings-preview">
-                현재 표시명: <strong>{user?.display_name || "-"}</strong>
-              </div>
-              <div className="inline form-actions settings-actions">
-                <button type="submit">프로필 저장</button>
-              </div>
-            </form>
-          </article>
-
-          <article className="card secondary-surface-card settings-household-card">
-            <div className="secondary-surface-header">
-              <div className="work-surface-title">
-                <span className="surface-eyebrow">공유 환경</span>
-                <h2>가계 설정</h2>
-              </div>
-              <div className="surface-control-strip secondary-control-strip" aria-label="가계 설정 상태">
-                <span className="surface-chip surface-chip-strong">{settingsPermissionLabel}</span>
-                <span className="surface-chip">내 권한 {householdRoleLabel}</span>
-              </div>
-            </div>
-            <form className="form-grid settings-form-grid" onSubmit={saveHouseholdSettings}>
-              <label>
-                가계 이름
-                <input
-                  value={householdSettingsForm.name}
-                  onChange={(event) => setHouseholdSettingsForm((prev) => ({ ...prev, name: event.target.value }))}
-                  required
-                />
-              </label>
-              <div className="settings-preview">
-                현재 기준 통화: <strong>{householdSettings?.base_currency || household?.base_currency || "KRW"}</strong>
-              </div>
-              <div className="inline form-actions settings-actions">
-                <button type="submit" disabled={!canManageHousehold}>
-                  가계 설정 저장
-                </button>
-              </div>
-            </form>
-            {!canManageHousehold && (
-              <p className="table-summary">가계 이름과 공통 색상은 공동 소유자 이상 권한에서만 변경할 수 있습니다.</p>
-            )}
-          </article>
-
-          <details className="card compact-support-card settings-advanced-card secondary-surface-card">
-            <summary role="button">
-              <span className="settings-disclosure-main">
-                <span>거래 행 색상</span>
-                <span className="table-summary">기본 화면에서는 숨기고 필요할 때만 조정합니다.</span>
-              </span>
-              <span className="settings-disclosure-chip settings-disclosure-chip-collapsed">펼치기</span>
-              <span className="settings-disclosure-chip settings-disclosure-chip-expanded">접기</span>
-            </summary>
-            <form className="settings-color-form" onSubmit={saveHouseholdSettings}>
-              {FLOW_TYPE_OPTIONS.map((option) => {
-                const colorValue = householdSettingsForm.transaction_row_colors?.[option.value] || DEFAULT_TRANSACTION_ROW_COLORS[option.value];
-                return (
-                  <label key={option.value} className="settings-color-row">
-                    <span>{option.label}</span>
-                    <span
-                      className="settings-color-preview-bar"
-                      style={{ "--settings-color-preview": colorValue }}
-                      aria-hidden="true"
-                    />
-                    <input
-                      type="color"
-                      value={colorValue}
-                      onChange={(event) =>
-                        setHouseholdSettingsForm((prev) => ({
-                          ...prev,
-                          transaction_row_colors: {
-                            ...prev.transaction_row_colors,
-                            [option.value]: event.target.value.toUpperCase(),
-                          },
-                        }))
-                      }
-                      disabled={!canManageHousehold}
-                    />
-                    <code>{colorValue}</code>
-                  </label>
-                );
-              })}
-              <div className="inline form-actions settings-actions">
-                <button type="submit" disabled={!canManageHousehold}>
-                  색상 저장
-                </button>
-              </div>
-            </form>
-          </details>
-
-          <details className="card compact-support-card settings-span-full settings-advanced-card secondary-surface-card settings-asset-rules-card">
-            <summary role="button">
-              <span className="settings-disclosure-main">
-                <span>자산 유형/색상 설정</span>
-                <span className="table-summary">유형 편집, 색상, 표시 규칙은 접어 둡니다.</span>
-              </span>
-              <span className="settings-disclosure-chip settings-disclosure-chip-collapsed">펼치기</span>
-              <span className="settings-disclosure-chip settings-disclosure-chip-expanded">접기</span>
-            </summary>
-            <form className="form-grid settings-form-grid" onSubmit={saveHoldingTypeDefinition} noValidate>
-              <label>
-                유형 키
-                <input
-                  value={holdingTypeDraft.key}
-                  onChange={(event) => setHoldingTypeDraft((prev) => ({ ...prev, key: event.target.value }))}
-                  placeholder="예: deposit"
-                  required
-                />
-              </label>
-              <label>
-                유형 이름
-                <input
-                  value={holdingTypeDraft.label}
-                  onChange={(event) => setHoldingTypeDraft((prev) => ({ ...prev, label: event.target.value }))}
-                  placeholder="예: 예적금"
-                  required
-                />
-              </label>
-              <label>
-                기준 asset_type
-                <select
-                  value={holdingTypeDraft.asset_type}
-                  onChange={(event) => setHoldingTypeDraft((prev) => ({ ...prev, asset_type: event.target.value }))}
-                >
-                  {ASSET_TYPE_OPTIONS.map((item) => (
-                    <option key={item.value} value={item.value}>
-                      {item.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="check-row">
-                <input
-                  type="checkbox"
-                  checked={holdingTypeDraft.tracked}
-                  onChange={(event) => setHoldingTypeDraft((prev) => ({ ...prev, tracked: event.target.checked }))}
-                />
-                시장 추적형 유형
-              </label>
-              <label className="check-row">
-                <input
-                  type="checkbox"
-                  checked={holdingTypeDraft.show_average_cost}
-                  onChange={(event) => setHoldingTypeDraft((prev) => ({ ...prev, show_average_cost: event.target.checked }))}
-                />
-                평균단가/평가금액 입력 표시
-              </label>
-              <label className="check-row">
-                <input
-                  type="checkbox"
-                  checked={holdingTypeDraft.show_gain_loss}
-                  onChange={(event) => setHoldingTypeDraft((prev) => ({ ...prev, show_gain_loss: event.target.checked }))}
-                />
-                손익 표시
-              </label>
-              <div className="inline form-actions settings-actions">
-                <button type="submit" disabled={!canManageHousehold}>
-                  {holdingTypeEditKey ? "유형 수정 저장" : "유형 추가"}
-                </button>
-                <button type="button" className="secondary" onClick={clearHoldingTypeDraft}>
-                  입력 초기화
-                </button>
-              </div>
-            </form>
-            <div className="settings-category-list">
-              {holdingTypeOptions.map((typeItem) => (
-                <div key={typeItem.key} className="settings-category-row">
-                  <span className="settings-category-major">{typeItem.label}</span>
-                  <span className="settings-category-minor">{typeItem.key}</span>
-                  <span className="settings-category-usage">{typeItem.asset_type}</span>
-                  <div className="inline">
-                    <button
-                      type="button"
-                      className="secondary settings-type-order-btn"
-                      aria-label={`${typeItem.label} 유형 순서 올리기`}
-                      onClick={() => moveHoldingTypeOrder(typeItem.key, -1).catch(() => undefined)}
-                    >
-                      ↑
-                    </button>
-                    <button
-                      type="button"
-                      className="secondary settings-type-order-btn"
-                      aria-label={`${typeItem.label} 유형 순서 내리기`}
-                      onClick={() => moveHoldingTypeOrder(typeItem.key, 1).catch(() => undefined)}
-                    >
-                      ↓
-                    </button>
-                    <button type="button" className="secondary" onClick={() => editHoldingType(typeItem)}>수정</button>
-                    <button type="button" className="danger" onClick={() => removeHoldingTypeDefinition(typeItem.key).catch(() => undefined)}>삭제</button>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <form className="settings-color-form" onSubmit={saveHouseholdSettings}>
-              {holdingTypeOptions.map((typeItem) => {
-                const colorValue = householdSettingsForm.holding_settings?.type_colors?.[typeItem.key] || "#E2E8F0";
-                return (
-                  <label key={`type-color-${typeItem.key}`} className="settings-color-row">
-                    <span>유형 색상 · {typeItem.label}</span>
-                    <input
-                      type="color"
-                      value={colorValue}
-                      onChange={(event) => setHoldingColorInForm("type_colors", typeItem.key, event.target.value)}
-                      disabled={!canManageHousehold}
-                    />
-                    <code>{colorValue}</code>
-                  </label>
-                );
-              })}
-              {holdingOwnerNames.map((ownerName) => {
-                const colorValue = householdSettingsForm.holding_settings?.owner_colors?.[ownerName] || "#E2E8F0";
-                return (
-                  <label key={`owner-color-${ownerName}`} className="settings-color-row">
-                    <span>보유자 색상 · {ownerName}</span>
-                    <input
-                      type="color"
-                      value={colorValue}
-                      onChange={(event) => setHoldingColorInForm("owner_colors", ownerName, event.target.value)}
-                      disabled={!canManageHousehold}
-                    />
-                    <code>{colorValue}</code>
-                  </label>
-                );
-              })}
-              {holdingCategoryNames.map((categoryName) => {
-                const colorValue = householdSettingsForm.holding_settings?.category_colors?.[categoryName] || "#E2E8F0";
-                return (
-                  <label key={`category-color-${categoryName}`} className="settings-color-row">
-                    <span>카테고리 색상 · {categoryName}</span>
-                    <input
-                      type="color"
-                      value={colorValue}
-                      onChange={(event) => setHoldingColorInForm("category_colors", categoryName, event.target.value)}
-                      disabled={!canManageHousehold}
-                    />
-                    <code>{colorValue}</code>
-                  </label>
-                );
-              })}
-              <div className="inline form-actions settings-actions">
-                <button type="submit" disabled={!canManageHousehold}>
-                  자산 설정 저장
-                </button>
-              </div>
-            </form>
-            {!canManageHousehold && <p className="table-summary">자산 유형/색상 설정은 공동 소유자 이상 권한에서만 변경할 수 있습니다.</p>}
-          </details>
-
-          <article className="card secondary-surface-card settings-switch-card">
-            <div className="secondary-surface-header">
-              <div className="work-surface-title">
-                <span className="surface-eyebrow">작업 컨텍스트</span>
-                <h2>작업 가계 전환</h2>
-              </div>
-              <div className="surface-control-strip secondary-control-strip" aria-label="작업 가계 전환 상태">
-                <span className="surface-chip surface-chip-strong">{householdList.length}개 가계</span>
-                <span className="surface-chip">현재 {household?.name || "-"}</span>
-              </div>
-            </div>
-            <div className="settings-household-switch">
-              <label>
-                작업 가계
-                <select
-                  id="settings-household-select"
-                  className="household-select"
-                  value={household?.id || ""}
-                  onChange={handleHouseholdSwitchChange}
-                  disabled={householdSwitchDisabled}
-                  aria-describedby="settings-household-select-summary"
-                >
-                  {householdList.length === 0 && <option value="">선택 가능한 가계 없음</option>}
-                  {householdList.map((entry) => (
-                    <option key={entry.household.id} value={entry.household.id}>
-                      {entry.household.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <p className="table-summary settings-household-current-summary" id="settings-household-select-summary">
-                <span className="settings-household-current-label">현재 작업 가계:</span>
-                <span className="settings-household-current-name">{renderBreakableInlineText(household?.name || "-")}</span>
-                <span className="settings-household-current-role">
-                  / 내 권한: {COLLAB_ROLE_LABELS[householdRole] || householdRole || "-"}
-                </span>
-              </p>
-            </div>
-          </article>
-
-          <article className="card settings-span-full secondary-surface-card category-manager-card">
-            <div className="secondary-surface-header">
-              <div className="work-surface-title">
-                <span className="surface-eyebrow">분류 체계</span>
-                <h2>카테고리 관리</h2>
-              </div>
-              <div className="surface-control-strip secondary-control-strip" aria-label="카테고리 관리 상태">
-                <span className="surface-chip surface-chip-strong">{categories.length}개 중분류</span>
-                <span className="surface-chip">{categoryMajorCount}개 대분류</span>
-                <span className={`surface-chip${canEditHouseholdData ? " surface-chip-strong" : " surface-chip-muted"}`}>
-                  {canEditHouseholdData ? "편집 가능" : "읽기 전용"}
-                </span>
-              </div>
-            </div>
-            <form className="form-grid settings-form-grid category-create-form" onSubmit={createCategoryPair} noValidate>
-              <div className="settings-preview category-manager-guide">
-                <strong>새 카테고리 만들기</strong>
-                <span>{categoryDraftGuideText}</span>
-                <span>생성 예정: {categoryDraftSummaryText}</span>
-              </div>
-              <label>
-                유형
-                <select
-                  value={categoryDraft.flow_type}
-                  onChange={(event) => {
-                    const nextFlowType = event.target.value;
-                    setCategoryDraft((prev) => ({ ...prev, flow_type: nextFlowType, major: "", minor: "" }));
-                    setCategoryDraftMajorSelect("__custom__");
-                    setCategoryDraftMinorSelect("__custom__");
-                    setCategoryQuickSelectedId("");
-                  }}
-                  disabled={!canEditHouseholdData}
-                >
-                  {FLOW_TYPE_OPTIONS.map((item) => (
-                    <option key={item.value} value={item.value}>
-                      {item.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                새 대분류
-                <select
-                  value={categoryDraftMajorSelect}
-                  onChange={(event) => {
-                    const nextMajorSelect = event.target.value;
-                    setCategoryDraftMajorSelect(nextMajorSelect);
-                    setCategoryDraftMinorSelect("__custom__");
-                    if (nextMajorSelect === "__custom__") {
-                      setCategoryDraft((prev) => ({ ...prev, major: "", minor: "" }));
-                    } else {
-                      setCategoryDraft((prev) => ({ ...prev, major: nextMajorSelect, minor: "" }));
-                    }
-                  }}
-                  disabled={!canEditHouseholdData}
-                >
-                  <option value="__custom__">직접 입력</option>
-                  {categoryDraftMajorOptions.map((major) => (
-                    <option key={major} value={major}>
-                      {toCategoryMajorLabel(major)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                첫 중분류
-                <select
-                  value={categoryDraftMinorSelect}
-                  onChange={(event) => {
-                    const nextMinorSelect = event.target.value;
-                    setCategoryDraftMinorSelect(nextMinorSelect);
-                    if (nextMinorSelect === "__custom__") {
-                      setCategoryDraft((prev) => ({ ...prev, minor: "" }));
-                    } else {
-                      setCategoryDraft((prev) => ({ ...prev, minor: nextMinorSelect }));
-                    }
-                  }}
-                  disabled={!canEditHouseholdData || (categoryDraftMajorSelect === "__custom__" && !String(categoryDraft.major || "").trim())}
-                >
-                  <option value="__custom__">직접 입력</option>
-                  {categoryDraftMinorOptions.map((minor) => (
-                    <option key={minor} value={minor}>
-                      {toCategoryMinorLabel(minor)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {categoryDraftMajorSelect === "__custom__" && (
-                <label>
-                  새 대분류 입력
-                  <input
-                    value={categoryDraft.major}
-                    onChange={(event) => setCategoryDraft((prev) => ({ ...prev, major: event.target.value }))}
-                    placeholder="예: 생활비"
-                    required
-                    disabled={!canEditHouseholdData}
-                  />
-                </label>
-              )}
-              {categoryDraftMinorSelect === "__custom__" && (
-                <label>
-                  첫 중분류 입력
-                  <input
-                    value={categoryDraft.minor}
-                    onChange={(event) => setCategoryDraft((prev) => ({ ...prev, minor: event.target.value }))}
-                    placeholder="예: 식비"
-                    required
-                    disabled={!canEditHouseholdData}
-                  />
-                </label>
-              )}
-              <div className="inline form-actions settings-actions">
-                <button type="submit" disabled={!canEditHouseholdData}>카테고리 추가</button>
-              </div>
-            </form>
-            <div className="form-grid settings-form-grid category-create-form category-create-form-spaced">
-              <div className="settings-preview category-manager-guide">
-                <strong>기존 카테고리 빠른 정리</strong>
-                <span>{categoryQuickActionText}</span>
-              </div>
-              <label>
-                기존 카테고리 선택
-                <select
-                  value={categoryQuickSelectedId}
-                  onChange={(event) => setCategoryQuickSelectedId(event.target.value)}
-                  disabled={!canEditHouseholdData}
-                >
-                  <option value="">(선택 안함)</option>
-                  {categoryQuickOptions.map((option) => (
-                    <option key={option.id} value={option.id}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <div className="inline form-actions settings-actions">
-                <button type="button" className="secondary" disabled={!canEditHouseholdData || !categoryQuickSelectedId} onClick={editSelectedCategoryQuick}>
-                  선택 수정
-                </button>
-                <button
-                  type="button"
-                  className="danger"
-                  disabled={!canEditHouseholdData || !categoryQuickSelectedId || categoryQuickSelectionInUse}
-                  title={categoryQuickSelectionInUse ? "사용 중인 카테고리는 삭제할 수 없습니다." : undefined}
-                  onClick={deleteSelectedCategoryQuick}
-                >
-                  선택 삭제
-                </button>
-              </div>
-            </div>
-            {!canEditHouseholdData && (
-              <p className="table-summary">카테고리 변경은 편집자 이상 권한에서만 가능합니다.</p>
-            )}
-
-            <div className="settings-category-flows">
-              {categoryGroups.map((flowGroup) => (
-                <section key={flowGroup.value} className="settings-category-flow">
-                  <header className="settings-category-flow-header">
-                    <h3>{FLOW_TYPE_LABELS[flowGroup.value] || flowGroup.value}</h3>
-                    <span className="table-summary">{flowGroup.groups.reduce((count, [, items]) => count + items.length, 0)}개</span>
-                  </header>
-                  {flowGroup.groups.length === 0 ? (
-                    <p className="table-summary">등록된 카테고리가 없습니다.</p>
-                  ) : (
-                    flowGroup.groups.map(([major, items]) => (
-                      <div key={`${flowGroup.value}:${major}`} className="settings-category-group">
-                        <div className="settings-category-group-header">
-                          <strong>{toCategoryMajorLabel(major)}</strong>
-                          <div className="inline">
-                            <input
-                              value={majorRenameDrafts[`${flowGroup.value}:${major}`] || ""}
-                              onChange={(event) =>
-                                setMajorRenameDrafts((prev) => ({
-                                  ...prev,
-                                  [`${flowGroup.value}:${major}`]: event.target.value,
-                                }))
-                              }
-                              placeholder="새 대분류명"
-                              aria-label={`${FLOW_TYPE_LABELS[flowGroup.value] || flowGroup.value} ${toCategoryMajorLabel(major)} 대분류 변경 새 이름`}
-                              disabled={!canEditHouseholdData}
-                            />
-                            <button type="button" className="secondary" disabled={!canEditHouseholdData} onClick={() => renameCategoryMajorGroup(flowGroup.value, major)}>
-                              대분류 변경
-                            </button>
-                          </div>
-                        </div>
-                        <div className="settings-category-list">
-                          {items.map((category) => {
-                            const isEditing = categoryEditId === category.id;
-                            const usageExpanded = Boolean(categoryUsageExpanded[category.id]);
-                            const usageRows = categoryUsageById[category.id] || [];
-                            const usageLoading = categoryUsageLoadingId === category.id;
-                            return isEditing ? (
-                              <form
-                                key={category.id}
-                                className="settings-category-row category-row-editing"
-                                onSubmit={(event) => saveCategoryEdit(event, category.id)}
-                              >
-                                <span className="settings-category-major">{toCategoryMajorLabel(category.major)}</span>
-                                <input
-                                  value={categoryEditForm.minor}
-                                  onChange={(event) => setCategoryEditForm((prev) => ({ ...prev, major: category.major, minor: event.target.value }))}
-                                  required
-                                  disabled={!canEditHouseholdData}
-                                />
-                                <span className="settings-category-usage">사용 {category.usage_count}건</span>
-                                <div className="inline">
-                                  <button type="submit" disabled={!canEditHouseholdData}>저장</button>
-                                  <button type="button" className="secondary" onClick={() => { setCategoryEditId(""); setCategoryEditForm({ major: "", minor: "" }); }}>
-                                    취소
-                                  </button>
-                                </div>
-                              </form>
-                            ) : (
-                              <Fragment key={category.id}>
-                                <div className="settings-category-row">
-                                  <span className="settings-category-major">{toCategoryMajorLabel(category.major)}</span>
-                                  <span className="settings-category-minor">{toCategoryMinorLabel(category.minor)}</span>
-                                  <span className="settings-category-usage">사용 {category.usage_count}건</span>
-                                  <div className="inline">
-                                    <button
-                                      type="button"
-                                      className="secondary"
-                                      aria-expanded={usageExpanded}
-                                      aria-label={`${toCategoryPairLabel(category)} 사용 내역 ${usageExpanded ? "접기" : "월별로 보기"}`}
-                                      onClick={() => toggleCategoryUsageDetails(category).catch(() => undefined)}
-                                    >
-                                      <span>{usageExpanded ? "내역 접기" : "월별 내역"}</span>
-                                      <span className="sort-indicator" aria-hidden="true">{usageExpanded ? "˅" : ">"}</span>
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className="secondary"
-                                      disabled={!canEditHouseholdData}
-                                      onClick={() => {
-                                        setCategoryEditId(category.id);
-                                        setCategoryEditForm({ major: category.major, minor: category.minor });
-                                      }}
-                                    >
-                                      중분류 수정
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className="danger"
-                                      disabled={!canEditHouseholdData || Number(category.usage_count || 0) > 0}
-                                      onClick={() => deleteCategoryPair(category).catch(() => undefined)}
-                                    >
-                                      삭제
-                                    </button>
-                                  </div>
-                                </div>
-                                {usageExpanded && (
-                                  <div className="settings-category-usage-detail">
-                                    {usageLoading ? (
-                                      <p className="table-summary">사용 내역을 불러오는 중입니다...</p>
-                                    ) : usageRows.length === 0 ? (
-                                      <p className="table-summary">사용 내역이 없습니다.</p>
-                                    ) : (
-                                      usageRows.map((monthRow) => (
-                                        <details key={`${category.id}:${monthRow.month}`} className="category-usage-month">
-                                          <summary>
-                                            {monthRow.month} · {monthRow.count}건 · 합계 {fmtKrw(monthRow.total_amount)}
-                                          </summary>
-                                          <ul className="compact-list">
-                                            {monthRow.items.map((usageItem) => (
-                                              <li key={usageItem.transaction_id}>
-                                                {usageItem.occurred_on} / {usageItem.owner_name || "-"} / {fmtKrw(usageItem.amount)} / {usageItem.memo || "-"}
-                                              </li>
-                                            ))}
-                                          </ul>
-                                        </details>
-                                      ))
-                                    )}
-                                  </div>
-                                )}
-                              </Fragment>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </section>
-              ))}
-            </div>
-          </article>
-        </section>
-      )}
-
-      {tab === "collaboration" && (
-        <section className="grid-1 secondary-surface-grid collaboration-surface-grid">
-          <article className="card secondary-surface-card collaboration-command-card">
-            <div className="secondary-surface-header collaboration-surface-header">
-              <div className="work-surface-title">
-                <span className="surface-eyebrow">협업 컨트롤</span>
-                <h2>가계 협업 관리</h2>
-              </div>
-              <div className="surface-control-strip secondary-control-strip" aria-label="협업 관리 상태">
-                <span className="surface-chip surface-chip-strong">내 권한 {householdRoleLabel}</span>
-                <span className="surface-chip">멤버 {householdMembers.length}명</span>
-                <span className={`surface-chip${receivedNewInvites.length > 0 || sentNewInvites.length > 0 ? " surface-chip-strong" : " surface-chip-muted"}`}>
-                  {collaborationInviteSummary}
-                </span>
-              </div>
-            </div>
-            <div className="collaboration-toolbar">
-              <label>
-                작업 가계
-                <select
-                  id="collaboration-household-select"
-                  className="household-select"
-                  value={household?.id || ""}
-                  onChange={handleHouseholdSwitchChange}
-                  disabled={householdSwitchDisabled}
-                  aria-describedby="collaboration-household-select-summary"
-                >
-                  {householdList.length === 0 && <option value="">선택 가능한 가계 없음</option>}
-                  {householdList.map((entry) => (
-                    <option key={entry.household.id} value={entry.household.id} aria-label={entry.household.name} title={entry.household.name}>
-                      {compactHouseholdSelectOptionName(entry.household.name)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <p className="table-summary" id="collaboration-household-select-summary">
-                현재 가계: {household?.name || "-"} / 내 권한: {COLLAB_ROLE_LABELS[householdRole] || householdRole || "-"}
-              </p>
-            </div>
-
-            {receivedNewInvites.length > 0 && (
-              <div className="invite-arrival-banner" role="status">
-                <div className="invite-arrival-copy">
-                  <strong>신규 초대 {receivedNewInvites.length}건이 도착했습니다.</strong>
-                  <span>새 초대를 먼저 확인하고 필요하면 바로 수락할 수 있습니다.</span>
-                </div>
-                <div className="inline invite-banner-actions">
-                  <button
-                    type="button"
-                    className="secondary"
-                    onClick={() => {
-                      setReceivedInviteTab("new");
-                      window.setTimeout(() => {
-                        receivedInviteSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-                      }, 0);
-                    }}
-                  >
-                    받은 초대 보기
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {inviteAcceptanceNotice && (
-              <div className="invite-acceptance-banner" role="status">
-                <div className="invite-acceptance-copy">
-                  <strong>{inviteAcceptanceNotice.householdName} 초대를 수락했습니다.</strong>
-                  <span>
-                    권한: {COLLAB_ROLE_LABELS[inviteAcceptanceNotice.role] || inviteAcceptanceNotice.role || "-"}
-                    {inviteAcceptanceNotice.activeHouseholdSelected
-                      ? " · 현재 작업 가계로 선택되었습니다."
-                      : " · 필요하면 바로 작업 가계로 전환할 수 있습니다."}
-                  </span>
-                </div>
-                {inviteAcceptanceCanSwitch && (
-                  <div className="inline invite-banner-actions">
-                    <button
-                      type="button"
-                      onClick={() => selectActiveHousehold(inviteAcceptanceNotice.householdId).catch(() => undefined)}
-                      disabled={loading}
-                    >
-                      작업 가계로 전환
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-
-            <form className="form-grid collaboration-form-grid" onSubmit={createHouseholdInvite} noValidate>
-              <label className="form-field">
-                초대할 이메일
-                <input
-                  ref={inviteEmailInputRef}
-                  type="email"
-                  value={inviteForm.email}
-                  onChange={(event) => {
-                    event.target.setCustomValidity("");
-                    setInviteFormErrors({ email: "" });
-                    setInviteForm((prev) => ({ ...prev, email: event.target.value }));
-                  }}
-                  placeholder="example@email.com"
-                  disabled={loading || !canManageHousehold}
-                  required
-                  aria-invalid={inviteFormErrors.email ? "true" : undefined}
-                  aria-describedby={inviteFormErrors.email ? "collaboration-invite-email-error" : undefined}
-                />
-                {inviteFormErrors.email && (
-                  <p id="collaboration-invite-email-error" className="field-helper field-error" role="alert">
-                    {inviteFormErrors.email}
-                  </p>
-                )}
-              </label>
-              <label>
-                권한
-                <select
-                  value={inviteForm.role}
-                  onChange={(event) => setInviteForm((prev) => ({ ...prev, role: event.target.value }))}
-                  disabled={loading || !canManageHousehold}
-                >
-                  {COLLAB_ROLE_OPTIONS.filter((item) => item.value !== "owner").map((item) => (
-                    <option key={item.value} value={item.value}>
-                      {item.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <div className="inline form-actions">
-                <button type="submit" disabled={loading || !canManageHousehold}>
-                  초대 발송
-                </button>
-              </div>
-            </form>
-            {!canManageHousehold && (
-              <p className="table-summary">초대 발송/권한 변경은 공동 소유자 이상 권한에서만 가능합니다.</p>
-            )}
-
-            <form className="form-grid collaboration-accept-grid" onSubmit={acceptHouseholdInvite}>
-              <div className="form-field invite-token-field">
-                <label>
-                  초대 수락 토큰
-                  <input
-                    value={inviteAcceptToken}
-                    onChange={(event) => setInviteAcceptToken(event.target.value)}
-                    placeholder="초대 token"
-                    aria-describedby="invite-accept-token-helper"
-                  />
-                </label>
-                <p id="invite-accept-token-helper" className="field-helper invite-token-helper">
-                  메일 초대 링크에서 token 값을 복사해 붙여 넣으세요.
-                </p>
-              </div>
-              <div className="inline form-actions">
-                <button
-                  type="submit"
-                  className="secondary"
-                  disabled={loading || !String(inviteAcceptToken || "").trim()}
-                >
-                  초대 수락
-                </button>
-              </div>
-            </form>
-          </article>
-
-          <article
-            ref={receivedInviteSectionRef}
-            className={`card table-card secondary-surface-card secondary-table-card${receivedNewInvites.length > 0 ? " invite-section-attention" : ""}`}
-          >
-            <div className="secondary-table-heading">
-              <div className="work-surface-title">
-                <span className="surface-eyebrow">초대 인박스</span>
-                <h2>받은 초대</h2>
-              </div>
-              <p className="table-summary">전체 {receivedHouseholdInvites.length}건 · 신규 {receivedNewInvites.length}건</p>
-            </div>
-            <div className="tabs sub-tabs" role="tablist" aria-label="받은 초대 분류">
-              <button type="button" role="tab" className={receivedInviteTab === "new" ? "active" : ""} onClick={() => setReceivedInviteTab("new")}>
-                <span>신규</span>
-                {receivedNewInvites.length > 0 && <span className="sub-tab-badge" aria-hidden="true">{receivedNewInvites.length}</span>}
-              </button>
-              <button type="button" role="tab" className={receivedInviteTab === "history" ? "active" : ""} onClick={() => setReceivedInviteTab("history")}>
-                <span>이전</span>
-                {receivedPastInvites.length > 0 && <span className="sub-tab-badge" aria-hidden="true">{receivedPastInvites.length}</span>}
-              </button>
-            </div>
-            <table>
-              <thead>
-                <tr><th>가계</th><th>초대한 사람</th><th>권한</th><th>상태</th><th>시각</th><th>동작</th></tr>
-              </thead>
-              <tbody>
-                {visibleReceivedInvites.length === 0 && (
-                  <tr>
-                    <td colSpan={6} className="empty-state">받은 초대가 없습니다.</td>
-                  </tr>
-                )}
-                {visibleReceivedInvites.map((invite) => {
-                  const pending = invite.status === "pending";
-                  const accepted = invite.status === "accepted";
-                  const canSwitchToInviteHousehold = accepted && invite.household_id && invite.household_id !== household?.id;
-                  const isRecentlyAccepted = inviteAcceptanceNotice?.invitationId === invite.id;
-                  const isNewInvite = pending && recentInviteIds.includes(String(invite.id));
-                  return (
-                    <tr key={invite.id} className={`${isRecentlyAccepted ? "invite-row-highlight" : ""} ${isNewInvite ? "invite-row-new" : ""}`}>
-                      <td data-label="가계">{invite.household_name || "-"}</td>
-                      <td data-label="초대한 사람">{invite.inviter_display_name || "-"}</td>
-                      <td data-label="권한">{COLLAB_ROLE_LABELS[invite.role] || invite.role}</td>
-                      <td data-label="상태">
-                        <span className={`status-pill status-pill-${invite.status} ${isRecentlyAccepted ? "status-pill-highlight" : ""}`}>
-                          {INVITATION_STATUS_LABELS[invite.status] || invite.status}
-                        </span>
-                      </td>
-                      <td data-label="시각">{fmtDateTime(invite.accepted_at || invite.expires_at)}</td>
-                      <td data-label="동작">
-                        <div className="inline invite-table-actions">
-                          {pending && (
-                            <button
-                              type="button"
-                              className="secondary"
-                              disabled={loading}
-                              onClick={() => acceptReceivedHouseholdInvite(invite.id).catch(() => undefined)}
-                            >
-                              초대 수락
-                            </button>
-                          )}
-                          {!pending && canSwitchToInviteHousehold && (
-                            <button
-                              type="button"
-                              disabled={loading}
-                              onClick={() => selectActiveHousehold(invite.household_id).catch(() => undefined)}
-                            >
-                              작업 가계로 전환
-                            </button>
-                          )}
-                          {!pending && !canSwitchToInviteHousehold && "-"}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </article>
-
-          <article className="card table-card secondary-surface-card secondary-table-card">
-            <div className="secondary-table-heading">
-              <div className="work-surface-title">
-                <span className="surface-eyebrow">권한 매트릭스</span>
-                <h2>멤버 목록</h2>
-              </div>
-              <p className="table-summary">총 {householdMembers.length}명</p>
-            </div>
-            <table>
-              <thead>
-                <tr><th>이름</th><th>이메일</th><th>권한</th><th>가입일</th><th>동작</th></tr>
-              </thead>
-              <tbody>
-                {householdMembers.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="empty-state">아직 등록된 멤버가 없습니다.</td>
-                  </tr>
-                )}
-                {householdMembers.map((member) => {
-                  const isSelf = Boolean(user?.id && member.user_id === user.id);
-                  const roleSelectDisabled = !canManageHousehold || loading || isSelf;
-                  const memberRoleLabel = `${member.display_name || member.email || "구성원"} 권한 변경`;
-                  return (
-                    <tr key={member.member_id}>
-                      <td data-label="이름">{member.display_name || "-"}</td>
-                      <td data-label="이메일">{member.email || "-"}</td>
-                      <td data-label="권한">
-                        <select
-                          aria-label={memberRoleLabel}
-                          value={member.role}
-                          disabled={roleSelectDisabled}
-                          title={isSelf ? "본인 권한은 다른 공동 소유자가 변경해야 합니다." : undefined}
-                          onChange={(event) =>
-                            changeMemberRole(member.member_id, event.target.value).catch(() => undefined)
-                          }
-                        >
-                          {memberRoleOptions.map((item) => (
-                            <option key={item.value} value={item.value}>
-                              {item.label}
-                            </option>
-                          ))}
-                          {!canAssignOwner && member.role === "owner" && (
-                            <option value="owner">{COLLAB_ROLE_LABELS.owner}</option>
-                          )}
-                        </select>
-                      </td>
-                      <td data-label="가입일">{fmtDateTime(member.created_at)}</td>
-                      <td data-label="동작">
-                        <div className="inline">
-                          <button
-                            type="button"
-                            className="danger"
-                            disabled={!canManageHousehold || loading || isSelf}
-                            onClick={() => removeHouseholdMember(member.member_id, member.display_name).catch(() => undefined)}
-                          >
-                            {isSelf ? "본인" : "멤버 제거"}
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </article>
-
-          <article className="card table-card secondary-surface-card secondary-table-card">
-            <div className="secondary-table-heading">
-              <div className="work-surface-title">
-                <span className="surface-eyebrow">발송 큐</span>
-                <h2>보낸 초대 현황(내 액션)</h2>
-              </div>
-              <p className="table-summary">전체 {mySentInvites.length}건 · 신규 {sentNewInvites.length}건</p>
-            </div>
-            <div className="tabs sub-tabs" role="tablist" aria-label="보낸 초대 분류">
-              <button type="button" role="tab" className={sentInviteTab === "new" ? "active" : ""} onClick={() => setSentInviteTab("new")}>
-                <span>신규</span>
-                {sentNewInvites.length > 0 && <span className="sub-tab-badge" aria-hidden="true">{sentNewInvites.length}</span>}
-              </button>
-              <button type="button" role="tab" className={sentInviteTab === "history" ? "active" : ""} onClick={() => setSentInviteTab("history")}>
-                <span>이전</span>
-                {sentPastInvites.length > 0 && <span className="sub-tab-badge" aria-hidden="true">{sentPastInvites.length}</span>}
-              </button>
-            </div>
-            <table>
-              <thead>
-                <tr><th>이메일</th><th>권한</th><th>상태</th><th>초대한 사람</th><th>만료일</th><th>동작</th></tr>
-              </thead>
-              <tbody>
-                {visibleSentInvites.length === 0 && (
-                  <tr>
-                    <td colSpan={6} className="empty-state">진행 중인 초대가 없습니다.</td>
-                  </tr>
-                )}
-                {visibleSentInvites.map((invite) => {
-                  const pending = invite.status === "pending";
-                  return (
-                    <tr key={invite.id}>
-                      <td data-label="이메일">{invite.email}</td>
-                      <td data-label="권한">{COLLAB_ROLE_LABELS[invite.role] || invite.role}</td>
-                      <td data-label="상태">
-                        <span className={`status-pill status-pill-${invite.status}`}>
-                          {INVITATION_STATUS_LABELS[invite.status] || invite.status}
-                        </span>
-                      </td>
-                      <td data-label="초대한 사람">{invite.inviter_display_name || "-"}</td>
-                      <td data-label="만료일">{fmtDateTime(invite.expires_at)}</td>
-                      <td data-label="동작">
-                        <div className="inline invite-table-actions">
-                          <button
-                            type="button"
-                            className="danger"
-                            disabled={!canManageHousehold || loading || !pending}
-                            onClick={() => revokeHouseholdInvite(invite.id).catch(() => undefined)}
-                          >
-                            {pending ? "초대 취소" : "-"}
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </article>
-        </section>
-      )}
-
-      {tab === "import" && (
-        <section className="grid-1 secondary-surface-grid import-surface-grid">
-          <article className="card secondary-surface-card import-console-card">
-            <div className="secondary-surface-header import-surface-header">
-              <div className="work-surface-title">
-                <span className="surface-eyebrow">엑셀 파이프라인</span>
-                <h2>데이터 파일 가져오기</h2>
-              </div>
-              <div className="surface-control-strip secondary-control-strip" aria-label="데이터 가져오기 상태">
-                <span className={`surface-chip${importLoadingMode || importReport ? " surface-chip-strong" : ""}`}>
-                  {importStateLabel}
-                </span>
-                <span className="surface-chip">{importFile ? "파일 선택됨" : "파일 미선택"}</span>
-                <span className={`surface-chip${canEditRecords ? " surface-chip-strong" : " surface-chip-muted"}`}>
-                  {canEditRecords ? "편집 가능" : "읽기 전용"}
-                </span>
-              </div>
-            </div>
-            {!canEditRecords && (
-              <p className="table-summary">데이터 가져오기는 편집자 이상 권한에서만 가능합니다.</p>
-            )}
-            {legacyOwnerCleanupRows.length > 0 && (
-              <section className="owner-remap-cleanup" aria-labelledby="owner-remap-cleanup-title">
-                <div className="secondary-table-heading owner-remap-heading">
-                  <div className="work-surface-title">
-                    <span className="surface-eyebrow">소유자 정리</span>
-                    <h3 id="owner-remap-cleanup-title">기존 소유자 정리</h3>
-                  </div>
-                  <p className="table-summary">
-                    기존 값은 현재 가계 구성원과 연결되지 않은 과거/가져오기 소유자명입니다.
-                  </p>
-                </div>
-                <div className="owner-remap-list">
-                  {legacyOwnerCleanupRows.map((row) => {
-                    const targetValue = ownerRemapTargets[row.key] || defaultOwnerRemapOption?.value || "";
-                    const remapping = ownerRemappingKey === row.key;
-                    const totalCount = row.transactions.length + row.holdings.length;
-                    return (
-                      <div className="owner-remap-row" key={row.key}>
-                        <div className="owner-remap-summary">
-                          <strong>{row.ownerName} (기존 값)</strong>
-                          <span>{legacyOwnerCountText(row)}</span>
-                        </div>
-                        <label>
-                          매핑 대상
-                          <select
-                            aria-label={`${row.ownerName} 매핑 대상`}
-                            value={targetValue}
-                            disabled={!canEditRecords || remapping || ownerMemberOptions.length === 0}
-                            onChange={(event) =>
-                              setOwnerRemapTargets((prev) => ({
-                                ...prev,
-                                [row.key]: event.target.value,
-                              }))
-                            }
-                          >
-                            {ownerMemberOptions.map((option) => (
-                              <option key={option.value} value={option.value}>
-                                {option.label}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                        <button
-                          type="button"
-                          className="secondary"
-                          disabled={!canEditRecords || remapping || !targetValue || totalCount === 0}
-                          onClick={() => applyLegacyOwnerRemap(row.key)}
-                        >
-                          {remapping ? "매핑 중..." : "현재 구성원으로 매핑"}
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
-            )}
-            <div className="mobile-import-package-export">
-              <button
-                type="button"
-                disabled={migrationExporting || Boolean(migrationLoadingMode) || !canEditRecords}
-                onClick={exportMigrationPackage}
-              >
-                {migrationExporting ? "패키지 추출 중..." : "현재 가계 패키지 추출"}
-              </button>
-            </div>
-            <div className="import-mode-grid">
-              <section className="import-mode-panel import-excel-panel">
-                <div className="secondary-table-heading import-report-heading">
-                  <div className="work-surface-title">
-                    <span className="surface-eyebrow">원본 데이터</span>
-                    <h3 id="excel-import-heading">데이터 파일 업로드</h3>
-                  </div>
-                  <p className="table-summary">
-                    {importMode === "toss"
-                      ? (tossFiles.length > 0 ? `이미지 ${fmt(tossFiles.length)}개 선택됨` : "이미지 대기")
-                      : (importFile ? "파일 선택됨" : "파일 대기")}
-                  </p>
-                </div>
-                <div className="import-mode-switch" role="tablist" aria-label="가져오기 형식">
-                  {IMPORT_SOURCE_MODES.map((mode) => (
-                    <button
-                      key={mode.value}
-                      type="button"
-                      className={importMode === mode.value ? "active" : "secondary"}
-                      onClick={() => {
-                        setImportMode(mode.value);
-                        setIsDragOver(false);
-                      }}
-                      disabled={importBusy}
-                    >
-                      {mode.label}
-                    </button>
-                  ))}
-                </div>
-
-                {importMode === "workbook" && (
-                  <>
-                <div
-                  className={`file-drop-area ${isDragOver ? "drag-over" : ""}`}
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    if (!importBusy && canEditRecords) setIsDragOver(true);
-                  }}
-                  onDragLeave={(e) => {
-                    e.preventDefault();
-                    setIsDragOver(false);
-                  }}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    setIsDragOver(false);
-                    if (!importBusy && canEditRecords && e.dataTransfer.files?.[0]) {
-                      setImportFile(e.dataTransfer.files[0]);
-                    }
-                  }}
-                  onClick={() => {
-                    if (!importBusy && canEditRecords) importFileInputRef.current?.click();
-                  }}
-                >
-                  <input
-                    ref={importFileInputRef}
-                    type="file"
-                    accept=".xlsx"
-                    onChange={(e) => setImportFile(e.target.files?.[0] || null)}
-                    className="visually-hidden-file-input"
-                    aria-label="엑셀 파일 업로드"
-                    disabled={importBusy || !canEditRecords}
-                  />
-                  {importFile ? (
-                    <div className="upload-file-name">선택된 파일: {importFile.name}</div>
-                  ) : (
-                    <div className="upload-placeholder">{workbookUploadPlaceholder}</div>
-                  )}
-                </div>
-                {workbookMissingFile && (
-                  <p id="excel-import-file-required" className="table-summary import-action-help">
-                    엑셀 파일을 선택하면 미리 검증과 적용을 사용할 수 있습니다.
-                  </p>
-                )}
-                <div className="inline import-action-row">
-                  <button
-                    type="button"
-                    disabled={workbookActionsDisabled}
-                    aria-describedby={workbookMissingFile ? "excel-import-file-required" : undefined}
-                    onClick={() => doImport("dry_run")}
-                  >
-                    {importLoadingMode === "dry_run" ? "미리 검증 중..." : IMPORT_MODE_LABELS.dry_run}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={workbookActionsDisabled}
-                    aria-describedby={workbookMissingFile ? "excel-import-file-required" : undefined}
-                    onClick={() => doImport("apply")}
-                  >
-                    {importLoadingMode === "apply" ? "적용 중..." : IMPORT_MODE_LABELS.apply}
-                  </button>
-                </div>
-                {importLoadingMode && (
-                  <div className="import-progress" role="status" aria-live="polite">
-                    서버에서 파일을 처리 중입니다. 완료까지 잠시만 기다려 주세요.
-                  </div>
-                )}
-                {importReport && (
-                  <section className="import-report">
-                    <div className="secondary-table-heading import-report-heading">
-                      <div className="work-surface-title">
-                        <span className="surface-eyebrow">검증 리포트</span>
-                        <h3>가져오기 결과</h3>
-                      </div>
-                      <p className="table-summary">
-                        거래 {fmt(importReport.transaction_rows)}행 · 보유 {fmt(importReport.holding_rows)}행
-                      </p>
-                    </div>
-                    <div className="import-summary-grid">
-                      <div className="import-summary-item"><strong>파일</strong><span>{displayImportFileName(importReport.workbook_path)}</span></div>
-                      <div className="import-summary-item"><strong>시트 수</strong><span>{fmt(importReport.sheets)}</span></div>
-                      <div className="import-summary-item"><strong>거래 행</strong><span>{fmt(importReport.transaction_rows)}</span></div>
-                      <div className="import-summary-item"><strong>보유 행</strong><span>{fmt(importReport.holding_rows)}</span></div>
-                      <div className="import-summary-item"><strong>적용된 거래</strong><span>{fmt(importReport.applied_transactions)}</span></div>
-                      <div className="import-summary-item"><strong>적용된 보유(추가/수정)</strong><span>{fmt(importReport.applied_holdings_added)} / {fmt(importReport.applied_holdings_updated)}</span></div>
-                    </div>
-                    {hasImportPostApplyTargets && (
-                      <section className="import-post-apply-actions" aria-label="가져오기 적용 후 이동">
-                        <div className="import-post-apply-copy">
-                          <strong>적용한 항목 바로가기</strong>
-                          <span>
-                            거래 {fmt(importAppliedTransactionRefs.length)}건 · 자산 {fmt(importAppliedHoldingRefs.length)}건을
-                            목록에서 바로 확인하고 수정할 수 있습니다.
-                          </span>
-                        </div>
-                        <div className="import-post-apply-buttons">
-                          <button
-                            type="button"
-                            className="secondary-btn"
-                            disabled={importAppliedTransactionRefs.length === 0}
-                            onClick={() => showImportedTransactions()}
-                          >
-                            가져온 거래 보기
-                          </button>
-                          <button
-                            type="button"
-                            className="secondary-btn"
-                            disabled={importAppliedHoldingRefs.length === 0}
-                            onClick={() => showImportedHoldings()}
-                          >
-                            가져온 자산 보기
-                          </button>
-                          <button type="button" className="primary" onClick={() => startImportedCorrection()}>
-                            수정 시작
-                          </button>
-                        </div>
-                      </section>
-                    )}
-                    <div className="import-list-grid">
-                      <section>
-                        <h3>수식 불일치 셀 ({fmt(importReport.monthly_formula_mismatch_count)})</h3>
-                        {importMismatchPreview.length === 0 ? (
-                          <p className="table-summary">불일치가 없습니다.</p>
-                        ) : (
-                          <ul className="compact-list">
-                            {importMismatchPreview.map((cell) => (
-                              <li key={cell}>{cell}</li>
-                            ))}
-                          </ul>
-                        )}
-                        {(importReport.detected_mismatch_cells || []).length > importMismatchPreview.length && (
-                          <p className="table-summary">
-                            +{(importReport.detected_mismatch_cells || []).length - importMismatchPreview.length}건 더 있음
-                          </p>
-                        )}
-                      </section>
-                      <section>
-                        <h3>이슈 ({fmt((importReport.issues || []).length)})</h3>
-                        {importIssuePreview.length === 0 ? (
-                          <p className="table-summary">검출된 이슈가 없습니다.</p>
-                        ) : (
-                          <ul className="compact-list">
-                            {importIssuePreview.map((issue, index) => (
-                              <li key={`${issue.code}-${issue.sheet || "none"}-${issue.row || 0}-${index}`}>
-                                [{issue.severity}] {issue.message}
-                                {issue.sheet ? ` (${issue.sheet}` : ""}
-                                {issue.row ? `:${issue.row}` : ""}
-                                {issue.sheet ? ")" : ""}
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                        {(importReport.issues || []).length > importIssuePreview.length && (
-                          <p className="table-summary">+{(importReport.issues || []).length - importIssuePreview.length}건 더 있음</p>
-                        )}
-                      </section>
-                    </div>
-                    {importReportRows.length > 0 && (
-                      <section className="import-report-workbench" aria-labelledby="import-report-workbench-title">
-                        <div className="secondary-table-heading import-report-workbench-heading">
-                          <div className="work-surface-title">
-                            <span className="surface-eyebrow">정리 도구</span>
-                            <h3 id="import-report-workbench-title">문제 정리 표</h3>
-                          </div>
-                          <p className="table-summary">
-                            전체 {fmt(importReportRows.length)}건 · 표시 {fmt(importReportVisibleRows.length)}건
-                          </p>
-                        </div>
-                        <div className="import-report-toolbar">
-                          <label>
-                            <span>검색</span>
-                            <input
-                              type="search"
-                              aria-label="정리 표 검색"
-                              value={importReportSearch}
-                              onChange={(event) => setImportReportSearch(event.target.value)}
-                              placeholder="시트, 행, 유형, 메시지"
-                            />
-                          </label>
-                          <label>
-                            <span>심각도</span>
-                            <select
-                              aria-label="심각도 필터"
-                              value={importReportSeverityFilter}
-                              onChange={(event) => setImportReportSeverityFilter(event.target.value)}
-                            >
-                              <option value="all">전체</option>
-                              {importReportSeverityOptions.map((option) => (
-                                <option key={option.value} value={option.value}>
-                                  {option.label}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                          <label>
-                            <span>유형</span>
-                            <select
-                              aria-label="유형 필터"
-                              value={importReportTypeFilter}
-                              onChange={(event) => setImportReportTypeFilter(event.target.value)}
-                            >
-                              <option value="all">전체</option>
-                              {importReportTypeOptions.map((option) => (
-                                <option key={option.value} value={option.value}>
-                                  {option.label}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                          <label>
-                            <span>정렬</span>
-                            <select
-                              aria-label="정렬"
-                              value={importReportSort}
-                              onChange={(event) => setImportReportSort(event.target.value)}
-                            >
-                              {IMPORT_REPORT_SORT_OPTIONS.map((option) => (
-                                <option key={option.value} value={option.value}>
-                                  {option.label}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                          <div className="import-report-actions">
-                            <button
-                              type="button"
-                              className="secondary-btn"
-                              disabled={importReportVisibleRows.length === 0}
-                              onClick={copyImportReportCsv}
-                            >
-                              CSV 복사
-                            </button>
-                            <button
-                              type="button"
-                              className="secondary-btn"
-                              disabled={importReportVisibleRows.length === 0}
-                              onClick={downloadImportReportCsv}
-                            >
-                              CSV 다운로드
-                            </button>
-                          </div>
-                        </div>
-                        <div className="import-report-table-scroll">
-                          <table className="import-report-table">
-                            <thead>
-                              <tr>
-                                <th scope="col">심각도</th>
-                                <th scope="col">유형</th>
-                                <th scope="col">시트</th>
-                                <th scope="col">행/셀</th>
-                                <th scope="col">메시지</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {importReportVisibleRows.length === 0 ? (
-                                <tr>
-                                  <td colSpan={5}>필터 조건에 맞는 항목이 없습니다.</td>
-                                </tr>
-                              ) : (
-                                importReportVisibleRows.map((row) => (
-                                  <tr key={row.id} id={`import-report-row-${row.id}`}>
-                                    <td>
-                                      <span className="import-report-severity" data-severity={row.severity}>
-                                        {row.severityLabel}
-                                      </span>
-                                    </td>
-                                    <td>{row.typeLabel}</td>
-                                    <td>{row.sheet || "-"}</td>
-                                    <td>
-                                      <a href={`#import-report-row-${row.id}`}>{row.target}</a>
-                                    </td>
-                                    <td>{row.message}</td>
-                                  </tr>
-                                ))
-                              )}
-                            </tbody>
-                          </table>
-                        </div>
-                      </section>
-                    )}
-                    <details className="report-technical">
-                      <summary>기술 상세 보기</summary>
-                      <pre className="report technical-report-json">{formatTechnicalReportJson(importReport)}</pre>
-                    </details>
-                  </section>
-                )}
-              </>
-            )}
-
-            {importMode === "toss" && (
-              <section className="toss-import-panel">
-                <div
-                  className={`file-drop-area toss-drop-area ${isDragOver ? "drag-over" : ""}`}
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    if (!importBusy && canEditRecords) setIsDragOver(true);
-                  }}
-                  onDragLeave={(e) => {
-                    e.preventDefault();
-                    setIsDragOver(false);
-                  }}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    setIsDragOver(false);
-                    if (!importBusy && canEditRecords && e.dataTransfer.files?.length) {
-                      setTossImportFiles(e.dataTransfer.files);
-                    }
-                  }}
-                  onClick={() => {
-                    if (!importBusy && canEditRecords) tossFileInputRef.current?.click();
-                  }}
-                >
-                  <input
-                    ref={tossFileInputRef}
-                    type="file"
-                    accept={TOSS_IMAGE_ACCEPT}
-                    multiple
-                    onChange={(e) => setTossImportFiles(e.target.files)}
-                    className="visually-hidden-file-input"
-                    aria-label="토스 스크린샷 업로드"
-                    disabled={importBusy || !canEditRecords}
-                  />
-                  {tossFiles.length > 0 ? (
-                    <ul className="upload-file-list">
-                      {tossFiles.map((file) => (
-                        <li key={`${file.name}-${file.size}`}>{file.name}</li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <div className="upload-placeholder">{tossUploadPlaceholder}</div>
-                  )}
-                </div>
-                <div className="inline import-actions">
-                  <button type="button" disabled={importBusy || !canEditRecords} onClick={() => doTossPreview()}>
-                    {tossLoadingMode === "preview" ? "추출 중..." : "검토 표 만들기"}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={importBusy || !canEditRecords || !tossPreview || tossIncludedCount === 0}
-                    onClick={() => doTossApply()}
-                  >
-                    {tossLoadingMode === "apply" ? "적용 중..." : "포함 행 적용"}
-                  </button>
-                </div>
-                {tossLoadingMode && (
-                  <div className="import-progress">토스 이미지를 처리 중입니다.</div>
-                )}
-                {tossPreview && (
-                  <section className="import-report toss-review">
-                    <div className="import-summary-grid">
-                      <div className="import-summary-item"><strong>이미지</strong><span>{fmt(tossPreview.summary?.image_count)}</span></div>
-                      <div className="import-summary-item"><strong>검토 행</strong><span>{fmt(tossRows.length)}</span></div>
-                      <div className="import-summary-item"><strong>포함 행</strong><span>{fmt(tossIncludedCount)}</span></div>
-                      <div className="import-summary-item"><strong>중복 후보</strong><span>{fmt(tossDuplicateCount)}</span></div>
-                      <div className="import-summary-item"><strong>제외된 후보</strong><span>{fmt(tossExcludedCandidates.length)}</span></div>
-                    </div>
-                    <div className="toss-review-table-wrap">
-                      <table className="toss-review-table">
-                        <thead>
-                          <tr>
-                            <th>포함</th>
-                            <th>일자</th>
-                            <th>시간</th>
-                            <th>항목명</th>
-                            <th>금액</th>
-                            <th>잔액</th>
-                            <th>유형</th>
-                            <th>카테고리</th>
-                            <th>상태</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {tossRows.length === 0 && (
-                            <tr>
-                              <td colSpan={9} className="empty-state">검토할 행이 없습니다.</td>
-                            </tr>
-                          )}
-                          {tossRows.map((row) => {
-                            const recommendation = row.category_recommendation;
-                            const selectedCategory = categoryById.get(String(row.category_id || ""));
-                            const rowCategories = categories.filter((item) => item.flow_type === row.flow_type);
-                            return (
-                              <tr key={row.row_id} className={!row.included ? "toss-row-excluded" : ""}>
-                                <td data-label="포함">
-                                  <input
-                                    type="checkbox"
-                                    checked={Boolean(row.included)}
-                                    onChange={(e) => updateTossPreviewRow(row.row_id, { included: e.target.checked })}
-                                    disabled={importBusy || !canEditRecords}
-                                  />
-                                </td>
-                                <td data-label="일자">
-                                  <input
-                                    type="date"
-                                    value={row.occurred_on || ""}
-                                    onChange={(e) => updateTossPreviewRow(row.row_id, { occurred_on: e.target.value })}
-                                    disabled={importBusy || !canEditRecords}
-                                  />
-                                </td>
-                                <td data-label="시간">
-                                  <input
-                                    value={row.time || ""}
-                                    onChange={(e) => updateTossPreviewRow(row.row_id, { time: e.target.value })}
-                                    disabled={importBusy || !canEditRecords}
-                                  />
-                                </td>
-                                <td data-label="항목명">
-                                  <input
-                                    value={row.item_name || ""}
-                                    onChange={(e) => updateTossPreviewRow(row.row_id, { item_name: e.target.value })}
-                                    disabled={importBusy || !canEditRecords}
-                                  />
-                                  <input
-                                    className="toss-detail-input"
-                                    value={row.detail || ""}
-                                    onChange={(e) => updateTossPreviewRow(row.row_id, { detail: e.target.value })}
-                                    disabled={importBusy || !canEditRecords}
-                                    placeholder="상세"
-                                  />
-                                </td>
-                                <td data-label="금액">
-                                  <input
-                                    inputMode="decimal"
-                                    value={row.amount ?? ""}
-                                    onChange={(e) => updateTossPreviewRow(row.row_id, { amount: e.target.value })}
-                                    disabled={importBusy || !canEditRecords}
-                                  />
-                                </td>
-                                <td data-label="잔액">
-                                  <input
-                                    inputMode="decimal"
-                                    value={row.balance ?? ""}
-                                    onChange={(e) => updateTossPreviewRow(row.row_id, { balance: e.target.value })}
-                                    disabled={importBusy || !canEditRecords}
-                                  />
-                                </td>
-                                <td data-label="유형">
-                                  <select
-                                    value={row.flow_type || "expense"}
-                                    onChange={(e) => updateTossPreviewRow(row.row_id, { flow_type: e.target.value, category_id: "" })}
-                                    disabled={importBusy || !canEditRecords}
-                                  >
-                                    {FLOW_TYPE_OPTIONS.map((option) => (
-                                      <option key={option.value} value={option.value}>{option.label}</option>
-                                    ))}
-                                  </select>
-                                </td>
-                                <td data-label="카테고리" className="toss-category-cell">
-                                  <select
-                                    value={row.category_id || ""}
-                                    onChange={(e) => updateTossPreviewRow(row.row_id, { category_id: e.target.value })}
-                                    disabled={importBusy || !canEditRecords}
-                                  >
-                                    <option value="">미분류/검토 필요</option>
-                                    {rowCategories.map((category) => (
-                                      <option key={category.id} value={category.id}>{toCategoryPairLabel(category)}</option>
-                                    ))}
-                                  </select>
-                                  {selectedCategory ? (
-                                    <span className="toss-category-hint">선택: {toCategoryPairLabel(selectedCategory)}</span>
-                                  ) : recommendation ? (
-                                    <div className="toss-category-recommendation">
-                                      <span>추천 카테고리: {recommendation.suggested_major} / {recommendation.suggested_minor}</span>
-                                      <button
-                                        type="button"
-                                        className="secondary"
-                                        onClick={() => startCategoryDraftFromTossRecommendation(row)}
-                                        disabled={importBusy || !canEditRecords}
-                                      >
-                                        생성 초안
-                                      </button>
-                                    </div>
-                                  ) : (
-                                    <span className="toss-category-hint">미분류/검토 필요</span>
-                                  )}
-                                </td>
-                                <td data-label="상태">
-                                  {row.duplicate_group_id ? (
-                                    <span className="status-pill status-pill-pending">중복 후보</span>
-                                  ) : row.included ? (
-                                    <span className="status-pill status-pill-accepted">적용 예정</span>
-                                  ) : (
-                                    <span className="status-pill status-pill-revoked">적용 제외</span>
-                                  )}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                    {tossExcludedCandidates.length > 0 && (
-                      <section className="toss-excluded-panel">
-                        <h3>제외된 후보 / 인식 불가</h3>
-                        <ul className="compact-list">
-                          {tossExcludedCandidates.map((candidate, index) => (
-                            <li key={`${candidate.source_image_index}-${candidate.item_name}-${index}`}>
-                              <strong>{candidate.item_name || "인식 불가"}</strong>
-                              <span> {candidate.exclusion_reason}</span>
-                              {candidate.raw_text ? <pre>{candidate.raw_text}</pre> : null}
-                            </li>
-                          ))}
-                        </ul>
-                      </section>
-                    )}
-                    {tossApplyReport && (
-                      <div className="import-summary-grid">
-                        <div className="import-summary-item"><strong>추가된 거래</strong><span>{fmt(tossApplyReport.applied_transactions)}</span></div>
-                        <div className="import-summary-item"><strong>건너뛴 행</strong><span>{fmt(tossApplyReport.skipped_transactions)}</span></div>
-                      </div>
-                    )}
-                  </section>
-                )}
-              </section>
-            )}
-              </section>
-            <section className="import-mode-panel import-package-panel">
-              <div className="secondary-table-heading import-report-heading">
-                <div className="work-surface-title">
-                  <span className="surface-eyebrow">환경 이식 패키지</span>
-                  <h3 id="package-import-heading">데이터 추출/업로드</h3>
-                </div>
-                <p className="table-summary">{migrationStateLabel}</p>
-              </div>
-              <p className="table-summary">
-                계정 자체는 이식하지 않습니다. 대상 환경에서 로그인한 현재 가계에 거래/보유/카테고리와 가계 설정을 반영합니다.
-              </p>
-              <div className="inline import-action-row import-package-export-row">
-                <button
-                  type="button"
-                  disabled={migrationExporting || Boolean(migrationLoadingMode) || !canEditRecords}
-                  onClick={exportMigrationPackage}
-                >
-                  {migrationExporting ? "패키지 추출 중..." : "현재 가계 패키지 추출"}
-                </button>
-              </div>
-              <div
-                className="file-drop-area"
-                onClick={() => {
-                  if (!migrationLoadingMode && !migrationExporting && canEditRecords) {
-                    migrationPackageInputRef.current?.click();
-                  }
-                }}
-              >
-                <input
-                  ref={migrationPackageInputRef}
-                  type="file"
-                  accept=".zip"
-                  onChange={(e) => setMigrationPackageFile(e.target.files?.[0] || null)}
-                  className="visually-hidden-file-input"
-                  aria-label="이식 패키지 업로드"
-                  disabled={Boolean(migrationLoadingMode) || migrationExporting || !canEditRecords}
-                />
-                {migrationPackageFile ? (
-                  <div className="upload-file-name">선택된 패키지: {migrationPackageFile.name}</div>
-                ) : (
-                  <div className="upload-placeholder">{migrationPackageUploadPlaceholder}</div>
-                )}
-              </div>
-              {packageMissingFile && (
-                <p id="package-import-file-required" className="table-summary import-action-help">
-                  패키지 파일(.zip)을 선택하면 미리 검증과 적용을 사용할 수 있습니다.
-                </p>
-              )}
-              <div className="inline import-action-row">
-                <button
-                  type="button"
-                  disabled={packageActionsDisabled}
-                  aria-describedby={packageMissingFile ? "package-import-file-required" : undefined}
-                  onClick={() => doMigrationImport("dry_run")}
-                >
-                  {migrationLoadingMode === "dry_run" ? "미리 검증 중..." : "패키지 미리 검증"}
-                </button>
-                <button
-                  type="button"
-                  disabled={packageActionsDisabled}
-                  aria-describedby={packageMissingFile ? "package-import-file-required" : undefined}
-                  onClick={() => doMigrationImport("apply")}
-                >
-                  {migrationLoadingMode === "apply" ? "적용 중..." : "패키지 적용"}
-                </button>
-              </div>
-                {migrationLoadingMode && (
-                  <div className="import-progress" role="status" aria-live="polite">
-                    이식 패키지를 검증/적용하는 중입니다. 완료까지 잠시만 기다려 주세요.
-                  </div>
-                )}
-              {migrationReport && (
-                <>
-                  <div className="import-summary-grid">
-                    <div className="import-summary-item"><strong>패키지</strong><span>{displayImportFileName(migrationReport.package_name)}</span></div>
-                    <div className="import-summary-item"><strong>원본 환경</strong><span>{migrationReport.source_env || "-"}</span></div>
-                    <div className="import-summary-item"><strong>원본 가계</strong><span>{migrationReport.source_household_name || "-"}</span></div>
-                    <div className="import-summary-item"><strong>카테고리 행</strong><span>{fmt(migrationReport.category_rows)}</span></div>
-                    <div className="import-summary-item"><strong>거래 행</strong><span>{fmt(migrationReport.transaction_rows)}</span></div>
-                    <div className="import-summary-item"><strong>보유 행</strong><span>{fmt(migrationReport.holding_rows)}</span></div>
-                    <div className="import-summary-item"><strong>적용 카테고리</strong><span>{fmt(migrationReport.applied_categories)}</span></div>
-                    <div className="import-summary-item"><strong>적용 거래</strong><span>{fmt(migrationReport.applied_transactions)}</span></div>
-                    <div className="import-summary-item"><strong>적용 보유</strong><span>{fmt(migrationReport.applied_holdings)}</span></div>
-                  </div>
-                  <section>
-                    <h3>이슈 ({fmt((migrationReport.issues || []).length)})</h3>
-                    {migrationIssuePreview.length === 0 ? (
-                      <p className="table-summary">검출된 이슈가 없습니다.</p>
-                    ) : (
-                      <ul className="compact-list">
-                        {migrationIssuePreview.map((issue, index) => (
-                          <li key={`${issue.code}-${issue.sheet || "none"}-${issue.row || 0}-${index}`}>
-                            [{issue.severity}] {issue.message}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                    {(migrationReport.issues || []).length > migrationIssuePreview.length && (
-                      <p className="table-summary">+{(migrationReport.issues || []).length - migrationIssuePreview.length}건 더 있음</p>
-                    )}
-                  </section>
-                  <details className="report-technical">
-                    <summary>기술 상세 보기</summary>
-                    <pre className="report technical-report-json">{formatTechnicalReportJson(migrationReport)}</pre>
-                  </details>
-                </>
-              )}
-            </section>
-            </div>
-          </article>
-        </section>
-      )}
+      {tab === "import" && <ImportPage {...importPageProps} />}
       </div>
       {confirmDialog.open && (
         <div
