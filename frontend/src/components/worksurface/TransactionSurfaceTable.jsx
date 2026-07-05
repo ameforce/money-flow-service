@@ -61,6 +61,8 @@ function isInteractiveRowTarget(target) {
 
 const ROW_SWEEP_THRESHOLD_PX = 7;
 const TOUCH_VERTICAL_SCROLL_RATIO = 1.18;
+const ROW_SINGLE_CLICK_ACTION_DELAY_MS = 180;
+const ROW_SINGLE_CLICK_ACTION_RESTORE_WINDOW_MS = 900;
 const ROW_CLICK_SUPPRESS_MS = 360;
 const ROW_SWEEP_AUTO_SCROLL_EDGE_PX = 86;
 const ROW_SWEEP_AUTO_SCROLL_MAX_PX = 24;
@@ -93,6 +95,7 @@ export function TransactionSurfaceTable({
   toggleTransactionSelection,
   selectTransactionRows,
   setTransactionRowsSelected,
+  setTransactionRowsExpanded,
   txInlineEdit,
   ownerOptionsWithFallback,
   ownerSelectValue,
@@ -103,6 +106,7 @@ export function TransactionSurfaceTable({
   txInlineCategoryMinorOptions,
   setTxInlineEdit,
   createTxInlineCategory,
+  openTransactionInlineEditor,
   categoryById,
   renderCategoryCell,
   FLOW_TYPE_LABELS,
@@ -143,7 +147,11 @@ export function TransactionSurfaceTable({
   const rowPointerGestureRef = useRef(null);
   const suppressNextRowClickRef = useRef(false);
   const rowClickSuppressTimerRef = useRef(null);
+  const rowSingleClickActionRef = useRef(null);
+  const rowSingleClickActionTimerRef = useRef(null);
+  const rowSingleClickActionExpireTimerRef = useRef(null);
   const rowSweepAutoScrollFrameRef = useRef(0);
+  const transactionRowIdsRef = useRef(new Set());
 
   useLayoutEffect(() => {
     if (typeof window === "undefined") {
@@ -215,8 +223,33 @@ export function TransactionSurfaceTable({
       if (rowClickSuppressTimerRef.current) {
         window.clearTimeout(rowClickSuppressTimerRef.current);
       }
+      if (rowSingleClickActionTimerRef.current) {
+        window.clearTimeout(rowSingleClickActionTimerRef.current);
+      }
+      if (rowSingleClickActionExpireTimerRef.current) {
+        window.clearTimeout(rowSingleClickActionExpireTimerRef.current);
+      }
+      rowSingleClickActionRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    const nextRowIds = new Set(sortedTransactions.map((item) => item?.id).filter(Boolean));
+    transactionRowIdsRef.current = nextRowIds;
+    const pendingTransactionId = rowSingleClickActionRef.current?.transactionId;
+    if (!pendingTransactionId || nextRowIds.has(pendingTransactionId)) {
+      return;
+    }
+    if (rowSingleClickActionTimerRef.current && typeof window !== "undefined") {
+      window.clearTimeout(rowSingleClickActionTimerRef.current);
+    }
+    if (rowSingleClickActionExpireTimerRef.current && typeof window !== "undefined") {
+      window.clearTimeout(rowSingleClickActionExpireTimerRef.current);
+    }
+    rowSingleClickActionTimerRef.current = null;
+    rowSingleClickActionExpireTimerRef.current = null;
+    rowSingleClickActionRef.current = null;
+  }, [sortedTransactions]);
 
   const findTransactionIdAtPoint = (clientX, clientY, fallbackId = "") => {
     if (typeof document === "undefined") {
@@ -408,6 +441,95 @@ export function TransactionSurfaceTable({
       return true;
     }
     return false;
+  };
+
+  const clearPendingRowClickAction = ({ preserveFiredRecord = false } = {}) => {
+    if (rowSingleClickActionTimerRef.current && typeof window !== "undefined") {
+      window.clearTimeout(rowSingleClickActionTimerRef.current);
+    }
+    rowSingleClickActionTimerRef.current = null;
+    if (!preserveFiredRecord) {
+      if (rowSingleClickActionExpireTimerRef.current && typeof window !== "undefined") {
+        window.clearTimeout(rowSingleClickActionExpireTimerRef.current);
+      }
+      rowSingleClickActionExpireTimerRef.current = null;
+      rowSingleClickActionRef.current = null;
+    }
+  };
+
+  const runRowClickAction = (transactionId) => {
+    toggleTransactionSelection(transactionId);
+    toggleExpandedTransactionRow(transactionId);
+  };
+
+  const expireFiredRowClickAction = (transactionId) => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    if (rowSingleClickActionExpireTimerRef.current) {
+      window.clearTimeout(rowSingleClickActionExpireTimerRef.current);
+    }
+    rowSingleClickActionExpireTimerRef.current = window.setTimeout(() => {
+      if (rowSingleClickActionRef.current?.transactionId === transactionId) {
+        rowSingleClickActionRef.current = null;
+      }
+      rowSingleClickActionExpireTimerRef.current = null;
+    }, ROW_SINGLE_CLICK_ACTION_RESTORE_WINDOW_MS);
+  };
+
+  const restoreFiredRowClickAction = (transactionId) => {
+    const action = rowSingleClickActionRef.current;
+    if (!action || action.transactionId !== transactionId || !action.fired) {
+      clearPendingRowClickAction();
+      return;
+    }
+    if (typeof setTransactionRowsSelected === "function") {
+      setTransactionRowsSelected([transactionId], action.wasSelected);
+    } else if (selectedTransactionIds.has(transactionId) !== action.wasSelected) {
+      toggleTransactionSelection(transactionId);
+    }
+    if (typeof setTransactionRowsExpanded === "function") {
+      setTransactionRowsExpanded([transactionId], action.wasExpanded);
+    } else if (expandedTransactionRows.has(transactionId) !== action.wasExpanded) {
+      toggleExpandedTransactionRow(transactionId);
+    }
+    clearPendingRowClickAction();
+  };
+
+  const hasFiredRowClickAction = (transactionId) => {
+    const action = rowSingleClickActionRef.current;
+    return Boolean(action && action.transactionId === transactionId && action.fired);
+  };
+
+  const scheduleRowClickAction = (transactionId, initialState) => {
+    clearPendingRowClickAction();
+    rowSingleClickActionRef.current = {
+      transactionId,
+      wasSelected: Boolean(initialState?.selected),
+      wasExpanded: Boolean(initialState?.expanded),
+      fired: false,
+    };
+    if (typeof window === "undefined") {
+      runRowClickAction(transactionId);
+      rowSingleClickActionRef.current = null;
+      return;
+    }
+    rowSingleClickActionTimerRef.current = window.setTimeout(() => {
+      if (!transactionRowIdsRef.current.has(transactionId)) {
+        rowSingleClickActionRef.current = null;
+        rowSingleClickActionTimerRef.current = null;
+        return;
+      }
+      if (rowSingleClickActionRef.current?.transactionId === transactionId) {
+        rowSingleClickActionRef.current = {
+          ...rowSingleClickActionRef.current,
+          fired: true,
+        };
+      }
+      rowSingleClickActionTimerRef.current = null;
+      runRowClickAction(transactionId);
+      expireFiredRowClickAction(transactionId);
+    }, ROW_SINGLE_CLICK_ACTION_DELAY_MS);
   };
 
   const safeTxListFilter = txListFilter || {
@@ -770,12 +892,44 @@ export function TransactionSurfaceTable({
             const shouldRenderDateHeader =
               historyMode && String(previousItem?.occurred_on || "") !== String(item.occurred_on || "");
             const handleRowClick = (event) => {
-              if (isEditing || isInteractiveRowTarget(event.target) || shouldSuppressRowClick()) {
+              if (isEditing) {
                 return;
               }
-              toggleTransactionSelection(item.id);
-              toggleExpandedTransactionRow(item.id);
+              if (isInteractiveRowTarget(event.target) || shouldSuppressRowClick()) {
+                clearPendingRowClickAction();
+                return;
+              }
+              if (event.detail > 1) {
+                clearPendingRowClickAction({ preserveFiredRecord: hasFiredRowClickAction(item.id) });
+                return;
+              }
+              scheduleRowClickAction(item.id, {
+                selected: selectedTransactionIds.has(item.id),
+                expanded: isExpanded,
+              });
             };
+            const handleRowDoubleClick = (event) => {
+              if (isEditing || isInteractiveRowTarget(event.target) || typeof openTransactionInlineEditor !== "function") {
+                return;
+              }
+              event.preventDefault();
+              event.stopPropagation();
+              clearPendingRowClickAction({ preserveFiredRecord: true });
+              restoreFiredRowClickAction(item.id);
+              openTransactionInlineEditor(item);
+            };
+            const handleRowKeyDown = (event) => {
+              if (isEditing || isInteractiveRowTarget(event.target) || typeof openTransactionInlineEditor !== "function") {
+                return;
+              }
+              if (event.key !== "Enter" && event.key !== "F2") {
+                return;
+              }
+              event.preventDefault();
+              clearPendingRowClickAction();
+              openTransactionInlineEditor(item);
+            };
+            const rowEditShortcutLabel = canEditRecords ? "Enter 또는 F2로 편집" : "편집 권한 없음";
             const updateInlineFlowType = (nextFlowType) => {
               if (!editForm) {
                 return;
@@ -1019,12 +1173,17 @@ export function TransactionSurfaceTable({
                   data-transaction-id={item.id}
                   data-transaction-date={item.occurred_on}
                   aria-selected={selectedTransactionIds.has(item.id) ? "true" : "false"}
+                  aria-label={`거래 ${item.occurred_on} ${item.memo || "-"} ${amountLabel}. ${rowEditShortcutLabel}`}
+                  aria-keyshortcuts={canEditRecords ? "Enter F2" : undefined}
+                  tabIndex={isEditing ? -1 : 0}
                   onPointerDown={(event) => startRowPointerGesture(event, item.id, isEditing)}
                   onPointerMove={(event) => updateRowPointerGesture(event, item.id)}
                   onPointerEnter={(event) => updateRowPointerGesture(event, item.id)}
                   onPointerUp={finishRowPointerGesture}
                   onPointerCancel={finishRowPointerGesture}
                   onClick={handleRowClick}
+                  onDoubleClick={handleRowDoubleClick}
+                  onKeyDown={handleRowKeyDown}
                   style={{
                     "--transaction-row-bg": rowAccent,
                     "--transaction-row-accent": rowAccent,
@@ -1042,7 +1201,10 @@ export function TransactionSurfaceTable({
                       type="checkbox"
                       aria-label={`${item.occurred_on} 거래 선택`}
                       checked={selectedTransactionIds.has(item.id)}
-                      onClick={(event) => event.stopPropagation()}
+                      onClick={(event) => {
+                        clearPendingRowClickAction();
+                        event.stopPropagation();
+                      }}
                       onChange={() => toggleTransactionSelection(item.id)}
                     />
                   </td>
@@ -1105,6 +1267,7 @@ export function TransactionSurfaceTable({
                         aria-label={isExpanded ? "거래 세부 접기" : "거래 세부 보기"}
                         aria-expanded={isExpanded ? "true" : "false"}
                         onClick={(event) => {
+                          clearPendingRowClickAction();
                           event.stopPropagation();
                           toggleExpandedTransactionRow(item.id);
                         }}
