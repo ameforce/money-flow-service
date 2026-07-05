@@ -1626,7 +1626,7 @@ if curl -fsS "$TARGET_URL/healthz"; then
 done
             '''
             if ((env.DEPLOY_TARGET_ENV ?: '').trim() == 'prod') {
-              echo '[deploy-e2e] prod target skips dev-only seeded-account Playwright smoke; run scripts/prod_email_smoke.py --verification-mode browser for external mailbox proof.'
+              echo '[deploy-e2e] prod target skips dev-only seeded-account Playwright smoke; prod email gate is SMTP route validation plus deployed health/version checks.'
             } else {
               sh '''
 set -eu
