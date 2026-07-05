@@ -1,0 +1,367 @@
+✖ client version helper reports update_available when server version differs (1.5729ms)
+✖ client version helper stays current when server version matches bundled version (0.1903ms)
+✖ App wires client version checks to endpoint, focus, visibility, interval, and topbar CTA (1.2399ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 0
+ℹ fail 3
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 74.7165
+
+✖ failing tests:
+
+test at frontend\src\clientVersion.test.mjs:8:1
+✖ client version helper reports update_available when server version differs (1.5729ms)
+  AssertionError [ERR_ASSERTION]: clientVersion.js should exist
+
+  false !== true
+
+      at TestContext.<anonymous> (file:///C:/Users/enmso/.codex/worktrees/4e5e/money-flow-service/.omo/teams/team-358f7305/worktrees/VER/frontend/src/clientVersion.test.mjs:9:10)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1201:25)
+      at Test.start (node:internal/test_runner/test:1096:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:385:17) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at frontend\src\clientVersion.test.mjs:24:1
+✖ client version helper stays current when server version matches bundled version (0.1903ms)
+  AssertionError [ERR_ASSERTION]: clientVersion.js should exist
+
+  false !== true
+
+      at TestContext.<anonymous> (file:///C:/Users/enmso/.codex/worktrees/4e5e/money-flow-service/.omo/teams/team-358f7305/worktrees/VER/frontend/src/clientVersion.test.mjs:25:10)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1201:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:831:18)
+      at Test.postRun (node:internal/test_runner/test:1330:19)
+      at Test.run (node:internal/test_runner/test:1258:12)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at frontend\src\clientVersion.test.mjs:40:1
+✖ App wires client version checks to endpoint, focus, visibility, interval, and topbar CTA (1.2399ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /client-version/u. Input:
+
+  'import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, Fragment } from "react";\n' +
+    'import {\n' +
+    '  ArcElement,\n' +
+    '  CategoryScale,\n' +
+    '  Chart as ChartJS,\n' +
+    '  Filler,\n' +
+    '  Legend,\n' +
+    '  LineElement,\n' +
+    '  LinearScale,\n' +
+    '  PointElement,\n' +
+    '  Tooltip,\n' +
+    '} from "chart.js";\n' +
+    'import { Doughnut, Line } from "react-chartjs-2";\n' +
+    'import { IsoDateInput } from "./components/IsoDateInput";\n' +
+    'import { ChartBreakdownList, FlowTrendValueTable } from "./components/worksurface/ChartAccessibleSummary";\n' +
+    'import { HoldingSurfaceTable } from "./components/worksurface/HoldingSurfaceTable";\n' +
+    'import { TransactionCategoryQuickPicker } from "./components/worksurface/TransactionCategoryQuickPicker";\n' +
+    'import { TransactionSurfaceTable } from "./components/worksurface/TransactionSurfaceTable";\n' +
+    'import { extractVisibleInitial, resolveSemanticColor, withAlpha } from "./components/worksurface/colorSemantics";\n' +
+    'import { getWorkSurfaceMobilePriority } from "./components/worksurface/fieldPriority";\n' +
+    'import "./App.css";\n' +
+    'import packageJson from "../package.json";\n' +
+    'import {\n' +
+    '  normalizeFileArray,\n' +
+    '  patchTossRowWithInference,\n' +
+    '  recomputeTossDuplicateRows,\n' +
+    '} from "./tossImportUtils.js";\n' +
+    'import { displayImportFileName, formatTechnicalReportJson } from "./importReportUtils.js";\n' +
+    '\n' +
+    'ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, ArcElement, Tooltip, Legend, Filler);\n' +
+    '\n' +
+    'const APP_VERSION_RAW = String(import.meta.env.VITE_APP_VERSION || packageJson.version || "0.0.0").trim();\n' +
+    'const APP_VERSION = (APP_VERSION_RAW.startsWith("v") ? APP_VERSION_RAW.substring(1) : APP_VERSION_RAW) || "0.0.0";\n' +
+    'const COPYRIGHT_TEXT = `© ENM Software v${APP_VERSION}`;\n' +
+    '\n' +
+    'const API_PREFIX = "/api/v1";\n' +
+    'const SAVED_EMAIL_KEY = "money-flow-saved-email";\n' +
+    'const ACTIVE_HOUSEHOLD_KEY = "money-flow-active-household-id";\n' +
+    'const ACTIVE_TAB_KEY = "money-flow-active-tab";\n' +
+    'const COOKIE_AUTH_SENTINEL = "__cookie_auth__";\n' +
+    'const DEFAULT_CSRF_COOKIE_NAME = "mf_csrf_token";\n' +
+    'const DEFAULT_CSRF_HEADER_NAME = "x-csrf-token";\n' +
+    'const DEFAULT_HOUSEHOLD_HEADER_NAME = "x-household-id";\n' +
+    'const DEBUG_TOKEN_OPT_IN_HEADER = "x-debug-token-opt-in";\n' +
+    'const KRW_TRANSACTION_INTEGER_AMOUNT_MESSAGE = "원화 금액은 소수 없이 정수로 입력해 주세요.";\n' +
+    '\n' +
+    'const DEBUG_TOKEN_OPT_IN =\n' +
+    '  String(\n' +
+    '    import.meta.env.VITE_DEBUG_TOKEN_OPT_IN ??\n' +
+    '    (import.meta.env.DEV || import.meta.env.MODE === "test" ? "true" : "")\n' +
+    '  )\n' +
+    '    .trim()\n' +
+    '    .toLowerCase() === "true";\n' +
+    'let csrfCookieName = DEFAULT_CSRF_COOKIE_NAME;\n' +
+    'let csrfHeaderName = DEFAULT_CSRF_HEADER_NAME;\n' +
+    'let householdHeaderName = DEFAULT_HOUSEHOLD_HEADER_NAME;\n' +
+    'const TAB_LABELS = {\n' +
+    '  dashboard: "대시보드",\n' +
+    '  transactions: "거래",\n' +
+    '  holdings: "자산",\n' +
+    '  settings: "설정",\n' +
+    '  collaboration: "협업",\n' +
+    '  import: "데이터 가져오기",\n' +
+    '};\n' +
+    'const TAB_NAV_META = {\n' +
+    '  dashboard: { helper: "요약", mobileLabel: "요약" },\n' +
+    '  transactions: { helper: "흐름", mobileLabel: "거래" },\n' +
+    '  holdings: { helper: "자산", mobileLabel: "자산" },\n' +
+    '  collaboration: { helper: "공유", mobileLabel: "협업" },\n' +
+    '  import: { helper: "가져오기", mobileLabel: "가져\\n오기" },\n' +
+    '  settings: { helper: "설정", mobileLabel: "설정" },\n' +
+    '};\n' +
+    'const TAB_GROUPS = {\n' +
+    '  left: ["dashboard", "transactions", "holdings"],\n' +
+    '  right: ["collaboration", "import", "settings"],\n' +
+    '};\n' +
+    'const TAB_IDS = new Set([...TAB_GROUPS.left, ...TAB_GROUPS.right]);\n' +
+    '\n' +
+    'function TabNavIcon({ tabId }) {\n' +
+    '  const commonProps = {\n' +
+    '    viewBox: "0 0 24 24",\n' +
+    '    fill: "none",\n' +
+    '    stroke: "currentColor",\n' +
+    '    strokeWidth: "1.9",\n' +
+    '    strokeLinecap: "round",\n' +
+    '    strokeLinejoin: "round",\n' +
+    '    focusable: "false",\n' +
+    '  };\n' +
+    '  if (tabId === "transactions") {\n' +
+    '    return (\n' +
+    '      <svg {...commonProps}>\n' +
+    '        <path d="M5 7h14" />\n' +
+    '        <path d="m15 3 4 4-4 4" />\n' +
+    '        <path d="M19 17H5" />\n' +
+    '        <path d="m9 13-4 4 4 4" />\n' +
+    '      </svg>\n' +
+    '    );\n' +
+    '  }\n' +
+    '  if (tabId === "holdings") {\n' +
+    '    return (\n' +
+    '      <svg {...commonProps}>\n' +
+    '        <path d="M12 3 4 8l8 5 8-5-8-5Z" />\n' +
+    '        <path d="m4 13 8 5 8-5" />\n' +
+    '      </svg>\n' +
+    '    );\n' +
+    '  }\n' +
+    '  if (tabId === "collaboration") {\n' +
+    '    return (\n' +
+    '      <svg {...commonProps}>\n' +
+    '        <path d="M8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" />\n' +
+    '        <path d="M16 12a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z" />\n' +
+    '        <path d="M3.5 20a4.5 4.5 0 0 1 9 0" />\n' +
+    '        <path d="M13.5 19a3.5 3.5 0 0 1 7 0" />\n' +
+    '      </svg>\n' +
+    '    );\n' +
+    '  }\n' +
+    '  if (tabId === "import") {\n' +
+    '    return (\n' +
+    '      <svg {...commonProps}>\n' +
+    '        <path d="M12 4v10" />\n' +
+    '        <path d="m8 10 4 4 4-4" />\n' +
+    '        <path d="M5 18h14" />\n' +
+    '      </svg>\n' +
+    '    );\n' +
+    '  }\n' +
+    '  if (tabId === "settings") {\n' +
+    '    return (\n' +
+    '      <svg {...commonProps}>\n' +
+    '        <path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z" />\n' +
+    '        <path d="M12 3v2" />\n' +
+    '        <path d="M12 19v2" />\n' +
+    '        <path d="M4.2 7.5 5.9 8.5" />\n' +
+    '        <path d="m18.1 15.5 1.7 1" />\n' +
+    '        <path d="m4.2 16.5 1.7-1" />\n' +
+    '        <path d="m18.1 8.5 1.7-1" />\n' +
+    '      </svg>\n' +
+    '    );\n' +
+    '  }\n' +
+    '  return (\n' +
+    '    <svg {...commonProps}>\n' +
+    '      <path d="M4 11.5 12 5l8 6.5" />\n' +
+    '      <path d="M6.5 10.5V19h11v-8.5" />\n' +
+    '      <path d="M10 19v-5h4v5" />\n' +
+    '    </svg>\n' +
+    '  );\n' +
+    '}\n' +
+    'const DISPLAY_NAME_MODE_OPTIONS = [\n' +
+    '  { value: "real_name", label: "본명 우선" },\n' +
+    '  { value: "nickname", label: "닉네임 우선" },\n' +
+    '];\n' +
+    'const DEFAULT_TRANSACTION_ROW_COLORS = {\n' +
+    '  income: "#16A34A",\n' +
+    '  expense: "#E11D48",\n' +
+    '  investment: "#4F46E5",\n' +
+    '  transfer: "#D97706",\n' +
+    '};\n' +
+    'const DEFAULT_HOLDING_TYPES = [\n' +
+    '  { key: "cash", label: "현금성", asset_type: "cash", tracked: false, show_average_cost: true, show_gain_loss: false },\n' +
+    '  { key: "stock", label: "주식", asset_type: "stock", tracked: true, show_average_cost: true, show_gain_loss: true },\n' +
+    '  { key: "crypto", label: "가상자산", asset_type: "crypto", tracked: true, show_average_cost: true, show_gain_loss: true },\n' +
+    '  { key: "pension", label: "연금", asset_type: "pension", tracked: false, show_average_cost: true, show_gain_loss: false },\n' +
+    '  { key: "real_estate", label: "부동산", asset_type: "real_estate", tracked: false, show_average_cost: true, show_gain_loss: false },\n' +
+    '  { key: "other", label: "기타", asset_type: "other", tracked: false, show_average_cost: true, show_gain_loss: false },\n' +
+    '];\n' +
+    'const DEFAULT_HOLDING_SETTINGS = {\n' +
+    '  types: DEFAULT_HOLDING_TYPES,\n' +
+    '  owner_colors: {},\n' +
+    '  category_colors: {},\n' +
+    '  type_colors: {},\n' +
+    '  category_order: [],\n' +
+    '  column_widths: {},\n' +
+    '};\n' +
+    'const ONBOARDING_SEEN_KEY_PREFIX = "money-flow-onboarding-seen";\n' +
+    'const LEGACY_OWNER_PREFIX = "__legacy_owner__:";\n' +
+    'const FLOW_TYPE_OPTIONS = [\n' +
+    '  { value: "income", label: "수입" },\n' +
+    '  { value: "expense", label: "지출" },\n' +
+    '  { value: "investment", label: "투자" },\n' +
+    '  { value: "transfer", label: "이체" },\n' +
+    '];\n' +
+    'const FLOW_TYPE_LABELS = FLOW_TYPE_OPTIONS.reduce((acc, item) => ({ ...acc, [item.value]: item.label }), {});\n' +
+    'const PORTFOLIO_VIEW_OPTIONS = [\n' +
+    '  { value: "holding_type", label: "자산 유형" },\n' +
+    '  { value: "transaction_flow", label: "거래 유형" },\n' +
+    '];\n' +
+    'const PORTFOLIO_VIEW_LABELS = PORTFOLIO_VIEW_OPTIONS.reduce((acc, item) => ({ ...acc, [item.value]: item.label }), {});\n' +
+    'const ASSET_TYPE_OPTIONS = [\n' +
+    '  { value: "cash", label: "현금성" },\n' +
+    '  { value: "stock", label: "주식" },\n' +
+    '  { value: "crypto", label: "가상자산" },\n' +
+    '  { value: "pension", label: "연금" },\n' +
+    '  { value: "real_estate", label: "부동산" },\n' +
+    '  { value: "other", label: "기타" },\n' +
+    '];\n' +
+    'const IMPORT_MODE_LABELS = {\n' +
+    '  dry_run: "미리 검증",\n' +
+    '  apply: "적용",\n' +
+    '};\n' +
+    'const IMPORT_SOURCE_MODES = [\n' +
+    '  { value: "workbook", label: "XLSX" },\n' +
+    '  { value: "toss", label: "토스 이미지" },\n' +
+    '];\n' +
+    'const TOSS_IMAGE_ACCEPT = ".png,.jpg,.jpeg,.webp";\n' +
+    'const AUTO_PRICE_REFRESH_INTERVAL_MS = 20_000;\n' +
+    'const AUTO_PRICE_REFRESH_COOLDOWN_MS = 30_000;\n' +
+    'const PRICE_REFRESH_POLL_INTERVAL_MS = 1_000;\n' +
+    'const PRICE_REFRESH_STATUS_FAILURE_LIMIT = 3;\n' +
+    'const WS_REFRESH_DEBOUNCE_MS = 300;\n' +
+    'const REALTIME_FALLBACK_SYNC_INTERVAL_MS = 45_000;\n' +
+    'const COLLAB_ACTIVE_SYNC_INTERVAL_MS = 8_000;\n' +
+    'const TRANSACTION_HISTORY_PAGE_LIMIT = 80;\n' +
+    'const TRANSACTION_HISTORY_AUTO_FILL_THRESHOLD = 12;\n' +
+    'const TRANSACTION_HISTORY_SENTINEL_ROOT_MARGIN = "360px 0px";\n' +
+    'const IMPORT_MISMATCH_PREVIEW_LIMIT = 20;\n' +
+    'const IMPORT_ISSUE_PREVIEW_LIMIT = 20;\n' +
+    'const IMPORT_REPORT_SORT_OPTIONS = [\n' +
+    '  { value: "row_asc", label: "행 오름차순" },\n' +
+    '  { value: "row_desc", label: "행 내림차순" },\n' +
+    '  { value: "severity", label: "심각도순" },\n' +
+    '  { value: "type", label: "유형순" },\n' +
+    '];\n' +
+    'const IMPORT_REPORT_SEVERITY_LABELS = {\n' +
+    '  error: "오류",\n' +
+    '  warning: "경고",\n' +
+    '  warn: "경고",\n' +
+    '  info: "안내",\n' +
+    '  informational: "안내",\n' +
+    '};\n' +
+    'const IMPORT_REPORT_SEVERITY_RANK = {\n' +
+    '  error: 0,\n' +
+    '  warning: 1,\n' +
+    '  warn: 1,\n' +
+    '  info: 2,\n' +
+    '  informational: 2,\n' +
+    '};\n' +
+    'const MOBILE_BREAKPOINT_PX = 820;\n' +
+    'const HOLDING_SUMMARY_SCROLL_OFFSET_PX = 96;\n' +
+    'const SOCKET_STATUS_LABELS = {\n' +
+    '  connected: "연결됨",\n' +
+    '  disconnected: "연결 끊김",\n' +
+    '  error: "연결 오류",\n' +
+    '  permission_lost: "권한 변경",\n' +
+    '};\n' +
+    'const FINANCIAL_SUMMARY_LABELS = [\n' +
+    '  "수입",\n' +
+    '  "지출",\n' +
+    '  "투자",\n' +
+    '  "순현금흐름",\n' +
+    '  "총자산(KRW)",\n' +
+    '  "평가손익(KRW)",\n' +
+    '];\n' +
+    'const PRICE_SUMMARY_LABELS = [\n' +
+    '  "시세 지연 건수",\n' +
+    '  "시세 갱신 상태",\n' +
+    '  "최근 시세 갱신 시각",\n' +
+    '];\n' +
+    'const HOLDING_LIST_TABS = [\n' +
+    '  { value: "all", label: "전체" },\n' +
+    '  { value: "stock", label: "주식" },\n' +
+    '  { value: "deposit", label: "예금" },\n' +
+    '  { value: "savings", label: "적금" },\n' +
+    '];\n' +
+    'const HOLDING_SORT_KEYS = [\n' +
+    '  { field: "display_order", label: "순서" },\n' +
+    '  { field: "name", label: "이름" },\n' +
+    '  { field: "owner_name", label: "보유자" },\n' +
+    '  { field: "type_key", label: "유형" },\n' +
+    '  { field: "category", label: "카테고리" },\n' +
+    '  { field: "quantity", label: "수량" },\n' +
+    '  { field: "average_cost", label: "평균단가" },\n' +
+    '  { field: "market_value_krw", label: "평가(KRW)" },\n' +
+    '  { field: "gain_loss_krw", label: "손익(KRW)" },\n' +
+    '  { field: "updated_at", label: "최종 수정일" },\n' +
+    '];\n' +
+    'const HOLDING_SORT_DEFAULT = { field: "display_order", direction: "asc" };\n' +
+    'const HOLDING_SORT_LABELS = HOLDING_SORT_KEYS.reduce((acc, item) => {\n' +
+    '  acc[item.field] = item.label;\n' +
+    '  return acc;\n' +
+    '}, {});\n' +
+    'const HOLDING_FORM_PRESETS = {\n' +
+    '  cash: { category: "현금성", currency: "KRW", quantity: "1" },\n' +
+    '  stock: { category: "주식", currency: "KRW", quantity: "1" },\n' +
+    '  crypto: { category: "가상자산", currency: "KRW", quantity: "1" },\n' +
+    '  pension: { category: "연금", currency: "KRW", quantity: "1" },\n' +
+    '  real_estate: { category: "부동산", currency: "KRW", quantity: "1" },\n' +
+    '  other: { category: "기타", currency: "KRW", quantity: "1" },\n' +
+    '};\n' +
+    'const COLLAB_ROLE_OPTIONS = [\n' +
+    '  { value: "viewer", label: "뷰어" },\n' +
+    '  { value: "editor", label: "편집자" },\n' +
+    '  { value: "co_owner", label: "공동 소유자" },\n' +
+    '  { value: "owner", label: "소유자" },\n' +
+    '];\n' +
+    'co'... 537270 more characters
+
+      at TestContext.<anonymous> (file:///C:/Users/enmso/.codex/worktrees/4e5e/money-flow-service/.omo/teams/team-358f7305/worktrees/VER/frontend/src/clientVersion.test.mjs:41:10)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1201:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:831:18)
+      at Test.postRun (node:internal/test_runner/test:1330:19)
+      at Test.run (node:internal/test_runner/test:1258:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, Fragment } from "react";\nimport {\n  ArcElement,\n  CategoryScale,\n  Chart as ChartJS,\n  Filler,\n  Legend,\n  LineElement,\n  LinearScale,\n  PointElement,\n  Tooltip,\n} from "chart.js";\nimport { Doughnut, Line } from "react-chartjs-2";\nimport { IsoDateInput } from "./components/IsoDateInput";\nimport { ChartBreakdownList, FlowTrendValueTable } from "./components/worksurface/ChartAccessibleSummary";\nimport { HoldingSurfaceTable } from "./components/worksurface/HoldingSurfaceTable";\nimport { TransactionCategoryQuickPicker } from "./components/worksurface/TransactionCategoryQuickPicker";\nimport { TransactionSurfaceTable } from "./components/worksurface/TransactionSurfaceTable";\nimport { extractVisibleInitial, resolveSemanticColor, withAlpha } from "./components/worksurface/colorSemantics";\nimport { getWorkSurfaceMobilePriority } from "./components/worksurface/fieldPriority";\nimport "./App.css";\nimport packageJson from "../package.json";\nimport {\n  normalizeFileArray,\n  patchTossRowWithInference,\n  recomputeTossDuplicateRows,\n} from "./tossImportUtils.js";\nimport { displayImportFileName, formatTechnicalReportJson } from "./importReportUtils.js";\n\nChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, ArcElement, Tooltip, Legend, Filler);\n\nconst APP_VERSION_RAW = String(import.meta.env.VITE_APP_VERSION || packageJson.version || "0.0.0").trim();\nconst APP_VERSION = (APP_VERSION_RAW.startsWith("v") ? APP_VERSION_RAW.substring(1) : APP_VERSION_RAW) || "0.0.0";\nconst COPYRIGHT_TEXT = `© ENM Software v${APP_VERSION}`;\n\nconst API_PREFIX = "/api/v1";\nconst SAVED_EMAIL_KEY = "money-flow-saved-email";\nconst ACTIVE_HOUSEHOLD_KEY = "money-flow-active-household-id";\nconst ACTIVE_TAB_KEY = "money-flow-active-tab";\nconst COOKIE_AUTH_SENTINEL = "__cookie_auth__";\nconst DEFAULT_CSRF_COOKIE_NAME = "mf_csrf_token";\nconst DEFAULT_CSRF_HEADER_NAME = "x-csrf-token";\nconst DEFAULT_HOUSEHOLD_HEADER_NAME = "x-household-id";\nconst DEBUG_TOKEN_OPT_IN_HEADER = "x-debug-token-opt-in";\nconst KRW_TRANSACTION_INTEGER_AMOUNT_MESSAGE = "원화 금액은 소수 없이 정수로 입력해 주세요.";\n\nconst DEBUG_TOKEN_OPT_IN =\n  String(\n    import.meta.env.VITE_DEBUG_TOKEN_OPT_IN ??\n    (import.meta.env.DEV || import.meta.env.MODE === "test" ? "true" : "")\n  )\n    .trim()\n    .toLowerCase() === "true";\nlet csrfCookieName = DEFAULT_CSRF_COOKIE_NAME;\nlet csrfHeaderName = DEFAULT_CSRF_HEADER_NAME;\nlet householdHeaderName = DEFAULT_HOUSEHOLD_HEADER_NAME;\nconst TAB_LABELS = {\n  dashboard: "대시보드",\n  transactions: "거래",\n  holdings: "자산",\n  settings: "설정",\n  collaboration: "협업",\n  import: "데이터 가져오기",\n};\nconst TAB_NAV_META = {\n  dashboard: { helper: "요약", mobileLabel: "요약" },\n  transactions: { helper: "흐름", mobileLabel: "거래" },\n  holdings: { helper: "자산", mobileLabel: "자산" },\n  collaboration: { helper: "공유", mobileLabel: "협업" },\n  import: { helper: "가져오기", mobileLabel: "가져\\n오기" },\n  settings: { helper: "설정", mobileLabel: "설정" },\n};\nconst TAB_GROUPS = {\n  left: ["dashboard", "transactions", "holdings"],\n  right: ["collaboration", "import", "settings"],\n};\nconst TAB_IDS = new Set([...TAB_GROUPS.left, ...TAB_GROUPS.right]);\n\nfunction TabNavIcon({ tabId }) {\n  const commonProps = {\n    viewBox: "0 0 24 24",\n    fill: "none",\n    stroke: "currentColor",\n    strokeWidth: "1.9",\n    strokeLinecap: "round",\n    strokeLinejoin: "round",\n    focusable: "false",\n  };\n  if (tabId === "transactions") {\n    return (\n      <svg {...commonProps}>\n        <path d="M5 7h14" />\n        <path d="m15 3 4 4-4 4" />\n        <path d="M19 17H5" />\n        <path d="m9 13-4 4 4 4" />\n      </svg>\n    );\n  }\n  if (tabId === "holdings") {\n    return (\n      <svg {...commonProps}>\n        <path d="M12 3 4 8l8 5 8-5-8-5Z" />\n        <path d="m4 13 8 5 8-5" />\n      </svg>\n    );\n  }\n  if (tabId === "collaboration") {\n    return (\n      <svg {...commonProps}>\n        <path d="M8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" />\n        <path d="M16 12a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z" />\n        <path d="M3.5 20a4.5 4.5 0 0 1 9 0" />\n        <path d="M13.5 19a3.5 3.5 0 0 1 7 0" />\n      </svg>\n    );\n  }\n  if (tabId === "import") {\n    return (\n      <svg {...commonProps}>\n        <path d="M12 4v10" />\n        <path d="m8 10 4 4 4-4" />\n        <path d="M5 18h14" />\n      </svg>\n    );\n  }\n  if (tabId === "settings") {\n    return (\n      <svg {...commonProps}>\n        <path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z" />\n        <path d="M12 3v2" />\n        <path d="M12 19v2" />\n        <path d="M4.2 7.5 5.9 8.5" />\n        <path d="m18.1 15.5 1.7 1" />\n        <path d="m4.2 16.5 1.7-1" />\n        <path d="m18.1 8.5 1.7-1" />\n      </svg>\n    );\n  }\n  return (\n    <svg {...commonProps}>\n      <path d="M4 11.5 12 5l8 6.5" />\n      <path d="M6.5 10.5V19h11v-8.5" />\n      <path d="M10 19v-5h4v5" />\n    </svg>\n  );\n}\nconst DISPLAY_NAME_MODE_OPTIONS = [\n  { value: "real_name", label: "본명 우선" },\n  { value: "nickname", label: "닉네임 우선" },\n];\nconst DEFAULT_TRANSACTION_ROW_COLORS = {\n  income: "#16A34A",\n  expense: "#E11D48",\n  investment: "#4F46E5",\n  transfer: "#D97706",\n};\nconst DEFAULT_HOLDING_TYPES = [\n  { key: "cash", label: "현금성", asset_type: "cash", tracked: false, show_average_cost: true, show_gain_loss: false },\n  { key: "stock", label: "주식", asset_type: "stock", tracked: true, show_average_cost: true, show_gain_loss: true },\n  { key: "crypto", label: "가상자산", asset_type: "crypto", tracked: true, show_average_cost: true, show_gain_loss: true },\n  { key: "pension", label: "연금", asset_type: "pension", tracked: false, show_average_cost: true, show_gain_loss: false },\n  { key: "real_estate", label: "부동산", asset_type: "real_estate", tracked: false, show_average_cost: true, show_gain_loss: false },\n  { key: "other", label: "기타", asset_type: "other", tracked: false, show_average_cost: true, show_gain_loss: false },\n];\nconst DEFAULT_HOLDING_SETTINGS = {\n  types: DEFAULT_HOLDING_TYPES,\n  owner_colors: {},\n  category_colors: {},\n  type_colors: {},\n  category_order: [],\n  column_widths: {},\n};\nconst ONBOARDING_SEEN_KEY_PREFIX = "money-flow-onboarding-seen";\nconst LEGACY_OWNER_PREFIX = "__legacy_owner__:";\nconst FLOW_TYPE_OPTIONS = [\n  { value: "income", label: "수입" },\n  { value: "expense", label: "지출" },\n  { value: "investment", label: "투자" },\n  { value: "transfer", label: "이체" },\n];\nconst FLOW_TYPE_LABELS = FLOW_TYPE_OPTIONS.reduce((acc, item) => ({ ...acc, [item.value]: item.label }), {});\nconst PORTFOLIO_VIEW_OPTIONS = [\n  { value: "holding_type", label: "자산 유형" },\n  { value: "transaction_flow", label: "거래 유형" },\n];\nconst PORTFOLIO_VIEW_LABELS = PORTFOLIO_VIEW_OPTIONS.reduce((acc, item) => ({ ...acc, [item.value]: item.label }), {});\nconst ASSET_TYPE_OPTIONS = [\n  { value: "cash", label: "현금성" },\n  { value: "stock", label: "주식" },\n  { value: "crypto", label: "가상자산" },\n  { value: "pension", label: "연금" },\n  { value: "real_estate", label: "부동산" },\n  { value: "other", label: "기타" },\n];\nconst IMPORT_MODE_LABELS = {\n  dry_run: "미리 검증",\n  apply: "적용",\n};\nconst IMPORT_SOURCE_MODES = [\n  { value: "workbook", label: "XLSX" },\n  { value: "toss", label: "토스 이미지" },\n];\nconst TOSS_IMAGE_ACCEPT = ".png,.jpg,.jpeg,.webp";\nconst AUTO_PRICE_REFRESH_INTERVAL_MS = 20_000;\nconst AUTO_PRICE_REFRESH_COOLDOWN_MS = 30_000;\nconst PRICE_REFRESH_POLL_INTERVAL_MS = 1_000;\nconst PRICE_REFRESH_STATUS_FAILURE_LIMIT = 3;\nconst WS_REFRESH_DEBOUNCE_MS = 300;\nconst REALTIME_FALLBACK_SYNC_INTERVAL_MS = 45_000;\nconst COLLAB_ACTIVE_SYNC_INTERVAL_MS = 8_000;\nconst TRANSACTION_HISTORY_PAGE_LIMIT = 80;\nconst TRANSACTION_HISTORY_AUTO_FILL_THRESHOLD = 12;\nconst TRANSACTION_HISTORY_SENTINEL_ROOT_MARGIN = "360px 0px";\nconst IMPORT_MISMATCH_PREVIEW_LIMIT = 20;\nconst IMPORT_ISSUE_PREVIEW_LIMIT = 20;\nconst IMPORT_REPORT_SORT_OPTIONS = [\n  { value: "row_asc", label: "행 오름차순" },\n  { value: "row_desc", label: "행 내림차순" },\n  { value: "severity", label: "심각도순" },\n  { value: "type", label: "유형순" },\n];\nconst IMPORT_REPORT_SEVERITY_LABELS = {\n  error: "오류",\n  warning: "경고",\n  warn: "경고",\n  info: "안내",\n  informational: "안내",\n};\nconst IMPORT_REPORT_SEVERITY_RANK = {\n  error: 0,\n  warning: 1,\n  warn: 1,\n  info: 2,\n  informational: 2,\n};\nconst MOBILE_BREAKPOINT_PX = 820;\nconst HOLDING_SUMMARY_SCROLL_OFFSET_PX = 96;\nconst SOCKET_STATUS_LABELS = {\n  connected: "연결됨",\n  disconnected: "연결 끊김",\n  error: "연결 오류",\n  permission_lost: "권한 변경",\n};\nconst FINANCIAL_SUMMARY_LABELS = [\n  "수입",\n  "지출",\n  "투자",\n  "순현금흐름",\n  "총자산(KRW)",\n  "평가손익(KRW)",\n];\nconst PRICE_SUMMARY_LABELS = [\n  "시세 지연 건수",\n  "시세 갱신 상태",\n  "최근 시세 갱신 시각",\n];\nconst HOLDING_LIST_TABS = [\n  { value: "all", label: "전체" },\n  { value: "stock", label: "주식" },\n  { value: "deposit", label: "예금" },\n  { value: "savings", label: "적금" },\n];\nconst HOLDING_SORT_KEYS = [\n  { field: "display_order", label: "순서" },\n  { field: "name", label: "이름" },\n  { field: "owner_name", label: "보유자" },\n  { field: "type_key", label: "유형" },\n  { field: "category", label: "카테고리" },\n  { field: "quantity", label: "수량" },\n  { field: "average_cost", label: "평균단가" },\n  { field: "market_value_krw", label: "평가(KRW)" },\n  { field: "gain_loss_krw", label: "손익(KRW)" },\n  { field: "updated_at", label: "최종 수정일" },\n];\nconst HOLDING_SORT_DEFAULT = { field: "display_order", direction: "asc" };\nconst HOLDING_SORT_LABELS = HOLDING_SORT_KEYS.reduce((acc, item) => {\n  acc[item.field] = item.label;\n  return acc;\n}, {});\nconst HOLDING_FORM_PRESETS = {\n  cash: { category: "현금성", currency: "KRW", quantity: "1" },\n  stock: { category: "주식", currency: "KRW", quantity: "1" },\n  crypto: { category: "가상자산", currency: "KRW", quantity: "1" },\n  pension: { category: "연금", currency: "KRW", quantity: "1" },\n  real_estate: { category: "부동산", currency: "KRW", quantity: "1" },\n  other: { category: "기타", currency: "KRW", quantity: "1" },\n};\nconst COLLAB_ROLE_OPTIONS = [\n  { value: "viewer", label: "뷰어" },\n  { value: "editor", label: "편집자" },\n  { value: "co_owner", label: "공동 소유자" },\n  { value: "owner", label: "소유자" },\n];\nco'... 537270 more characters,
+    expected: /client-version/u,
+    operator: 'match',
+    diff: 'simple'
+  }

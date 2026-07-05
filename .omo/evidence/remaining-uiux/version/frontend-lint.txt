@@ -1,0 +1,21 @@
+
+> frontend@0.0.0 lint
+> eslint .
+
+[BABEL] Note: The code generator has deoptimised the styling of C:\Users\enmso\.codex\worktrees\4e5e\money-flow-service\.omo\teams\team-358f7305\worktrees\VER\frontend\src\App.jsx as it exceeds the max of 500KB.
+
+C:\Users\enmso\.codex\worktrees\4e5e\money-flow-service\.omo\teams\team-358f7305\worktrees\VER\frontend\src\App.jsx
+  3393:6   warning  React Hook useEffect has a missing dependency: 'user'. Either include it or remove the dependency array. You can also replace multiple useState variables with useReducer if 'setProfileForm' needs the current value of 'user'                                                    react-hooks/exhaustive-deps
+  3397:6   warning  React Hook useEffect has a missing dependency: 'householdSettings'. Either include it or remove the dependency array. You can also replace multiple useState variables with useReducer if 'setHouseholdSettingsForm' needs the current value of 'householdSettings'                react-hooks/exhaustive-deps
+  3400:5   warning  React Hook useEffect has a complex expression in the dependency array. Extract it to a separate variable so it can be statically checked                                                                                                                                           react-hooks/exhaustive-deps
+  3401:5   warning  React Hook useEffect has a complex expression in the dependency array. Extract it to a separate variable so it can be statically checked                                                                                                                                           react-hooks/exhaustive-deps
+  3744:6   warning  React Hook useEffect has a missing dependency: 'normalizedHoldingSettings.column_widths'. Either include it or remove the dependency array                                                                                                                                         react-hooks/exhaustive-deps
+  3744:7   warning  React Hook useEffect has a complex expression in the dependency array. Extract it to a separate variable so it can be statically checked                                                                                                                                           react-hooks/exhaustive-deps
+  4917:6   warning  React Hook useEffect has a missing dependency: 'scrollTransactionHistoryToEnd'. Either include it or remove the dependency array                                                                                                                                                   react-hooks/exhaustive-deps
+  4955:6   warning  React Hook useEffect has a missing dependency: 'txInlineEdit'. Either include it or remove the dependency array                                                                                                                                                                    react-hooks/exhaustive-deps
+  8985:6   warning  React Hook useEffect has missing dependencies: 'priceStatus' and 'requestPriceRefresh'. Either include them or remove the dependency array                                                                                                                                         react-hooks/exhaustive-deps
+  9032:6   warning  React Hook useEffect has a missing dependency: 'refreshDataByKinds'. Either include it or remove the dependency array                                                                                                                                                              react-hooks/exhaustive-deps
+  9096:6   warning  React Hook useEffect has missing dependencies: 'loadAuthContext' and 'refreshCollaborationData'. Either include them or remove the dependency array                                                                                                                                react-hooks/exhaustive-deps
+  9268:25  warning  The ref value 'wsPendingKindsRef.current' will likely have changed by the time this effect cleanup function runs. If this ref points to a node rendered by React, copy 'wsPendingKindsRef.current' to a variable inside the effect, and use that variable in the cleanup function  react-hooks/exhaustive-deps
+
+✖ 12 problems (0 errors, 12 warnings)
