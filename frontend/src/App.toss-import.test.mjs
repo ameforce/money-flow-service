@@ -4,17 +4,19 @@ import assert from "node:assert/strict";
 import { patchTossRowWithInference, recomputeTossDuplicateRows } from "./tossImportUtils.js";
 
 const appSource = readFileSync(new URL("./App.jsx", import.meta.url), "utf8");
+const importPageSource = readFileSync(new URL("./pages/ImportPage.jsx", import.meta.url), "utf8");
+const importFlowSource = `${appSource}\n${importPageSource}`;
 
 test("import screen exposes a Toss screenshot preview/apply review flow", () => {
-  assert.match(appSource, /imports\/toss-screenshots\/preview/);
-  assert.match(appSource, /imports\/toss-screenshots\/apply/);
-  assert.match(appSource, /tossPreview/);
-  assert.match(appSource, /제외된 후보/);
-  assert.match(appSource, /추천 카테고리/);
-  assert.match(appSource, /recomputeTossDuplicateRows/);
-  assert.match(appSource, /rows: recomputeTossDuplicateRows/);
-  assert.match(appSource, /patchTossRowWithInference/);
-  assert.match(appSource, /patchTossRowWithInference\(row, patch, categories\)/);
+  assert.match(importFlowSource, /imports\/toss-screenshots\/preview/);
+  assert.match(importFlowSource, /imports\/toss-screenshots\/apply/);
+  assert.match(importFlowSource, /tossPreview/);
+  assert.match(importFlowSource, /제외된 후보/);
+  assert.match(importFlowSource, /추천 카테고리/);
+  assert.match(importFlowSource, /recomputeTossDuplicateRows/);
+  assert.match(importFlowSource, /rows: recomputeTossDuplicateRows/);
+  assert.match(importFlowSource, /patchTossRowWithInference/);
+  assert.match(importFlowSource, /patchTossRowWithInference\(row, patch, categories\)/);
 });
 
 test("Toss preview edits recompute duplicate and category state", () => {
