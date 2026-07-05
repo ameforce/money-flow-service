@@ -22,6 +22,7 @@ services:
       args:
         APP_VERSION: ${APP_VERSION:-0.0.0}
     environment:
+      APP_VERSION: ${APP_VERSION:-0.0.0}
       ENV: ${ENV:-dev}
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-moneyflow_dev}}
       SECRET_KEY: ${SECRET_KEY}
