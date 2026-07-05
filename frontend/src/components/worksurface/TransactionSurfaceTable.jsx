@@ -2,7 +2,7 @@ import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { IsoDateInput } from "../IsoDateInput";
 import { TransactionCategoryQuickPicker } from "./TransactionCategoryQuickPicker";
-import { extractVisibleInitial, resolveSemanticColor, withAlpha } from "./colorSemantics";
+import { resolveSemanticColor, withAlpha } from "./colorSemantics";
 import { TRANSACTION_SURFACE_FIELDS, getWorkSurfaceMobilePriority } from "./fieldPriority";
 
 function formatCompactDate(value) {
@@ -61,6 +61,7 @@ function isInteractiveRowTarget(target) {
 
 const ROW_SWEEP_THRESHOLD_PX = 7;
 const TOUCH_VERTICAL_SCROLL_RATIO = 1.18;
+const ROW_LONG_PRESS_SELECTION_MS = 420;
 const ROW_SINGLE_CLICK_ACTION_DELAY_MS = 180;
 const ROW_SINGLE_CLICK_ACTION_RESTORE_WINDOW_MS = 900;
 const ROW_CLICK_SUPPRESS_MS = 360;
@@ -267,6 +268,15 @@ export function TransactionSurfaceTable({
     }
   };
 
+  const clearRowGestureLongPressTimer = (gesture) => {
+    if (gesture?.longPressTimer && typeof window !== "undefined") {
+      window.clearTimeout(gesture.longPressTimer);
+    }
+    if (gesture) {
+      gesture.longPressTimer = 0;
+    }
+  };
+
   const applyRowsDuringSweep = (transactionIds, selected) => {
     const ids = Array.from(new Set(transactionIds.filter(Boolean)));
     if (ids.length === 0) {
@@ -346,10 +356,21 @@ export function TransactionSurfaceTable({
   };
 
   const activateSweepGesture = (gesture, transactionId) => {
+    clearRowGestureLongPressTimer(gesture);
     gesture.sweepActive = true;
     clearRowSweepTextSelection();
     applyRowsDuringSweep([gesture.startId, transactionId], gesture.shouldSelect);
     updateRowSweepAutoScroll(gesture);
+  };
+
+  const activateLongPressSelection = (gesture) => {
+    if (!gesture || gesture.touchScrollFirst || gesture.sweepActive) {
+      return;
+    }
+    gesture.longPressActive = true;
+    gesture.sweepActive = true;
+    clearRowSweepTextSelection();
+    applyRowsDuringSweep([gesture.startId], gesture.shouldSelect);
   };
 
   const startRowPointerGesture = (event, transactionId, disabled) => {
@@ -375,10 +396,17 @@ export function TransactionSurfaceTable({
       sweepActive: false,
       shouldSelect: !selectedTransactionIds.has(transactionId),
       touchScrollFirst: false,
+      longPressActive: false,
+      longPressTimer: 0,
     };
     if ((event.pointerType || "mouse") === "mouse" && event.cancelable) {
       event.currentTarget?.setPointerCapture?.(event.pointerId);
       event.preventDefault();
+    } else if ((event.pointerType || "") === "touch" && typeof window !== "undefined") {
+      const gesture = rowPointerGestureRef.current;
+      gesture.longPressTimer = window.setTimeout(() => {
+        activateLongPressSelection(gesture);
+      }, ROW_LONG_PRESS_SELECTION_MS);
     }
   };
 
@@ -398,7 +426,12 @@ export function TransactionSurfaceTable({
       const absX = Math.abs(deltaX);
       const absY = Math.abs(deltaY);
       if (gesture.pointerType === "touch" && absY > absX * TOUCH_VERTICAL_SCROLL_RATIO) {
+        clearRowGestureLongPressTimer(gesture);
         gesture.touchScrollFirst = true;
+        return;
+      }
+      if (gesture.pointerType === "touch" && !gesture.longPressActive) {
+        clearRowGestureLongPressTimer(gesture);
         return;
       }
       activateSweepGesture(gesture, rowIdAtPointer);
@@ -420,6 +453,7 @@ export function TransactionSurfaceTable({
       return;
     }
     stopRowSweepAutoScroll();
+    clearRowGestureLongPressTimer(gesture);
     if (event.currentTarget?.hasPointerCapture?.(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
@@ -459,10 +493,12 @@ export function TransactionSurfaceTable({
   };
 
   const runRowClickAction = (transactionId) => {
-    toggleTransactionSelection(transactionId);
-    if (!isCompactViewport) {
+    if (isCompactViewport) {
       toggleExpandedTransactionRow(transactionId);
+      return;
     }
+    toggleTransactionSelection(transactionId);
+    toggleExpandedTransactionRow(transactionId);
   };
 
   const expireFiredRowClickAction = (transactionId) => {
@@ -649,6 +685,14 @@ export function TransactionSurfaceTable({
           active: isDateFilterActive,
         })}
         {renderMobileFilterTrigger({
+          keyName: "type",
+          className: "ledger-head-cues",
+          label: "유형",
+          active: isTypeFilterActive,
+        })}
+        <span className="ledger-head-owner">거래자</span>
+        <span className="ledger-head-category">카테고리</span>
+        {renderMobileFilterTrigger({
           keyName: "memo",
           className: "ledger-head-main",
           label: "메모",
@@ -660,13 +704,6 @@ export function TransactionSurfaceTable({
           label: "금액",
           active: isAmountFilterActive,
         })}
-        {renderMobileFilterTrigger({
-          keyName: "type",
-          className: "ledger-head-cues",
-          label: "유형",
-          active: isTypeFilterActive,
-        })}
-        <span className="ledger-head-actions">⋯</span>
       </div>
       {mobileFilterKey && (
         <div
@@ -793,10 +830,10 @@ export function TransactionSurfaceTable({
             <col className="transaction-col-select" />
             <col className="transaction-col-date" />
             <col className="transaction-col-type" />
+            <col className="transaction-col-owner" />
             <col className="transaction-col-category" />
             <col className="transaction-col-memo" />
             <col className="transaction-col-amount" />
-            <col className="transaction-col-owner" />
             <col className="transaction-col-updated" />
             <col className="transaction-col-actions" />
           </colgroup>
@@ -867,8 +904,8 @@ export function TransactionSurfaceTable({
               !category?.minor && category?.major ? toCategoryMajorLabel(category.major) : "",
             ].find(Boolean) || "미분류";
             const flowLabel = FLOW_TYPE_LABELS[item.flow_type] || item.flow_type;
-            const flowShortLabel = String(flowLabel || "").slice(0, 1) || "-";
-            const ownerInitial = extractVisibleInitial(item.owner_name);
+            const flowShortLabel = String(flowLabel || "").slice(0, 2) || "-";
+            const ownerCompactLabel = Array.from(String(item.owner_name || "").trim()).slice(0, 2).join("");
             const ownerSummaryLabel = item.owner_name || "거래자 미입력";
             const flowAccent = rowColors[item.flow_type] || DEFAULT_TRANSACTION_ROW_COLORS[item.flow_type];
             const ownerColor = resolveSemanticColor(
@@ -1159,7 +1196,6 @@ export function TransactionSurfaceTable({
                   </td>
                 </tr>
               ) : null;
-            const mobileSelectLabel = `${selectedTransactionIds.has(item.id) ? "거래 선택 해제" : "거래 선택"}: ${item.occurred_on} ${item.memo || "-"} ${amountLabel}`;
             return (
               <Fragment key={rowKey}>
                 {shouldRenderDateHeader && (
@@ -1179,7 +1215,7 @@ export function TransactionSurfaceTable({
                   data-transaction-id={item.id}
                   data-transaction-date={item.occurred_on}
                   aria-selected={selectedTransactionIds.has(item.id) ? "true" : "false"}
-                  aria-label={`거래 ${item.occurred_on} ${item.memo || "-"} ${amountLabel}. ${rowEditShortcutLabel}`}
+                  aria-label={`거래 ${item.occurred_on} ${flowLabel} ${ownerSummaryLabel} ${compactCategoryLabel} ${item.memo || "-"} ${amountLabel}. 탭하면 세부를 열고 길게 누르면 선택합니다. ${rowEditShortcutLabel}`}
                   aria-keyshortcuts={canEditRecords ? "Enter F2" : undefined}
                   tabIndex={isEditing ? -1 : 0}
                   onPointerDown={(event) => startRowPointerGesture(event, item.id, isEditing)}
@@ -1229,79 +1265,37 @@ export function TransactionSurfaceTable({
                     >
                       {flowShortLabel}
                     </span>
-                    {ownerInitial ? (
-                      <span className="transaction-owner-chip" title={item.owner_name || ""} aria-label={item.owner_name || ""}>
-                        {ownerInitial}
-                      </span>
-                    ) : (
-                      <span className="transaction-owner-empty" title="거래자 미입력" aria-label="거래자 미입력">-</span>
-                    )}
+                  </td>
+                  <td data-label="거래자명" className="transaction-col-owner transaction-mobile-detail-cell" data-field-key="owner_name" data-mobile-priority={transactionMobilePriority("owner_name")}>
+                    <span
+                      className={ownerCompactLabel ? "transaction-owner-compact" : "transaction-owner-compact transaction-owner-compact-empty"}
+                      title={ownerSummaryLabel}
+                      aria-label={`거래자 ${ownerSummaryLabel}`}
+                    >
+                      {ownerCompactLabel || "-"}
+                    </span>
+                    <span className="transaction-mobile-detail-label">거래자명</span>
+                    <div className="transaction-mobile-detail-value transaction-owner-cue">{item.owner_name || "-"}</div>
                   </td>
                   <td data-label="카테고리" className="transaction-col-category transaction-mobile-detail-cell" data-field-key="category" data-mobile-priority={transactionMobilePriority("category")}>
+                    <span className="transaction-mobile-category-cue">{compactCategoryLabel}</span>
                     <span className="transaction-mobile-detail-label">카테고리</span>
                     <div className="transaction-mobile-detail-value">{renderCategoryCell(category)}</div>
                   </td>
                   <td data-label="메모" className="transaction-col-memo" data-field-key="memo" data-mobile-priority={transactionMobilePriority("memo")}>
-                    <span className="transaction-mobile-category-cue">{compactCategoryLabel}</span>
                     <span className="transaction-memo-text" title={item.memo || "-"} aria-label={`메모 ${item.memo || "-"}`}>
                       {item.memo || "-"}
-                    </span>
-                    <span
-                      className="transaction-owner-summary"
-                      title={ownerSummaryLabel}
-                      aria-label={`거래자 ${ownerSummaryLabel}`}
-                    >
-                      {ownerSummaryLabel}
                     </span>
                   </td>
                   <td data-label="금액" className="transaction-col-amount" data-field-key="amount" data-mobile-priority={transactionMobilePriority("amount")}>
                     <span className="transaction-amount-text">{amountLabel}</span>
-                  </td>
-                  <td data-label="거래자명" className="transaction-col-owner transaction-mobile-detail-cell" data-field-key="owner_name" data-mobile-priority={transactionMobilePriority("owner_name")}>
-                    <span className="transaction-mobile-detail-label">거래자명</span>
-                    <div className="transaction-mobile-detail-value transaction-owner-cue">{item.owner_name || "-"}</div>
                   </td>
                   <td data-label="최종 수정일" className="transaction-col-updated transaction-mobile-detail-cell" data-field-key="updated_at" data-mobile-priority={transactionMobilePriority("updated_at")}>
                     <span className="transaction-mobile-detail-label">최종 수정일</span>
                     <div className="transaction-mobile-detail-value">{fmtDate(item.updated_at)}</div>
                   </td>
                   <td data-label="세부" className="transaction-col-actions" data-mobile-priority="action">
-                    <div className="inline">
-                      <button
-                        type="button"
-                        className={`secondary mobile-select-btn${selectedTransactionIds.has(item.id) ? " is-selected" : ""}`}
-                        aria-label={mobileSelectLabel}
-                        aria-pressed={selectedTransactionIds.has(item.id) ? "true" : "false"}
-                        onClick={(event) => {
-                          clearPendingRowClickAction();
-                          event.stopPropagation();
-                          toggleTransactionSelection(item.id);
-                        }}
-                      >
-                        <span className="mobile-select-icon" aria-hidden="true">
-                          <svg viewBox="0 0 16 16" focusable="false" aria-hidden="true">
-                            <path d="M3.5 8.25 6.6 11.2 12.7 4.8" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                        </span>
-                      </button>
-                      <button
-                        type="button"
-                        className="secondary mobile-toggle-btn"
-                        aria-label={isExpanded ? "거래 세부 접기" : "거래 세부 보기"}
-                        aria-expanded={isExpanded ? "true" : "false"}
-                        onClick={(event) => {
-                          clearPendingRowClickAction();
-                          event.stopPropagation();
-                          toggleExpandedTransactionRow(item.id);
-                        }}
-                      >
-                        <span className="mobile-toggle-icon" aria-hidden="true">
-                          <svg viewBox="0 0 16 16" focusable="false" aria-hidden="true">
-                            <path d="M5 3.75L10 8L5 12.25" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                        </span>
-                      </button>
-                    </div>
+                    <span className="transaction-row-state-cue" aria-hidden="true" />
                   </td>
                 </tr>
                 {!shouldRenderInlineEditorBeforeRow && inlineEditorRow}

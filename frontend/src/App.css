@@ -1525,7 +1525,7 @@
   --tx-col-owner: 6.65rem;
   --tx-col-updated: 6rem;
   --tx-col-actions: 2.72rem;
-  --tx-ledger-columns: var(--tx-col-select) var(--tx-col-date) var(--tx-col-type) var(--tx-col-category) minmax(0, 1fr) var(--tx-col-amount) var(--tx-col-owner) var(--tx-col-updated) var(--tx-col-actions);
+  --tx-ledger-columns: var(--tx-col-select) var(--tx-col-date) var(--tx-col-type) var(--tx-col-owner) var(--tx-col-category) minmax(0, 1fr) var(--tx-col-amount) var(--tx-col-updated) var(--tx-col-actions);
   --transaction-column-head-top: calc(
     var(--transaction-toolbar-sticky-top) + var(--transaction-toolbar-sticky-height) + var(--transaction-column-head-gap)
   );
@@ -4424,7 +4424,7 @@ table {
   }
 
   .transaction-list-card .surface-ledger-desktop-head {
-    grid-template-columns: 2.55rem 4.3rem 3.15rem 3.7rem minmax(3.9rem, 1fr) 4.75rem 3.6rem 4rem 2.8rem;
+    grid-template-columns: 2.55rem 4.3rem 3.15rem 3.6rem 3.7rem minmax(3.9rem, 1fr) 4.75rem 4rem 2.8rem;
   }
 
   .transaction-list-card .surface-ledger-desktop-head .desktop-ledger-head-cell {
@@ -7765,8 +7765,8 @@ tr.holding-row-imported {
     align-items: center;
     gap: 0.12rem;
     height: auto;
-    min-height: 2.78rem;
-    padding: 0.08rem;
+    min-height: 2.5rem;
+    padding: 0;
     box-shadow: none;
   }
 
@@ -7788,6 +7788,8 @@ tr.holding-row-imported {
   }
 
   .transaction-list-card .month-value-group {
+    display: inline-flex;
+    align-items: center;
     min-height: 2.5rem;
     line-height: 1;
   }
@@ -8340,9 +8342,9 @@ tr.holding-row-imported {
   .transaction-list-card > .transaction-sticky-toolbar {
     top: var(--transaction-toolbar-sticky-top);
     z-index: 44;
-    gap: 0.18rem;
+    gap: 0.12rem;
     margin: 0 -0.16rem 0;
-    padding: 0.28rem 0.44rem 0.32rem;
+    padding: 0.2rem 0.42rem 0.24rem;
     border-radius: 12px 12px 0 0;
     box-shadow: 0 10px 18px -24px rgba(15, 23, 42, 0.38);
   }
@@ -8353,13 +8355,32 @@ tr.holding-row-imported {
     background: transparent;
     box-shadow: none;
     backdrop-filter: none;
+    display: flex;
+    align-items: center;
+    gap: 0.38rem;
+  }
+
+  .transaction-sticky-toolbar .surface-list-heading .surface-eyebrow {
+    display: none;
+  }
+
+  .transaction-sticky-toolbar .surface-list-heading h2 {
+    font-size: 0.94rem;
+    line-height: 1.12;
+  }
+
+  .transaction-sticky-toolbar .surface-list-heading > .surface-count-summary {
+    margin-left: auto;
+    font-size: 0.68rem;
+    line-height: 1.08;
+    white-space: nowrap;
   }
 
   .transaction-sticky-toolbar .surface-control-strip {
     display: flex;
-    flex-wrap: wrap;
-    gap: 0.24rem;
-    row-gap: 0.2rem;
+    flex-wrap: nowrap;
+    gap: 0.18rem;
+    row-gap: 0;
     overflow-x: visible;
     padding-bottom: 0;
     scrollbar-width: auto;
@@ -8371,6 +8392,18 @@ tr.holding-row-imported {
 
   .transaction-sticky-toolbar .surface-chip {
     flex: 0 0 auto;
+    min-height: 1.45rem;
+    padding: 0.16rem 0.36rem;
+    font-size: 0.66rem;
+    line-height: 1.08;
+  }
+
+  .transaction-sticky-toolbar .surface-control-strip > .surface-chip-muted {
+    display: none;
+  }
+
+  .transaction-sticky-toolbar .transaction-selection-summary[data-selection-active="false"] {
+    display: none;
   }
 
   .transaction-sticky-toolbar .transaction-selection-summary,
@@ -8493,28 +8526,32 @@ tr.holding-row-imported {
 
   .transactions-mobile-ledger-head,
   .transactions-surface-table tbody tr.transaction-row {
-    --transaction-mobile-date-column-width: 2.9rem;
+    --transaction-mobile-date-column-width: 2.55rem;
     --transaction-mobile-cue-column-width: 2.5rem;
-    --transaction-mobile-amount-column-width: clamp(4.8rem, 21vw, 6.25rem);
-    --transaction-action-strip-width: 5.45rem;
-    --transaction-mobile-ledger-column-gap: 0.14rem;
+    --transaction-mobile-owner-column-width: 2.4rem;
+    --transaction-mobile-category-column-width: clamp(3rem, 15vw, 4.5rem);
+    --transaction-mobile-amount-column-width: clamp(5.45rem, 24vw, 6.2rem);
+    --transaction-action-strip-width: 0rem;
+    --transaction-mobile-ledger-column-gap: 0.12rem;
     --transaction-mobile-ledger-columns:
       var(--transaction-mobile-date-column-width)
       var(--transaction-mobile-cue-column-width)
+      var(--transaction-mobile-owner-column-width)
+      var(--transaction-mobile-category-column-width)
       minmax(0, 1fr)
-      var(--transaction-mobile-amount-column-width)
-      var(--transaction-action-strip-width);
+      var(--transaction-mobile-amount-column-width);
   }
 
   .transactions-mobile-ledger-head {
     --transaction-mobile-ledger-columns:
       var(--transaction-mobile-date-column-width)
       var(--transaction-mobile-cue-column-width)
+      var(--transaction-mobile-owner-column-width)
+      var(--transaction-mobile-category-column-width)
       minmax(2.5rem, 1fr)
-      var(--transaction-mobile-amount-column-width)
-      var(--transaction-action-strip-width);
+      var(--transaction-mobile-amount-column-width);
     grid-template-columns: var(--transaction-mobile-ledger-columns);
-    grid-template-areas: "date cues main amount actions";
+    grid-template-areas: "date cues owner category main amount";
     column-gap: var(--transaction-mobile-ledger-column-gap);
     row-gap: 0;
   }
@@ -8536,7 +8573,9 @@ tr.holding-row-imported {
   .surface-ledger-mobile-head .ledger-head-main { grid-area: main; min-width: 0; }
   .surface-ledger-mobile-head .ledger-head-amount { grid-area: amount; text-align: right; }
   .surface-ledger-mobile-head .ledger-head-cues { grid-area: cues; }
-  .surface-ledger-mobile-head .ledger-head-actions { grid-area: actions; text-align: center; }
+  .surface-ledger-mobile-head .ledger-head-owner { grid-area: owner; }
+  .surface-ledger-mobile-head .ledger-head-category { grid-area: category; }
+  .surface-ledger-mobile-head .ledger-head-actions { display: none; }
 
   .transactions-mobile-ledger-head .ledger-head-cues {
     text-align: left;
@@ -8548,8 +8587,15 @@ tr.holding-row-imported {
     justify-content: flex-end;
   }
 
-  .transactions-mobile-ledger-head .ledger-head-actions {
-    width: var(--transaction-action-strip-width);
+  .transactions-mobile-ledger-head .ledger-head-owner,
+  .transactions-mobile-ledger-head .ledger-head-category {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.5rem;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .surface-ledger-mobile-head .ledger-head-filter-trigger {
@@ -8673,7 +8719,7 @@ tr.holding-row-imported {
 
   .tx-ledger-filter-reset {
     width: 100%;
-    min-height: 2.36rem;
+    min-height: 44px;
   }
 
   .transactions-surface-table,
@@ -8851,10 +8897,12 @@ tr.holding-row-imported {
 
   .transactions-surface-table .transaction-col-date,
   .transactions-surface-table .transaction-col-type,
+  .transactions-surface-table .transaction-col-category,
   .transactions-surface-table .transaction-col-memo,
   .transactions-surface-table .transaction-col-amount,
+  .transactions-surface-table .transaction-col-owner,
   .transactions-surface-table .transaction-col-actions {
-    width: auto;
+    width: 100%;
     min-width: 0;
   }
 
@@ -8862,23 +8910,29 @@ tr.holding-row-imported {
     display: grid;
     grid-template-columns: var(--transaction-mobile-ledger-columns);
     grid-template-areas:
-      "date meta memo amount actions";
+      "date meta owner category memo amount";
     height: auto;
-    min-height: 2.75rem;
+    min-height: 44px;
     padding-top: 0;
-    padding-right: 0.36rem;
+    padding-right: 0.46rem;
     padding-bottom: 0;
     column-gap: var(--transaction-mobile-ledger-column-gap);
     row-gap: 0;
   }
 
+  .transactions-surface-table tbody tr.transaction-row[data-row-selected="true"] {
+    box-shadow:
+      inset 0 0 0 1.5px color-mix(in srgb, var(--transaction-row-accent, #2563eb) 58%, #1d4ed8),
+      inset 0.28rem 0 0 var(--transaction-row-accent, #2563eb);
+  }
+
   .transactions-surface-table tbody tr.transaction-row.mobile-row-expanded {
     grid-template-areas:
-      "date meta amount amount actions"
-      "memo memo memo memo memo"
-      "category category category category category"
-      "owner owner owner owner owner"
-      "updated updated updated updated updated";
+      "date meta owner amount amount amount"
+      "memo memo memo memo memo memo"
+      "category category category category category category"
+      "owner-detail owner-detail owner-detail owner-detail owner-detail owner-detail"
+      "updated updated updated updated updated updated";
     border-bottom: 0;
     min-height: 0;
     overflow: visible;
@@ -8888,9 +8942,9 @@ tr.holding-row-imported {
 
   .transactions-surface-table tbody tr.transaction-row.transaction-row-wide-amount:not(.mobile-row-expanded) {
     grid-template-areas:
-      "date meta amount amount actions"
-      "memo memo memo memo actions";
-    min-height: 3.46rem;
+      "date meta owner category amount amount"
+      "memo memo memo memo memo amount";
+    min-height: 3.04rem;
     padding-top: 0.18rem;
     padding-bottom: 0.2rem;
     row-gap: 0.08rem;
@@ -8948,10 +9002,6 @@ tr.holding-row-imported {
     text-overflow: clip;
   }
 
-  .transactions-surface-table .transaction-col-category {
-    display: none !important;
-  }
-
   .transactions-surface-table .transaction-col-type {
     grid-area: meta;
     align-self: center;
@@ -8981,7 +9031,13 @@ tr.holding-row-imported {
   }
 
   .transactions-surface-table .transaction-col-owner {
-    display: none !important;
+    grid-area: owner;
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
   }
 
   .transactions-surface-table .transaction-col-updated {
@@ -8991,8 +9047,9 @@ tr.holding-row-imported {
   .transactions-surface-table .transaction-mobile-category-cue {
     display: inline-flex;
     align-items: center;
-    flex: 0 1 5.4rem;
-    max-width: min(32%, 5.4rem);
+    justify-content: flex-start;
+    width: 100%;
+    max-width: 100%;
     align-self: center;
     min-width: 0;
     margin-bottom: 0;
@@ -9011,7 +9068,7 @@ tr.holding-row-imported {
 
   .transactions-surface-table .transaction-memo-text {
     display: block;
-    flex: 1 1 5rem;
+    flex: 1 1 auto;
     width: auto;
     min-width: 0;
     font-size: 0.79rem;
@@ -9032,7 +9089,8 @@ tr.holding-row-imported {
   }
 
   .transactions-surface-table tbody tr.transaction-row.mobile-row-expanded .transaction-mobile-category-cue,
-  .transactions-surface-table tbody tr.transaction-row.mobile-row-expanded .transaction-owner-summary {
+  .transactions-surface-table tbody tr.transaction-row.mobile-row-expanded .transaction-owner-summary,
+  .transactions-surface-table tbody tr.transaction-row.mobile-row-expanded .transaction-owner-compact {
     display: none;
   }
 
@@ -9075,14 +9133,52 @@ tr.holding-row-imported {
 
   .transactions-surface-table .transaction-flow-short {
     display: inline-flex;
-    width: 1.02rem;
-    min-width: 1.02rem;
-    height: 1.02rem;
-    padding: 0;
+    width: 100%;
+    min-width: 0;
+    height: 1.14rem;
+    padding: 0 0.12rem;
     align-items: center;
     justify-content: center;
     font-size: 0.58rem;
     line-height: 1;
+    letter-spacing: 0;
+  }
+
+  .transactions-surface-table .transaction-col-category {
+    grid-area: category;
+    display: flex !important;
+    align-items: center;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+  }
+
+  .transactions-surface-table tbody tr.transaction-row:not(.mobile-row-expanded) .transaction-col-category .transaction-mobile-detail-label,
+  .transactions-surface-table tbody tr.transaction-row:not(.mobile-row-expanded) .transaction-col-category .transaction-mobile-detail-value,
+  .transactions-surface-table tbody tr.transaction-row:not(.mobile-row-expanded) .transaction-col-owner .transaction-mobile-detail-label,
+  .transactions-surface-table tbody tr.transaction-row:not(.mobile-row-expanded) .transaction-col-owner .transaction-mobile-detail-value {
+    display: none;
+  }
+
+  .transactions-surface-table .transaction-owner-compact {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.12rem;
+    min-width: 1.12rem;
+    height: 1.12rem;
+    border-radius: 999px;
+    background: var(--transaction-owner-chip-bg, rgba(219, 234, 254, 0.75));
+    color: #213a5d;
+    font-size: 0.58rem;
+    font-weight: 900;
+    line-height: 1;
+    box-shadow: inset 0 0 0 1px var(--transaction-owner-chip-ring, rgba(15, 23, 42, 0.12));
+  }
+
+  .transactions-surface-table .transaction-owner-compact-empty {
+    color: #6b7f9d;
+    background: rgba(255, 255, 255, 0.72);
   }
 
   .transactions-surface-table tbody tr.transaction-row.mobile-row-expanded .transaction-col-category {
@@ -9090,7 +9186,7 @@ tr.holding-row-imported {
   }
 
   .transactions-surface-table tbody tr.transaction-row.mobile-row-expanded .transaction-col-owner {
-    grid-area: owner;
+    grid-area: owner-detail;
   }
 
   .transactions-surface-table tbody tr.transaction-row.mobile-row-expanded .transaction-col-updated {
@@ -9159,19 +9255,11 @@ tr.holding-row-imported {
   }
 
   .transactions-surface-table .transaction-col-actions {
-    grid-area: actions;
-    justify-self: end;
-    align-self: center;
-    position: relative;
-    z-index: 2;
-    width: var(--transaction-action-strip-width, 5.12rem);
-    height: 2.75rem;
-    min-height: 2.75rem;
+    display: none !important;
   }
 
   .transactions-surface-table tbody tr.transaction-row .transaction-col-actions .inline {
-    justify-content: flex-start;
-    width: var(--transaction-action-strip-width, 5.45rem);
+    display: none;
   }
 
   .holdings-surface-table tbody tr.holding-row .holding-col-actions .inline {
@@ -9180,21 +9268,10 @@ tr.holding-row-imported {
   }
 
   .transactions-surface-table tbody tr.transaction-row .transaction-col-actions .inline {
-    display: grid;
-    grid-template-columns: 2.55rem 2.75rem;
-    grid-template-areas:
-      "select toggle";
-    align-items: center;
-    justify-content: flex-start;
-    position: relative;
-    column-gap: 0.08rem;
-    row-gap: 0;
-    height: 2.75rem;
-    width: var(--transaction-action-strip-width, 5.12rem);
+    display: none;
   }
 
-  .transactions-surface-table tbody tr.transaction-row:not(.mobile-row-expanded) .transaction-col-category,
-  .transactions-surface-table tbody tr.transaction-row:not(.mobile-row-expanded) .transaction-col-owner,
+  .transactions-surface-table tbody tr.transaction-row:not(.mobile-row-expanded) .transaction-col-actions,
   .holdings-surface-table tbody tr.holding-row:not(.mobile-row-expanded) .holding-col-owner {
     display: none !important;
   }
@@ -9214,17 +9291,7 @@ tr.holding-row-imported {
   }
 
   .transactions-surface-table tbody tr.transaction-row .transaction-col-actions .mobile-toggle-btn {
-    grid-area: toggle;
-    align-self: center;
-    position: absolute;
-    top: 50%;
-    right: 0;
-    transform: translateY(-50%);
-    width: 2.75rem;
-    min-width: 2.75rem;
-    min-height: 2.75rem;
-    height: 2.75rem;
-    border-radius: 12px;
+    display: none;
   }
 
   .transactions-surface-table tbody tr.transaction-row .transaction-col-actions button:not(.mobile-toggle-btn) {
@@ -9239,20 +9306,7 @@ tr.holding-row-imported {
   }
 
   .transactions-surface-table tbody tr.transaction-row .transaction-col-actions .mobile-select-btn {
-    grid-area: select;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 2.55rem;
-    min-width: 2.55rem;
-    min-height: 2.75rem;
-    height: 2.75rem;
-    padding: 0;
-    border-radius: 12px;
-    border-color: var(--transaction-row-border, rgba(151, 172, 201, 0.55));
-    background: rgba(255, 255, 255, 0.82);
-    color: #355177;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.94);
+    display: none;
   }
 
   .transactions-surface-table tbody tr.transaction-row .transaction-col-actions .mobile-select-btn[aria-pressed="true"] {

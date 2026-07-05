@@ -2358,6 +2358,8 @@ function App() {
   const transactionHistoryMonthSyncFrameRef = useRef(0);
   const transactionHistoryRequestGenerationRef = useRef(0);
   const pendingTransactionHistoryScrollAnchorRef = useRef(null);
+  const transactionEntryDefaultDateRef = useRef(todayIso());
+  const transactionHistoryListMode = false;
   const roleNoticeStateRef = useRef({ householdId: "", role: "" });
   const receivedInviteIdsRef = useRef(new Set());
   const activeDeepLinkFlowRef = useRef({ type: "", token: "" });
@@ -2370,11 +2372,14 @@ function App() {
 
   const transactionEntryContextDate = useCallback(() => {
     const todayDate = transactionEntryTodayDate();
+    if (!transactionHistoryListMode && filterModeRef.current === "month") {
+      return yearMonthEndDateKey(appliedYearMonthRef.current || yearMonthRef.current, todayDate);
+    }
     return normalizeIsoDateKey(
       transactionHistoryAnchorDateRef.current || transactionHistoryAnchorDate || todayDate,
       todayDate
     );
-  }, [transactionEntryTodayDate, transactionHistoryAnchorDate]);
+  }, [transactionEntryTodayDate, transactionHistoryAnchorDate, transactionHistoryListMode]);
 
   const [confirmDialog, setConfirmDialog] = useState({
     open: false,
@@ -2539,7 +2544,7 @@ function App() {
     void submitTxInlineEdit();
   }
 
-  const transactionLedgerItems = transactionHistoryInitialized ? transactionHistoryItems : transactions;
+  const transactionLedgerItems = transactions;
   const transactionById = useMemo(
     () => new Map(transactionLedgerItems.map((item) => [item.id, item])),
     [transactionLedgerItems]
@@ -2589,10 +2594,10 @@ function App() {
     });
   }, [categoryById, transactionLedgerItems, txListFilter]);
   const sortedTransactions = useMemo(() => {
-    const direction = transactionHistoryInitialized || txSortDirection === "asc" ? 1 : -1;
+    const direction = txSortDirection === "asc" ? 1 : -1;
     const next = [...filteredTransactions];
     return next.sort((left, right) => compareTransactionsByLedgerOrder(left, right, direction));
-  }, [filteredTransactions, transactionHistoryInitialized, txSortDirection]);
+  }, [filteredTransactions, txSortDirection]);
   const txFlowCategorySummary = useMemo(() => {
     const base = {
       income: { total: 0, categories: new Map() },
@@ -2705,7 +2710,7 @@ function App() {
     setRange(targetRange);
 
     await refreshData(false, token, { filterMode: "month", yearMonth: targetMonth });
-    if (transactionHistoryInitialized || tab === "transactions") {
+    if (transactionHistoryListMode && (transactionHistoryInitialized || tab === "transactions")) {
       await refreshTransactionHistoryAtAnchor(savedDate, {
         alignToEnd: options.alignToEnd !== false,
       });
@@ -2715,9 +2720,7 @@ function App() {
     }
   }
 
-  const transactionSortSummary = transactionHistoryInitialized
-    ? "연속 내역순"
-    : txSortDirection === "asc"
+  const transactionSortSummary = txSortDirection === "asc"
       ? "오래된순"
       : "최신순";
   const areAllFilteredTransactionsSelected = useMemo(() => {
@@ -3443,7 +3446,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!token || !household?.id || tab !== "transactions") {
+    if (!transactionHistoryListMode || !token || !household?.id || tab !== "transactions") {
       return;
     }
     if (!transactionHistoryInitialized && !transactionHistoryLoadingRef.current.initial) {
@@ -3454,18 +3457,21 @@ function App() {
 
   useEffect(() => {
     const nextDefaultDate = transactionEntryContextDate();
+    const previousDefaultDate = transactionEntryDefaultDateRef.current || transactionEntryTodayDate();
+    transactionEntryDefaultDateRef.current = nextDefaultDate;
     setTxForm((prev) => {
       const pristineDefaultDraft =
         !txDraftTouched &&
         !hasTransactionInsertAnchor(prev) &&
         !prev.amount &&
-        !prev.memo;
+        !prev.memo &&
+        (!prev.occurred_on || prev.occurred_on === previousDefaultDate);
       if (!pristineDefaultDraft || prev.occurred_on === nextDefaultDate) {
         return prev;
       }
       return { ...prev, occurred_on: nextDefaultDate };
     });
-  }, [transactionEntryContextDate, txDraftTouched]);
+  }, [transactionEntryContextDate, transactionEntryTodayDate, txDraftTouched]);
 
   useEffect(() => {
     if (tab !== "transactions" || !transactionHistoryInitialized || !transactionTabEntryScrollPendingRef.current) {
@@ -3517,7 +3523,7 @@ function App() {
         }
         return { ...prev, occurred_on: nextToday };
       });
-      if (!token || !household?.id || tabRef.current !== "transactions") {
+      if (!transactionHistoryListMode || !token || !household?.id || tabRef.current !== "transactions") {
         return;
       }
       const refreshAnchor = shouldFollowToday ? nextToday : previousAnchor;
@@ -3549,7 +3555,7 @@ function App() {
   }, [household?.id, token, transactionHistoryAnchorDate, transactionHistoryToday, txDraftTouched]);
 
   useEffect(() => {
-    if (!token || !household?.id || tab !== "transactions" || !transactionHistoryInitialized) {
+    if (!transactionHistoryListMode || !token || !household?.id || tab !== "transactions" || !transactionHistoryInitialized) {
       return undefined;
     }
     if (typeof IntersectionObserver === "undefined") {
@@ -4013,7 +4019,7 @@ function App() {
   }
 
   function toggleTxSortDirection() {
-    if (transactionHistoryInitialized) {
+    if (transactionHistoryListMode && transactionHistoryInitialized) {
       return;
     }
     setTxSortDirection((prev) => (prev === "asc" ? "desc" : "asc"));
@@ -4055,7 +4061,17 @@ function App() {
   }
 
   function openNormalTransactionEntrySheet(nextStep = "form") {
-    setTxForm((previous) => clearTransactionInsertAnchor(previous));
+    if (isTransactionEntryDraftDirty) {
+      setTxForm((previous) => clearTransactionInsertAnchor(previous));
+    } else {
+      setTxForm(createTransactionForm(transactionEntryContextDate()));
+      setTxFormErrors(createTransactionFormErrors());
+      setTxCategoryMajor("");
+      setTxCategoryRestore(null);
+      setTxDraftTouched(false);
+      setShowTransactionQuickResume(false);
+      setTxQuickOwnerTouched(false);
+    }
     openTransactionEntrySheet(nextStep);
   }
 
@@ -5306,7 +5322,7 @@ function App() {
   }
 
   function requestTransactionHistoryMonthSync() {
-    if (typeof window === "undefined" || transactionHistoryMonthSyncFrameRef.current) {
+    if (!transactionHistoryListMode || typeof window === "undefined" || transactionHistoryMonthSyncFrameRef.current) {
       return;
     }
     transactionHistoryMonthSyncFrameRef.current = window.requestAnimationFrame(() => {
@@ -5458,6 +5474,9 @@ function App() {
   }
 
   async function loadTransactionHistoryPage(options = {}) {
+    if (!transactionHistoryListMode) {
+      return null;
+    }
     const direction = ["older", "newer"].includes(options.direction) ? options.direction : "initial";
     const cursor = String(options.cursor || "").trim();
     const nextToken = options.nextToken || token;
@@ -5782,7 +5801,7 @@ function App() {
           }
         }
       }
-      if (includeTransactions && transactionHistoryInitializedRef.current) {
+      if (transactionHistoryListMode && includeTransactions && transactionHistoryInitializedRef.current) {
         const historyAnchor =
           transactionHistoryAnchorDateRef.current || transactionHistoryTodayRef.current || todayIso();
         await refreshTransactionHistoryAtAnchor(historyAnchor, {
@@ -5840,7 +5859,7 @@ function App() {
     appliedYearMonthRef.current = normalized;
     setMonthFilterPending(false);
     setYearMonth(normalized);
-    if (tab === "transactions" || transactionHistoryInitialized) {
+    if (transactionHistoryListMode && (tab === "transactions" || transactionHistoryInitialized)) {
       refreshTransactionHistoryAtAnchor(yearMonthEndDateKey(normalized, transactionHistoryToday || todayIso()), {
         alignToEnd: true,
         silent: true,
@@ -5875,7 +5894,7 @@ function App() {
     if (!nextRange.start || !nextRange.end) {
       return;
     }
-    if (tab === "transactions" || transactionHistoryInitialized) {
+    if (transactionHistoryListMode && (tab === "transactions" || transactionHistoryInitialized)) {
       refreshTransactionHistoryAtAnchor(normalizeIsoDateKey(nextRange.end, transactionHistoryToday || todayIso()), {
         alignToEnd: true,
         silent: true,
@@ -6848,7 +6867,11 @@ function App() {
       );
       await refreshData(false);
       await loadOwnerCleanupTransactions(token);
-      if (Number(remapResult?.remapped_transactions || 0) > 0 && (transactionHistoryInitialized || tab === "transactions")) {
+      if (
+        transactionHistoryListMode &&
+        Number(remapResult?.remapped_transactions || 0) > 0 &&
+        (transactionHistoryInitialized || tab === "transactions")
+      ) {
         await refreshTransactionHistoryAtAnchor(transactionHistoryAnchorDate || transactionHistoryToday || todayIso(), {
           alignToEnd: false,
         });
@@ -7009,7 +7032,7 @@ function App() {
       });
       setTransactionHistoryItems((prev) => prev.filter((item) => !deletedIds.has(String(item?.id || ""))));
       await refreshData(false);
-      if (transactionHistoryInitialized || tab === "transactions") {
+      if (transactionHistoryListMode && (transactionHistoryInitialized || tab === "transactions")) {
         await refreshTransactionHistoryAtAnchor(transactionHistoryAnchorDate || transactionHistoryToday, { alignToEnd: false });
       }
       setMessage(uiGuideMessage("선택한 거래를 삭제했습니다.", `${deletedIds.size}건을 목록에서 제거했습니다.`));
@@ -8029,7 +8052,7 @@ function App() {
     try {
       await api(`${API_PREFIX}/transactions/${id}`, { method: "DELETE" }, token);
       await refreshData(false);
-      if (transactionHistoryInitialized || tab === "transactions") {
+      if (transactionHistoryListMode && (transactionHistoryInitialized || tab === "transactions")) {
         await refreshTransactionHistoryAtAnchor(transactionHistoryAnchorDate || transactionHistoryToday, { alignToEnd: false });
       }
       setMessage(uiGuideMessage("거래를 삭제했습니다.", "필요하면 새 거래를 다시 등록해 주세요."));
@@ -10888,7 +10911,7 @@ function App() {
       transactionHistoryAnchorDate,
       transactionHistoryBottomSentinelRef,
       transactionHistoryError,
-      transactionHistoryInitialized,
+      transactionHistoryInitialized: transactionHistoryListMode,
       transactionHistoryLoading,
       transactionHistoryToday,
       transactionHistoryTopSentinelRef,
