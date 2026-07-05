@@ -4502,6 +4502,32 @@ test("issue 273: desktop transaction row double-click opens inline edit only fro
   await expect(page.locator(".message", { hasText: "현재 권한으로는 거래를 수정할 수 없습니다." })).toBeVisible();
 });
 
+test("issue 248: extracted transactions page keeps entry and inline edit wiring live", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("tx-extracted-wiring")}@example.com`;
+  const displayName = unique("tx-extracted-wiring-owner");
+  const memo = unique("tx-extracted-wiring-memo");
+  const editedMemo = `${memo}-edited`;
+
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 1366, height: 900 });
+
+  const createdRow = await createBasicTransaction(page, { memo, amount: "24800" });
+  await expect(createdRow).toContainText(memo);
+
+  await clickTransactionSelectionToolbarAction(page, createdRow, "수정");
+  const editorRow = page.locator("tr.transaction-inline-editor-row").first();
+  await expect(editorRow).toBeVisible();
+  await expectIsoDateInput(editorRow.getByLabel("일자"), "issue 248 inline edit date");
+  await editorRow.getByLabel("메모").fill(editedMemo);
+  await editorRow.getByLabel("금액").fill("24900");
+  await editorRow.getByRole("button", { name: "저장" }).click();
+
+  await expect(page.locator("tr.transaction-row", { hasText: editedMemo }).first()).toBeVisible();
+  await capture(page, "issue-248-transactions-page-wiring");
+});
+
 test("issue 227: 1024px transaction row actions stay inside the viewport", async ({ page }) => {
   test.setTimeout(120_000);
 

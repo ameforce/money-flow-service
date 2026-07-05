@@ -8,6 +8,7 @@
     "frontend:build": "npm run build --prefix frontend",
     "frontend:unit": "node --test ./frontend/src/*.test.mjs",
     "pwa:verify": "node scripts/verify_pwa_installability.mjs",
+    "uiux:app-extraction": "node scripts/verify_app_page_extraction.mjs",
     "uiux:perf-budget": "node scripts/uiux_performance_budget.mjs",
     "uiux:trust-matrix": "node scripts/verify_uiux_trust_matrix.mjs",
     "uiux:rca-ledger": "node scripts/verify_uiux_rca_ledger.mjs",
@@ -28,11 +29,11 @@
     "ci:e2e:matrix": "uv run python scripts/run_e2e_with_orchestrator.py --project-matrix",
     "ci:async:quality": "npm run ci:quality:gate",
     "ci:pre-deploy:e2e": "npx playwright test --grep \"auth deep-link token policy: query token rejected\" e2e/specs/deeplink.spec.js --workers=1",
-    "ci:quality:gate": "npm run ci:test && npm run frontend:unit && npm run frontend:build && npm run pwa:verify && npm run uiux:perf-budget && npm run ci:e2e && uv run python scripts/verify_e2e_screenshots.py && uv run python scripts/check_mojibake.py",
+    "ci:quality:gate": "npm run ci:test && npm run frontend:unit && npm run frontend:build && npm run pwa:verify && npm run uiux:app-extraction && npm run uiux:perf-budget && npm run ci:e2e && uv run python scripts/verify_e2e_screenshots.py && uv run python scripts/check_mojibake.py",
     "e2e:raw": "uv run python scripts/run_playwright_tests.py",
     "e2e:headed": "uv run python scripts/run_playwright_tests.py --headed",
     "quality": "npm run quality:gate",
-    "quality:gate": "uv run --extra dev python -m pytest -q && npm run frontend:unit && npm run frontend:build && npm run pwa:verify && npm run uiux:perf-budget && npm run e2e && uv run python scripts/verify_e2e_screenshots.py && uv run python scripts/check_mojibake.py"
+    "quality:gate": "uv run --extra dev python -m pytest -q && npm run frontend:unit && npm run frontend:build && npm run pwa:verify && npm run uiux:app-extraction && npm run uiux:perf-budget && npm run e2e && uv run python scripts/verify_e2e_screenshots.py && uv run python scripts/check_mojibake.py"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.12.1",
