@@ -4678,6 +4678,26 @@ function App() {
     });
   }
 
+  function setTransactionRowsExpanded(transactionIds, expanded) {
+    setExpandedTransactionRows((prev) => {
+      const next = new Set(prev);
+      let changed = false;
+      for (const transactionId of transactionIds) {
+        if (!transactionId) {
+          continue;
+        }
+        if (expanded && !next.has(transactionId)) {
+          next.add(transactionId);
+          changed = true;
+        } else if (!expanded && next.has(transactionId)) {
+          next.delete(transactionId);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }
+
   function toggleAllFilteredTransactionSelection(checked) {
     setSelectedTransactionIds((prev) => {
       const next = new Set(prev);
@@ -6894,7 +6914,11 @@ function App() {
   }
 
   function openTransactionInlineEditor(item) {
-    if (!item || !canEditRecords) {
+    if (!item) {
+      return;
+    }
+    if (!canEditRecords) {
+      setMessage(uiGuideMessage("현재 권한으로는 거래를 수정할 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
       return;
     }
     const category = categoryById.get(String(item.category_id || ""));
@@ -11367,6 +11391,7 @@ function App() {
               toggleTransactionSelection={toggleTransactionSelection}
               selectTransactionRows={selectTransactionRows}
               setTransactionRowsSelected={setTransactionRowsSelected}
+              setTransactionRowsExpanded={setTransactionRowsExpanded}
               txInlineEdit={txInlineEdit}
               ownerOptionsWithFallback={ownerOptionsWithFallback}
               ownerSelectValue={ownerSelectValue}
@@ -11377,6 +11402,7 @@ function App() {
               txInlineCategoryMinorOptions={txInlineCategoryMinorOptions}
               setTxInlineEdit={setTxInlineEdit}
               createTxInlineCategory={createAndApplyTxInlineCategory}
+              openTransactionInlineEditor={openTransactionInlineEditor}
               categoryById={categoryById}
               renderCategoryCell={renderCategoryCell}
               FLOW_TYPE_LABELS={FLOW_TYPE_LABELS}
