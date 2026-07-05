@@ -77,6 +77,57 @@ test("issue #251: forced colors and text spacing keep transaction entry operable
   await capture(page, "issue-251-forced-colors-text-spacing-transaction-entry");
 });
 
+test("issue #251: 200% text zoom reflows transaction entry without blocking core actions", async ({ page }) => {
+  const email = `${unique("uiux-zoom-reflow")}@example.com`;
+
+  await registerAndVerify(page, { email, displayName: unique("uiux-zoom-reflow-name") });
+  await page.setViewportSize({ width: 640, height: 900 });
+  await page.addStyleTag({
+    content: `
+      html {
+        font-size: 200% !important;
+      }
+      body, button, input, select, textarea {
+        line-height: 1.5 !important;
+      }
+    `,
+  });
+  await openTab(page, "거래");
+  await page.getByTestId("transactions-fab").click();
+
+  const transactionSheet = page.getByTestId("transaction-entry-sheet");
+  await expect(transactionSheet).toBeVisible();
+  await expect(transactionSheet.getByTestId("transaction-quick-amount")).toBeVisible();
+  await expect(transactionSheet.getByTestId("transaction-category-search-toggle")).toBeVisible();
+  const quickSave = transactionSheet.getByTestId("transaction-quick-save");
+  await expect(quickSave).toBeVisible();
+
+  await expectNoHorizontalOverflow(page, 12);
+  const reflowMetrics = await quickSave.evaluate((button) => {
+    const box = button.getBoundingClientRect();
+    const centerX = box.left + box.width / 2;
+    const centerY = box.top + box.height / 2;
+    const topElement = document.elementFromPoint(centerX, centerY);
+    return {
+      htmlFontSize: Number.parseFloat(getComputedStyle(document.documentElement).fontSize),
+      quickSaveBottom: box.bottom,
+      quickSaveRight: box.right,
+      topTestId: topElement?.closest("[data-testid]")?.getAttribute("data-testid") || "",
+      viewportHeight: window.innerHeight,
+      viewportWidth: window.innerWidth,
+    };
+  });
+  expect(reflowMetrics.htmlFontSize, `200% text zoom should be active: ${JSON.stringify(reflowMetrics)}`).toBeGreaterThanOrEqual(32);
+  expect(reflowMetrics.quickSaveBottom, `quick save should stay in viewport: ${JSON.stringify(reflowMetrics)}`).toBeLessThanOrEqual(
+    reflowMetrics.viewportHeight + 1
+  );
+  expect(reflowMetrics.quickSaveRight, `quick save should stay in viewport: ${JSON.stringify(reflowMetrics)}`).toBeLessThanOrEqual(
+    reflowMetrics.viewportWidth + 1
+  );
+  expect(reflowMetrics.topTestId, `quick save center should stay actionable: ${JSON.stringify(reflowMetrics)}`).toBe("transaction-quick-save");
+  await capture(page, "issue-251-200-percent-zoom-reflow-transaction-entry");
+});
+
 test("issue #254: mobile transaction entry exposes input semantics", async ({ page }) => {
   const email = `${unique("uiux-mobile-input-semantics")}@example.com`;
 

@@ -685,9 +685,36 @@
   box-shadow: 0 6px 18px rgba(11, 30, 66, 0.04);
 }
 
-.socket-chip {
+.socket-chip,
+.client-version-chip {
   min-width: 0;
   white-space: nowrap;
+}
+
+.client-version-chip {
+  gap: 0.45rem;
+  border-color: rgba(217, 119, 6, 0.28);
+  background: rgba(255, 251, 235, 0.86);
+  color: #92400e;
+}
+
+.client-version-chip-text {
+  font-weight: 800;
+}
+
+.client-version-reload-button {
+  min-height: 1.55rem;
+  border: 1px solid rgba(217, 119, 6, 0.35);
+  border-radius: 999px;
+  padding: 0.12rem 0.5rem;
+  background: #fff7ed;
+  color: #92400e;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.client-version-reload-button:hover {
+  background: #ffedd5;
 }
 
 .socket-chip-text {
@@ -1987,6 +2014,40 @@
   min-height: 2.75rem;
 }
 
+.topbar-actions .topbar-price-refresh-action.is-active {
+  border-color: rgba(15, 124, 255, 0.42);
+  background: linear-gradient(135deg, rgba(234, 244, 255, 0.98), rgba(255, 255, 255, 0.9));
+  color: var(--mf-color-blue-700);
+  box-shadow: inset 0 0 0 1px rgba(15, 124, 255, 0.12);
+}
+
+.topbar-action-icon {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 auto;
+}
+
+.topbar-action-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.topbar-action-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -2667,6 +2728,33 @@ button.transaction-selection-clear {
   min-height: 2.65rem;
   padding: 0;
   box-shadow: 0 12px 26px -18px rgba(11, 74, 180, 0.55);
+}
+
+.transactions-scroll-top {
+  position: fixed;
+  left: max(0.95rem, env(safe-area-inset-left));
+  bottom: calc(1.25rem + env(safe-area-inset-bottom));
+  z-index: 45;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  min-width: 6rem;
+  min-height: 2.75rem;
+  padding: 0.62rem 0.86rem;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 124, 255, 0.24);
+  background: linear-gradient(180deg, #ffffff, #eaf4ff);
+  color: var(--mf-color-blue-700);
+  font-size: 0.82rem;
+  font-weight: 800;
+  line-height: 1;
+  box-shadow: 0 18px 35px -24px rgba(11, 74, 180, 0.58);
+}
+
+.transactions-scroll-top svg {
+  width: 1rem;
+  height: 1rem;
 }
 
 .holding-entry-sheet {
@@ -4488,6 +4576,25 @@ thead {
   text-align: center;
   display: inline-block;
   font-size: 0.7rem;
+}
+
+.sort-fixed-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.05rem;
+  padding: 0.08rem 0.32rem;
+  border-radius: 999px;
+  background: var(--mf-color-blue-100);
+  color: var(--mf-color-blue-700);
+  font-size: 0.66rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.transactions-surface-table .transaction-col-actions button.mobile-select-btn,
+.transactions-surface-table .mobile-select-btn {
+  display: none;
 }
 
 .transaction-history-status {
@@ -6362,11 +6469,12 @@ tr.holding-row-imported {
     font-size: 0.62rem;
   }
 
-  .topbar-meta > span:not(.socket-chip) {
+  .topbar-meta > span:not(.socket-chip):not(.client-version-chip) {
     display: none;
   }
 
-  .topbar-meta .socket-chip {
+  .topbar-meta .socket-chip,
+  .topbar-meta .client-version-chip {
     min-height: 1.18rem;
     max-width: min(100%, 8.9rem);
     padding: 0.07rem 0.38rem;
@@ -6377,6 +6485,17 @@ tr.holding-row-imported {
     overflow: hidden;
   }
 
+  .topbar-meta .client-version-chip {
+    max-width: min(100%, 11.6rem);
+    gap: 0.22rem;
+    color: #92400e;
+  }
+
+  .topbar-meta .client-version-reload-button {
+    min-height: 1.35rem;
+    padding: 0.04rem 0.36rem;
+    font-size: 0.62rem;
+  }
   .topbar-meta .socket-chip-syncing {
     border-color: rgba(15, 124, 255, 0.3);
     color: #0b4ab4;
@@ -6421,46 +6540,14 @@ tr.holding-row-imported {
   }
 
   .topbar-actions button::before {
+    content: none;
+    display: none;
+  }
+
+  .topbar-action-icon {
     display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 0.92rem;
-    line-height: 1;
-  }
-
-  .topbar-actions button:nth-child(1)::before {
-    content: "↻";
-  }
-
-  .topbar-actions button:nth-child(2)::before {
-    content: "₩";
-    font-size: 0.86rem;
-    font-weight: 800;
-  }
-
-  .topbar-actions button:nth-child(3)::before {
-    content: "⏻";
-  }
-
-  .topbar-actions .topbar-price-refresh-action {
-    width: 4.9rem;
-    gap: 0.18rem;
-    padding-inline: 0.34rem;
-  }
-
-  .topbar-actions .topbar-price-refresh-action .topbar-action-label {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 0;
-    font-size: 0.68rem;
-    font-weight: 800;
-    line-height: 1;
-    white-space: nowrap;
-  }
-
-  .topbar-actions .topbar-price-refresh-action.is-active .topbar-action-label {
-    font-size: 0.6rem;
+    width: 1.05rem;
+    height: 1.05rem;
   }
 
   .topbar-tabs {
@@ -7384,7 +7471,7 @@ tr.holding-row-imported {
     justify-content: flex-end;
     width: 100%;
   }
-  tr.transaction-row:not(.mobile-row-expanded) td[data-label="세부"] .inline > button:not(.mobile-toggle-btn),
+  tr.transaction-row:not(.mobile-row-expanded) td[data-label="세부"] .inline > button:not(.mobile-toggle-btn):not(.mobile-select-btn),
   tr.holding-row:not(.mobile-row-expanded) td[data-label="동작"] .inline > button:not(.mobile-toggle-btn) {
     display: none;
   }
@@ -8038,7 +8125,8 @@ tr.holding-row-imported {
 }
 
 @media (max-width: 360px) {
-  .topbar-meta .socket-chip {
+  .topbar-meta .socket-chip,
+  .topbar-meta .client-version-chip {
     max-width: min(100%, 5.6rem);
   }
 
@@ -8110,6 +8198,15 @@ tr.holding-row-imported {
     display: inline-flex;
     bottom: calc(var(--mobile-bottom-nav-clearance, 4.65rem) + 0.35rem);
     z-index: 46;
+  }
+
+  .transactions-scroll-top {
+    left: calc(0.5rem + env(safe-area-inset-left));
+    bottom: calc(var(--mobile-bottom-nav-clearance, 4.65rem) + 0.35rem);
+    min-width: 5.7rem;
+    min-height: 2.75rem;
+    padding: 0.58rem 0.76rem;
+    font-size: 0.78rem;
   }
 
   .transactions-fab.transaction-add-fab {
@@ -8392,10 +8489,10 @@ tr.holding-row-imported {
 
   .transactions-mobile-ledger-head,
   .transactions-surface-table tbody tr.transaction-row {
-    --transaction-mobile-date-column-width: 2.5rem;
+    --transaction-mobile-date-column-width: 2.9rem;
     --transaction-mobile-cue-column-width: 2.5rem;
     --transaction-mobile-amount-column-width: clamp(4.8rem, 21vw, 6.25rem);
-    --transaction-action-strip-width: 2.75rem;
+    --transaction-action-strip-width: 5.45rem;
     --transaction-mobile-ledger-column-gap: 0.14rem;
     --transaction-mobile-ledger-columns:
       var(--transaction-mobile-date-column-width)
@@ -8406,6 +8503,12 @@ tr.holding-row-imported {
   }
 
   .transactions-mobile-ledger-head {
+    --transaction-mobile-ledger-columns:
+      var(--transaction-mobile-date-column-width)
+      var(--transaction-mobile-cue-column-width)
+      minmax(2.5rem, 1fr)
+      var(--transaction-mobile-amount-column-width)
+      var(--transaction-action-strip-width);
     grid-template-columns: var(--transaction-mobile-ledger-columns);
     grid-template-areas: "date cues main amount actions";
     column-gap: var(--transaction-mobile-ledger-column-gap);
@@ -8463,6 +8566,13 @@ tr.holding-row-imported {
     gap: 0.16rem;
     white-space: nowrap;
     touch-action: manipulation;
+  }
+
+  .surface-ledger-mobile-head .ledger-head-trigger-kind {
+    color: var(--mf-color-ink-500);
+    font-size: 0.58rem;
+    font-weight: 800;
+    line-height: 1;
   }
 
   .surface-ledger-mobile-head .ledger-head-filter-trigger:hover:not(:disabled),
@@ -9055,7 +9165,11 @@ tr.holding-row-imported {
     min-height: 2.75rem;
   }
 
-  .transactions-surface-table tbody tr.transaction-row .transaction-col-actions .inline,
+  .transactions-surface-table tbody tr.transaction-row .transaction-col-actions .inline {
+    justify-content: flex-start;
+    width: var(--transaction-action-strip-width, 5.45rem);
+  }
+
   .holdings-surface-table tbody tr.holding-row .holding-col-actions .inline {
     justify-content: flex-start;
     width: 2.75rem;
@@ -9063,9 +9177,9 @@ tr.holding-row-imported {
 
   .transactions-surface-table tbody tr.transaction-row .transaction-col-actions .inline {
     display: grid;
-    grid-template-columns: 2.75rem;
+    grid-template-columns: 2.55rem 2.75rem;
     grid-template-areas:
-      "toggle";
+      "select toggle";
     align-items: center;
     justify-content: flex-start;
     position: relative;
@@ -9118,6 +9232,42 @@ tr.holding-row-imported {
     padding: 0;
     font-size: 0.58rem;
     font-weight: 800;
+  }
+
+  .transactions-surface-table tbody tr.transaction-row .transaction-col-actions .mobile-select-btn {
+    grid-area: select;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.55rem;
+    min-width: 2.55rem;
+    min-height: 2.75rem;
+    height: 2.75rem;
+    padding: 0;
+    border-radius: 12px;
+    border-color: var(--transaction-row-border, rgba(151, 172, 201, 0.55));
+    background: rgba(255, 255, 255, 0.82);
+    color: #355177;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.94);
+  }
+
+  .transactions-surface-table tbody tr.transaction-row .transaction-col-actions .mobile-select-btn[aria-pressed="true"] {
+    border-color: rgba(15, 124, 255, 0.32);
+    background: linear-gradient(180deg, #ffffff, #eaf4ff);
+    color: var(--mf-color-blue-700);
+  }
+
+  .transactions-surface-table .mobile-select-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+  }
+
+  .transactions-surface-table .mobile-select-icon svg {
+    width: 1rem;
+    height: 1rem;
   }
 
   .transactions-surface-table .transaction-col-select,
@@ -9585,15 +9735,6 @@ tr.holding-row-imported {
     border-radius: 12px;
   }
 
-  .topbar-actions .topbar-price-refresh-action {
-    width: 4.85rem;
-    padding-inline: 0.3rem;
-  }
-
-  .topbar-actions .topbar-price-refresh-action .topbar-action-label {
-    font-size: 0.64rem;
-  }
-
   .topbar-tabs {
     gap: 0.1rem;
     margin: 0;
@@ -9704,6 +9845,13 @@ tr.holding-row-imported {
     bottom: calc(var(--mobile-bottom-nav-clearance, 3.15rem) + 0.35rem);
     width: 2.75rem;
     height: 2.75rem;
+  }
+
+  .transactions-scroll-top {
+    left: calc(0.5rem + env(safe-area-inset-left));
+    bottom: calc(var(--mobile-bottom-nav-clearance, 3.15rem) + 0.35rem);
+    min-width: 5.2rem;
+    padding-inline: 0.64rem;
   }
 
   .settings-form-grid,

@@ -12,6 +12,7 @@ import {
 } from "chart.js";
 import { Doughnut, Line } from "react-chartjs-2";
 import { IsoDateInput } from "./components/IsoDateInput";
+import { AppShell, TAB_IDS } from "./components/AppShell";
 import { ChartBreakdownList, FlowTrendValueTable } from "./components/worksurface/ChartAccessibleSummary";
 import { HoldingSurfaceTable } from "./components/worksurface/HoldingSurfaceTable";
 import { TransactionCategoryQuickPicker } from "./components/worksurface/TransactionCategoryQuickPicker";
@@ -26,6 +27,7 @@ import {
   recomputeTossDuplicateRows,
 } from "./tossImportUtils.js";
 import { displayImportFileName, formatTechnicalReportJson } from "./importReportUtils.js";
+import { resolveClientVersionState } from "./clientVersion.js";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, ArcElement, Tooltip, Legend, Filler);
 
@@ -34,6 +36,7 @@ const APP_VERSION = (APP_VERSION_RAW.startsWith("v") ? APP_VERSION_RAW.substring
 const COPYRIGHT_TEXT = `© ENM Software v${APP_VERSION}`;
 
 const API_PREFIX = "/api/v1";
+const CLIENT_VERSION_CHECK_INTERVAL_MS = 60_000;
 const SAVED_EMAIL_KEY = "money-flow-saved-email";
 const ACTIVE_HOUSEHOLD_KEY = "money-flow-active-household-id";
 const ACTIVE_TAB_KEY = "money-flow-active-tab";
@@ -54,96 +57,6 @@ const DEBUG_TOKEN_OPT_IN =
 let csrfCookieName = DEFAULT_CSRF_COOKIE_NAME;
 let csrfHeaderName = DEFAULT_CSRF_HEADER_NAME;
 let householdHeaderName = DEFAULT_HOUSEHOLD_HEADER_NAME;
-const TAB_LABELS = {
-  dashboard: "대시보드",
-  transactions: "거래",
-  holdings: "자산",
-  settings: "설정",
-  collaboration: "협업",
-  import: "데이터 가져오기",
-};
-const TAB_NAV_META = {
-  dashboard: { helper: "요약", mobileLabel: "요약" },
-  transactions: { helper: "흐름", mobileLabel: "거래" },
-  holdings: { helper: "자산", mobileLabel: "자산" },
-  collaboration: { helper: "공유", mobileLabel: "협업" },
-  import: { helper: "가져오기", mobileLabel: "가져\n오기" },
-  settings: { helper: "설정", mobileLabel: "설정" },
-};
-const TAB_GROUPS = {
-  left: ["dashboard", "transactions", "holdings"],
-  right: ["collaboration", "import", "settings"],
-};
-const TAB_IDS = new Set([...TAB_GROUPS.left, ...TAB_GROUPS.right]);
-
-function TabNavIcon({ tabId }) {
-  const commonProps = {
-    viewBox: "0 0 24 24",
-    fill: "none",
-    stroke: "currentColor",
-    strokeWidth: "1.9",
-    strokeLinecap: "round",
-    strokeLinejoin: "round",
-    focusable: "false",
-  };
-  if (tabId === "transactions") {
-    return (
-      <svg {...commonProps}>
-        <path d="M5 7h14" />
-        <path d="m15 3 4 4-4 4" />
-        <path d="M19 17H5" />
-        <path d="m9 13-4 4 4 4" />
-      </svg>
-    );
-  }
-  if (tabId === "holdings") {
-    return (
-      <svg {...commonProps}>
-        <path d="M12 3 4 8l8 5 8-5-8-5Z" />
-        <path d="m4 13 8 5 8-5" />
-      </svg>
-    );
-  }
-  if (tabId === "collaboration") {
-    return (
-      <svg {...commonProps}>
-        <path d="M8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" />
-        <path d="M16 12a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z" />
-        <path d="M3.5 20a4.5 4.5 0 0 1 9 0" />
-        <path d="M13.5 19a3.5 3.5 0 0 1 7 0" />
-      </svg>
-    );
-  }
-  if (tabId === "import") {
-    return (
-      <svg {...commonProps}>
-        <path d="M12 4v10" />
-        <path d="m8 10 4 4 4-4" />
-        <path d="M5 18h14" />
-      </svg>
-    );
-  }
-  if (tabId === "settings") {
-    return (
-      <svg {...commonProps}>
-        <path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z" />
-        <path d="M12 3v2" />
-        <path d="M12 19v2" />
-        <path d="M4.2 7.5 5.9 8.5" />
-        <path d="m18.1 15.5 1.7 1" />
-        <path d="m4.2 16.5 1.7-1" />
-        <path d="m18.1 8.5 1.7-1" />
-      </svg>
-    );
-  }
-  return (
-    <svg {...commonProps}>
-      <path d="M4 11.5 12 5l8 6.5" />
-      <path d="M6.5 10.5V19h11v-8.5" />
-      <path d="M10 19v-5h4v5" />
-    </svg>
-  );
-}
 const DISPLAY_NAME_MODE_OPTIONS = [
   { value: "real_name", label: "본명 우선" },
   { value: "nickname", label: "닉네임 우선" },
@@ -2284,6 +2197,7 @@ function App() {
     investment: false,
   });
   const [transactionsMobileStickyActive, setTransactionsMobileStickyActive] = useState(false);
+  const [showTransactionScrollTop, setShowTransactionScrollTop] = useState(false);
   const [selectedTransactionIds, setSelectedTransactionIds] = useState(() => new Set());
   const [expandedTransactionRows, setExpandedTransactionRows] = useState(() => new Set());
 
@@ -2390,6 +2304,9 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [dashboardLoading, setDashboardLoading] = useState(false);
   const [dashboardLoaded, setDashboardLoaded] = useState(false);
+  const [clientVersionState, setClientVersionState] = useState(() =>
+    resolveClientVersionState({ bundledVersion: APP_VERSION, serverVersion: APP_VERSION })
+  );
   const [importLoadingMode, setImportLoadingMode] = useState("");
   const [migrationLoadingMode, setMigrationLoadingMode] = useState("");
   const [migrationExporting, setMigrationExporting] = useState(false);
@@ -2399,6 +2316,7 @@ function App() {
   const importFileInputRef = useRef(null);
   const tossFileInputRef = useRef(null);
   const dashboardRequestCountRef = useRef(0);
+  const clientVersionCheckInFlightRef = useRef(false);
   const wsTicketMethodRef = useRef("POST");
   const wsRefreshTimerRef = useRef(null);
   const wsPendingKindsRef = useRef(new Set());
@@ -4033,6 +3951,46 @@ function App() {
     };
   }, [isCompactViewport, tab, sortedTransactions.length]);
 
+  useEffect(() => {
+    if (typeof window === "undefined" || tab !== "transactions") {
+      setShowTransactionScrollTop(false);
+      return undefined;
+    }
+    let frameId = 0;
+    const updateScrollTopAffordance = () => {
+      if (frameId) {
+        return;
+      }
+      frameId = window.requestAnimationFrame(() => {
+        frameId = 0;
+        const listCard = transactionListCardRef.current;
+        const listRect = listCard?.getBoundingClientRect();
+        const listStillVisible = Boolean(listRect && listRect.bottom > window.innerHeight * 0.34);
+        setShowTransactionScrollTop(sortedTransactions.length > 8 && window.scrollY > 280 && listStillVisible);
+      });
+    };
+    updateScrollTopAffordance();
+    window.addEventListener("scroll", updateScrollTopAffordance, { passive: true });
+    window.addEventListener("resize", updateScrollTopAffordance);
+    return () => {
+      if (frameId) {
+        window.cancelAnimationFrame(frameId);
+      }
+      window.removeEventListener("scroll", updateScrollTopAffordance);
+      window.removeEventListener("resize", updateScrollTopAffordance);
+    };
+  }, [tab, sortedTransactions.length]);
+
+  function scrollTransactionListToTop() {
+    const target = transactionListCardRef.current || transactionStickyToolbarRef.current;
+    if (!target || typeof target.scrollIntoView !== "function") {
+      return;
+    }
+    const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+    target.scrollIntoView({ block: "start", inline: "nearest", behavior: reduceMotion ? "auto" : "smooth" });
+    requestTransactionHistoryMonthSync();
+  }
+
   function toggleTxSortDirection() {
     if (transactionHistoryInitialized) {
       return;
@@ -5600,7 +5558,7 @@ function App() {
         await loadTransactionHistoryPage({
           direction: "newer",
           cursor: String(payload?.newer_cursor || ""),
-          preserveScroll: false,
+          preserveScroll: true,
           silent: true,
           nextToken,
         });
@@ -5643,7 +5601,7 @@ function App() {
     return loadTransactionHistoryPage({
       direction: "newer",
       cursor: transactionHistoryNewerCursor,
-      preserveScroll: false,
+      preserveScroll: true,
       silent: true,
     });
   }
@@ -8846,6 +8804,64 @@ function App() {
     });
   }
 
+  const checkClientVersion = useCallback(async () => {
+    if (clientVersionCheckInFlightRef.current) return;
+    if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+    clientVersionCheckInFlightRef.current = true;
+    try {
+      const response = await fetch(`${API_PREFIX}/system/client-version`, {
+        method: "GET",
+        cache: "no-store",
+        credentials: "same-origin",
+        headers: {
+          "Cache-Control": "no-cache",
+        },
+      });
+      if (!response.ok) {
+        return;
+      }
+      const payload = await response.json();
+      setClientVersionState(
+        resolveClientVersionState({
+          bundledVersion: APP_VERSION,
+          serverVersion: payload?.version,
+        })
+      );
+    } catch {
+      // Version checks are advisory; a later focus/interval retry can recover.
+    } finally {
+      clientVersionCheckInFlightRef.current = false;
+    }
+  }, []);
+
+  useEffect(() => {
+    let stopped = false;
+    const tick = () => {
+      if (stopped) return;
+      checkClientVersion().catch(() => undefined);
+    };
+    tick();
+    const timerId = window.setInterval(tick, CLIENT_VERSION_CHECK_INTERVAL_MS);
+    const onVisibilityChange = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "visible") {
+        tick();
+      }
+    };
+    const onFocus = () => tick();
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", onVisibilityChange);
+    }
+    window.addEventListener("focus", onFocus);
+    return () => {
+      stopped = true;
+      clearInterval(timerId);
+      if (typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", onVisibilityChange);
+      }
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [checkClientVersion]);
+
   useEffect(() => {
     if (!token || !priceRefreshPolling) return;
     let stopped = false;
@@ -9379,6 +9395,10 @@ function App() {
   const realtimeChipAriaLabel = isDashboardRefreshing
     ? `실시간 연결: ${socketStatusLabel}, 최신 데이터 동기화 중`
     : `실시간 연결: ${socketStatusLabel}`;
+  const clientUpdateAvailable = clientVersionState.kind === "update_available";
+  const clientVersionStatusLabel = clientUpdateAvailable
+    ? `새 버전 ${clientVersionState.serverVersion} 사용 가능`
+    : `현재 버전 ${clientVersionState.bundledVersion}`;
   const { minMonth, maxMonth } = getMonthBounds();
   const isPrevMonthDisabled = compareYearMonth(yearMonth, minMonth) <= 0;
   const isNextMonthDisabled = compareYearMonth(yearMonth, maxMonth) >= 0;
@@ -9388,6 +9408,7 @@ function App() {
     : priceStatus?.refresh_finished_at
       ? "완료"
       : "대기";
+  const topbarPriceRefreshStatus = isPriceRefreshActive ? "시세 갱신 중" : "시세 갱신 대기";
   const latestRefreshAt = priceStatus?.refresh_finished_at || priceStatus?.updated_at || null;
   const dashboardGainLossRatioText = fmtSignedPercent(holdingPortfolioReturnRatio ?? 0);
   const financialSummaryRows = [
@@ -10660,97 +10681,35 @@ function App() {
     );
   }
 
-  const renderTabButton = (item) => {
-    const isActive = tab === item;
-    const isCollaborationPulse = item === "collaboration" && collaborationInvitePulse && !isActive;
-    const unreadInviteCount = item === "collaboration" ? receivedNewInvites.length : 0;
-    const meta = TAB_NAV_META[item] || {};
-    return (
-      <button
-        key={item}
-        aria-label={TAB_LABELS[item] || item}
-        aria-current={isActive ? "page" : undefined}
-        className={`${isActive ? "active" : ""}${isCollaborationPulse ? " tab-invite-pulse" : ""}`}
-        onClick={() => setTab(item)}
-      >
-        <span className="tab-icon" aria-hidden="true"><TabNavIcon tabId={item} /></span>
-        <span className="tab-text-break" aria-hidden="true">{"\n"}</span>
-        <span className="tab-copy" data-helper={meta.helper || undefined} aria-hidden="true">
-          <span className="tab-label" data-mobile-label={meta.mobileLabel || TAB_LABELS[item] || item}>
-            {TAB_LABELS[item] || item}
-          </span>
-        </span>
-        {unreadInviteCount > 0 && <span className="tab-badge" aria-label={`새 초대 ${unreadInviteCount}건`}>{unreadInviteCount}</span>}
-      </button>
-    );
-  };
-
   return (
-    <main
-      className="app-shell"
-      translate="no"
+    <AppShell
+      userName={user?.display_name}
+      householdName={household?.name}
+      socketStatus={socketStatus}
+      socketStatusLabel={socketStatusLabel}
+      realtimeChipLabel={realtimeChipLabel}
+      realtimeChipAriaLabel={realtimeChipAriaLabel}
+      isDashboardRefreshing={isDashboardRefreshing}
+      clientUpdateAvailable={clientUpdateAvailable}
+      clientVersionState={clientVersionState}
+      clientVersionStatusLabel={clientVersionStatusLabel}
+      onClientVersionReload={() => window.location.reload()}
+      dashboardLoading={dashboardLoading}
+      onRefreshData={() => refreshDataWithUiFeedback().catch(() => undefined)}
+      priceRefreshDisabled={loading || dashboardLoading || isPriceRefreshActive}
+      isPriceRefreshActive={isPriceRefreshActive}
+      topbarPriceRefreshStatus={topbarPriceRefreshStatus}
+      onRefreshPrice={refreshPriceNow}
+      onLogout={() => logout().catch(() => undefined)}
+      tab={tab}
+      onTabChange={setTab}
+      collaborationInvitePulse={collaborationInvitePulse}
+      receivedNewInviteCount={receivedNewInvites.length}
+      topbarTabsRef={topbarTabsRef}
       onInvalidCapture={handleInvalidFormField}
       onInputCapture={clearNativeValidationMessage}
       onChangeCapture={clearNativeValidationMessage}
     >
-      <header className="topbar">
-        <div className="topbar-identity">
-          <span className="topbar-eyebrow">가계 금융 워크스페이스</span>
-          <h1>Money Flow</h1>
-          <div className="meta topbar-meta">
-            <span>사용자: {user?.display_name}</span>
-            <span>가계: {household?.name}</span>
-            <span
-              className={`socket-chip socket-chip-${socketStatus}${isDashboardRefreshing ? " socket-chip-syncing" : ""}`}
-              role="status"
-              aria-live="polite"
-              aria-label={realtimeChipAriaLabel}
-            >
-              <span className="socket-chip-text">
-                <span className="socket-chip-prefix">실시간 연결: </span>
-                <span className="socket-chip-status">{realtimeChipLabel}</span>
-              </span>
-            </span>
-          </div>
-        </div>
-        <div className="actions topbar-actions">
-          <button className="secondary topbar-action-button topbar-refresh-action" onClick={() => refreshDataWithUiFeedback().catch(() => undefined)} disabled={dashboardLoading}>
-            <span className="topbar-action-label">{dashboardLoading ? "불러오는 중..." : "새로고침"}</span>
-          </button>
-          <button
-            className={`secondary topbar-action-button topbar-price-refresh-action${isPriceRefreshActive ? " is-active" : ""}`}
-            onClick={refreshPriceNow}
-            disabled={loading || dashboardLoading || isPriceRefreshActive}
-            title={isPriceRefreshActive ? "시세 갱신 중" : "시세 갱신"}
-          >
-            <span className="topbar-action-label">{isPriceRefreshActive ? "시세 갱신 중..." : "시세 갱신"}</span>
-          </button>
-          <button className="danger topbar-action-button topbar-logout-action" onClick={() => logout().catch(() => undefined)}>
-            <span className="topbar-action-label">로그아웃</span>
-          </button>
-        </div>
-      </header>
-
-      <nav ref={topbarTabsRef} className="tabs topbar-tabs" aria-label="주요 메뉴">
-        <div className="nav-brand" aria-hidden="true">
-          <span className="nav-brand-mark">M</span>
-          <span>
-            <strong>Money Flow</strong>
-            <small>가계 금융 워크스페이스</small>
-          </span>
-        </div>
-        <div className="tabs-left">
-          {TAB_GROUPS.left.map(renderTabButton)}
-        </div>
-        <div className="tabs-right">
-          {TAB_GROUPS.right.map(renderTabButton)}
-        </div>
-        <div className="nav-status-card" aria-hidden="true">
-          <span className={`nav-status-dot nav-status-dot-${socketStatus}`} />
-          <span>{SOCKET_STATUS_LABELS[socketStatus] || socketStatus}</span>
-        </div>
-      </nav>
-
       <div className="app-content">
       {shouldShowGlobalMessage && (
         <div className="message" role="status">
@@ -11418,6 +11377,7 @@ function App() {
               canEditRecords={canEditRecords}
               canEditHouseholdData={canEditHouseholdData}
               loading={loading}
+              isCompactViewport={isCompactViewport}
               closeTxInlineEdit={closeTxInlineEdit}
               mobileStickyActive={transactionsMobileStickyActive}
               handleTxInlineEditKeyDown={handleTxInlineEditKeyDown}
@@ -11431,6 +11391,20 @@ function App() {
               toCategoryMajorLabel={toCategoryMajorLabel}
               toCategoryMinorLabel={toCategoryMinorLabel}
             />
+            {showTransactionScrollTop && (
+              <button
+                type="button"
+                className="transactions-scroll-top"
+                data-testid="transactions-scroll-top"
+                aria-label="거래 목록 맨 위로 이동"
+                onClick={scrollTransactionListToTop}
+              >
+                <svg viewBox="0 0 16 16" focusable="false" aria-hidden="true">
+                  <path d="M8 3.25 3.75 7.5M8 3.25l4.25 4.25M8 3.25v9.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                <span>맨 위로</span>
+              </button>
+            )}
           </article>
           {isCompactViewport && !txInlineEdit && (
             <button
@@ -13903,7 +13877,7 @@ function App() {
       <div className="app-copyright" aria-hidden="true">
         {COPYRIGHT_TEXT}
       </div>
-    </main>
+    </AppShell>
   );
 }
 
