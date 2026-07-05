@@ -255,7 +255,12 @@ export function AppShell({
           <span id="topbar-price-refresh-status" className="topbar-action-status" role="status" aria-live="polite" aria-atomic="true">
             {topbarPriceRefreshStatus}
           </span>
-          <button className="danger topbar-action-button topbar-logout-action" onClick={onLogout}>
+          <button
+            className="danger topbar-action-button topbar-logout-action"
+            onClick={onLogout}
+            aria-label="로그아웃"
+            title="로그아웃"
+          >
             <span className="topbar-action-icon"><TopbarActionIcon action="logout" /></span>
             <span className="topbar-action-label">로그아웃</span>
           </button>
