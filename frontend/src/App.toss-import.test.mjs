@@ -1,22 +1,42 @@
-import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { patchTossRowWithInference, recomputeTossDuplicateRows } from "./tossImportUtils.js";
+import { normalizeFileArray, patchTossRowWithInference, recomputeTossDuplicateRows } from "./tossImportUtils.js";
 
-const appSource = readFileSync(new URL("./App.jsx", import.meta.url), "utf8");
-const importPageSource = readFileSync(new URL("./pages/ImportPage.jsx", import.meta.url), "utf8");
-const importFlowSource = `${appSource}\n${importPageSource}`;
+test("Toss screenshot upload files and duplicate review decisions normalize by behavior", () => {
+  const firstFile = { name: "toss-1.png" };
+  const secondFile = { name: "toss-2.png" };
+  assert.deepEqual(normalizeFileArray({ 0: firstFile, 1: null, 2: secondFile, length: 3 }), [firstFile, secondFile]);
 
-test("import screen exposes a Toss screenshot preview/apply review flow", () => {
-  assert.match(importFlowSource, /imports\/toss-screenshots\/preview/);
-  assert.match(importFlowSource, /imports\/toss-screenshots\/apply/);
-  assert.match(importFlowSource, /tossPreview/);
-  assert.match(importFlowSource, /제외된 후보/);
-  assert.match(importFlowSource, /추천 카테고리/);
-  assert.match(importFlowSource, /recomputeTossDuplicateRows/);
-  assert.match(importFlowSource, /rows: recomputeTossDuplicateRows/);
-  assert.match(importFlowSource, /patchTossRowWithInference/);
-  assert.match(importFlowSource, /patchTossRowWithInference\(row, patch, categories\)/);
+  const duplicateRows = recomputeTossDuplicateRows([
+    {
+      row_id: "a",
+      occurred_on: "2026-05-31",
+      time: "09:15",
+      item_name: "주식회사 카카오",
+      amount: "1,900",
+      signed_amount: "-1900",
+      balance: "4,024,514",
+      flow_type: "expense",
+      duplicate_group_id: "dup-existing",
+      included: true,
+    },
+    {
+      row_id: "b",
+      occurred_on: "2026-05-31",
+      time: "09:15",
+      item_name: "주식회사 카카오",
+      amount: "1,900",
+      signed_amount: "-1900",
+      balance: "4,024,514",
+      flow_type: "expense",
+      included: true,
+    },
+  ]);
+
+  assert.equal(duplicateRows[0].duplicate_group_id, "dup-1");
+  assert.equal(duplicateRows[0].included, true);
+  assert.equal(duplicateRows[1].duplicate_group_id, "dup-1");
+  assert.equal(duplicateRows[1].included, false);
 });
 
 test("Toss preview edits recompute duplicate and category state", () => {

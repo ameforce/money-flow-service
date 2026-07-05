@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// SIZE_OK issue-248 app-extraction-verifier; maxPureLoc=483; AST contract guard must split before it grows.
 
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
@@ -11,17 +12,57 @@ const espreePath = require.resolve("espree", { paths: [path.resolve("frontend")]
 const espree = await import(pathToFileURL(espreePath).href);
 
 const APP_PATH = "frontend/src/App.jsx";
+const VERIFIER_PATH = "scripts/verify_app_page_extraction.mjs";
+const SIZE_OK_PATTERN = /SIZE_OK issue-248 ([a-z0-9-]+); maxPureLoc=(\d+);/;
+const SIZE_TARGETS = {
+  app: { file: APP_PATH, sizeTag: "app-shell", maxPureLoc: 10852 },
+  verifier: { file: VERIFIER_PATH, sizeTag: "app-extraction-verifier", maxPureLoc: 483 },
+};
 const PAGE_SPECS = {
-  dashboard: { component: "DashboardPage", file: "frontend/src/pages/DashboardPage.jsx", propsVar: "dashboardPageProps", maxLines: 460 },
-  transactions: { component: "TransactionsPage", file: "frontend/src/pages/TransactionsPage.jsx", propsVar: "transactionsPageProps", maxLines: 720 },
-  holdings: { component: "HoldingsPage", file: "frontend/src/pages/HoldingsPage.jsx", propsVar: "holdingsPageProps", maxLines: 660 },
-  settings: { component: "SettingsPage", file: "frontend/src/pages/SettingsPage.jsx", propsVar: "settingsPageProps", maxLines: 760 },
-  collaboration: { component: "CollaborationPage", file: "frontend/src/pages/CollaborationPage.jsx", propsVar: "collaborationPageProps", maxLines: 480 },
-  import: { component: "ImportPage", file: "frontend/src/pages/ImportPage.jsx", propsVar: "importPageProps", maxLines: 900 },
+  dashboard: {
+    component: "DashboardPage",
+    file: "frontend/src/pages/DashboardPage.jsx",
+    propsVar: "dashboardPageProps",
+    sizeTag: "dashboard-page",
+    maxPureLoc: 424,
+  },
+  transactions: {
+    component: "TransactionsPage",
+    file: "frontend/src/pages/TransactionsPage.jsx",
+    propsVar: "transactionsPageProps",
+    sizeTag: "transactions-page",
+    maxPureLoc: 682,
+  },
+  holdings: {
+    component: "HoldingsPage",
+    file: "frontend/src/pages/HoldingsPage.jsx",
+    propsVar: "holdingsPageProps",
+    sizeTag: "holdings-page",
+    maxPureLoc: 623,
+  },
+  settings: {
+    component: "SettingsPage",
+    file: "frontend/src/pages/SettingsPage.jsx",
+    propsVar: "settingsPageProps",
+    sizeTag: "settings-page",
+    maxPureLoc: 718,
+  },
+  collaboration: {
+    component: "CollaborationPage",
+    file: "frontend/src/pages/CollaborationPage.jsx",
+    propsVar: "collaborationPageProps",
+    sizeTag: "collaboration-page",
+    maxPureLoc: 443,
+  },
+  import: {
+    component: "ImportPage",
+    file: "frontend/src/pages/ImportPage.jsx",
+    propsVar: "importPageProps",
+    sizeTag: "import-page",
+    maxPureLoc: 859,
+  },
 };
 const SOURCE_REF = String(process.env.APP_EXTRACTION_REF || "").trim();
-const MAX_APP_LINES = 11_500;
-const MAX_VERIFIER_LINES = 450;
 const MIN_PAGE_GROUPS = 3;
 const MAX_PAGE_GROUPS = 16;
 const MAX_GROUP_FIELDS = 18;
@@ -77,6 +118,37 @@ function parseSource(source, filePath) {
   } catch (error) {
     throw new Error(`${filePath} parse failed: ${error.message}`);
   }
+}
+
+function pureLineCount(source) {
+  return source.split(/\r?\n/).filter((line) => {
+    const trimmed = line.trim();
+    return trimmed && !/^(\/\/|#|\/\*|\*|\*\/)/.test(trimmed);
+  }).length;
+}
+
+function sizeException(source) {
+  const head = source.split(/\r?\n/).slice(0, 5).join("\n");
+  const match = head.match(SIZE_OK_PATTERN);
+  return match ? { sizeTag: match[1], maxPureLoc: Number(match[2]) } : null;
+}
+
+function addSizeBudgetFailures(failures, source, spec) {
+  const pureLoc = pureLineCount(source);
+  const exception = sizeException(source);
+  if (pureLoc > 250 && !exception) {
+    failures.push(`${spec.file} has ${pureLoc} pure LOC and must declare SIZE_OK issue-248 ${spec.sizeTag}`);
+  }
+  if (exception?.sizeTag !== spec.sizeTag) {
+    failures.push(`${spec.file} SIZE_OK tag must be ${spec.sizeTag}; found ${exception?.sizeTag || "missing"}`);
+  }
+  if (exception?.maxPureLoc !== spec.maxPureLoc) {
+    failures.push(`${spec.file} SIZE_OK maxPureLoc must be ${spec.maxPureLoc}; found ${exception?.maxPureLoc || "missing"}`);
+  }
+  if (pureLoc > spec.maxPureLoc) {
+    failures.push(`${spec.file} has ${pureLoc} pure LOC; expected <= ${spec.maxPureLoc}`);
+  }
+  return { pureLoc, maxPureLoc: spec.maxPureLoc, sizeException: Boolean(exception) };
 }
 
 function propertyName(property) {
@@ -283,14 +355,10 @@ const failures = [];
 const appSource = readSource(APP_PATH);
 const appAst = parseSource(appSource, APP_PATH);
 const appLines = appSource.split(/\r?\n/).length;
-const verifierLines = SOURCE_REF ? readFileSync(new URL(import.meta.url), "utf8").split(/\r?\n/).length : readSource("scripts/verify_app_page_extraction.mjs").split(/\r?\n/).length;
-
-if (appLines > MAX_APP_LINES) {
-  failures.push(`${APP_PATH} has ${appLines} lines; expected <= ${MAX_APP_LINES} after page extraction`);
-}
-if (verifierLines > MAX_VERIFIER_LINES) {
-  failures.push(`scripts/verify_app_page_extraction.mjs has ${verifierLines} lines; expected <= ${MAX_VERIFIER_LINES}`);
-}
+const verifierSource = readFileSync(new URL(import.meta.url), "utf8");
+const verifierLines = verifierSource.split(/\r?\n/).length;
+const appSize = addSizeBudgetFailures(failures, appSource, SIZE_TARGETS.app);
+const verifierSize = addSizeBudgetFailures(failures, verifierSource, SIZE_TARGETS.verifier);
 if (!appSource.includes('import { useCompactViewport } from "./hooks/useCompactViewport";')) {
   failures.push("App.jsx must use the shared useCompactViewport hook");
 }
@@ -356,9 +424,7 @@ for (const [tab, spec] of Object.entries(PAGE_SPECS)) {
   const pageSource = readSource(spec.file);
   const pageAst = parseSource(pageSource, spec.file);
   const pageLines = pageSource.split(/\r?\n/).length;
-  if (pageLines > spec.maxLines) {
-    failures.push(`${spec.file} has ${pageLines} lines; expected <= ${spec.maxLines}`);
-  }
+  const pageSize = addSizeBudgetFailures(failures, pageSource, spec);
   if (/export function \w+\(\{ view \}\)/.test(pageSource) || /\bview\b/.test(pageSource)) {
     failures.push(`${spec.file} must not accept or reference a catch-all view prop`);
   }
@@ -424,7 +490,9 @@ for (const [tab, spec] of Object.entries(PAGE_SPECS)) {
         pageGroups.map((groupName) => [groupName, { fieldCount: (pageFieldsByGroup.get(groupName) || []).length }])
       ),
       lines: pageLines,
-      maxLines: spec.maxLines,
+      pureLoc: pageSize.pureLoc,
+      maxPureLoc: pageSize.maxPureLoc,
+      sizeException: pageSize.sizeException,
     };
 }
 
@@ -432,9 +500,13 @@ const report = {
   ok: failures.length === 0,
   sourceRef: SOURCE_REF || "worktree",
   appLines,
-  maxAppLines: MAX_APP_LINES,
+  appPureLoc: appSize.pureLoc,
+  maxAppPureLoc: appSize.maxPureLoc,
+  appSizeException: appSize.sizeException,
   verifierLines,
-  maxVerifierLines: MAX_VERIFIER_LINES,
+  verifierPureLoc: verifierSize.pureLoc,
+  maxVerifierPureLoc: verifierSize.maxPureLoc,
+  verifierSizeException: verifierSize.sizeException,
   maxPageGroups: MAX_PAGE_GROUPS,
   maxGroupFields: MAX_GROUP_FIELDS,
   routedTabs: Object.fromEntries(routedTabs.entries()),

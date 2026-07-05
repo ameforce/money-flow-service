@@ -1,3 +1,4 @@
+// SIZE_OK issue-248 import-page; maxPureLoc=859; transitional page shell must split before it grows.
 export function ImportPage({
   constants,
   permissions,

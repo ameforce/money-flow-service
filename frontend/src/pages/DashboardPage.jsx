@@ -1,3 +1,4 @@
+// SIZE_OK issue-248 dashboard-page; maxPureLoc=424; transitional page shell must split before it grows.
 import { Doughnut, Line } from "react-chartjs-2";
 import { ChartBreakdownList, FlowTrendValueTable } from "../components/worksurface/ChartAccessibleSummary";
 

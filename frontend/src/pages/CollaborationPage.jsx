@@ -1,3 +1,4 @@
+// SIZE_OK issue-248 collaboration-page; maxPureLoc=443; transitional page shell must split before it grows.
 export function CollaborationPage({
   constants,
   permissions,

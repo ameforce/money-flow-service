@@ -1,3 +1,4 @@
+// SIZE_OK issue-248 app-shell; maxPureLoc=10852; transitional shell debt must shrink or stay flat until later extraction.
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ArcElement,

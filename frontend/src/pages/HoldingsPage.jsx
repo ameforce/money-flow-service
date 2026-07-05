@@ -1,3 +1,4 @@
+// SIZE_OK issue-248 holdings-page; maxPureLoc=623; transitional page shell must split before it grows.
 import { Doughnut } from "react-chartjs-2";
 import { ChartBreakdownList } from "../components/worksurface/ChartAccessibleSummary";
 import { HoldingSurfaceTable } from "../components/worksurface/HoldingSurfaceTable";

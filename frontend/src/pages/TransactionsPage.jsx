@@ -1,3 +1,4 @@
+// SIZE_OK issue-248 transactions-page; maxPureLoc=682; transitional page shell must split before it grows.
 import { IsoDateInput } from "../components/IsoDateInput";
 import { TransactionSurfaceTable } from "../components/worksurface/TransactionSurfaceTable";
 

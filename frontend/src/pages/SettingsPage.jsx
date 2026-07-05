@@ -1,3 +1,4 @@
+// SIZE_OK issue-248 settings-page; maxPureLoc=718; transitional page shell must split before it grows.
 import { Fragment } from "react";
 
 export function SettingsPage({
