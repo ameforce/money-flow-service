@@ -4418,6 +4418,84 @@ test("issue 224: desktop transaction row edit and delete targets stay comfortabl
   await capture(page, "issue-224-desktop-row-action-target-size");
 });
 
+test("issue 273: desktop transaction row double-click opens inline edit only from row body", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  const email = `${unique("tx-row-double-click-edit")}@example.com`;
+  const displayName = unique("tx-row-double-click-owner");
+  const memo = unique("tx-row-double-click-memo");
+
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 1366, height: 900 });
+
+  const createdRow = await createBasicTransaction(page, { memo, amount: "12000" });
+  await expect(createdRow).toBeVisible();
+  await expect(page.locator("tr.transaction-inline-editor-row")).toHaveCount(0);
+  await expect(createdRow).toHaveAttribute("data-row-selected", "false");
+  await expect(createdRow).toHaveAttribute("data-row-expanded", "false");
+
+  const checkbox = createdRow.locator(".transaction-col-select input[type='checkbox']").first();
+  await checkbox.dblclick({ force: true });
+  await expect(page.locator("tr.transaction-inline-editor-row")).toHaveCount(0);
+
+  await createdRow.locator(".transaction-col-memo").dblclick();
+  const editorRow = page.locator("tr.transaction-inline-editor-row").first();
+  await expect(editorRow).toBeVisible();
+  await expect(editorRow.getByLabel("메모")).toHaveValue(memo);
+  await expect(createdRow).toHaveAttribute("data-row-selected", "false");
+  await expect(createdRow).toHaveAttribute("data-row-expanded", "false");
+  await capture(page, "issue-273-desktop-row-double-click-edit");
+
+  await editorRow.getByRole("button", { name: "취소" }).click();
+  await expect(page.locator("tr.transaction-inline-editor-row")).toHaveCount(0);
+  await createdRow.locator(".transaction-col-memo").click();
+  await expect(createdRow).toHaveAttribute("data-row-selected", "true");
+  await expect(createdRow).toHaveAttribute("data-row-expanded", "true");
+  await createdRow.locator(".transaction-col-memo").dispatchEvent("click", {
+    bubbles: true,
+    cancelable: true,
+    detail: 2,
+    button: 0,
+  });
+  await createdRow.locator(".transaction-col-memo").dispatchEvent("dblclick", {
+    bubbles: true,
+    cancelable: true,
+    detail: 2,
+    button: 0,
+  });
+  await expect(page.locator("tr.transaction-inline-editor-row").first()).toBeVisible();
+  await expect(createdRow).toHaveAttribute("data-row-selected", "false");
+  await expect(createdRow).toHaveAttribute("data-row-expanded", "false");
+  await page.locator("tr.transaction-inline-editor-row").first().getByRole("button", { name: "취소" }).click();
+  await expect(page.locator("tr.transaction-inline-editor-row")).toHaveCount(0);
+
+  await createdRow.focus();
+  await createdRow.press("Enter");
+  await expect(page.locator("tr.transaction-inline-editor-row").first()).toBeVisible();
+  await page.locator("tr.transaction-inline-editor-row").first().getByRole("button", { name: "취소" }).click();
+  await expect(page.locator("tr.transaction-inline-editor-row")).toHaveCount(0);
+  await createdRow.focus();
+  await createdRow.press("F2");
+  await expect(page.locator("tr.transaction-inline-editor-row").first()).toBeVisible();
+  await page.locator("tr.transaction-inline-editor-row").first().getByRole("button", { name: "취소" }).click();
+  await expect(page.locator("tr.transaction-inline-editor-row")).toHaveCount(0);
+
+  await page.route("**/api/v1/household/current", async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    await route.fulfill({
+      response,
+      json: { ...body, role: "viewer" },
+    });
+  });
+  await page.reload();
+  await expect(page.locator("tr.transaction-row", { hasText: memo }).first()).toBeVisible();
+  const readOnlyRow = page.locator("tr.transaction-row", { hasText: memo }).first();
+  await readOnlyRow.locator(".transaction-col-memo").dblclick();
+  await expect(page.locator("tr.transaction-inline-editor-row")).toHaveCount(0);
+  await expect(page.locator(".message", { hasText: "현재 권한으로는 거래를 수정할 수 없습니다." })).toBeVisible();
+});
+
 test("issue 227: 1024px transaction row actions stay inside the viewport", async ({ page }) => {
   test.setTimeout(120_000);
 
