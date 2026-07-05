@@ -113,10 +113,14 @@ test("prices flow: polling failures release refresh lock", async ({ page }) => {
   await assertResponsiveShell(page);
 
   const refreshButton = page.getByRole("button", { name: /시세 갱신/ });
+  const priceRefreshStatus = page.locator("#topbar-price-refresh-status");
+  await expect(priceRefreshStatus).toContainText("시세 갱신 대기");
   await refreshButton.click();
 
-  await expect(page.getByRole("button", { name: "시세 갱신 중..." })).toBeVisible();
-  await expect(refreshButton).toHaveText("시세 갱신", { timeout: 8_000 });
-  await expect(refreshButton).toBeEnabled();
+  await expect(refreshButton).toHaveAccessibleName("시세 갱신");
+  await expect(priceRefreshStatus).toContainText("시세 갱신 중");
+  await expect(refreshButton).toBeEnabled({ timeout: 8_000 });
+  await expect(priceRefreshStatus).toContainText("시세 갱신 대기");
   await expect(page.locator(".message", { hasText: /요청 처리 중 오류/ })).toHaveCount(0);
+  await capture(page, "prices-polling-release");
 });

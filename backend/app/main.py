@@ -273,17 +273,32 @@ async def household_ws(household_id: str, websocket: WebSocket) -> None:
         await hub.disconnect(household_id, websocket)
 
 
+_SPA_NO_CACHE_HEADERS = {"Cache-Control": "no-cache, must-revalidate"}
+_ASSET_IMMUTABLE_HEADERS = {"Cache-Control": "public, max-age=31536000, immutable"}
+
+
+class CacheControlledStaticFiles(StaticFiles):
+    def file_response(self, full_path: str, stat_result: Any, scope: dict[str, Any], status_code: int = 200):
+        response = super().file_response(full_path, stat_result, scope, status_code)
+        response.headers.update(_ASSET_IMMUTABLE_HEADERS)
+        return response
+
+
+def _spa_file_response(path: Path) -> FileResponse:
+    return FileResponse(path, headers=_SPA_NO_CACHE_HEADERS)
+
+
 frontend_dist = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 frontend_assets = frontend_dist / "assets"
 if frontend_assets.exists():
-    app.mount("/assets", StaticFiles(directory=frontend_assets), name="assets")
+    app.mount("/assets", CacheControlledStaticFiles(directory=frontend_assets), name="assets")
 
 
 @app.get("/", include_in_schema=False)
 def root():
     index_path = frontend_dist / "index.html"
     if index_path.exists():
-        return FileResponse(index_path)
+        return _spa_file_response(index_path)
     return JSONResponse(
         {
             "message": "frontend not built",
@@ -299,8 +314,8 @@ def spa_fallback(path: str):
     dist_root = frontend_dist.resolve()
     candidate = (dist_root / path).resolve()
     if candidate.is_file() and (candidate.parent == dist_root or dist_root in candidate.parents):
-        return FileResponse(candidate)
+        return _spa_file_response(candidate)
     index_path = frontend_dist / "index.html"
     if not index_path.exists():
         raise HTTPException(status_code=404, detail="frontend build missing")
-    return FileResponse(index_path)
+    return _spa_file_response(index_path)

@@ -52,6 +52,7 @@ htmlcov/
 .runtime/
 .omx/
 .omx-local/
+.omo/
 .pw-libs/
 tmp_import_uploads/
 jenkins-tmp/

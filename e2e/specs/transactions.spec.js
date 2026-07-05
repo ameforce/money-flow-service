@@ -3275,7 +3275,7 @@ test("mobile transaction row selection, touch scroll, and sticky ledger head sur
     const headerBeforeClick = await readTransactionStickyHeaderGeometry(page);
     await targetRow.locator(".transaction-col-memo").click();
     await expect(targetRow).toHaveAttribute("data-row-selected", "true");
-    await expect(targetRow).toHaveClass(/mobile-row-expanded/);
+    await expect(targetRow).not.toHaveClass(/mobile-row-expanded/);
     await expect(
       targetRow.locator("xpath=following-sibling::tr[1][contains(@class,'transaction-mobile-expanded-actions-row')]"),
     ).toHaveCount(0);
@@ -3293,6 +3293,12 @@ test("mobile transaction row selection, touch scroll, and sticky ledger head sur
         headerAfterClick,
       })}`,
     ).toBeLessThanOrEqual(8);
+
+    await targetRow.getByRole("button", { name: "거래 세부 보기" }).click();
+    await expect(targetRow).toHaveClass(/mobile-row-expanded/);
+    await expect(targetRow.getByRole("button", { name: "거래 세부 접기" })).toBeVisible();
+    await targetRow.getByRole("button", { name: "거래 세부 접기" }).click();
+    await expect(targetRow).not.toHaveClass(/mobile-row-expanded/);
 
     await clearTransactionSelection(page);
     const scrollRow = page.locator("tr.transaction-row", { hasText: memos[scenario.scrollIndex] }).first();
@@ -5641,9 +5647,53 @@ test("transactions history scrolls older and newer without future rows while kee
   expect(new Set(rowIds).size).toBe(rowIds.length);
 
   const monthAnchorSeed = seeded.find((item) => item.occurredOn === createAnchorDate) || seeded[3];
+  let resolveNewerRoute;
+  let heldNewerRoute = null;
+  const newerRoutePromise = new Promise((resolve) => {
+    resolveNewerRoute = resolve;
+  });
+  const holdNewerHistoryRoute = async (route) => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.get("direction") === "newer" && !heldNewerRoute) {
+      heldNewerRoute = route;
+      resolveNewerRoute(route);
+      return;
+    }
+    await route.continue();
+  };
+  await page.route(historyRoutePattern, holdNewerHistoryRoute);
   await jumpTransactionListToMonth(page, monthAnchorSeed.occurredOn);
   await expect(page.locator("tr.transaction-row", { hasText: monthAnchorSeed.memo }).first()).toBeVisible({ timeout: 30_000 });
   await page.waitForTimeout(1_000);
+
+  const newerAnchorRow = page.locator("tr.transaction-row", { hasText: monthAnchorSeed.memo }).first();
+  await newerAnchorRow.scrollIntoViewIfNeeded();
+  await expect(newerAnchorRow).toBeVisible();
+  let newerRoute = await Promise.race([newerRoutePromise, page.waitForTimeout(750).then(() => null)]);
+  for (let attempt = 0; attempt < 6 && !newerRoute; attempt += 1) {
+    await page.evaluate(() => window.scrollBy(0, 1800));
+    newerRoute = await Promise.race([newerRoutePromise, page.waitForTimeout(1_000).then(() => null)]);
+  }
+  const newerAnchorBefore = await captureVisibleHistoryAnchor(page);
+  expect(newerAnchorBefore?.id, "history anchor row should be capturable while newer page is loading").toBeTruthy();
+  expect(newerRoute, "newer history page should be requested while scrolling back toward recent rows").not.toBeNull();
+  if (newerRoute) {
+    await newerRoute.continue();
+    const newerAnchorLocator = page.locator(`tr.transaction-row[data-transaction-id="${newerAnchorBefore.id}"]`);
+    await expect
+      .poll(
+        async () => {
+          const anchorAfter = await newerAnchorLocator.boundingBox();
+          if (!anchorAfter) {
+            return Number.POSITIVE_INFINITY;
+          }
+          return Math.abs(anchorAfter.y - (newerAnchorBefore?.top ?? 0));
+        },
+        { message: "newer history pagination should keep the current anchor row stable", timeout: 4_000 }
+      )
+      .toBeLessThanOrEqual(120);
+  }
+  await page.unroute(historyRoutePattern, holdNewerHistoryRoute);
 
   const unsolicitedHistoryDirections = [];
   const trackUnsolicitedHistoryRoute = async (route) => {
@@ -5760,6 +5810,7 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   const staticDateSort = page.locator(".transactions-desktop-ledger-head .sort-header-static").first();
   await expect(staticDateSort).toBeVisible();
   await expect(staticDateSort).toHaveAttribute("aria-label", /연속 내역순 고정/);
+  await expect(staticDateSort).toContainText("고정");
   await expect(page.locator(".transactions-desktop-ledger-head button.sort-header")).toHaveCount(0);
   await expectDesktopTransactionRowsSingleLine(page);
 
@@ -5869,6 +5920,7 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   await expect(memoFilterTrigger).toBeVisible();
   await expect(amountFilterTrigger).toBeVisible();
   await expect(typeFilterTrigger).toBeVisible();
+  await expect(dateFilterTrigger).toContainText("필터");
   await expectMobileTransactionFilterTriggersSeparated(page, "390px transaction ledger head");
   for (const profile of [
     { label: "320px transaction ledger head", width: 320, height: 568 },
@@ -5963,13 +6015,28 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   await expect(mobileOwnerlessRow).toBeVisible();
   await expect(mobileOwnerlessRow.locator(".transaction-owner-empty").first()).toHaveText("-");
   await expect(mobileOwnerlessRow.locator(".transaction-owner-chip")).toHaveCount(0);
+  const mobileSelectName = new RegExp(`거래 선택: .*${memo}`);
+  const mobileDeselectName = new RegExp(`거래 선택 해제: .*${memo}`);
+  const mobileDeselectButton = mobileRow.getByRole("button", { name: mobileDeselectName });
+  await expect(mobileDeselectButton).toBeVisible();
+  await mobileDeselectButton.click();
+  await expect(mobileRow).toHaveAttribute("data-row-selected", "false");
+  await expectTransactionSelectionSummary(page, 0);
+  const mobileSelectButton = mobileRow.getByRole("button", { name: mobileSelectName });
+  await expect(mobileSelectButton).toBeVisible();
   await mobileRow.click({ position: { x: 88, y: 22 } });
-  await expect(mobileRow).toHaveClass(/mobile-row-expanded/);
-  await mobileRow.click({ position: { x: 88, y: 22 } });
+  await expect(mobileRow).toHaveAttribute("data-row-selected", "true");
   await expect(mobileRow).not.toHaveClass(/mobile-row-expanded/);
+  await expectTransactionSelectionSummary(page, 1);
+  await mobileRow.getByRole("button", { name: mobileDeselectName }).click();
+  await expect(mobileRow).toHaveAttribute("data-row-selected", "false");
+  await expectTransactionSelectionSummary(page, 0);
   await capture(page, "transactions-mobile-summary");
   await page.evaluate(() => window.scrollTo(0, 380));
   await page.waitForTimeout(250);
+  const transactionScrollTop = page.getByTestId("transactions-scroll-top");
+  await expect(transactionScrollTop).toBeVisible();
+  await expect(transactionScrollTop).toHaveAccessibleName("거래 목록 맨 위로 이동");
   const scrollBeforeSheet = await page.evaluate(() => window.scrollY);
   const fabScrolledBox = await transactionFab.boundingBox();
   expect(fabScrolledBox, "transaction FAB should have a bounding box after scroll").not.toBeNull();
@@ -6069,6 +6136,7 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   expect(intersects(fabStickyBox, stickyLedgerBox)).toBe(false);
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.waitForTimeout(250);
+  await expect(transactionScrollTop).toBeHidden();
   const mobileToggleButton = mobileRow.locator(".mobile-toggle-btn").first();
   const transactionToggleBox = await mobileToggleButton.boundingBox();
   expect(transactionToggleBox, "mobile transaction detail toggle should have a bounding box").not.toBeNull();
