@@ -1,0 +1,11 @@
+✔ client version helper reports update_available when server version differs (13.9157ms)
+✔ client version helper stays current when server version matches bundled version (1.0031ms)
+✔ App wires client version checks to endpoint, focus, visibility, interval, and topbar CTA (0.5914ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 3
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 90.6404

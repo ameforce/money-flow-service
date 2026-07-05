@@ -1,0 +1,68 @@
+
+> money-flow-workspace@0.1.0 e2e
+> uv run python scripts/run_e2e_with_orchestrator.py e2e/specs/dashboard.spec.js --grep dashboard mobile topbar uses compact price refresh icon action --workers=1
+
+[e2e-runner] isolated run -> backend:7448, frontend:7449, mode:dev, db:e2e_run_1b8caabceef54d798f51086022f0f416.db
+[orchestrator] backend start: C:\Users\enmso\.codex\worktrees\4e5e\money-flow-service\.omo\teams\team-358f7305\worktrees\PWA\.venv\Scripts\python.exe -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 7448 --use-colors
+[orchestrator] waiting backend ready: http://127.0.0.1:7448/healthz
+2026-07-05 12:21:43 [backend] [32mINFO[0m:     Started server process [[36m62736[0m]
+2026-07-05 12:21:43 [backend] [32mINFO[0m:     Waiting for application startup.
+2026-07-05 12:21:43 [backend] [32mINFO[0m:     Application startup complete.
+2026-07-05 12:21:43 [backend] [32mINFO[0m:     Uvicorn running on [1mhttp://127.0.0.1:7448[0m (Press CTRL+C to quit)
+2026-07-05 12:21:44 [backend] [32mINFO[0m:     127.0.0.1:7460 - "[1mGET /healthz HTTP/1.1[0m" [32m200 OK[0m
+[orchestrator] backend is ready
+[orchestrator] frontend start: cmd /c npm run dev --prefix frontend -- --strictPort --host 127.0.0.1 --port 7449
+2026-07-05 12:21:44 [backend] [32mINFO[0m:     127.0.0.1:7461 - "[1mGET /healthz HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 12:21:44 [frontend]
+2026-07-05 12:21:44 [frontend] > frontend@0.0.0 dev
+2026-07-05 12:21:44 [frontend] > vite --strictPort --host 127.0.0.1 --port 7449
+2026-07-05 12:21:44 [frontend]
+2026-07-05 12:21:45 [frontend]
+2026-07-05 12:21:45 [frontend]   [32m[1mVITE[22m v7.3.3[39m  [2mready in [0m[1m274[22m[2m[0m ms[22m
+2026-07-05 12:21:45 [frontend]
+2026-07-05 12:21:45 [frontend]   [32m?[39m  [1mLocal[22m:   [36mhttp://127.0.0.1:[1m7449[22m/[39m
+2026-07-05 12:21:45 [frontend] [BABEL] Note: The code generator has deoptimised the styling of C:\Users\enmso\.codex\worktrees\4e5e\money-flow-service\.omo\teams\team-358f7305\worktrees\PWA\frontend\src\App.jsx as it exceeds the max of 500KB.
+
+Running 1 test using 1 worker
+
+2026-07-05 12:21:47 [backend] [32mINFO[0m:     127.0.0.1:6708 - "[1mGET /api/v1/auth/client-config HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 12:21:47 [backend] [32mINFO[0m:     127.0.0.1:9382 - "[1mGET /api/v1/auth/me HTTP/1.1[0m" [31m401 Unauthorized[0m
+2026-07-05 12:21:47 [backend] [32mINFO[0m:     127.0.0.1:11350 - "[1mGET /api/v1/household/list HTTP/1.1[0m" [31m401 Unauthorized[0m
+2026-07-05 12:21:47 [backend] [32mINFO[0m:     127.0.0.1:11349 - "[1mGET /api/v1/household/current HTTP/1.1[0m" [31m401 Unauthorized[0m
+2026-07-05 12:21:47 [backend] [32mINFO[0m:     127.0.0.1:14267 - "[1mPOST /api/v1/auth/refresh HTTP/1.1[0m" [31m401 Unauthorized[0m
+2026-07-05 12:21:47 [backend] [32mINFO[0m:     127.0.0.1:5878 - "[1mGET /api/v1/auth/client-config HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 12:21:48 [backend] [32mINFO[0m:     127.0.0.1:7325 - "[1mPOST /api/v1/auth/register HTTP/1.1[0m" [32m201 Created[0m
+2026-07-05 12:21:59 [backend] [32mINFO[0m:     127.0.0.1:1546 - "[1mGET /api/v1/auth/client-config HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 12:21:59 [backend] [32mINFO[0m:     127.0.0.1:5023 - "[1mPOST /api/v1/auth/verify-email HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 12:21:59 [backend] [32mINFO[0m:     127.0.0.1:3399 - "[1mGET /api/v1/auth/me HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 12:21:59 [backend] [32mINFO[0m:     127.0.0.1:1547 - "[1mGET /api/v1/household/list HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 12:21:59 [backend] [32mINFO[0m:     127.0.0.1:1546 - "[1mGET /api/v1/household/current HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 12:22:00 [backend] [32mINFO[0m:     127.0.0.1:6326 - "[1mGET /api/v1/household/settings HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 12:22:00 [backend] [32mINFO[0m:     127.0.0.1:6327 - "[1mGET /api/v1/categories HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 12:22:00 [backend] [32mINFO[0m:     127.0.0.1:5036 - "[1mGET /api/v1/household/invitations/received HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 12:22:00 [backend] [32mINFO[0m:     127.0.0.1:6265 - "[1mGET /api/v1/household/members HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 12:22:00 [backend] [32mINFO[0m:     127.0.0.1:5147 - "[1mGET /api/v1/household/invitations HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 12:22:00 [backend] [32mINFO[0m:     127.0.0.1:10138 - "[1mGET /api/v1/dashboard/overview?year=2026&month=7 HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 12:22:00 [backend] [32mINFO[0m:     127.0.0.1:11087 - "[1mGET /api/v1/transactions?year=2026&month=7&limit=1000 HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 12:22:00 [backend] [32mINFO[0m:     127.0.0.1:11088 - "[1mGET /api/v1/holdings HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 12:22:00 [backend] [32mINFO[0m:     127.0.0.1:11090 - "[1mGET /api/v1/prices/status HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 12:22:00 [backend] [32mINFO[0m:     127.0.0.1:11089 - "[1mGET /api/v1/dashboard/portfolio HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 12:22:00 [backend] [32mINFO[0m:     127.0.0.1:5232 - "[1mPOST /api/v1/household/ws-ticket HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 12:22:00 [backend] [32mINFO[0m:     127.0.0.1:5209 - "WebSocket /ws/v1/household/d9e811d8-43fd-457f-b117-565eddc4e9ac" [accepted]
+2026-07-05 12:22:00 [backend] [32mINFO[0m:     connection open
+2026-07-05 12:22:00 [backend] [32mINFO[0m:     connection closed
+  ok 1 [desktop-chromium] › e2e\specs\dashboard.spec.js:729:5 › dashboard mobile topbar uses compact price refresh icon action (13.3s)
+
+  1 passed (14.4s)
+[e2e-runner] screenshot capture: 2 files
+[e2e-runner] stop orchestrator
+^C
+[orchestrator] shutdown signal received(signum=21)
+[orchestrator] shutdown requested -> cleanup all
+[orchestrator] terminate frontend(pid=44384)
+2026-07-05 12:22:01 [frontend] ^C
+[orchestrator] terminate backend(pid=34580)
+2026-07-05 12:22:01 [backend] [32mINFO[0m:     Shutting down
+2026-07-05 12:22:01 [backend] [32mINFO[0m:     Waiting for application shutdown.
+2026-07-05 12:22:01 [backend] [32mINFO[0m:     Application shutdown complete.
+2026-07-05 12:22:01 [backend] [32mINFO[0m:     Finished server process [[36m62736[0m]

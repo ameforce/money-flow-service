@@ -1,0 +1,5 @@
+
+> money-flow-workspace@0.1.0 pwa:verify
+> node scripts/verify_pwa_installability.mjs
+
+PWA installability metadata verified.
