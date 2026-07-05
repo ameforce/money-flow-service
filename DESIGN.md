@@ -93,6 +93,12 @@ All spacing is derived from a 4px base. Existing rem values should map to this r
 - Accessibility: every button has a visible Korean label or stable accessible label; the active page uses `aria-current="page"`.
 - Icons: structural icons are inline SVG and `aria-hidden`; glyph text is not used for chrome.
 
+### Topbar Global Actions
+
+- Structure: three global shell actions in `.topbar-actions`: app refresh, price refresh, and logout.
+- Mobile: actions use equal 44px icon-centered buttons. Status updates such as price refresh progress use a persistent hidden `role="status"` description or the existing topbar status surface, never a widening text button.
+- Accessibility: icon-only mobile actions keep stable Korean accessible names and expose transient state with `aria-describedby`/`aria-live`.
+
 ### Dashboard Cards
 
 - Structure: heading, primary metric or summary, supporting rows.

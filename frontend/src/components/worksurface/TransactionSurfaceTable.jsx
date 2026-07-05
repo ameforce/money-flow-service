@@ -122,6 +122,7 @@ export function TransactionSurfaceTable({
   canEditRecords,
   canEditHouseholdData = false,
   loading,
+  isCompactViewport = false,
   closeTxInlineEdit,
   mobileStickyActive,
   handleTxInlineEditKeyDown,
@@ -459,7 +460,9 @@ export function TransactionSurfaceTable({
 
   const runRowClickAction = (transactionId) => {
     toggleTransactionSelection(transactionId);
-    toggleExpandedTransactionRow(transactionId);
+    if (!isCompactViewport) {
+      toggleExpandedTransactionRow(transactionId);
+    }
   };
 
   const expireFiredRowClickAction = (transactionId) => {
@@ -572,6 +575,7 @@ export function TransactionSurfaceTable({
 
   const renderMobileFilterTrigger = ({ keyName, className, label, active }) => {
     const isOpen = mobileFilterKey === keyName;
+    const showFilterKind = keyName === "date";
     return (
       <button
         type="button"
@@ -582,6 +586,7 @@ export function TransactionSurfaceTable({
         onClick={() => openMobileFilter(keyName)}
       >
         <span>{label}</span>
+        {showFilterKind && <span className="ledger-head-trigger-kind">필터</span>}
         {active && <span className="ledger-head-filter-indicator" aria-hidden="true" />}
       </button>
     );
@@ -601,7 +606,7 @@ export function TransactionSurfaceTable({
               aria-label="일자 정렬 연속 내역순 고정"
             >
               {field.label}
-              <span className="sort-indicator" aria-hidden="true">↑</span>
+              <span className="sort-fixed-label">고정</span>
             </span>
           ) : (
             <button
@@ -1154,6 +1159,7 @@ export function TransactionSurfaceTable({
                   </td>
                 </tr>
               ) : null;
+            const mobileSelectLabel = `${selectedTransactionIds.has(item.id) ? "거래 선택 해제" : "거래 선택"}: ${item.occurred_on} ${item.memo || "-"} ${amountLabel}`;
             return (
               <Fragment key={rowKey}>
                 {shouldRenderDateHeader && (
@@ -1261,6 +1267,23 @@ export function TransactionSurfaceTable({
                   </td>
                   <td data-label="세부" className="transaction-col-actions" data-mobile-priority="action">
                     <div className="inline">
+                      <button
+                        type="button"
+                        className={`secondary mobile-select-btn${selectedTransactionIds.has(item.id) ? " is-selected" : ""}`}
+                        aria-label={mobileSelectLabel}
+                        aria-pressed={selectedTransactionIds.has(item.id) ? "true" : "false"}
+                        onClick={(event) => {
+                          clearPendingRowClickAction();
+                          event.stopPropagation();
+                          toggleTransactionSelection(item.id);
+                        }}
+                      >
+                        <span className="mobile-select-icon" aria-hidden="true">
+                          <svg viewBox="0 0 16 16" focusable="false" aria-hidden="true">
+                            <path d="M3.5 8.25 6.6 11.2 12.7 4.8" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        </span>
+                      </button>
                       <button
                         type="button"
                         className="secondary mobile-toggle-btn"
