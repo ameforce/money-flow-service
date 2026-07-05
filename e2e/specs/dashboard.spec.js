@@ -452,11 +452,25 @@ async function expectTopbarActionHitAreas(page, label) {
   ).toBe(true);
 }
 
-async function expectPriceRefreshVisualLabel(page, label) {
-  const button = page.getByRole("button", { name: /시세 갱신/ });
+async function expectPriceRefreshIconAction(page, label) {
+  const button = page.getByRole("button", { name: "시세 갱신" });
   await expect(button).toBeVisible();
   const metrics = await button.evaluate((element) => {
     const box = element.getBoundingClientRect();
+    const actionButtons = Array.from(element.closest(".topbar-actions")?.querySelectorAll("button") || []);
+    const actionIcons = actionButtons.map((buttonElement) => {
+      const icon = buttonElement.querySelector(".topbar-action-icon svg");
+      const box = icon?.getBoundingClientRect();
+      const before = getComputedStyle(buttonElement, "::before");
+      return {
+        hasIcon: Boolean(icon),
+        ariaHidden: icon?.getAttribute("aria-hidden") || "",
+        width: box?.width ?? 0,
+        height: box?.height ?? 0,
+        pseudoContent: before.content,
+        pseudoDisplay: before.display,
+      };
+    });
     const textMetrics = [];
     const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
     let node = walker.nextNode();
@@ -473,6 +487,7 @@ async function expectPriceRefreshVisualLabel(page, label) {
           width: rect.width,
           height: rect.height,
           fontSize: Number.parseFloat(style.fontSize) || 0,
+          display: style.display,
           visibility: style.visibility,
           opacity: Number.parseFloat(style.opacity) || 0,
         });
@@ -480,26 +495,57 @@ async function expectPriceRefreshVisualLabel(page, label) {
       }
       node = walker.nextNode();
     }
+    const describedBy = String(element.getAttribute("aria-describedby") || "").trim();
+    const description = describedBy
+      .split(/\s+/u)
+      .filter(Boolean)
+      .map((id) => document.getElementById(id)?.textContent?.replace(/\s+/g, " ").trim() || "")
+      .filter(Boolean)
+      .join(" ");
     return {
-      buttonText: String(element.textContent || "").replace(/\s+/g, " ").trim(),
+      ariaLabel: element.getAttribute("aria-label") || "",
       buttonWidth: box.width,
       buttonHeight: box.height,
+      actionWidths: actionButtons.map((buttonElement) => buttonElement.getBoundingClientRect().width),
+      actionIcons,
       textMetrics,
+      description,
     };
   });
-  expect(metrics.textMetrics.length, `${label} should include a 시세 text node: ${JSON.stringify(metrics)}`).toBeGreaterThan(0);
+  const visiblePriceText = metrics.textMetrics.filter(
+    (item) =>
+      item.width >= 8 &&
+      item.height >= 8 &&
+      item.fontSize >= 8 &&
+      item.display !== "none" &&
+      item.visibility !== "hidden" &&
+      item.opacity >= 0.5,
+  );
+  expect(metrics.ariaLabel, `${label} should keep the accessible action name stable`).toBe("시세 갱신");
+  expect(metrics.description, `${label} should expose non-layout status copy: ${JSON.stringify(metrics)}`).toContain(
+    "시세 갱신",
+  );
   expect(
-    metrics.textMetrics.some(
-      (item) =>
-        item.width >= 22 &&
-        item.height >= 8 &&
-        item.fontSize >= 9.5 &&
-        item.visibility !== "hidden" &&
-        item.opacity >= 0.5,
+    visiblePriceText,
+    `${label} should not render 시세 갱신 as a visible mobile text button: ${JSON.stringify(metrics)}`,
+  ).toHaveLength(0);
+  expect(
+    Math.max(...metrics.actionWidths) - Math.min(...metrics.actionWidths),
+    `${label} global topbar actions should share one visual width: ${JSON.stringify(metrics)}`,
+  ).toBeLessThanOrEqual(1.5);
+  expect(
+    metrics.actionIcons.every(
+      (icon) =>
+        icon.hasIcon &&
+        icon.ariaHidden === "true" &&
+        icon.width >= 14 &&
+        icon.height >= 14 &&
+        (icon.pseudoContent === "none" || icon.pseudoContent === "\"\"") &&
+        icon.pseudoDisplay === "none",
     ),
-    `${label} should expose a visible price refresh label: ${JSON.stringify(metrics)}`,
+    `${label} global topbar actions should use inline SVG icons instead of CSS glyphs: ${JSON.stringify(metrics)}`,
   ).toBe(true);
-  expect(metrics.buttonWidth, `${label} should allocate room for a visible label: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(62);
+  expect(metrics.buttonWidth, `${label} should keep touch width: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(44);
   expect(metrics.buttonHeight, `${label} should keep touch height: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(44);
 }
 
@@ -539,11 +585,13 @@ test("price refresh polling releases the global busy state after status failures
   });
 
   const priceRefreshButton = page.getByRole("button", { name: /시세 갱신/ });
+  const priceRefreshStatus = page.locator("#topbar-price-refresh-status");
   await expect(priceRefreshButton).toBeEnabled();
+  await expect(priceRefreshStatus).toContainText("시세 갱신 대기");
   await priceRefreshButton.click();
-  await expect(priceRefreshButton).toContainText("시세 갱신 중...");
+  await expect(priceRefreshStatus).toContainText("시세 갱신 중");
   await expect(priceRefreshButton).toBeEnabled({ timeout: 8_000 });
-  await expect(priceRefreshButton).toContainText("시세 갱신");
+  await expect(priceRefreshStatus).toContainText("시세 갱신 대기");
   await expect(page.locator(".message", { hasText: "시세 갱신 상태 확인이 지연되고 있습니다." })).toBeVisible();
   await expect(page.locator(".message", { hasText: "요청 처리 중 오류" })).toHaveCount(0);
 
@@ -658,7 +706,7 @@ test("dashboard topbar actions keep landscape touch targets", async ({ page }) =
   await capture(page, "dashboard-landscape-topbar-touch-targets");
 });
 
-test("dashboard mobile topbar exposes a visible price refresh label", async ({ page }) => {
+test("dashboard mobile topbar uses compact price refresh icon action", async ({ page }) => {
   const email = `${unique("dashboard-price-label")}@example.com`;
   const displayName = unique("dashboard-price-label-name");
 
@@ -671,11 +719,10 @@ test("dashboard mobile topbar exposes a visible price refresh label", async ({ p
     await page.setViewportSize(viewport);
     await applyFontFamily(page, '"Malgun Gothic", "Noto Sans KR", "Apple SD Gothic Neo", sans-serif');
     await openTab(page, "대시보드");
-    await expectPriceRefreshVisualLabel(page, `${viewport.width}x${viewport.height}`);
+    await expectPriceRefreshIconAction(page, `${viewport.width}x${viewport.height}`);
     await expectNoHorizontalOverflow(page, 12);
+    await capture(page, `dashboard-mobile-price-refresh-icon-action-${viewport.width}x${viewport.height}`);
   }
-
-  await capture(page, "dashboard-mobile-price-refresh-visible-label");
 });
 
 test("dashboard mobile footer actions keep touch targets", async ({ page }) => {

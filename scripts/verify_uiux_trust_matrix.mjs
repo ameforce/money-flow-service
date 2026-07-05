@@ -28,9 +28,9 @@ const REQUIRED_DOC_SNIPPETS = [
 ];
 
 const REQUIRED_CODE_SNIPPETS = [
-  { path: "frontend/src/App.jsx", text: "socket-chip" },
-  { path: "frontend/src/App.jsx", text: "aria-live=\"polite\"" },
-  { path: "frontend/src/App.jsx", text: "role=\"status\"" },
+  { path: "frontend/src/components/AppShell.jsx", text: "socket-chip" },
+  { path: "frontend/src/components/AppShell.jsx", text: "aria-live=\"polite\"" },
+  { path: "frontend/src/components/AppShell.jsx", text: "role=\"status\"" },
   { path: "frontend/src/App.jsx", text: "role=\"alert\"" },
   { path: "frontend/src/App.jsx", text: "import-progress" },
   { path: "frontend/src/components/worksurface/TransactionSurfaceTable.jsx", text: "transaction-row-imported" },
