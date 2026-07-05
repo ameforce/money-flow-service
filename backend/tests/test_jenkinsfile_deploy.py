@@ -205,6 +205,7 @@ def test_async_quality_gate_surfaces_and_evidence_markers_are_exposed() -> None:
 
 
 def test_jenkins_docs_match_deploy_blocking_async_contract() -> None:
+    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     feature_matrix = (ROOT / "e2e" / "feature-matrix.md").read_text(encoding="utf-8")
     mail_docs = (ROOT / "docs" / "mail-delivery-troubleshooting-and-setup.md").read_text(
@@ -222,6 +223,13 @@ def test_jenkins_docs_match_deploy_blocking_async_contract() -> None:
     assert "async/on-demand Jenkins quality gates" in feature_matrix
     assert "post-deploy-smoke.spec.js --project=desktop-chromium --workers=1" in mail_docs
     assert "There is no `RUN_POST_DEPLOY_E2E` skip switch" in mail_docs
+    for source in (agents, readme, mail_docs):
+        assert "strict release gate" not in source
+        assert "record real mailbox receipt" not in source
+        assert "운영 완료 판정에는 `scripts/prod_email_smoke.py --verification-mode browser`" not in source
+    assert "Production external mailbox smoke is optional" in mail_docs
+    assert "production release gate" in mail_docs
+    assert "scripts/deploy/validate_smtp_route.py" in agents
 
 
 def test_dev_deploy_keeps_debug_tokens_disabled_in_strict_dev() -> None:
