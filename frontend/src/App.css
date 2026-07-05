@@ -8503,6 +8503,7 @@ tr.holding-row-imported {
   }
 
   .transactions-mobile-ledger-head {
+    --transaction-action-strip-width: 2.75rem;
     --transaction-mobile-ledger-columns:
       var(--transaction-mobile-date-column-width)
       var(--transaction-mobile-cue-column-width)

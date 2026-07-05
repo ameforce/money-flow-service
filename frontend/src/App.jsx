@@ -151,6 +151,8 @@ const IMPORT_REPORT_SEVERITY_RANK = {
   informational: 2,
 };
 const MOBILE_BREAKPOINT_PX = 820;
+const TRANSACTION_LEDGER_LANDSCAPE_BREAKPOINT_PX = 900;
+const TRANSACTION_LEDGER_LANDSCAPE_MAX_HEIGHT_PX = 520;
 const HOLDING_SUMMARY_SCROLL_OFFSET_PX = 96;
 const SOCKET_STATUS_LABELS = {
   connected: "연결됨",
@@ -171,6 +173,18 @@ const PRICE_SUMMARY_LABELS = [
   "시세 갱신 상태",
   "최근 시세 갱신 시각",
 ];
+
+function matchesTransactionLedgerCompactViewport() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+  return (
+    window.innerWidth <= MOBILE_BREAKPOINT_PX ||
+    (window.innerWidth <= TRANSACTION_LEDGER_LANDSCAPE_BREAKPOINT_PX &&
+      window.innerHeight <= TRANSACTION_LEDGER_LANDSCAPE_MAX_HEIGHT_PX)
+  );
+}
+
 const HOLDING_LIST_TABS = [
   { value: "all", label: "전체" },
   { value: "stock", label: "주식" },
@@ -2190,6 +2204,9 @@ function App() {
   const [holdingSummaryOpen, setHoldingSummaryOpen] = useState(true);
   const [tab, setTab] = useState(() => getInitialTabId());
   const isCompactViewport = useCompactViewport(MOBILE_BREAKPOINT_PX);
+  const [isTransactionLedgerCompactViewport, setIsTransactionLedgerCompactViewport] = useState(() =>
+    matchesTransactionLedgerCompactViewport()
+  );
   const [socketStatus, setSocketStatus] = useState("disconnected");
   const [dashboardPortfolioViewMode, setDashboardPortfolioViewMode] = useState("holding_type");
   const [holdingTypeFilter, setHoldingTypeFilter] = useState("all");
@@ -3840,6 +3857,32 @@ function App() {
       holdingNameInputRef.current?.focus?.();
     });
   }, [showHoldingForm]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+    const mediaQuery = window.matchMedia(
+      `(max-width: ${MOBILE_BREAKPOINT_PX}px), (max-width: ${TRANSACTION_LEDGER_LANDSCAPE_BREAKPOINT_PX}px) and (max-height: ${TRANSACTION_LEDGER_LANDSCAPE_MAX_HEIGHT_PX}px)`
+    );
+    const syncLedgerViewportMode = () => {
+      setIsTransactionLedgerCompactViewport(matchesTransactionLedgerCompactViewport());
+    };
+    syncLedgerViewportMode();
+    window.addEventListener("resize", syncLedgerViewportMode);
+    if (typeof mediaQuery.addEventListener === "function") {
+      mediaQuery.addEventListener("change", syncLedgerViewportMode);
+      return () => {
+        window.removeEventListener("resize", syncLedgerViewportMode);
+        mediaQuery.removeEventListener("change", syncLedgerViewportMode);
+      };
+    }
+    mediaQuery.addListener(syncLedgerViewportMode);
+    return () => {
+      window.removeEventListener("resize", syncLedgerViewportMode);
+      mediaQuery.removeListener(syncLedgerViewportMode);
+    };
+  }, []);
 
 
   useLayoutEffect(() => {
@@ -10744,6 +10787,7 @@ function App() {
       canEditHouseholdData,
       canEditRecords,
       isCompactViewport,
+      isLedgerCompactViewport: isTransactionLedgerCompactViewport,
       loading,
     },
     monthFilter: {
