@@ -11,6 +11,7 @@ import {
   Tooltip,
 } from "chart.js";
 import { AppShell, TAB_IDS } from "./components/AppShell";
+import { IsoDateInput } from "./components/IsoDateInput";
 import { useCompactViewport } from "./hooks/useCompactViewport";
 import { CollaborationPage } from "./pages/CollaborationPage";
 import { DashboardPage } from "./pages/DashboardPage";
@@ -10707,7 +10708,7 @@ function App() {
       dashboardPortfolioChartSource,
       dashboardPortfolioViewMode,
       portfolio,
-      updateDashboardPortfolioViewMode: setDashboardPortfolioViewMode,
+      updateDashboardPortfolioViewMode: (nextMode) => setDashboardPortfolioViewMode(nextMode),
     },
     charts: {
       dashboardFlowChartDescription,
@@ -10728,7 +10729,7 @@ function App() {
       renderDonutSliceLabels,
     },
     navigation: {
-      navigateToTab: setTab,
+      navigateToTab: (nextTab) => setTab(nextTab),
     },
   };
 
@@ -10787,10 +10788,10 @@ function App() {
       scrollTransactionListToTop,
       toggleExpandedTransactionRow,
       toggleTxSortDirection,
-      updateShowTransactionFilterPanel: setShowTransactionFilterPanel,
-      updateTransactionRowsExpanded: setTransactionRowsExpanded,
-      updateTransactionRowsSelected: setTransactionRowsSelected,
-      updateTxListFilter: setTxListFilter,
+      updateShowTransactionFilterPanel: (nextOpen) => setShowTransactionFilterPanel(nextOpen),
+      updateTransactionRowsExpanded: (transactionIds, expanded) => setTransactionRowsExpanded(transactionIds, expanded),
+      updateTransactionRowsSelected: (transactionIds, selected) => setTransactionRowsSelected(transactionIds, selected),
+      updateTxListFilter: (nextFilter) => setTxListFilter(nextFilter),
     },
     selection: {
       areAllFilteredTransactionsSelected,
@@ -10800,7 +10801,7 @@ function App() {
       selectedTransactionIds,
       toggleAllFilteredTransactionSelection,
       toggleTransactionSelection,
-      updateSelectedTransactionIds: setSelectedTransactionIds,
+      updateSelectedTransactionIds: (nextIds) => setSelectedTransactionIds(nextIds),
     },
     entrySheet: {
       closeTransactionEntrySheet,
@@ -10811,7 +10812,7 @@ function App() {
       transactionEntryBanner,
       transactionFabRef,
       txEntrySheetStep,
-      updateTxEntrySheetStep: setTxEntrySheetStep,
+      updateTxEntrySheetStep: (nextStep) => setTxEntrySheetStep(nextStep),
     },
     inlineEdit: {
       closeTxInlineEdit,
@@ -10822,7 +10823,7 @@ function App() {
       openTransactionInlineEditor,
       submitTxInlineEdit,
       txInlineEdit,
-      updateTxInlineEdit: setTxInlineEdit,
+      updateTxInlineEdit: (nextEdit) => setTxInlineEdit(nextEdit),
     },
     categoryManager: {
       renderLegacyOwnerRemapHelper,
@@ -10835,7 +10836,7 @@ function App() {
       txInlineCategoryMinorOptions,
       txInlineCategoryOptions,
       txInlineCategoryQuickChips,
-      updateShowTxCategoryManager: setShowTxCategoryManager,
+      updateShowTxCategoryManager: (nextOpen) => setShowTxCategoryManager(nextOpen),
     },
     history: {
       transactionHistoryAnchorDate,
@@ -10850,12 +10851,12 @@ function App() {
     support: {
       transactionSupportDetailsRef,
       transactionSupportOpen,
-      updateTransactionSupportOpen: setTransactionSupportOpen,
+      updateTransactionSupportOpen: (nextOpen) => setTransactionSupportOpen(nextOpen),
     },
     breakdown: {
       txFlowBreakdownExpanded,
       txFlowSummaryCards,
-      updateTxFlowBreakdownExpanded: setTxFlowBreakdownExpanded,
+      updateTxFlowBreakdownExpanded: (nextExpanded) => setTxFlowBreakdownExpanded(nextExpanded),
     },
     ownerHelpers: {
       ownerOptionsWithFallback,
@@ -10903,10 +10904,10 @@ function App() {
       shouldExplainHoldingValueReset,
       submitHolding,
       uiGuideMessage,
-      updateHoldingDraftTouched: setHoldingDraftTouched,
-      updateHoldingForm: setHoldingForm,
-      updateHoldingOwnerTouched: setHoldingOwnerTouched,
-      notifyMessage: setMessage,
+      updateHoldingDraftTouched: (nextTouched) => setHoldingDraftTouched(nextTouched),
+      updateHoldingForm: (nextForm) => setHoldingForm(nextForm),
+      updateHoldingOwnerTouched: (nextTouched) => setHoldingOwnerTouched(nextTouched),
+      notifyMessage: (nextMessage) => setMessage(nextMessage),
     },
     entryLookups: {
       holdingTypeByKey,
@@ -10937,11 +10938,11 @@ function App() {
       moveHoldingCategoryOrder,
       scrollToHoldingSummary,
       updateHoldingColumnWidth,
-      updateHoldingColorMode: setHoldingColorMode,
-      updateHoldingGroupByColor: setHoldingGroupByColor,
-      updateHoldingListTab: setHoldingListTab,
-      updateHoldingTypeFilter: setHoldingTypeFilter,
-      updateSelectedHoldingIds: setSelectedHoldingIds,
+      updateHoldingColorMode: (nextMode) => setHoldingColorMode(nextMode),
+      updateHoldingGroupByColor: (nextValue) => setHoldingGroupByColor(nextValue),
+      updateHoldingListTab: (nextTab) => setHoldingListTab(nextTab),
+      updateHoldingTypeFilter: (nextType) => setHoldingTypeFilter(nextType),
+      updateSelectedHoldingIds: (nextIds) => setSelectedHoldingIds(nextIds),
     },
     portfolioSummary: {
       donutChartOptions,
@@ -10960,7 +10961,7 @@ function App() {
       holdingSummarySource,
       holdingSummaryViewMode,
       portfolio,
-      updateHoldingSummaryViewMode: setHoldingSummaryViewMode,
+      updateHoldingSummaryViewMode: (nextMode) => setHoldingSummaryViewMode(nextMode),
     },
     formatters: {
       fmtKrw,
@@ -10995,7 +10996,7 @@ function App() {
       profileForm,
       saveProfileSettings,
       user,
-      updateProfileForm: setProfileForm,
+      updateProfileForm: (nextForm) => setProfileForm(nextForm),
     },
     householdAdmin: {
       handleHouseholdSwitchChange,
@@ -11007,7 +11008,7 @@ function App() {
       householdSettingsForm,
       householdSwitchDisabled,
       saveHouseholdSettings,
-      updateHouseholdSettingsForm: setHouseholdSettingsForm,
+      updateHouseholdSettingsForm: (nextForm) => setHouseholdSettingsForm(nextForm),
     },
     holdingTypes: {
       clearHoldingTypeDraft,
@@ -11020,8 +11021,8 @@ function App() {
       moveHoldingTypeOrder,
       removeHoldingTypeDefinition,
       saveHoldingTypeDefinition,
-      updateHoldingColorInForm: setHoldingColorInForm,
-      updateHoldingTypeDraft: setHoldingTypeDraft,
+      updateHoldingColorInForm: (section, key, color) => setHoldingColorInForm(section, key, color),
+      updateHoldingTypeDraft: (nextDraft) => setHoldingTypeDraft(nextDraft),
     },
     categoryDrafts: {
       categoryDraft,
@@ -11060,13 +11061,13 @@ function App() {
       toCategoryMinorLabel,
       toCategoryPairLabel,
       toggleCategoryUsageDetails,
-      updateCategoryDraft: setCategoryDraft,
-      updateCategoryDraftMajorSelect: setCategoryDraftMajorSelect,
-      updateCategoryDraftMinorSelect: setCategoryDraftMinorSelect,
-      updateCategoryEditForm: setCategoryEditForm,
-      updateCategoryEditId: setCategoryEditId,
-      updateCategoryQuickSelectedId: setCategoryQuickSelectedId,
-      updateMajorRenameDrafts: setMajorRenameDrafts,
+      updateCategoryDraft: (nextDraft) => setCategoryDraft(nextDraft),
+      updateCategoryDraftMajorSelect: (nextMajor) => setCategoryDraftMajorSelect(nextMajor),
+      updateCategoryDraftMinorSelect: (nextMinor) => setCategoryDraftMinorSelect(nextMinor),
+      updateCategoryEditForm: (nextForm) => setCategoryEditForm(nextForm),
+      updateCategoryEditId: (nextId) => setCategoryEditId(nextId),
+      updateCategoryQuickSelectedId: (nextId) => setCategoryQuickSelectedId(nextId),
+      updateMajorRenameDrafts: (nextDrafts) => setMajorRenameDrafts(nextDrafts),
     },
     formatters: {
       fmtKrw,
@@ -11100,15 +11101,15 @@ function App() {
       inviteAcceptToken,
       inviteAcceptanceCanSwitch,
       inviteAcceptanceNotice,
-      updateInviteAcceptToken: setInviteAcceptToken,
+      updateInviteAcceptToken: (nextToken) => setInviteAcceptToken(nextToken),
     },
     inviteFormState: {
       createHouseholdInvite,
       inviteEmailInputRef,
       inviteForm,
       inviteFormErrors,
-      updateInviteForm: setInviteForm,
-      updateInviteFormErrors: setInviteFormErrors,
+      updateInviteForm: (nextForm) => setInviteForm(nextForm),
+      updateInviteFormErrors: (nextErrors) => setInviteFormErrors(nextErrors),
     },
     receivedInvites: {
       acceptReceivedHouseholdInvite,
@@ -11119,7 +11120,7 @@ function App() {
       receivedPastInvites,
       recentInviteIds,
       visibleReceivedInvites,
-      updateReceivedInviteTab: setReceivedInviteTab,
+      updateReceivedInviteTab: (nextTab) => setReceivedInviteTab(nextTab),
     },
     sentInvites: {
       mySentInvites,
@@ -11128,7 +11129,7 @@ function App() {
       sentNewInvites,
       sentPastInvites,
       visibleSentInvites,
-      updateSentInviteTab: setSentInviteTab,
+      updateSentInviteTab: (nextTab) => setSentInviteTab(nextTab),
     },
     members: {
       changeMemberRole,
@@ -11165,8 +11166,8 @@ function App() {
       workbookActionsDisabled,
       workbookMissingFile,
       workbookUploadPlaceholder,
-      updateImportFile: setImportFile,
-      updateImportMode: setImportMode,
+      updateImportFile: (nextFile) => setImportFile(nextFile),
+      updateImportMode: (nextMode) => setImportMode(nextMode),
     },
     reportState: {
       importAppliedHoldingRefs,
@@ -11192,10 +11193,10 @@ function App() {
       showImportedHoldings,
       showImportedTransactions,
       startImportedCorrection,
-      updateImportReportSearch: setImportReportSearch,
-      updateImportReportSeverityFilter: setImportReportSeverityFilter,
-      updateImportReportSort: setImportReportSort,
-      updateImportReportTypeFilter: setImportReportTypeFilter,
+      updateImportReportSearch: (nextSearch) => setImportReportSearch(nextSearch),
+      updateImportReportSeverityFilter: (nextFilter) => setImportReportSeverityFilter(nextFilter),
+      updateImportReportSort: (nextSort) => setImportReportSort(nextSort),
+      updateImportReportTypeFilter: (nextFilter) => setImportReportTypeFilter(nextFilter),
     },
     migration: {
       doMigrationImport,
@@ -11210,7 +11211,7 @@ function App() {
       migrationStateLabel,
       packageActionsDisabled,
       packageMissingFile,
-      updateMigrationPackageFile: setMigrationPackageFile,
+      updateMigrationPackageFile: (nextFile) => setMigrationPackageFile(nextFile),
     },
     ownerCleanup: {
       applyLegacyOwnerRemap,
@@ -11220,7 +11221,7 @@ function App() {
       ownerMemberOptions,
       ownerRemapTargets,
       ownerRemappingKey,
-      updateOwnerRemapTargets: setOwnerRemapTargets,
+      updateOwnerRemapTargets: (nextTargets) => setOwnerRemapTargets(nextTargets),
     },
     toss: {
       doTossApply,
@@ -11237,7 +11238,7 @@ function App() {
       tossRows,
       tossUploadPlaceholder,
       updateTossPreviewRow,
-      updateTossImportFiles: setTossImportFiles,
+      updateTossImportFiles: (nextFiles) => setTossImportFiles(nextFiles),
     },
     helpers: {
       categories,
@@ -11248,7 +11249,7 @@ function App() {
     },
     dragDrop: {
       isDragOver,
-      updateIsDragOver: setIsDragOver,
+      updateIsDragOver: (nextIsDragOver) => setIsDragOver(nextIsDragOver),
     },
   };
 

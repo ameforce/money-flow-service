@@ -422,8 +422,8 @@ export function TransactionsPage({
                   recentSavedTransactionIds={recentSavedTransactionIds}
                   toggleTransactionSelection={toggleTransactionSelection}
                   selectTransactionRows={selectTransactionRows}
-                  updateTransactionRowsSelected={updateTransactionRowsSelected}
-                  updateTransactionRowsExpanded={updateTransactionRowsExpanded}
+                  setTransactionRowsSelected={updateTransactionRowsSelected}
+                  setTransactionRowsExpanded={updateTransactionRowsExpanded}
                   txInlineEdit={txInlineEdit}
                   ownerOptionsWithFallback={ownerOptionsWithFallback}
                   ownerSelectValue={ownerSelectValue}
@@ -432,7 +432,7 @@ export function TransactionsPage({
                   txInlineCategoryQuickChips={txInlineCategoryQuickChips}
                   txInlineCategoryMajorOptions={txInlineCategoryMajorOptions}
                   txInlineCategoryMinorOptions={txInlineCategoryMinorOptions}
-                  updateTxInlineEdit={updateTxInlineEdit}
+                  setTxInlineEdit={updateTxInlineEdit}
                   createTxInlineCategory={createAndApplyTxInlineCategory}
                   openTransactionInlineEditor={openTransactionInlineEditor}
                   categoryById={categoryById}
@@ -440,7 +440,7 @@ export function TransactionsPage({
                   FLOW_TYPE_LABELS={FLOW_TYPE_LABELS}
                   FLOW_TYPE_OPTIONS={FLOW_TYPE_OPTIONS}
                   txListFilter={txListFilter}
-                  updateTxListFilter={updateTxListFilter}
+                  setTxListFilter={updateTxListFilter}
                   clearTxListFilter={clearTxListFilter}
                   householdSettings={householdSettings}
                   normalizeTransactionRowColors={normalizeTransactionRowColors}
