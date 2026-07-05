@@ -136,7 +136,7 @@ cmd /c docker compose up -d --build
   - `RUN_PRE_DEPLOY_E2E=true`일 때 배포 전 live deep-link Playwright smoke를 온디맨드로 수행
   - `RUN_DEPLOY=true`일 때 배포 승인(필요 시 수동 승인) → enm-server SSH 전송 후 배포
   - schema upgrade, 원격 헬스체크(`/healthz`), frontend asset version, upload-limit probe 성공 확인
-  - 실배포 후 `Post-Deploy E2E Smoke`를 항상 수행하고 실패 시 배포 실패 처리
+  - 실배포 후 대상 URL 헬스체크를 항상 수행하고 실패 시 배포 실패 처리. dev 배포는 seeded-account `Post-Deploy E2E Smoke`를 수행하며, prod 배포는 dev-only seeded-account Playwright smoke를 건너뛴다.
   - Async/full gate 실패 시 `.jenkins-async-deploy-block.json`을 Jenkins artifact와 원격 `DEPLOY_PATH`에 모두 남기며, `ASYNC_FAILURE_RCA_LINK` 없이 다음 실배포를 진행하지 않음
 - 권장 Credential
   - `enm-server-ssh-key`: enm-server SSH private key
@@ -161,7 +161,8 @@ cmd /c docker compose up -d --build
 - 운영 SMTP 배포 게이트
   - `main` 배포는 `moneyflow-prod-smtp-env-file`이 없거나 `SMTP_HOST=enm-mail-smtp/mailpit/localhost`, port `1025`, `EMAIL_DELIVERY_MODE=log`, `SMTP_ACCOUNT_LABEL!=money-flow-prod`이면 compose 교체 전에 실패한다.
   - `.env.previous`는 rollback backup일 뿐 prod `SMTP_*` source가 아니다.
-  - `/healthz`와 Playwright smoke는 이메일 외부 도달성을 증명하지 않는다. 운영 완료 판정에는 `scripts/prod_email_smoke.py --verification-mode browser`로 real mailbox 수신과 실제 prod hash link의 same-cookie 검증을 기록해야 한다.
+  - 운영 완료 판정의 이메일 증거는 `scripts/deploy/validate_smtp_route.py`의 redacted route summary와 배포 후 health/version 확인이다. prod에서 외부 실제 메일함 IMAP 정보로 자동 E2E를 돌리는 것은 기본 릴리스 gate가 아니다.
+  - 이메일 인증 E2E는 dev/staging 또는 enm-server 내부 테스트 메일함 경로에서 수행한다. `scripts/prod_email_smoke.py`는 보안 판단이 끝난 경우에만 쓰는 선택 수동 진단 도구다.
 - `ENM_HOST=enmsoftware.com`, `ENM_PORT=22`, `ENM_USER=ameforce` 기준으로 `enm-server` 접근 테스트 완료.
 - `ENM_DEPLOY_PATH`는 `/home/ameforce/money-flow-service`로 설정하면 Jenkins 실행 시 기본 파라미터와 일치.
 - 헬스체크가 동작하도록 `ENM_HEALTHCHECK_URL`은 `http://127.0.0.1:18080/healthz`로 운영에서 설정.

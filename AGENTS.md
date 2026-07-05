@@ -43,7 +43,8 @@
 - For non-`main` branch commit/push work, use `$enm-jenkins` and `$enm-server-ops` to confirm Jenkins builds, deploys, and reflects the expected pushed SHA/version at `dev.moneyflow.enmsoftware.com`.
 - Production deployment remains explicit-only. When requested, Jenkins must run with `ALLOW_PROD_DEPLOY=true`, verify the exact `vX.Y.Z` tag on `main` HEAD, and the deployed target must be directly verified at `moneyflow.enmsoftware.com`.
 - Production email delivery must use `moneyflow-prod-smtp-env-file`, overlay only `SMTP_*` values, run `scripts/deploy/validate_smtp_route.py` before `docker compose up`, and fail closed on `mailpit`, `enm-mail-smtp`, `moneyflow-smtp-local`, localhost/loopback, port `1025`, `EMAIL_DELIVERY_MODE=log`, missing auth, wrong `SMTP_ACCOUNT_LABEL`, or invalid TLS.
-- When production deployment is explicitly requested, run `uv run python scripts/prod_email_smoke.py --verification-mode browser` and record real mailbox receipt plus same-cookie verification of the actual prod hash link.
+- Production deployment email proof is the redacted SMTP route validation summary plus deployed health/version checks. Do not require external mailbox IMAP credentials, real-mailbox receipt automation, or production email-authentication E2E as a release blocker.
+- Email-authentication E2E belongs in dev/staging or an explicitly controlled internal test mailbox path. `scripts/prod_email_smoke.py` is optional manual diagnostics only, and requires an explicit security decision before using a real external mailbox.
 - Shared reports, PRs, and handoff evidence must be redacted and must not include raw cookies, session headers, auth headers, tokens, full hash/magic links, mailbox secrets, SMTP credentials, DB URLs, or `SECRET_KEY`.
 
 ## Security & Configuration Tips

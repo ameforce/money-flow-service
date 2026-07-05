@@ -61,7 +61,7 @@ The current production hotfix does **not** allow `SMTP_HOST=enm-mail-smtp`. If p
 - explicit relay-mode flag;
 - external `MAIL_SERVICE_RELAYHOST` proof that is not Mailpit, localhost, or `*:1025`;
 - relay TLS/auth evidence;
-- external mailbox smoke evidence after deploy.
+- route validation evidence before deploy and internal/non-prod mail E2E evidence for the relay path.
 
 The default `MAIL_SERVICE_RELAYHOST=mailpit:1025` in `docker-compose.mail-dev-services.yml` is local/dev capture only.
 
@@ -93,18 +93,26 @@ Signup verification emails should render as Money Flow Service branded multipart
 
 ## Jenkins post-deploy smoke rule
 
-The `Post-Deploy E2E Smoke` stage must run a lightweight Playwright smoke against the deployed URL or fail with an actionable error. It must not pass because `npx`, Playwright Chromium, or browser OS libraries are missing.
+The `Post-Deploy E2E Smoke` stage must always prove the deployed target is reachable. For dev targets it also runs the lightweight seeded-account Playwright smoke against the deployed URL or fails with an actionable error. For prod targets it skips the dev-only seeded-account browser smoke; prod email proof is handled by SMTP route validation before app replacement and deployed health/version checks after replacement.
 
 Operational notes:
 
 - Provision Node.js/npm on the Jenkins agent or provide an equivalent maintained Playwright runner before enabling deploy jobs.
-- The pipeline uses the repository-local Playwright runner when possible and attempts `npx playwright install chromium` if the browser binary is missing.
-- Missing browser system libraries remain a build failure. Install the required OS packages on the Jenkins agent (for example with `npx playwright install --with-deps chromium` during node provisioning) and rerun.
-- Jenkins logs should show the target URL, API base/origin, and the exact `npx playwright test e2e/specs/post-deploy-smoke.spec.js --project=desktop-chromium --workers=1` command. There is no `RUN_POST_DEPLOY_E2E` skip switch for a real deploy.
+- For dev targets, the pipeline uses the repository-local Playwright runner when possible and attempts `npx playwright install chromium` if the browser binary is missing.
+- For dev targets, missing browser system libraries remain a build failure. Install the required OS packages on the Jenkins agent (for example with `npx playwright install --with-deps chromium` during node provisioning) and rerun.
+- Dev Jenkins logs should show the target URL, API base/origin, and the exact `npx playwright test e2e/specs/post-deploy-smoke.spec.js --project=desktop-chromium --workers=1` command. There is no `RUN_POST_DEPLOY_E2E` skip switch; target behavior is selected by `DEPLOY_TARGET_ENV`.
+- Prod Jenkins logs should show the target URL health check and the message that the prod email gate is SMTP route validation plus deployed health/version checks.
 
-## Production external mailbox smoke and cleanup
+## Production release gate and optional mailbox diagnostics
 
-Health checks, frontend asset freshness, SMTP app logs, and Mailpit/internal capture are not production email deliverability proof. After `main` deploy, run the deployed-domain smoke with a controlled real mailbox:
+The production release gate is:
+
+1. `moneyflow-prod-smtp-env-file` is present and contains only `SMTP_*` values;
+2. scripts/deploy/validate_smtp_route.py accepts the route before `docker compose up`;
+3. the Jenkins log records a redacted route summary with `account_label=money-flow-prod`, TLS enabled, auth present, and a non-internal provider host;
+4. deployed health/version checks pass.
+
+Production external mailbox smoke is optional. Do not make external IMAP credentials or a real mailbox receipt a CI/release blocker. Use this only as a manually approved diagnostic when investigating provider deliverability or a reported signup mail incident:
 
 ```bash
 export PROD_EMAIL_SMOKE_RECIPIENT='your-controlled-smoke-recipient@example.com'
@@ -119,9 +127,9 @@ uv run python scripts/prod_email_smoke.py \
 ```
 
 The public report is redacted. The private ledger may contain the raw verify link/cookies and remains under ignored `.omx/private/`.
-Use `--verification-mode browser` for the strict release gate. The script also supports `auto`, which first tries the same-cookie Playwright browser verification and falls back to API verification only when the browser runtime is unavailable.
+`--verification-mode browser` remains the strongest optional diagnostic mode. The script also supports `auto`, which first tries the same-cookie Playwright browser verification and falls back to API verification only when the browser runtime is unavailable.
 
-Expected smoke evidence:
+Expected optional diagnostic evidence:
 
 1. registration returns `verification_required`;
 2. response body has no `debug_verification_token`;
@@ -149,7 +157,7 @@ The cleanup ledger records before/after counts for users, email verification tok
 
 ## Rollback guidance
 
-Validation runs before app replacement. If the dedicated SMTP credential is missing or points to internal capture, Jenkins should fail before replacing the running app. If the provider accepts deploy but later rejects mail, roll back the deployment/config for availability, fix the provider credential/sender identity, rerun route validation, rerun external mailbox smoke, then perform exact cleanup.
+Validation runs before app replacement. If the dedicated SMTP credential is missing or points to internal capture, Jenkins should fail before replacing the running app. If the provider accepts deploy but later rejects mail, roll back the deployment/config for availability, fix the provider credential/sender identity, rerun route validation, and use the optional mailbox diagnostic only when the incident needs end-to-end recipient proof; then perform exact cleanup.
 
 ## Amazon SES checklist
 
