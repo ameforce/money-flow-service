@@ -22,6 +22,7 @@ services:
       args:
         APP_VERSION: ${APP_VERSION:-0.0.0}
     environment:
+      APP_VERSION: ${APP_VERSION:-0.0.0}
       ENV: ${ENV:-prod}
       DATABASE_URL: ${DATABASE_URL}
       SECRET_KEY: ${SECRET_KEY}
