@@ -458,6 +458,20 @@ async function expectPriceRefreshIconAction(page, label) {
   const metrics = await button.evaluate((element) => {
     const box = element.getBoundingClientRect();
     const actionButtons = Array.from(element.closest(".topbar-actions")?.querySelectorAll("button") || []);
+    const actionDetails = actionButtons.map((buttonElement) => {
+      const describedBy = String(buttonElement.getAttribute("aria-describedby") || "").trim();
+      const description = describedBy
+        .split(/\s+/u)
+        .filter(Boolean)
+        .map((id) => document.getElementById(id)?.textContent?.replace(/\s+/g, " ").trim() || "")
+        .filter(Boolean)
+        .join(" ");
+      return {
+        ariaLabel: buttonElement.getAttribute("aria-label") || "",
+        description,
+        text: String(buttonElement.textContent || "").replace(/\s+/g, " ").trim(),
+      };
+    });
     const actionIcons = actionButtons.map((buttonElement) => {
       const icon = buttonElement.querySelector(".topbar-action-icon svg");
       const box = icon?.getBoundingClientRect();
@@ -507,6 +521,7 @@ async function expectPriceRefreshIconAction(page, label) {
       buttonWidth: box.width,
       buttonHeight: box.height,
       actionWidths: actionButtons.map((buttonElement) => buttonElement.getBoundingClientRect().width),
+      actionDetails,
       actionIcons,
       textMetrics,
       description,
@@ -522,6 +537,11 @@ async function expectPriceRefreshIconAction(page, label) {
       item.opacity >= 0.5,
   );
   expect(metrics.ariaLabel, `${label} should keep the accessible action name stable`).toBe("시세 갱신");
+  expect(metrics.actionDetails[0]?.ariaLabel, `${label} refresh action should keep a stable name`).toBe("새로고침");
+  expect(
+    metrics.actionDetails[0]?.description || "",
+    `${label} refresh action should expose non-layout status copy: ${JSON.stringify(metrics)}`,
+  ).toContain("새로고침");
   expect(metrics.description, `${label} should expose non-layout status copy: ${JSON.stringify(metrics)}`).toContain(
     "시세 갱신",
   );

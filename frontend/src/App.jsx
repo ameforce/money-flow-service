@@ -9429,6 +9429,7 @@ function App() {
     : priceStatus?.refresh_finished_at
       ? "완료"
       : "대기";
+  const topbarRefreshStatus = dashboardLoading ? "새로고침 불러오는 중" : "새로고침 대기";
   const topbarPriceRefreshStatus = isPriceRefreshActive ? "시세 갱신 중" : "시세 갱신 대기";
   const latestRefreshAt = priceStatus?.refresh_finished_at || priceStatus?.updated_at || null;
   const dashboardGainLossRatioText = fmtSignedPercent(holdingPortfolioReturnRatio ?? 0);
@@ -11312,6 +11313,7 @@ function App() {
       clientVersionStatusLabel={clientVersionStatusLabel}
       onClientVersionReload={() => window.location.reload()}
       dashboardLoading={dashboardLoading}
+      topbarRefreshStatus={topbarRefreshStatus}
       onRefreshData={() => refreshDataWithUiFeedback().catch(() => undefined)}
       priceRefreshDisabled={loading || dashboardLoading || isPriceRefreshActive}
       isPriceRefreshActive={isPriceRefreshActive}
