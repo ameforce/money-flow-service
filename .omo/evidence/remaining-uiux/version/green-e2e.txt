@@ -1,0 +1,81 @@
+
+> money-flow-workspace@0.1.0 e2e
+> uv run python scripts/run_e2e_with_orchestrator.py e2e/specs/client-version.spec.js --project=desktop-chromium
+
+[e2e-runner] isolated run -> backend:7494, frontend:7495, mode:dev, db:e2e_run_64f9e57bf7464a9bb466003a47ad5698.db
+[orchestrator] backend start: C:\Users\enmso\.codex\worktrees\4e5e\money-flow-service\.omo\teams\team-358f7305\worktrees\VER\.venv\Scripts\python.exe -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 7494 --use-colors
+[orchestrator] waiting backend ready: http://127.0.0.1:7494/healthz
+2026-07-05 12:07:33 [backend] [32mINFO[0m:     Started server process [[36m50172[0m]
+2026-07-05 12:07:33 [backend] [32mINFO[0m:     Waiting for application startup.
+2026-07-05 12:07:33 [backend] [32mINFO[0m:     Application startup complete.
+2026-07-05 12:07:33 [backend] [32mINFO[0m:     Uvicorn running on [1mhttp://127.0.0.1:7494[0m (Press CTRL+C to quit)
+2026-07-05 12:07:34 [backend] [32mINFO[0m:     127.0.0.1:7505 - "[1mGET /healthz HTTP/1.1[0m" [32m200 OK[0m
+[orchestrator] backend is ready
+[orchestrator] frontend start: cmd /c npm run dev --prefix frontend -- --strictPort --host 127.0.0.1 --port 7495
+2026-07-05 12:07:34 [backend] [32mINFO[0m:     127.0.0.1:7506 - "[1mGET /healthz HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 12:07:34 [frontend]
+2026-07-05 12:07:34 [frontend] > frontend@0.0.0 dev
+2026-07-05 12:07:34 [frontend] > vite --strictPort --host 127.0.0.1 --port 7495
+2026-07-05 12:07:34 [frontend]
+2026-07-05 12:07:35 [frontend]
+2026-07-05 12:07:35 [frontend]   [32m[1mVITE[22m v7.3.3[39m  [2mready in [0m[1m332[22m[2m[0m ms[22m
+2026-07-05 12:07:35 [frontend]
+2026-07-05 12:07:35 [frontend]   [32m?[39m  [1mLocal[22m:   [36mhttp://127.0.0.1:[1m7495[22m/[39m
+2026-07-05 12:07:36 [frontend] [BABEL] Note: The code generator has deoptimised the styling of C:\Users\enmso\.codex\worktrees\4e5e\money-flow-service\.omo\teams\team-358f7305\worktrees\VER\frontend\src\App.jsx as it exceeds the max of 500KB.
+
+Running 1 test using 1 worker
+
+2026-07-05 12:07:39 [backend] [32mINFO[0m:     127.0.0.1:3177 - "[1mGET /api/v1/auth/client-config HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 12:07:39 [backend] [32mINFO[0m:     127.0.0.1:3178 - "[1mGET /api/v1/auth/me HTTP/1.1[0m" [31m401 Unauthorized[0m
+2026-07-05 12:07:39 [backend] [32mINFO[0m:     127.0.0.1:3179 - "[1mGET /api/v1/household/current HTTP/1.1[0m" [31m401 Unauthorized[0m
+2026-07-05 12:07:39 [backend] [32mINFO[0m:     127.0.0.1:3180 - "[1mGET /api/v1/household/list HTTP/1.1[0m" [31m401 Unauthorized[0m
+2026-07-05 12:07:39 [backend] [32mINFO[0m:     127.0.0.1:3181 - "[1mPOST /api/v1/auth/refresh HTTP/1.1[0m" [31m401 Unauthorized[0m
+2026-07-05 12:07:39 [backend] [32mINFO[0m:     127.0.0.1:1969 - "[1mGET /api/v1/auth/client-config HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 12:07:39 [backend] [32mINFO[0m:     127.0.0.1:8611 - "[1mPOST /api/v1/auth/register HTTP/1.1[0m" [32m201 Created[0m
+2026-07-05 12:07:51 [backend] [32mINFO[0m:     127.0.0.1:5421 - "[1mGET /api/v1/auth/client-config HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 12:07:51 [backend] [32mINFO[0m:     127.0.0.1:6630 - "[1mPOST /api/v1/auth/verify-email HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 12:07:51 [backend] [32mINFO[0m:     127.0.0.1:8073 - "[1mGET /api/v1/household/current HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 12:07:51 [backend] [32mINFO[0m:     127.0.0.1:8965 - "[1mGET /api/v1/auth/me HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 12:07:51 [backend] [32mINFO[0m:     127.0.0.1:8079 - "[1mGET /api/v1/household/list HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 12:07:51 [backend] [32mINFO[0m:     127.0.0.1:3560 - "[1mGET /api/v1/categories HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 12:07:51 [backend] [32mINFO[0m:     127.0.0.1:3559 - "[1mGET /api/v1/household/settings HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 12:07:51 [backend] [32mINFO[0m:     127.0.0.1:12695 - "[1mGET /api/v1/household/invitations/received HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 12:07:51 [backend] [32mINFO[0m:     127.0.0.1:12694 - "[1mGET /api/v1/household/invitations HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 12:07:51 [backend] [32mINFO[0m:     127.0.0.1:12012 - "[1mGET /api/v1/household/members HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 12:07:51 [backend] [32mINFO[0m:     127.0.0.1:11208 - "[1mGET /api/v1/dashboard/overview?year=2026&month=7 HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 12:07:51 [backend] [32mINFO[0m:     127.0.0.1:9206 - "[1mGET /api/v1/transactions?year=2026&month=7&limit=1000 HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 12:07:51 [backend] [32mINFO[0m:     127.0.0.1:9207 - "[1mGET /api/v1/holdings HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 12:07:51 [backend] [32mINFO[0m:     127.0.0.1:9209 - "[1mGET /api/v1/prices/status HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 12:07:51 [backend] [32mINFO[0m:     127.0.0.1:9208 - "[1mGET /api/v1/dashboard/portfolio HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 12:07:51 [backend] [32mINFO[0m:     127.0.0.1:5145 - "[1mPOST /api/v1/household/ws-ticket HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 12:07:51 [backend] [32mINFO[0m:     127.0.0.1:7812 - "WebSocket /ws/v1/household/77b26380-35ec-414f-abe5-8ea715afdb89" [accepted]
+2026-07-05 12:07:51 [backend] [32mINFO[0m:     connection open
+2026-07-05 12:07:51 [backend] [32mINFO[0m:     127.0.0.1:9382 - "[1mGET /api/v1/dashboard/overview?year=2026&month=7 HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 12:07:51 [backend] [32mINFO[0m:     127.0.0.1:4302 - "[1mGET /api/v1/prices/status HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 12:07:51 [backend] [32mINFO[0m:     127.0.0.1:4299 - "[1mGET /api/v1/transactions?year=2026&month=7&limit=1000 HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 12:07:51 [backend] [32mINFO[0m:     127.0.0.1:4300 - "[1mGET /api/v1/holdings HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 12:07:51 [backend] [32mINFO[0m:     127.0.0.1:4303 - "[1mGET /api/v1/auth/me HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 12:07:51 [backend] [32mINFO[0m:     127.0.0.1:4301 - "[1mGET /api/v1/dashboard/portfolio HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 12:07:51 [backend] [32mINFO[0m:     127.0.0.1:1194 - "[1mGET /api/v1/household/current HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 12:07:51 [backend] [32mINFO[0m:     127.0.0.1:7073 - "[1mGET /api/v1/household/list HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 12:07:51 [backend] [32mINFO[0m:     127.0.0.1:4601 - "[1mGET /api/v1/household/invitations/received HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 12:07:51 [backend] [32mINFO[0m:     127.0.0.1:6745 - "[1mGET /api/v1/household/members HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 12:07:51 [backend] [32mINFO[0m:     127.0.0.1:2333 - "[1mGET /api/v1/household/invitations HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 12:07:51 [backend] [32mINFO[0m:     127.0.0.1:8532 - "[1mGET /api/v1/household/settings HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 12:07:51 [backend] [32mINFO[0m:     127.0.0.1:4464 - "[1mGET /api/v1/categories HTTP/1.1[0m" [32m200 OK[0m
+2026-07-05 12:07:52 [backend] [32mINFO[0m:     connection closed
+  ok 1 [desktop-chromium] › e2e\specs\client-version.spec.js:5:5 › issue #282: open mobile tab surfaces reload CTA after server client version changes (13.5s)
+
+  1 passed (14.9s)
+[e2e-runner] screenshot capture: 1 files
+[e2e-runner] stop orchestrator
+^C
+[orchestrator] shutdown signal received(signum=21)
+[orchestrator] shutdown requested -> cleanup all
+[orchestrator] terminate frontend(pid=27596)
+2026-07-05 12:07:52 [frontend] ^C
+[orchestrator] terminate backend(pid=53576)
+2026-07-05 12:07:52 [backend] [32mINFO[0m:     Shutting down
+2026-07-05 12:07:52 [backend] [32mINFO[0m:     Waiting for application shutdown.
+2026-07-05 12:07:52 [backend] [32mINFO[0m:     Application shutdown complete.
+2026-07-05 12:07:52 [backend] [32mINFO[0m:     Finished server process [[36m50172[0m]

@@ -1,0 +1,45 @@
+# Issue #282 HTTP cache-control evidence
+APP_VERSION=12.34.56
+
+$ curl -sS -D - -o /dev/null /
+HTTP/1.1 200 OK
+date: Sun, 05 Jul 2026 03:08:50 GMT
+server: uvicorn
+cache-control: no-cache, must-revalidate
+content-type: text/html; charset=utf-8
+accept-ranges: bytes
+content-length: 698
+last-modified: Sun, 05 Jul 2026 03:07:22 GMT
+etag: "c40c4da91600b2f6966f1a2b6d24bea3"
+
+$ curl -sS -D - -o /dev/null /api/v1/system/client-version
+HTTP/1.1 200 OK
+date: Sun, 05 Jul 2026 03:08:50 GMT
+server: uvicorn
+cache-control: no-store, no-cache, must-revalidate, max-age=0
+pragma: no-cache
+expires: 0
+content-length: 22
+content-type: application/json
+
+$ curl -sS -D - -o /dev/null /definitely-spa-fallback
+HTTP/1.1 200 OK
+date: Sun, 05 Jul 2026 03:08:50 GMT
+server: uvicorn
+cache-control: no-cache, must-revalidate
+content-type: text/html; charset=utf-8
+accept-ranges: bytes
+content-length: 698
+last-modified: Sun, 05 Jul 2026 03:07:22 GMT
+etag: "c40c4da91600b2f6966f1a2b6d24bea3"
+
+$ curl -sS -D - -o /dev/null /assets/index-EKo8Sm2U.js
+HTTP/1.1 200 OK
+date: Sun, 05 Jul 2026 03:08:50 GMT
+server: uvicorn
+content-type: application/javascript
+accept-ranges: bytes
+content-length: 319429
+last-modified: Sun, 05 Jul 2026 03:07:22 GMT
+etag: "910c0e2c10a971101714157b7d0b673e"
+cache-control: public, max-age=31536000, immutable
