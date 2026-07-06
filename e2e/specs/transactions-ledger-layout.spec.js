@@ -303,8 +303,8 @@ test("transaction ledger aligns desktop cells and keeps mobile rows compact", as
 
   await registerAndVerify(page, { email, displayName });
   const category = await createCategoryViaApi(page, {
-    major: "생활용품",
-    minor: "건강",
+    major: "생활",
+    minor: "생활용품",
   });
   for (let index = 0; index < 14; index += 1) {
     await createTransactionViaApi(page, {
@@ -375,7 +375,7 @@ test("transaction ledger aligns desktop cells and keeps mobile rows compact", as
   expect(desktopMetrics.owner.cueVisible, `desktop should show the full owner cue: ${JSON.stringify(desktopMetrics)}`).toBe(true);
   expect(desktopMetrics.owner.cueText).toBe(displayName);
   expect(desktopMetrics.category.desktopCueVisible, `desktop should use the compact category cue: ${JSON.stringify(desktopMetrics)}`).toBe(true);
-  expect(desktopMetrics.category.desktopCueText).toBe("건강");
+  expect(desktopMetrics.category.desktopCueText).toBe("생활용품");
   expect(desktopMetrics.category.fullValueVisible, `desktop should not render the long category value in the tight column: ${JSON.stringify(desktopMetrics)}`).toBe(false);
   expect(desktopMetrics.dateHeader.cell, `date header cell should exist: ${JSON.stringify(desktopMetrics)}`).not.toBeNull();
   expect(desktopMetrics.dateHeader.button, `date sort button should fill the date header cell: ${JSON.stringify(desktopMetrics)}`).not.toBeNull();
@@ -398,7 +398,18 @@ test("transaction ledger aligns desktop cells and keeps mobile rows compact", as
 
   const desktopAmountFilter = page.locator(".transactions-desktop-ledger-head").getByRole("button", { name: "금액 필터 열기" });
   await desktopAmountFilter.click();
-  await expect(desktopFilterPanel.locator("[data-transaction-filter-field='amount_min']")).toBeFocused();
+  const amountMinInput = desktopFilterPanel.locator("[data-transaction-filter-field='amount_min']");
+  await expect(amountMinInput).toBeFocused();
+  await amountMinInput.fill("abc");
+  await expect(amountMinInput).toHaveValue("");
+  await amountMinInput.fill("123456");
+  await expect(amountMinInput).toHaveValue("123,456");
+  const amountMaxInput = desktopFilterPanel.locator("[data-transaction-filter-field='amount_max']");
+  await amountMaxInput.fill("987654");
+  await expect(amountMaxInput).toHaveValue("987,654");
+  await desktopFilterPanel.getByRole("button", { name: "초기화" }).click();
+  await expect(amountMinInput).toHaveValue("");
+  await expect(amountMaxInput).toHaveValue("");
 
   const desktopTypeFilter = page.locator(".transactions-desktop-ledger-head").getByRole("button", { name: "유형 필터 열기" });
   await desktopTypeFilter.click();
@@ -412,6 +423,15 @@ test("transaction ledger aligns desktop cells and keeps mobile rows compact", as
       const rowBox = row.getBoundingClientRect();
       const memo = row.querySelector(".transaction-col-memo");
       const memoText = row.querySelector(".transaction-memo-text");
+      const headerFit = (selector) => {
+        const item = head?.querySelector(selector);
+        return {
+          text: item?.textContent?.replace(/\s+/g, " ").trim() || "",
+          clientWidth: item?.clientWidth || 0,
+          scrollWidth: item?.scrollWidth || 0,
+        };
+      };
+      const categoryCue = row.querySelector(".transaction-mobile-category-cue");
       const headerItems = Array.from(head?.children || []).filter((element) => {
         const style = getComputedStyle(element);
         const box = element.getBoundingClientRect();
@@ -440,6 +460,15 @@ test("transaction ledger aligns desktop cells and keeps mobile rows compact", as
         rowBottomGap: memoText ? rowBox.bottom - memoText.getBoundingClientRect().bottom : 0,
         memoWidth: memo?.getBoundingClientRect().width || 0,
         dateHeadText: head?.querySelector(".ledger-head-date")?.textContent?.replace(/\s+/g, " ").trim() || "",
+        labelFits: {
+          owner: headerFit(".ledger-head-owner"),
+          category: headerFit(".ledger-head-category"),
+          categoryCue: {
+            text: categoryCue?.textContent?.replace(/\s+/g, " ").trim() || "",
+            clientWidth: categoryCue?.clientWidth || 0,
+            scrollWidth: categoryCue?.scrollWidth || 0,
+          },
+        },
         headerCenterDeltas: headerItems.map((item) => ({
           className: item.className,
           text: item.textContent?.replace(/\s+/g, " ").trim() || "",
@@ -454,6 +483,15 @@ test("transaction ledger aligns desktop cells and keeps mobile rows compact", as
     });
 
     expect(mobileMetrics.dateHeadText, `${profile.name} date header should not include a visible filter suffix: ${JSON.stringify(mobileMetrics)}`).toBe("일자");
+    expect(mobileMetrics.labelFits.owner.text).toBe("거래자");
+    expect(mobileMetrics.labelFits.category.text).toBe("카테고리");
+    expect(mobileMetrics.labelFits.categoryCue.text).toBe("생활용품");
+    for (const [label, metrics] of Object.entries(mobileMetrics.labelFits)) {
+      expect(
+        metrics.scrollWidth,
+        `${profile.name} ${label} label should fit without horizontal clipping: ${JSON.stringify(metrics)}`,
+      ).toBeLessThanOrEqual(metrics.clientWidth + 1);
+    }
     expect(
       mobileMetrics.headerCenterDeltas.every((item) => item.delta <= 3),
       `${profile.name} header labels should be vertically centered: ${JSON.stringify(mobileMetrics.headerCenterDeltas)}`,

@@ -8497,10 +8497,10 @@ tr.holding-row-imported {
 
   .transactions-mobile-ledger-head,
   .transactions-surface-table tbody tr.transaction-row {
-    --transaction-mobile-date-column-width: 40px;
-    --transaction-mobile-cue-column-width: 40px;
-    --transaction-mobile-owner-column-width: 28px;
-    --transaction-mobile-category-column-width: 34px;
+    --transaction-mobile-date-column-width: 34px;
+    --transaction-mobile-cue-column-width: 34px;
+    --transaction-mobile-owner-column-width: 32px;
+    --transaction-mobile-category-column-width: 44px;
     --transaction-mobile-amount-column-width: 60px;
     --transaction-action-strip-width: 0rem;
     --transaction-mobile-ledger-column-gap: 2px;
@@ -8902,7 +8902,7 @@ tr.holding-row-imported {
     grid-area: date;
     align-self: center;
     justify-self: start;
-    font-size: 0.68rem;
+    font-size: 0.64rem;
     color: var(--mf-color-ink-500);
     white-space: nowrap;
   }
@@ -8985,13 +8985,13 @@ tr.holding-row-imported {
     align-self: center;
     min-width: 0;
     margin-bottom: 0;
-    padding: 0.04rem 0.24rem;
+    padding: 0.04rem 0.06rem;
     border: 1px solid var(--transaction-row-border, rgba(151, 172, 201, 0.34));
     border-radius: 999px;
     background: rgba(255, 255, 255, 0.68);
     overflow: hidden;
     color: #355177;
-    font-size: 0.66rem;
+    font-size: 0.6rem;
     font-weight: 800;
     line-height: 1.05;
     text-overflow: ellipsis;
@@ -9228,7 +9228,7 @@ tr.holding-row-imported {
 
   .transactions-surface-table .transaction-flow-badge {
     min-width: auto;
-    padding: 0.14rem 0.31rem;
+    padding: 0.14rem 0.24rem;
     font-size: 0.62rem;
     line-height: 1;
   }

@@ -8,6 +8,11 @@ const TRANSACTION_FILTER_FOCUS_SELECTORS = {
   memo: "[data-transaction-filter-field='memo']",
 };
 
+function normalizeAmountFilterInput(value) {
+  const digits = String(value ?? "").replace(/[^\d]/g, "");
+  return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
 export function TransactionListToolbar({
   constants,
   permissions,
@@ -159,16 +164,17 @@ export function TransactionListToolbar({
               data-transaction-filter-field="amount_min"
               placeholder="0"
               value={txListFilter.amount_min}
-              onChange={(e) => updateTxListFilter({ ...txListFilter, amount_min: e.target.value })}
+              onChange={(e) => updateTxListFilter({ ...txListFilter, amount_min: normalizeAmountFilterInput(e.target.value) })}
             />
           </label>
           <label className="tx-header-filter">
             <span>최대 금액</span>
             <input
               inputMode="numeric"
+              data-transaction-filter-field="amount_max"
               placeholder="100,000"
               value={txListFilter.amount_max}
-              onChange={(e) => updateTxListFilter({ ...txListFilter, amount_max: e.target.value })}
+              onChange={(e) => updateTxListFilter({ ...txListFilter, amount_max: normalizeAmountFilterInput(e.target.value) })}
             />
           </label>
           <button type="button" className="secondary tx-header-filter-reset" onClick={clearTxListFilter}>초기화</button>
