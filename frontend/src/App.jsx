@@ -2295,6 +2295,7 @@ function App() {
   const dashboardRequestCountRef = useRef(0);
   const transactionLedgerRequestRef = useRef(0);
   const transactionLatestAnchorPendingRef = useRef(tab === "transactions");
+  const transactionLatestAnchorSuppressedRef = useRef(false);
   const clientVersionCheckInFlightRef = useRef(false);
   const wsTicketMethodRef = useRef("POST");
   const wsRefreshTimerRef = useRef(null);
@@ -4651,10 +4652,15 @@ function App() {
     syncUrlTabParam(tab);
     setMessage((prev) => (prev ? "" : prev));
     if (tab === "transactions") {
+      if (transactionLatestAnchorSuppressedRef.current) {
+        transactionLatestAnchorPendingRef.current = false;
+        return;
+      }
       transactionLatestAnchorPendingRef.current = true;
       return;
     }
     transactionLatestAnchorPendingRef.current = false;
+    transactionLatestAnchorSuppressedRef.current = false;
     if (typeof window !== "undefined") {
       window.requestAnimationFrame(() => {
         window.scrollTo({ top: 0, left: 0, behavior: "auto" });
@@ -4666,6 +4672,7 @@ function App() {
     if (
       tab !== "transactions" ||
       !transactionLatestAnchorPendingRef.current ||
+      transactionLatestAnchorSuppressedRef.current ||
       sortedTransactions.length === 0 ||
       typeof window === "undefined"
     ) {
@@ -7061,12 +7068,27 @@ function App() {
     yearMonthRef.current = targetMonth;
     appliedYearMonthRef.current = targetMonth;
     setMonthFilterPending(false);
+    transactionLatestAnchorSuppressedRef.current = true;
+    transactionLatestAnchorPendingRef.current = false;
     if (startEdit) {
       setPendingImportEditTransactionId(firstRef.id);
     }
-    setTab("transactions");
-    await refreshDataWithUiFeedback({ filterMode: "month", yearMonth: targetMonth });
-    scrollToDataRow("data-transaction-id", firstRef.id);
+    try {
+      setTab("transactions");
+      await refreshDataWithUiFeedback({ filterMode: "month", yearMonth: targetMonth });
+      transactionLatestAnchorPendingRef.current = false;
+      scrollToDataRow("data-transaction-id", firstRef.id);
+    } finally {
+      if (typeof window !== "undefined") {
+        window.requestAnimationFrame(() => {
+          window.requestAnimationFrame(() => {
+            transactionLatestAnchorSuppressedRef.current = false;
+          });
+        });
+      } else {
+        transactionLatestAnchorSuppressedRef.current = false;
+      }
+    }
   }
 
   function showImportedHoldings({ startEdit = false } = {}) {

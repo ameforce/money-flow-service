@@ -12,6 +12,7 @@
 | Large month | Open the transactions tab with oldest-to-newest sort | Latest rendered monthly row is the initial viewport anchor, not the oldest row | `paged-ledger-e2e.txt`, `transactions-spec-e2e.txt` |
 | Mobile sticky header | Open a populated ledger under Korean font viewport | Sticky filter/header stack is measured after rows render and does not overlap the first visible row | `sticky-ledger-head-e2e.txt`, `transactions-spec-e2e.txt` |
 | Import reveal | Apply a workbook with a transaction in a different month, then choose "가져온 거래 보기" | Ledger switches to the import month and shows the imported highlighted row | `red-import-reveal-e2e.txt`, `green-import-reveal-e2e.txt` |
+| Import reveal | Target month already has newer rows, then choose "가져온 거래 보기" for an older imported row | Imported row remains the viewport target and the generic latest-row anchor does not replace the explicit reveal | `targeted-import-anchor-e2e.txt` |
 | Rapid month switch | Slow previous-month response arrives after returning to current month | Current month row remains visible and stale previous-month row is ignored | `stale-refresh-e2e.txt`, `focused-e2e.txt`, `transactions-spec-e2e.txt` |
 | Backend pagination | Request `limit=2&offset=1` | API returns the second and third rows in stable order | `backend-offset-pagination.txt`, `pytest.txt` |
 | Backend pagination cap | Request `offset=60001` | API rejects the request before reaching an unbounded DB offset | `backend-offset-pagination.txt`, `pytest.txt` |
