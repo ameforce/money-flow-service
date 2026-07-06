@@ -2294,6 +2294,7 @@ function App() {
   const tossFileInputRef = useRef(null);
   const dashboardRequestCountRef = useRef(0);
   const transactionLedgerRequestRef = useRef(0);
+  const transactionLatestAnchorPendingRef = useRef(tab === "transactions");
   const clientVersionCheckInFlightRef = useRef(false);
   const wsTicketMethodRef = useRef("POST");
   const wsRefreshTimerRef = useRef(null);
@@ -3706,6 +3707,7 @@ function App() {
     selectedTransactionSummary.amount,
     transactionSortSummary,
     isTransactionFilterActive,
+    sortedTransactions.length,
   ]);
 
   useEffect(() => {
@@ -4648,13 +4650,50 @@ function App() {
     setSavedTabId(tab);
     syncUrlTabParam(tab);
     setMessage((prev) => (prev ? "" : prev));
-    if (tab === "transactions") return;
+    if (tab === "transactions") {
+      transactionLatestAnchorPendingRef.current = true;
+      return;
+    }
+    transactionLatestAnchorPendingRef.current = false;
     if (typeof window !== "undefined") {
       window.requestAnimationFrame(() => {
         window.scrollTo({ top: 0, left: 0, behavior: "auto" });
       });
     }
   }, [tab]);
+
+  useEffect(() => {
+    if (
+      tab !== "transactions" ||
+      !transactionLatestAnchorPendingRef.current ||
+      sortedTransactions.length === 0 ||
+      typeof window === "undefined"
+    ) {
+      return undefined;
+    }
+    let attempts = 0;
+    let disposed = false;
+    const scrollLatestRow = () => {
+      if (disposed) {
+        return;
+      }
+      const rows = Array.from(transactionListCardRef.current?.querySelectorAll(".transaction-row") || []);
+      const targetRow = txSortDirection === "asc" ? rows[rows.length - 1] : rows[0];
+      if (!targetRow) {
+        attempts += 1;
+        if (attempts < 6) {
+          window.setTimeout(() => window.requestAnimationFrame(scrollLatestRow), attempts < 3 ? 0 : 80);
+        }
+        return;
+      }
+      targetRow.scrollIntoView({ block: "end", inline: "nearest", behavior: "auto" });
+      transactionLatestAnchorPendingRef.current = false;
+    };
+    window.requestAnimationFrame(scrollLatestRow);
+    return () => {
+      disposed = true;
+    };
+  }, [tab, sortedTransactions.length, txSortDirection]);
 
   useEffect(() => {
     if (typeof window === "undefined") {

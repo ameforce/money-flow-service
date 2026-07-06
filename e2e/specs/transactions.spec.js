@@ -5804,9 +5804,23 @@ test("issue 287: monthly transaction ledger loads every paged row", async ({ pag
   await registerAndVerify(page, { email, displayName });
   await page.setViewportSize({ width: 390, height: 844 });
   await openTab(page, "거래");
-  await expect(page.locator("tr.transaction-row", { hasText: `${pagedMemoPrefix}-0001` })).toHaveCount(1);
-  await expect(page.locator("tr.transaction-row", { hasText: `${pagedMemoPrefix}-1001` })).toHaveCount(1);
+  const firstPagedRow = page.locator("tr.transaction-row", { hasText: `${pagedMemoPrefix}-0001` });
+  const latestPagedRow = page.locator("tr.transaction-row", { hasText: `${pagedMemoPrefix}-1001` });
+  await expect(firstPagedRow).toHaveCount(1);
+  await expect(latestPagedRow).toHaveCount(1);
   await expect(page.locator("tr.transaction-row")).toHaveCount(1001);
+  await expect.poll(
+    async () =>
+      latestPagedRow.evaluate((row) => {
+        const box = row.getBoundingClientRect();
+        return box.top >= 0 && box.bottom <= window.innerHeight;
+      }),
+    { message: "monthly ledger should open anchored to the latest rendered row" }
+  ).toBe(true);
+  await expect(
+    firstPagedRow,
+    "oldest row should not remain the initial viewport anchor when the latest row is available"
+  ).not.toBeInViewport({ ratio: 0.1 });
   expect(transactionRequests, "monthly ledger should request the first page").toContainEqual({ limit: 1000, offset: 0 });
   expect(transactionRequests, "monthly ledger should request the second page").toContainEqual({ limit: 1000, offset: 1000 });
   expect(
