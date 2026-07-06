@@ -2164,6 +2164,7 @@ function App() {
   const [showTransactionEntryBanner, setShowTransactionEntryBanner] = useState(false);
   const [showTransactionForm, setShowTransactionForm] = useState(false);
   const [showTransactionFilterPanel, setShowTransactionFilterPanel] = useState(false);
+  const [transactionFilterFocusTarget, setTransactionFilterFocusTarget] = useState("");
   const [transactionSupportOpen, setTransactionSupportOpen] = useState(false);
   const [txEntrySheetStep, setTxEntrySheetStep] = useState("form");
   const [showTransactionQuickResume, setShowTransactionQuickResume] = useState(false);
@@ -10233,6 +10234,7 @@ function App() {
       showTransactionFilterPanel,
       showTransactionScrollTop,
       sortedTransactions,
+      transactionFilterFocusTarget,
       transactionSortSummary,
       transactionLedgerItems,
       transactionsMobileStickyActive,
@@ -10257,6 +10259,7 @@ function App() {
       toggleExpandedTransactionRow,
       toggleTxSortDirection,
       updateShowTransactionFilterPanel: (nextOpen) => setShowTransactionFilterPanel(nextOpen),
+      updateTransactionFilterFocusTarget: (nextTarget) => setTransactionFilterFocusTarget(nextTarget),
       updateTransactionRowsExpanded: (transactionIds, expanded) => setTransactionRowsExpanded(transactionIds, expanded),
       updateTransactionRowsSelected: (transactionIds, selected) => setTransactionRowsSelected(transactionIds, selected),
       updateTxListFilter: (nextFilter) => setTxListFilter(nextFilter),
