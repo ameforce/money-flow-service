@@ -3,6 +3,7 @@ import { expect, test } from "@playwright/test";
 import {
   assertResponsiveShell,
   capture,
+  createCategoryViaApi,
   expectNoHorizontalOverflow,
   labeledField,
   openTab,
@@ -13,6 +14,15 @@ import {
 async function applyFontFamily(page, fontFamily) {
   await page.addStyleTag({
     content: `html, body, button, input, select, textarea { font-family: ${fontFamily} !important; }`,
+  });
+}
+
+async function browserLocalTodayIso(page) {
+  return page.evaluate(() => {
+    const now = new Date();
+    const month = String(now.getMonth() + 1).padStart(2, "0");
+    const day = String(now.getDate()).padStart(2, "0");
+    return `${now.getFullYear()}-${month}-${day}`;
   });
 }
 
@@ -170,7 +180,8 @@ test("issue #259: category management is outside the transaction entry sheet", a
   const transactionSheet = page.getByTestId("transaction-entry-sheet");
   await expect(transactionSheet).toBeVisible();
   await expect(transactionSheet.getByTestId("transaction-entry-category-manage")).toHaveCount(0);
-  await expect(transactionSheet).toContainText("금액, 카테고리, 메모 순서로 바로 저장합니다.");
+  await expect(transactionSheet).toContainText("일자부터 거래자까지 한 화면에서 저장합니다.");
+  await expect(transactionSheet.locator("details.transaction-quick-details")).toHaveCount(0);
   await capture(page, "issue-259-entry-sheet-without-category-management");
   await page.getByTestId("transaction-entry-sheet-close").click();
   await expect(transactionSheet).toBeHidden();
@@ -186,25 +197,57 @@ test("issue #259: category management is outside the transaction entry sheet", a
   await capture(page, "issue-259-category-management-outside-entry-sheet");
 });
 
-test("issue #257: category search does not occupy the default transaction entry path", async ({ page }) => {
+test("issue #257: transaction entry uses staged choices without recommendations or sheet scrolling", async ({ page }) => {
   const email = `${unique("uiux-category-search-on-demand")}@example.com`;
+  const categoryMajor = unique("생활그룹");
+  const categoryMinor = unique("생활용품");
 
   await registerAndVerify(page, { email, displayName: unique("uiux-category-search-on-demand-name") });
+  await createCategoryViaApi(page, { major: categoryMajor, minor: categoryMinor, flowType: "expense" });
   await page.setViewportSize({ width: 390, height: 844 });
+  await page.reload();
   await openTab(page, "거래");
 
   await page.getByTestId("transactions-fab").click();
   const transactionSheet = page.getByTestId("transaction-entry-sheet");
   await expect(transactionSheet).toBeVisible();
-  await expect(transactionSheet.getByTestId("transaction-quick-amount")).toBeFocused();
+  await expect(transactionSheet.getByTestId("transaction-quick-date")).toHaveValue(await browserLocalTodayIso(page));
   await expect(transactionSheet.getByTestId("transaction-category-search")).toHaveCount(0);
-  await expect(transactionSheet.getByTestId("transaction-category-search-toggle")).toBeVisible();
-  await expect(transactionSheet.getByTestId("transaction-category-quick-picker")).toContainText("카테고리");
-  await capture(page, "issue-257-category-search-collapsed-default");
+  await expect(transactionSheet.getByTestId("transaction-category-search-toggle")).toHaveCount(0);
+  await expect(transactionSheet.getByTestId("transaction-category-quick-picker")).toHaveCount(0);
+  await expect(transactionSheet.locator("details.transaction-quick-details")).toHaveCount(0);
+  await expect(transactionSheet).not.toContainText("추천 카테고리");
 
-  await transactionSheet.getByTestId("transaction-category-search-toggle").click();
-  const searchInput = transactionSheet.getByTestId("transaction-category-search");
-  await expect(searchInput).toBeVisible();
-  await expect(searchInput).toBeFocused();
-  await capture(page, "issue-257-category-search-opened-on-demand");
+  const dateBox = await transactionSheet.getByTestId("transaction-quick-date").boundingBox();
+  const amountBox = await transactionSheet.getByTestId("transaction-quick-amount").boundingBox();
+  expect(dateBox?.y ?? 0).toBeLessThan(amountBox?.y ?? 0);
+
+  await expect(transactionSheet.getByTestId("transaction-flow-choice")).toHaveCount(4);
+  await expect(transactionSheet.getByTestId("transaction-flow-choice").filter({ hasText: "지출" })).toHaveAttribute(
+    "aria-pressed",
+    "true"
+  );
+  const categoryGroup = transactionSheet.getByTestId("transaction-category-group-choice").filter({ hasText: categoryMajor });
+  await expect(categoryGroup).toBeVisible();
+  const beforeScroll = await transactionSheet.evaluate((element) => ({
+    top: element.scrollTop,
+    scrollHeight: element.scrollHeight,
+    clientHeight: element.clientHeight,
+    windowY: window.scrollY,
+  }));
+  await categoryGroup.click();
+  const categoryChoice = transactionSheet.getByTestId("transaction-category-choice").filter({ hasText: categoryMinor });
+  await expect(categoryChoice).toBeVisible();
+  await categoryChoice.click();
+  await expect(transactionSheet.getByTestId("transaction-owner-choice").first()).toBeVisible();
+  const afterScroll = await transactionSheet.evaluate((element) => ({
+    top: element.scrollTop,
+    scrollHeight: element.scrollHeight,
+    clientHeight: element.clientHeight,
+    windowY: window.scrollY,
+  }));
+  expect(afterScroll.scrollHeight).toBeLessThanOrEqual(afterScroll.clientHeight + 2);
+  expect(Math.abs(afterScroll.top - beforeScroll.top)).toBeLessThanOrEqual(2);
+  expect(Math.abs(afterScroll.windowY - beforeScroll.windowY)).toBeLessThanOrEqual(2);
+  await capture(page, "issue-257-transaction-entry-staged-no-scroll");
 });
