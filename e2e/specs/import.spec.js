@@ -286,6 +286,7 @@ test("import flow: workbook dry-run and apply", async ({ page }, testInfo) => {
   const email = `${unique("import-user")}@example.com`;
   const displayName = unique("import-name");
   const importTxMemo = unique("import-tx");
+  const importRevealLatestMemo = unique("import-newer-tx");
   const importHoldingName = unique("import-holding");
   const importCategoryMinor = unique("import-minor");
   const importWorkbookPath = testInfo.outputPath(`${unique("import-workbook")}.xlsx`);
@@ -299,6 +300,13 @@ test("import flow: workbook dry-run and apply", async ({ page }, testInfo) => {
   await registerAndVerify(page, { email, displayName });
   await page.setViewportSize({ width: 390, height: 844 });
   await assertResponsiveShell(page);
+  for (let day = 13; day <= 31; day += 1) {
+    await createTransactionViaApi(page, {
+      memo: `${importRevealLatestMemo}-${String(day).padStart(2, "0")}`,
+      occurredOn: `2026-03-${String(day).padStart(2, "0")}`,
+      amount: String(10_000 + day),
+    });
+  }
   await page.getByRole("button", { name: "데이터 가져오기", exact: true }).click();
   await expectNoHorizontalOverflow(page, 12);
   await capture(page, "import-mobile-entry");
@@ -340,6 +348,11 @@ test("import flow: workbook dry-run and apply", async ({ page }, testInfo) => {
   await postApplyActions.getByRole("button", { name: "가져온 거래 보기", exact: true }).click();
   const importedTransactionRow = page.locator("tr.transaction-row.transaction-row-imported", { hasText: importTxMemo }).first();
   await expect(importedTransactionRow).toBeVisible();
+  await expect(importedTransactionRow).toBeInViewport({ ratio: 0.5 });
+  await expect(
+    page.locator("tr.transaction-row", { hasText: `${importRevealLatestMemo}-31` }).first(),
+    "targeted import reveal should not be replaced by the generic latest-row anchor"
+  ).not.toBeInViewport({ ratio: 0.5 });
   await expect(importedTransactionRow).toHaveAttribute("data-import-highlight", "true");
 
   await page.getByRole("button", { name: "데이터 가져오기", exact: true }).click();

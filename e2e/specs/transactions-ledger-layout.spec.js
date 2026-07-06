@@ -149,7 +149,6 @@ test("transaction ledger keeps dense columns, bottom mobile chrome, and quiet se
       const row = document.querySelector("tr.transaction-row[data-transaction-id]");
       const amount = row?.querySelector(".transaction-col-amount");
       const action = row?.querySelector(".transaction-col-actions");
-      const toggle = action?.querySelector(".mobile-toggle-btn");
       const navBox = nav?.getBoundingClientRect();
       const fabBox = fab?.getBoundingClientRect();
       const rowBox = row?.getBoundingClientRect();
@@ -189,7 +188,7 @@ test("transaction ledger keeps dense columns, bottom mobile chrome, and quiet se
         rowHeight: rowBox?.height ?? 0,
         amount: readBox(amount?.getBoundingClientRect()),
         action: readBox(action?.getBoundingClientRect()),
-        toggle: readBox(toggle?.getBoundingClientRect()),
+        actionButtonCount: row?.querySelectorAll(".transaction-col-actions button").length ?? 0,
         documentOverflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
       };
     });
@@ -226,15 +225,11 @@ test("transaction ledger keeps dense columns, bottom mobile chrome, and quiet se
     ).toBeLessThanOrEqual(46);
     expect(mobileMetrics.amount, `${profile.name} amount cell should exist: ${JSON.stringify(mobileMetrics)}`).not.toBeNull();
     expect(mobileMetrics.action, `${profile.name} action cell should exist: ${JSON.stringify(mobileMetrics)}`).not.toBeNull();
-    expect(mobileMetrics.toggle, `${profile.name} toggle should exist: ${JSON.stringify(mobileMetrics)}`).not.toBeNull();
-    expect(
-      mobileMetrics.action.width,
-      `${profile.name} action column should contain the toggle: ${JSON.stringify(mobileMetrics)}`,
-    ).toBeGreaterThanOrEqual(mobileMetrics.toggle.width - 0.5);
+    expect(mobileMetrics.actionButtonCount, `${profile.name} mobile transaction row should not expose row action buttons: ${JSON.stringify(mobileMetrics)}`).toBe(0);
     expect(
       mobileMetrics.amount.right,
-      `${profile.name} amount text should not overlap the row toggle: ${JSON.stringify(mobileMetrics)}`,
-    ).toBeLessThanOrEqual(mobileMetrics.toggle.left + 0.5);
+      `${profile.name} amount text should stay inside the viewport: ${JSON.stringify(mobileMetrics)}`,
+    ).toBeLessThanOrEqual(mobileMetrics.viewportWidth - 8);
     expect(
       mobileMetrics.documentOverflowX,
       `${profile.name} document should not overflow: ${JSON.stringify(mobileMetrics)}`,

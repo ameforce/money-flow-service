@@ -1,0 +1,19 @@
+
+> frontend@0.0.0 lint
+> eslint .
+
+
+C:\Users\enmso\.codex\worktrees\4e5e\money-flow-service\frontend\src\App.jsx
+  3268:6   warning  React Hook useEffect has a missing dependency: 'user'. Either include it or remove the dependency array. You can also replace multiple useState variables with useReducer if 'setProfileForm' needs the current value of 'user'                                                    react-hooks/exhaustive-deps
+  3272:6   warning  React Hook useEffect has a missing dependency: 'householdSettings'. Either include it or remove the dependency array. You can also replace multiple useState variables with useReducer if 'setHouseholdSettingsForm' needs the current value of 'householdSettings'                react-hooks/exhaustive-deps
+  3275:5   warning  React Hook useEffect has a complex expression in the dependency array. Extract it to a separate variable so it can be statically checked                                                                                                                                           react-hooks/exhaustive-deps
+  3276:5   warning  React Hook useEffect has a complex expression in the dependency array. Extract it to a separate variable so it can be statically checked                                                                                                                                           react-hooks/exhaustive-deps
+  3447:6   warning  React Hook useEffect has a missing dependency: 'normalizedHoldingSettings.column_widths'. Either include it or remove the dependency array                                                                                                                                         react-hooks/exhaustive-deps
+  3447:7   warning  React Hook useEffect has a complex expression in the dependency array. Extract it to a separate variable so it can be statically checked                                                                                                                                           react-hooks/exhaustive-deps
+  4741:6   warning  React Hook useEffect has a missing dependency: 'txInlineEdit'. Either include it or remove the dependency array                                                                                                                                                                    react-hooks/exhaustive-deps
+  8385:6   warning  React Hook useEffect has missing dependencies: 'priceStatus' and 'requestPriceRefresh'. Either include them or remove the dependency array                                                                                                                                         react-hooks/exhaustive-deps
+  8432:6   warning  React Hook useEffect has a missing dependency: 'refreshDataByKinds'. Either include it or remove the dependency array                                                                                                                                                              react-hooks/exhaustive-deps
+  8496:6   warning  React Hook useEffect has missing dependencies: 'loadAuthContext' and 'refreshCollaborationData'. Either include them or remove the dependency array                                                                                                                                react-hooks/exhaustive-deps
+  8662:25  warning  The ref value 'wsPendingKindsRef.current' will likely have changed by the time this effect cleanup function runs. If this ref points to a node rendered by React, copy 'wsPendingKindsRef.current' to a variable inside the effect, and use that variable in the cleanup function  react-hooks/exhaustive-deps
+
+✖ 11 problems (0 errors, 11 warnings)

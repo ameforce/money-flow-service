@@ -5,20 +5,12 @@ import {
   assertResponsiveShell,
   capture,
   createBasicTransaction,
+  currentE2EHistoryDateIso,
   login,
   openTab,
   registerAndVerify,
   unique,
 } from "../support/helpers";
-
-function previousMonthDateIso() {
-  const date = new Date();
-  date.setUTCDate(1);
-  date.setUTCDate(0);
-  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
-  const day = String(date.getUTCDate()).padStart(2, "0");
-  return `${date.getUTCFullYear()}-${month}-${day}`;
-}
 
 // This spec creates two manual browser contexts per project and already captures
 // flow evidence explicitly. Retained trace/video finalization can race under
@@ -70,7 +62,7 @@ test("ws flow: connected state and cross-session transaction sync", async ({ bro
   const displayName = unique("ws-name");
   const txMemo = unique("ws-memo");
   const editedMemo = unique("ws-edited-memo");
-  const txOccurredOn = previousMonthDateIso();
+  const txOccurredOn = currentE2EHistoryDateIso();
 
   const firstContext = await browser.newContext();
   const secondContext = await browser.newContext();

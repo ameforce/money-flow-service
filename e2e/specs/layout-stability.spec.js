@@ -368,14 +368,14 @@ async function expectWorksurfaceRowsUseCorrectMode(page, tabLabel) {
       expect(metrics.mobileDateDisplay).toBe("none");
       expect(metrics.flowShortDisplay).toBe("none");
       expect(["none", "missing"]).toContain(metrics.ownerChipDisplay);
-      expect(metrics.toggleDisplay).toBe("none");
+      expect(["none", "missing"]).toContain(metrics.toggleDisplay);
       expect(metrics.dateText).toMatch(/^\d{4}-\d{2}-\d{2}$/);
       expect(metrics.dateOverflow).toBeLessThanOrEqual(2);
       expect(metrics.rowHeight).toBeLessThanOrEqual(48);
     } else {
       expect(metrics.rowDisplay).toBe("grid");
       expect(metrics.mobileDateDisplay).not.toBe("none");
-      expect(metrics.toggleDisplay).not.toBe("none");
+      expect(metrics.toggleDisplay).toBe("missing");
     }
   }
 
