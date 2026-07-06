@@ -47,120 +47,66 @@ function isMonthlyTransactionsResponse(response, targetYearMonth) {
   );
 }
 
-async function expectQuickCategoryLayoutStable(page, expectedHint = "추천 카테고리를 탭하면 바로 연결됩니다.") {
-  const metrics = await page.locator(".transaction-quick-category-panel").evaluate((panel) => {
-    const hint = panel.querySelector(".transaction-quick-section-title small");
-    const chipContainer = panel.querySelector(".transaction-quick-category-chips");
-    const chips = Array.from(panel.querySelectorAll("[data-testid='transaction-quick-category-chip']"));
-    const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
-    const hintStyle = hint ? getComputedStyle(hint) : null;
-    const chipContainerStyle = chipContainer ? getComputedStyle(chipContainer) : null;
-    const documentOverflowX = document.documentElement.scrollWidth - document.documentElement.clientWidth;
+async function browserLocalTodayIso(page, daysOffset = 0) {
+  return page.evaluate((offset) => {
+    const date = new Date();
+    date.setDate(date.getDate() + offset);
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${date.getFullYear()}-${month}-${day}`;
+  }, daysOffset);
+}
 
+async function expectStagedCategoryLayoutStable(page) {
+  const metrics = await page.getByTestId("transaction-staged-category").evaluate((panel) => {
+    const buttons = Array.from(
+      panel.querySelectorAll(
+        "[data-testid='transaction-flow-choice'], [data-testid='transaction-category-group-choice'], [data-testid='transaction-category-choice']",
+      ),
+    );
+    const documentOverflowX = document.documentElement.scrollWidth - document.documentElement.clientWidth;
     return {
-      hint: hint
-        ? {
-            text: hint.textContent?.trim() || "",
-            clientWidth: hint.clientWidth,
-            scrollWidth: hint.scrollWidth,
-            clientHeight: hint.clientHeight,
-            scrollHeight: hint.scrollHeight,
-            overflowX: hintStyle?.overflowX || "",
-            textOverflow: hintStyle?.textOverflow || "",
-            whiteSpace: hintStyle?.whiteSpace || "",
-          }
-        : null,
-      chips: chipContainer
-        ? {
-            clientWidth: chipContainer.clientWidth,
-            scrollWidth: chipContainer.scrollWidth,
-            overflowX: chipContainerStyle?.overflowX || "",
-            display: chipContainerStyle?.display || "",
-            flexWrap: chipContainerStyle?.flexWrap || "",
-          }
-        : null,
-      outsideViewport: chips
-        .map((chip) => {
-          const rect = chip.getBoundingClientRect();
-          return {
-            text: chip.textContent?.trim() || "",
-            left: rect.left,
-            right: rect.right,
-            viewportWidth,
-          };
-        })
-        .filter((item) => item.left < -1 || item.right > item.viewportWidth + 1),
-      chipMetrics: chips.map((chip) => {
-        const rect = chip.getBoundingClientRect();
-        const label = chip.querySelector("span");
-        const subLabel = chip.querySelector("small");
-        const labelStyle = label ? getComputedStyle(label) : null;
-        const subLabelStyle = subLabel ? getComputedStyle(subLabel) : null;
+      buttonCount: buttons.length,
+      documentOverflowX,
+      recommendationCount: document.querySelectorAll(".transaction-quick-category-panel, [data-testid='transaction-quick-category-chip']").length,
+      detailsCount: document.querySelectorAll("details.transaction-quick-details").length,
+      buttonMetrics: buttons.map((button) => {
+        const rect = button.getBoundingClientRect();
+        const style = getComputedStyle(button);
         return {
-          text: chip.textContent?.trim() || "",
+          text: button.textContent?.trim() || "",
           width: rect.width,
           height: rect.height,
-          labelText: label?.textContent?.trim() || "",
-          labelClientWidth: label?.clientWidth || 0,
-          labelScrollWidth: label?.scrollWidth || 0,
-          labelClientHeight: label?.clientHeight || 0,
-          labelScrollHeight: label?.scrollHeight || 0,
-          labelTextOverflow: labelStyle?.textOverflow || "",
-          labelWhiteSpace: labelStyle?.whiteSpace || "",
-          subLabelText: subLabel?.textContent?.trim() || "",
-          subLabelClientWidth: subLabel?.clientWidth || 0,
-          subLabelScrollWidth: subLabel?.scrollWidth || 0,
-          subLabelClientHeight: subLabel?.clientHeight || 0,
-          subLabelScrollHeight: subLabel?.scrollHeight || 0,
-          subLabelTextOverflow: subLabelStyle?.textOverflow || "",
-          subLabelWhiteSpace: subLabelStyle?.whiteSpace || "",
+          clientWidth: button.clientWidth,
+          scrollWidth: button.scrollWidth,
+          clientHeight: button.clientHeight,
+          scrollHeight: button.scrollHeight,
+          textOverflow: style.textOverflow,
+          whiteSpace: style.whiteSpace,
         };
       }),
-      documentOverflowX,
     };
   });
 
-  expect(metrics.hint).toBeTruthy();
-  if (expectedHint !== null) {
-    expect(metrics.hint.text).toBe(expectedHint);
-  }
-  expect(metrics.hint.whiteSpace).not.toBe("nowrap");
-  expect(metrics.hint.scrollWidth).toBeLessThanOrEqual(metrics.hint.clientWidth + 1);
-  expect(metrics.hint.scrollHeight).toBeLessThanOrEqual(metrics.hint.clientHeight + 1);
-  expect(metrics.chips).toBeTruthy();
-  expect(metrics.chips.display).toBe("flex");
-  expect(metrics.chips.flexWrap).toBe("nowrap");
-  expect(["auto", "scroll"]).toContain(metrics.chips.overflowX);
-  expect(metrics.chips.scrollWidth).toBeGreaterThanOrEqual(metrics.chips.clientWidth);
+  expect(metrics.recommendationCount, "add transaction should not render recommended category chips").toBe(0);
+  expect(metrics.detailsCount, "add transaction should not hide fields in secondary details").toBe(0);
   expect(metrics.documentOverflowX).toBeLessThanOrEqual(1);
-  expect(metrics.chipMetrics.length).toBeGreaterThan(0);
+  expect(metrics.buttonCount).toBeGreaterThanOrEqual(4);
   expect(
-    metrics.chipMetrics.every((chip) => chip.height >= 44),
-    `quick category chips should keep mobile touch height: ${JSON.stringify(metrics.chipMetrics)}`,
+    metrics.buttonMetrics.every((button) => button.height >= 32),
+    `staged category buttons should keep usable touch height: ${JSON.stringify(metrics.buttonMetrics)}`,
   ).toBe(true);
   expect(
-    metrics.chipMetrics.every((chip) => chip.labelWhiteSpace === "nowrap" && chip.labelTextOverflow === "ellipsis"),
-    `quick category labels should stay single-line with ellipsis on the compact rail: ${JSON.stringify(metrics.chipMetrics)}`,
+    metrics.buttonMetrics.every(
+      (button) =>
+        button.scrollWidth <= button.clientWidth + 1 ||
+        (button.textOverflow === "ellipsis" && button.whiteSpace === "nowrap")
+    ),
+    `staged category button labels should fit: ${JSON.stringify(metrics.buttonMetrics)}`,
   ).toBe(true);
   expect(
-    metrics.chipMetrics.every((chip) => chip.labelClientWidth <= chip.width),
-    `quick category labels should stay inside their chip: ${JSON.stringify(metrics.chipMetrics)}`,
-  ).toBe(true);
-  expect(
-    metrics.chipMetrics.every((chip) => chip.labelScrollHeight <= chip.labelClientHeight + 1),
-    `quick category labels should not clip vertically: ${JSON.stringify(metrics.chipMetrics)}`,
-  ).toBe(true);
-  expect(
-    metrics.chipMetrics.every((chip) => chip.subLabelWhiteSpace === "nowrap" && chip.subLabelTextOverflow === "ellipsis"),
-    `quick category sublabels should stay single-line with ellipsis on the compact rail: ${JSON.stringify(metrics.chipMetrics)}`,
-  ).toBe(true);
-  expect(
-    metrics.chipMetrics.every((chip) => chip.subLabelClientWidth <= chip.width),
-    `quick category sublabels should stay inside their chip: ${JSON.stringify(metrics.chipMetrics)}`,
-  ).toBe(true);
-  expect(
-    metrics.chipMetrics.every((chip) => chip.subLabelScrollHeight <= chip.subLabelClientHeight + 1),
-    `quick category sublabels should not clip vertically: ${JSON.stringify(metrics.chipMetrics)}`,
+    metrics.buttonMetrics.every((button) => button.scrollHeight <= button.clientHeight + 1),
+    `staged category button labels should not clip vertically: ${JSON.stringify(metrics.buttonMetrics)}`,
   ).toBe(true);
 }
 
@@ -667,7 +613,7 @@ async function releaseTouchPointerOutsideRowBeforeLongPress(page, row) {
   await page.waitForTimeout(560);
 }
 
-async function selectTransactionRowForToolbar(page, row) {
+async function selectTransactionRowForToolbar(page, row, { expectedCount = 1 } = {}) {
   await expect(row).toBeVisible();
   await row.evaluate((element) => element.scrollIntoView({ block: "center", inline: "nearest" }));
   if ((await row.getAttribute("data-row-selected")) !== "true") {
@@ -692,14 +638,13 @@ async function selectTransactionRowForToolbar(page, row) {
       }
     }
     if ((await row.getAttribute("data-row-selected")) !== "true") {
-      const checkbox = row.locator(".transaction-col-select input[type='checkbox']").first();
-      if (await checkbox.isVisible().catch(() => false)) {
-        await checkbox.click({ force: true });
-      }
+      await row.focus();
+      await expect(row).toBeFocused();
+      await page.keyboard.press((viewport?.width ?? 0) <= 820 ? "Shift+Space" : "Space");
     }
   }
   await expect(row).toHaveAttribute("data-row-selected", "true");
-  await expectTransactionSelectionSummary(page, 1);
+  await expectTransactionSelectionSummary(page, expectedCount);
 }
 
 async function clickTransactionSelectionToolbarAction(page, row, actionName) {
@@ -827,7 +772,7 @@ async function expectTransactionStickyHeaderGeometry(page, label) {
 async function expectDesktopTransactionColumnHeaderLabels(page, label) {
   const header = page.locator(".transactions-desktop-ledger-head").first();
   await expect(header, `${label} desktop ledger header visible`).toBeVisible();
-  for (const columnLabel of ["일자", "유형", "카테고리", "메모", "금액", "거래자명", "최종 수정일", "세부"]) {
+  for (const columnLabel of ["일자", "유형", "카테고리", "메모", "금액", "거래자명", "최종 수정일"]) {
     await expect(header, `${label} should include ${columnLabel}`).toContainText(columnLabel);
   }
   const metrics = await header.evaluate((element) => {
@@ -996,13 +941,18 @@ async function expectDesktopTransactionRowsSingleLine(page) {
   ).toBe(true);
 }
 
+async function waitForTransactionAppShell(page) {
+  await page.waitForLoadState("domcontentloaded");
+  await page.locator("main").waitFor({ state: "visible", timeout: 20_000 });
+}
+
 async function openMobileTransactionQuickEntry(page) {
   const viewport = page.viewportSize();
   if (!viewport || viewport.width > 820) {
     await page.setViewportSize({ width: 390, height: 844 });
   }
   await openTab(page, "거래");
-  await page.waitForLoadState("networkidle");
+  await waitForTransactionAppShell(page);
   const transactionFab = page.getByTestId("transactions-fab");
   const transactionSheet = page.getByTestId("transaction-entry-sheet");
   await expect(transactionFab).toBeVisible();
@@ -1015,7 +965,7 @@ async function openMobileTransactionQuickEntry(page) {
 async function openTransactionEntrySheet(page, viewport = { width: 1440, height: 900 }) {
   await page.setViewportSize(viewport);
   await openTab(page, "거래");
-  await page.waitForLoadState("networkidle");
+  await waitForTransactionAppShell(page);
   const transactionAddAction =
     (viewport?.width ?? 0) > 820 ? page.getByTestId("transactions-desktop-add-action") : page.getByTestId("transactions-fab");
   const transactionSheet = page.getByTestId("transaction-entry-sheet");
@@ -1040,6 +990,10 @@ async function openTransactionQuickDetails(transactionSheet, summaryText) {
     }
   }
 
+  if ((await details.count()) === 0) {
+    return transactionSheet;
+  }
+
   await expect(details.locator("summary")).toBeVisible();
   const isOpen = await details.evaluate((element) => element.open);
   if (!isOpen) {
@@ -1050,6 +1004,20 @@ async function openTransactionQuickDetails(transactionSheet, summaryText) {
 }
 
 async function selectTransactionFormCategory(container, category) {
+  const groupChoices = container.getByTestId("transaction-category-group-choice");
+  if ((await groupChoices.count()) > 0) {
+    const groupChoice = groupChoices.filter({ hasText: category.major }).first();
+    await expect(groupChoice).toBeVisible();
+    await groupChoice.click();
+    await expect(groupChoice).toHaveAttribute("aria-pressed", "true");
+
+    const categoryChoice = container.getByTestId("transaction-category-choice").filter({ hasText: category.minor }).first();
+    await expect(categoryChoice).toBeVisible();
+    await categoryChoice.click();
+    await expect(categoryChoice).toHaveAttribute("aria-pressed", "true");
+    return { groupChoice, categoryChoice };
+  }
+
   const majorSelect = labeledField(container, "카테고리 그룹", "select");
   if ((await majorSelect.count()) > 0 && !(await majorSelect.isVisible().catch(() => false))) {
     const quickDetails = container.locator("details.transaction-quick-details");
@@ -1067,6 +1035,28 @@ async function selectTransactionFormCategory(container, category) {
   await expect(categorySelect).toBeEnabled();
   await categorySelect.selectOption(String(category.id));
   return { majorSelect, categorySelect };
+}
+
+async function selectTransactionFormOwner(container, { ownerless = false } = {}) {
+  const ownerChoices = container.getByTestId("transaction-owner-choice");
+  if ((await ownerChoices.count()) > 0) {
+    const choice = ownerless
+      ? container.locator('[data-testid="transaction-owner-choice"][data-owner-value=""]').first()
+      : container.locator('[data-testid="transaction-owner-choice"]:not([data-owner-value=""])').first();
+    await expect(choice).toBeVisible();
+    await choice.click();
+    await expect(choice).toHaveAttribute("aria-pressed", "true");
+    return choice;
+  }
+
+  const ownerSelect = labeledField(container, "거래자", "select");
+  if (ownerless) {
+    await ownerSelect.selectOption("");
+    await expect(ownerSelect).toHaveValue("");
+  } else {
+    await selectFirstNonEmptyOption(ownerSelect);
+  }
+  return ownerSelect;
 }
 
 async function createTransactionCategoryFromQuickPicker(picker, category) {
@@ -1106,14 +1096,20 @@ async function openTransactionCategorySearch(picker) {
 }
 
 async function expectMobileQuickEntryDefaults(page, transactionSheet) {
-  const today = currentE2EHistoryDateIso();
-  const dateInput = labeledField(transactionSheet, "일자", "input");
+  const today = await browserLocalTodayIso(page);
+  const dateInput =
+    (await transactionSheet.getByTestId("transaction-quick-date").count()) > 0
+      ? transactionSheet.getByTestId("transaction-quick-date")
+      : labeledField(transactionSheet, "일자", "input");
   if ((await dateInput.count()) > 0 && (await dateInput.isVisible().catch(() => false))) {
     await expect(dateInput).toHaveValue(today);
   }
 
-  const typeSelect = labeledField(transactionSheet, "유형", "select");
-  if ((await typeSelect.count()) > 0 && (await typeSelect.isVisible().catch(() => false))) {
+  const expenseChoice = transactionSheet.locator('[data-testid="transaction-flow-choice"][data-flow-type="expense"]').first();
+  if ((await expenseChoice.count()) > 0) {
+    await expect(expenseChoice).toHaveAttribute("aria-pressed", "true");
+  } else {
+    const typeSelect = labeledField(transactionSheet, "유형", "select");
     await expect(typeSelect).toHaveValue("expense");
   }
 }
@@ -1121,31 +1117,26 @@ async function expectMobileQuickEntryDefaults(page, transactionSheet) {
 async function expectQuickEntryFieldClearOfStickyActions(transactionSheet, labelText, fieldSelector) {
   const field = labeledField(transactionSheet, labelText, fieldSelector);
   await expect(field).toBeVisible();
-  await field.evaluate((element) => element.scrollIntoView({ block: "end", inline: "nearest" }));
   await transactionSheet.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)));
 
   const metrics = await field.evaluate((element) => {
     const sheet = element.closest("[data-testid='transaction-entry-sheet']");
-    const actions = sheet?.querySelector(".transaction-quick-sticky-actions");
+    const actions = sheet?.querySelector(".transaction-quick-actions");
     const box = element.getBoundingClientRect();
     const sheetBox = sheet?.getBoundingClientRect();
     const actionBox = actions?.getBoundingClientRect();
     const centerX = box.left + box.width / 2;
     const centerY = box.top + box.height / 2;
     const topElement = document.elementFromPoint(centerX, centerY);
-    const style = sheet ? getComputedStyle(sheet) : null;
-    const fieldStyle = getComputedStyle(element);
 
     return {
       actionHeight: actionBox?.height ?? 0,
       actionTop: actionBox?.top ?? 0,
-      coveredByActions: Boolean(topElement?.closest(".transaction-quick-sticky-actions")),
+      coveredByActions: Boolean(topElement?.closest(".transaction-quick-actions")),
       fieldBottom: box.bottom,
       fieldHeight: box.height,
       fieldTop: box.top,
       label: element.closest("label")?.textContent?.replace(/\s+/g, " ").trim() || "",
-      scrollMarginBottom: Number.parseFloat(fieldStyle.scrollMarginBottom || "0"),
-      scrollPaddingBottom: style ? Number.parseFloat(style.scrollPaddingBottom || "0") : 0,
       sheetBottom: sheetBox?.bottom ?? 0,
       sheetClientHeight: sheet?.clientHeight ?? 0,
       sheetScrollHeight: sheet?.scrollHeight ?? 0,
@@ -1154,56 +1145,42 @@ async function expectQuickEntryFieldClearOfStickyActions(transactionSheet, label
   });
 
   expect(metrics.fieldHeight, `${labelText} field should have measurable height`).toBeGreaterThan(0);
-  expect(metrics.coveredByActions, `${labelText} field center should not be under sticky actions`).toBe(false);
-  expect(metrics.fieldBottom, `${labelText} field should clear sticky actions: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(
-    metrics.actionTop - 6
+  expect(metrics.coveredByActions, `${labelText} field center should not be under actions`).toBe(false);
+  expect(metrics.fieldTop, `${labelText} field should stay inside the sheet: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(
+    (metrics.sheetBottom - metrics.sheetClientHeight) - 2
   );
-  expect(metrics.scrollMarginBottom, "field should reserve scroll margin for sticky actions").toBeGreaterThan(metrics.actionHeight);
-  expect(metrics.scrollPaddingBottom, "sheet should reserve scroll padding for sticky actions").toBeGreaterThan(metrics.actionHeight);
+  expect(metrics.sheetScrollHeight, `${labelText} sheet should fit without internal scrolling: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(
+    metrics.sheetClientHeight + 2
+  );
 }
 
 async function expectQuickCategoryReflectedInFullFallback(transactionSheet, selectedChipText) {
-  const categoryTrigger = transactionSheet
-    .getByRole("button", { name: /추가 설정|날짜·유형·거래자·전체 카테고리|전체 카테고리|카테고리 선택|카테고리 변경|자세히|추가 입력/ })
-    .first();
-  if ((await categoryTrigger.count()) > 0 && (await categoryTrigger.isVisible().catch(() => false))) {
-    await categoryTrigger.click();
-  }
-
-  const categorySelect = labeledField(transactionSheet, "카테고리", "select");
-  const legacyMinorSelect = labeledField(transactionSheet, "중분류", "select");
-  const selectedText = await (async () => {
-    const target = (await categorySelect.count()) > 0 ? categorySelect : legacyMinorSelect;
-    if ((await target.count()) === 0 || !(await target.isVisible().catch(() => false))) {
-      return "";
-    }
-    return target.evaluate((select) => select.options[select.selectedIndex]?.textContent?.trim() || "");
-  })();
-
-  if (selectedText) {
-    const normalizedChip = selectedChipText.replace(/\s+/g, " ").trim();
-    expect(
-      normalizedChip.includes(selectedText) || selectedText.includes(normalizedChip),
-      `full category fallback should reflect quick chip ${normalizedChip}; selected ${selectedText}`
-    ).toBe(true);
+  const selectedChoice = transactionSheet.locator('[data-testid="transaction-category-choice"][aria-pressed="true"]').first();
+  if ((await selectedChoice.count()) > 0) {
+    await expect(selectedChoice).toContainText(selectedChipText);
   }
 }
 
 async function expectTransactionEntryPrimaryPath(page, transactionSheet, label) {
   const quickForm = transactionSheet.getByTestId("transaction-quick-form");
+  const dateInput = transactionSheet.getByTestId("transaction-quick-date");
   const amountInput = transactionSheet.getByTestId("transaction-quick-amount");
-  const categoryPicker = transactionSheet.getByTestId("transaction-category-quick-picker");
+  const stagedCategory = transactionSheet.getByTestId("transaction-staged-category");
+  const ownerChoices = transactionSheet.getByTestId("transaction-owner-choice");
   const memoInput = labeledField(transactionSheet, "메모", "input");
   const saveButton = transactionSheet.getByTestId("transaction-quick-save");
 
   await expect(quickForm, `${label} should use the quick transaction form`).toBeVisible();
-  await expect(amountInput, `${label} amount is the first primary field`).toBeVisible();
-  await expect(amountInput, `${label} amount keeps initial focus`).toBeFocused();
-  await expect(categoryPicker, `${label} category picker is in the primary path`).toBeVisible();
+  await expect(dateInput, `${label} date is the first primary field`).toBeVisible();
+  await expect(dateInput, `${label} date defaults to today`).toHaveValue(await browserLocalTodayIso(page));
+  await expect(amountInput, `${label} amount is visible`).toBeVisible();
+  await expect(stagedCategory, `${label} staged category buttons are in the primary path`).toBeVisible();
+  await expect(ownerChoices.first(), `${label} owner choice buttons are in the primary path`).toBeVisible();
   await expect(memoInput, `${label} memo is in the primary path`).toBeVisible();
   await expect(saveButton, `${label} save is visible with primary fields`).toBeVisible();
-  await expect(transactionSheet.locator("details.transaction-quick-details"), `${label} should have one secondary details block`).toHaveCount(1);
-  await expect(transactionSheet.locator("details.transaction-quick-details[open]"), `${label} secondary details is not required`).toHaveCount(0);
+  await expect(transactionSheet.locator("details.transaction-quick-details"), `${label} should not hide primary fields in details`).toHaveCount(0);
+  await expect(transactionSheet.getByTestId("transaction-category-quick-picker"), `${label} should not render recommended category picker`).toHaveCount(0);
+  await expectStagedCategoryLayoutStable(page);
 
   const metrics = await transactionSheet.evaluate((sheet) => {
     const rectFor = (element) => {
@@ -1227,17 +1204,17 @@ async function expectTransactionEntryPrimaryPath(page, transactionSheet, label) 
       const style = element ? getComputedStyle(element) : null;
       return Boolean(rect && rect.width > 0 && rect.height > 0 && style?.display !== "none" && style?.visibility !== "hidden");
     };
+    const date = sheet.querySelector("[data-testid='transaction-quick-date']");
     const amount = sheet.querySelector("[data-testid='transaction-quick-amount']");
-    const category = sheet.querySelector("[data-testid='transaction-category-quick-picker']");
+    const category = sheet.querySelector("[data-testid='transaction-staged-category']");
+    const owner = sheet.querySelector(".transaction-owner-choice-section");
     const memo = Array.from(sheet.querySelectorAll("label"))
       .find((candidate) => candidate.textContent?.replace(/\s+/g, " ").trim().startsWith("메모"))
       ?.querySelector("input");
     const save = sheet.querySelector("[data-testid='transaction-quick-save']");
-    const actions = sheet.querySelector(".transaction-quick-sticky-actions");
-    const details = Array.from(sheet.querySelectorAll("details.transaction-quick-details"));
     const sheetBox = rectFor(sheet);
-    const primaryRects = [amount, category, memo, save].map(rectFor);
-    const visiblePrimaryRects = [amount, category, memo, save].filter(visible).map(rectFor);
+    const primaryRects = [date, amount, category, owner, memo, save].map(rectFor);
+    const visiblePrimaryRects = [date, amount, category, owner, memo, save].filter(visible).map(rectFor);
     const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
     const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
     const documentOverflowX = document.documentElement.scrollWidth - document.documentElement.clientWidth;
@@ -1246,37 +1223,23 @@ async function expectTransactionEntryPrimaryPath(page, transactionSheet, label) 
     const primaryBottom = Math.max(...visiblePrimaryRects.map((rect) => rect.bottom));
     const primaryHeight = primaryBottom - primaryTop;
     const pointerDistance =
-      amount && category && memo && save
+      date && amount && category && owner && memo && save
         ? Math.round(
-            Math.abs(rectFor(amount).centerY - rectFor(category).centerY) +
-              Math.abs(rectFor(category).centerY - rectFor(memo).centerY) +
+            Math.abs(rectFor(date).centerY - rectFor(amount).centerY) +
+              Math.abs(rectFor(amount).centerY - rectFor(category).centerY) +
+              Math.abs(rectFor(category).centerY - rectFor(owner).centerY) +
+              Math.abs(rectFor(owner).centerY - rectFor(memo).centerY) +
               Math.abs(rectFor(memo).centerY - rectFor(save).centerY)
           )
         : Number.POSITIVE_INFINITY;
 
     return {
-      amount: primaryRects[0],
-      category: primaryRects[1],
-      memo: primaryRects[2],
-      save: primaryRects[3],
-      actions: rectFor(actions),
-      details: details.map((detail) => {
-        const summary = detail.querySelector("summary");
-        const summaryLabel = detail.querySelector("summary > span");
-        const summaryBox = rectFor(summary);
-        const centerElement = summaryBox
-          ? document.elementFromPoint(summaryBox.centerX, summaryBox.centerY)
-          : null;
-        return {
-          open: detail.open,
-          summary: summary?.textContent?.replace(/\s+/g, " ").trim() || "",
-          summaryLabel: summaryLabel?.textContent?.replace(/\s+/g, " ").trim() || "",
-          summaryLabelClipped: summaryLabel ? summaryLabel.scrollWidth - summaryLabel.clientWidth > 1 : true,
-          summaryCoveredByActions: Boolean(centerElement?.closest(".transaction-quick-sticky-actions")),
-          summaryRect: summaryBox,
-          rect: rectFor(detail),
-        };
-      }),
+      date: primaryRects[0],
+      amount: primaryRects[1],
+      category: primaryRects[2],
+      owner: primaryRects[3],
+      memo: primaryRects[4],
+      save: primaryRects[5],
       documentOverflowX,
       pointerDistance,
       primaryHeight,
@@ -1294,24 +1257,19 @@ async function expectTransactionEntryPrimaryPath(page, transactionSheet, label) 
 
   expect(metrics.documentOverflowX, `${label} document should not overflow horizontally: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
   expect(metrics.sheetOverflowX, `${label} sheet should not overflow horizontally: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
+  expect(metrics.date.top, `${label} date should precede amount: ${JSON.stringify(metrics)}`).toBeLessThan(metrics.amount.top);
   expect(metrics.amount.top, `${label} amount should precede category: ${JSON.stringify(metrics)}`).toBeLessThan(metrics.category.top);
-  expect(metrics.category.top, `${label} category should precede memo: ${JSON.stringify(metrics)}`).toBeLessThan(metrics.memo.top);
+  expect(metrics.category.top, `${label} category should precede owner: ${JSON.stringify(metrics)}`).toBeLessThan(metrics.owner.top);
+  expect(metrics.owner.top, `${label} owner should precede memo: ${JSON.stringify(metrics)}`).toBeLessThan(metrics.memo.top);
   expect(metrics.memo.top, `${label} memo should remain close to save: ${JSON.stringify(metrics)}`).toBeLessThan(metrics.save.bottom);
-  expect(metrics.details[0].rect.top, `${label} secondary details should be below primary input: ${JSON.stringify(metrics)}`).toBeGreaterThan(
-    metrics.memo.top
+  expect(metrics.sheet.scrollHeight, `${label} sheet should fit without internal scrolling: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(
+    metrics.sheet.clientHeight + 2
   );
-  expect(metrics.details[0].summaryLabel, `${label} secondary details title should stay short: ${JSON.stringify(metrics)}`).toBe("추가 설정");
-  expect(metrics.details[0].summaryLabelClipped, `${label} secondary details title should not be clipped: ${JSON.stringify(metrics)}`).toBe(false);
-  expect(metrics.details[0].summaryCoveredByActions, `${label} secondary details summary should not sit under sticky actions: ${JSON.stringify(metrics)}`).toBe(false);
-  expect(
-    metrics.details[0].summaryRect.bottom,
-    `${label} secondary details summary should clear sticky actions: ${JSON.stringify(metrics)}`
-  ).toBeLessThanOrEqual(metrics.actions.top - 6);
   expect(metrics.primaryHeight, `${label} primary path should fit as one compact work unit: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(
-    Math.min(metrics.viewportHeight * 0.78, 620)
+    Math.min(metrics.viewportHeight * 0.98, 820)
   );
   expect(metrics.pointerDistance, `${label} pointer travel should stay bounded: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(
-    Math.min(metrics.viewportHeight * 0.95, 720)
+    Math.min(metrics.viewportHeight * 1.18, 900)
   );
   expect(metrics.save.bottom, `${label} save action should stay in view: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(metrics.viewportHeight + 1);
 }
@@ -1366,7 +1324,7 @@ async function installStaleCategoryHistoryFixture(page, { staleCategoryMajor, st
   };
 }
 
-test("mobile quick entry creates an expense through amount-first chip path", async ({ page }) => {
+test("mobile quick entry creates an expense through one-screen staged buttons", async ({ page }) => {
   test.setTimeout(180_000);
 
   const email = `${unique("tx-quick-create")}@example.com`;
@@ -1390,10 +1348,13 @@ test("mobile quick entry creates an expense through amount-first chip path", asy
   const transactionSheet = await openMobileTransactionQuickEntry(page);
   const quickForm = page.getByTestId("transaction-quick-form");
   await expect(quickForm).toBeVisible();
+  const quickDate = page.getByTestId("transaction-quick-date");
+  await expect(quickDate).toBeVisible();
   const quickAmount = page.getByTestId("transaction-quick-amount");
   await expect(quickAmount).toBeVisible();
   await expect(quickAmount).toBeFocused();
   const amountBox = await quickAmount.boundingBox();
+  const dateBox = await quickDate.boundingBox();
   const firstSheetFieldTop = await quickForm.locator("input, select, textarea, button").evaluateAll((nodes) => {
     const visibleTops = nodes
       .map((node) => {
@@ -1404,9 +1365,8 @@ test("mobile quick entry creates an expense through amount-first chip path", asy
       .filter((top) => top !== null);
     return visibleTops.length ? Math.min(...visibleTops) : Number.POSITIVE_INFINITY;
   });
-  expect(amountBox?.y ?? Number.POSITIVE_INFINITY, "quick amount should be the first meaningful sheet field").toBeLessThanOrEqual(
-    firstSheetFieldTop + 4
-  );
+  expect(dateBox?.y ?? Number.POSITIVE_INFINITY, "date should be the first meaningful sheet field").toBeLessThanOrEqual(firstSheetFieldTop + 4);
+  expect(dateBox?.y ?? Number.POSITIVE_INFINITY, "date should be above amount").toBeLessThan(amountBox?.y ?? 0);
   await expectMobileQuickEntryDefaults(page, transactionSheet);
 
   await quickAmount.fill("24680");
@@ -1416,11 +1376,9 @@ test("mobile quick entry creates an expense through amount-first chip path", asy
   await expect(memoInput).toBeFocused();
   await memoInput.fill(memo);
 
-  const quickCategoryChip = page.getByTestId("transaction-quick-category-chip").first();
-  await expect(quickCategoryChip).toBeVisible();
-  const selectedChipText = String((await quickCategoryChip.textContent()) || "").trim();
-  await quickCategoryChip.click();
-  await expectQuickCategoryReflectedInFullFallback(transactionSheet, selectedChipText);
+  const { categoryChoice } = await selectTransactionFormCategory(transactionSheet, seedCategory);
+  await expect(categoryChoice).toContainText(seedCategory.minor);
+  await expectStagedCategoryLayoutStable(page);
   await capture(page, "transactions-quick-entry-create");
 
   const quickSave = page.getByTestId("transaction-quick-save");
@@ -1496,20 +1454,21 @@ test("transaction entry primary path stays shallow across mobile tablet and desk
       content: `html, body, button, input, select, textarea { font-family: ${testCase.fontStack} !important; }`,
     });
     const transactionSheet = await openTransactionEntrySheet(page, testCase.viewport);
-    const quickChips = transactionSheet.getByTestId("transaction-quick-category-chip");
-    await expect(quickChips, `${testCase.name} should render recent chips plus the long fallback category chip`).toHaveCount(3);
-    await expect(
-      quickChips.first(),
-      `${testCase.name} should keep the long CJK recent category in the compact rail`
-    ).toContainText("초장문추천카테고리");
-    await expect(
-      quickChips.nth(2),
-      `${testCase.name} should keep the long CJK fallback major label in the compact rail`
-    ).toContainText(fallbackCategory.major);
+    await expect(transactionSheet.getByTestId("transaction-category-quick-picker")).toHaveCount(0);
+    await expect(transactionSheet.locator("details.transaction-quick-details")).toHaveCount(0);
+    await expect(transactionSheet.getByTestId("transaction-flow-choice")).toHaveCount(4);
     await expectTransactionEntryPrimaryPath(page, transactionSheet, testCase.name);
+    const fallbackGroup = transactionSheet.getByTestId("transaction-category-group-choice").filter({ hasText: fallbackCategory.major }).first();
+    await expect(fallbackGroup, `${testCase.name} should expose the long fallback group as a button`).toBeVisible();
+    await fallbackGroup.click();
+    await expect(transactionSheet.getByTestId("transaction-category-choice").filter({ hasText: fallbackCategory.minor }).first()).toBeVisible();
     await expectNoHorizontalOverflow(page, 12);
     await capture(page, `transactions-entry-primary-path-${testCase.name}`);
     await transactionSheet.getByTestId("transaction-entry-sheet-close").click();
+    const closeDraftDialog = page.getByRole("alertdialog");
+    if (await closeDraftDialog.isVisible().catch(() => false)) {
+      await closeDraftDialog.getByRole("button", { name: "입력 닫기" }).click();
+    }
     await expect(transactionSheet).toBeHidden();
   }
 });
@@ -1527,7 +1486,7 @@ test("desktop transaction entry keeps repeat context after save", async ({ page 
     });
   })();
   await page.reload();
-  await page.waitForLoadState("networkidle");
+  await waitForTransactionAppShell(page);
   const firstMemo = unique("tx-repeat-desktop-first");
   const secondMemo = unique("tx-repeat-desktop-second");
   const occurredOn = currentE2EHistoryDateIso(-2);
@@ -1537,14 +1496,13 @@ test("desktop transaction entry keeps repeat context after save", async ({ page 
   const amountInput = labeledField(transactionSheet, "금액", "input");
   const memoInput = labeledField(transactionSheet, "메모", "input");
   const dateInput = labeledField(transactionSheet, "일자", "input");
-  const typeSelect = labeledField(transactionSheet, "유형", "select");
-  const ownerSelect = labeledField(transactionSheet, "거래자", "select");
+  const expenseChoice = transactionSheet.locator('[data-testid="transaction-flow-choice"][data-flow-type="expense"]').first();
 
   await dateInput.fill(occurredOn);
-  await typeSelect.selectOption("expense");
-  const { majorSelect, categorySelect } = await selectTransactionFormCategory(transactionSheet, category);
-  await selectFirstNonEmptyOption(ownerSelect);
-  const ownerValue = await ownerSelect.inputValue();
+  await expenseChoice.click();
+  const { groupChoice, categoryChoice } = await selectTransactionFormCategory(transactionSheet, category);
+  const ownerChoice = await selectTransactionFormOwner(transactionSheet);
+  const ownerValue = await ownerChoice.getAttribute("data-owner-value");
   await amountInput.fill("12345");
   await memoInput.fill(firstMemo);
   await capture(page, "transactions-repeat-desktop-before-save");
@@ -1556,10 +1514,13 @@ test("desktop transaction entry keeps repeat context after save", async ({ page 
   await expect(amountInput).toHaveValue("");
   await expect(memoInput).toHaveValue("");
   await expect(dateInput).toHaveValue(occurredOn);
-  await expect(typeSelect).toHaveValue("expense");
-  await expect(majorSelect).toHaveValue(category.major);
-  await expect(categorySelect).toHaveValue(String(category.id));
-  await expect(ownerSelect).toHaveValue(ownerValue);
+  await expect(expenseChoice).toHaveAttribute("aria-pressed", "true");
+  await expect(groupChoice).toHaveAttribute("aria-pressed", "true");
+  await expect(categoryChoice).toHaveAttribute("aria-pressed", "true");
+  await expect(transactionSheet.locator(`[data-testid="transaction-owner-choice"][data-owner-value="${ownerValue}"]`)).toHaveAttribute(
+    "aria-pressed",
+    "true"
+  );
   await expect(amountInput).toBeFocused();
   await capture(page, "transactions-repeat-desktop-context-preserved");
 
@@ -1569,7 +1530,7 @@ test("desktop transaction entry keeps repeat context after save", async ({ page 
   await expect(page.locator("tr.transaction-row", { hasText: secondMemo }).first()).toBeVisible({ timeout: 20_000 });
 });
 
-test("issue 193: desktop transaction entry searches category in one step", async ({ page }) => {
+test("issue 193: desktop transaction entry selects category through staged buttons", async ({ page }) => {
   test.setTimeout(180_000);
 
   const email = `${unique("tx-cat-entry")}@example.com`;
@@ -1582,31 +1543,16 @@ test("issue 193: desktop transaction entry searches category in one step", async
   await registerAndVerify(page, { email, displayName });
   const category = await createCategoryViaApi(page, targetCategory);
   await page.reload();
-  await page.waitForLoadState("networkidle");
+  await waitForTransactionAppShell(page);
 
   const transactionSheet = await openTransactionEntrySheet(page, { width: 1440, height: 900 });
-  const picker = transactionSheet.getByTestId("transaction-category-quick-picker");
-  await expect(picker).toBeVisible();
+  await expect(transactionSheet.getByTestId("transaction-category-quick-picker")).toHaveCount(0);
+  await expect(transactionSheet.getByTestId("transaction-category-search")).toHaveCount(0);
 
-  const searchInput = await openTransactionCategorySearch(picker);
-  await searchInput.fill(targetCategory.minor);
-
-  const option = picker
-    .locator("[data-testid='transaction-category-option'], [data-testid='transaction-quick-category-chip']")
-    .filter({ hasText: targetCategory.minor })
-    .first();
-  await expect(option).toBeVisible();
-  await option.click();
-  await openTransactionQuickDetails(transactionSheet, "전체 카테고리");
-
-  await expect(labeledField(transactionSheet, "카테고리 그룹", "select")).toHaveValue(targetCategory.major);
-  const categorySelect = transactionSheet
-    .locator("label")
-    .filter({ hasText: /^\s*카테고리\s*\(/ })
-    .locator("select")
-    .first();
-  await expect(categorySelect).toHaveValue(String(category.id));
-  await capture(page, "issue-193-desktop-category-one-step-entry");
+  const { groupChoice, categoryChoice } = await selectTransactionFormCategory(transactionSheet, category);
+  await expect(groupChoice).toContainText(targetCategory.major);
+  await expect(categoryChoice).toContainText(targetCategory.minor);
+  await capture(page, "issue-193-desktop-category-staged-entry");
 });
 
 test("issue 193: inline transaction edit searches category in one step", async ({ page }) => {
@@ -1636,7 +1582,7 @@ test("issue 193: inline transaction edit searches category in one step", async (
     occurredOn: currentE2EHistoryDateIso(),
   });
   await page.reload();
-  await page.waitForLoadState("networkidle");
+  await waitForTransactionAppShell(page);
   await page.setViewportSize({ width: 1440, height: 900 });
   await openTab(page, "거래");
 
@@ -1665,33 +1611,19 @@ test("issue 193: inline transaction edit searches category in one step", async (
   await capture(page, "issue-193-inline-category-one-step-edit");
 });
 
-test("issue 194: desktop transaction entry creates and applies a missing category inline", async ({ page }) => {
+test("issue 194: desktop transaction entry does not expose the removed category quick picker", async ({ page }) => {
   test.setTimeout(180_000);
 
   const email = `${unique("tx-cat-create-entry")}@example.com`;
   const displayName = unique("tx-cat-create-entry-name");
-  const targetCategory = {
-    major: unique("즉시분류"),
-    minor: unique("즉시항목"),
-  };
-
   await registerAndVerify(page, { email, displayName });
 
   const transactionSheet = await openTransactionEntrySheet(page, { width: 1440, height: 900 });
-  const picker = transactionSheet.getByTestId("transaction-category-quick-picker");
-  await expect(picker).toBeVisible();
-  await createTransactionCategoryFromQuickPicker(picker, targetCategory);
-  await openTransactionQuickDetails(transactionSheet, "전체 카테고리");
-
-  await expect(labeledField(transactionSheet, "카테고리 그룹", "select")).toHaveValue(targetCategory.major);
-  const categorySelect = transactionSheet
-    .locator("label")
-    .filter({ hasText: /^\s*카테고리\s*\(/ })
-    .locator("select")
-    .first();
-  await expect(categorySelect).not.toHaveValue("");
-  await expect(categorySelect.locator("option:checked")).toContainText(targetCategory.minor);
-  await capture(page, "issue-194-desktop-inline-category-create");
+  await expect(transactionSheet.getByTestId("transaction-staged-category")).toBeVisible();
+  await expect(transactionSheet.getByTestId("transaction-category-quick-picker")).toHaveCount(0);
+  await expect(transactionSheet.getByTestId("transaction-category-create-submit")).toHaveCount(0);
+  await expect(transactionSheet).not.toContainText("추천 카테고리");
+  await capture(page, "issue-194-desktop-category-quick-picker-removed");
 });
 
 test("issue 194: inline transaction edit creates and applies a missing category inline", async ({ page }) => {
@@ -1718,7 +1650,7 @@ test("issue 194: inline transaction edit creates and applies a missing category 
     occurredOn: currentE2EHistoryDateIso(),
   });
   await page.reload();
-  await page.waitForLoadState("networkidle");
+  await waitForTransactionAppShell(page);
   await page.setViewportSize({ width: 1440, height: 900 });
   await openTab(page, "거래");
 
@@ -1757,20 +1689,23 @@ test("issue 195: transaction entry keeps a compatible category when type changes
     flowType: "income",
   });
   await page.reload();
-  await page.waitForLoadState("networkidle");
+  await waitForTransactionAppShell(page);
 
   const transactionSheet = await openTransactionEntrySheet(page, { width: 1440, height: 900 });
   await selectTransactionFormCategory(transactionSheet, expenseCategory);
-  await labeledField(transactionSheet, "유형", "select").selectOption("income");
+  const incomeChoice = transactionSheet.locator('[data-testid="transaction-flow-choice"][data-flow-type="income"]').first();
+  await expect(incomeChoice).toBeVisible();
+  await incomeChoice.click();
+  await expect(incomeChoice).toHaveAttribute("aria-pressed", "true");
 
-  await expect(labeledField(transactionSheet, "카테고리 그룹", "select")).toHaveValue(categoryPair.major);
-  await expect(
-    transactionSheet
-      .locator("label")
-      .filter({ hasText: /^\s*카테고리\s*\(/ })
-      .locator("select")
-      .first()
-  ).toHaveValue(String(incomeCategory.id));
+  await expect(transactionSheet.getByTestId("transaction-category-group-choice").filter({ hasText: categoryPair.major }).first()).toHaveAttribute(
+    "aria-pressed",
+    "true"
+  );
+  await expect(transactionSheet.getByTestId("transaction-category-choice").filter({ hasText: incomeCategory.minor }).first()).toHaveAttribute(
+    "aria-pressed",
+    "true"
+  );
   await expect(transactionSheet.getByTestId("transaction-category-restore-notice")).toHaveCount(0);
   await capture(page, "issue-195-entry-compatible-category-kept");
 });
@@ -1788,34 +1723,33 @@ test("issue 195: transaction entry offers a category restore when type clears se
   await registerAndVerify(page, { email, displayName });
   const expenseCategory = await createCategoryViaApi(page, category);
   await page.reload();
-  await page.waitForLoadState("networkidle");
+  await waitForTransactionAppShell(page);
 
   const transactionSheet = await openTransactionEntrySheet(page, { width: 1440, height: 900 });
   await selectTransactionFormCategory(transactionSheet, expenseCategory);
-  const typeSelect = labeledField(transactionSheet, "유형", "select");
-  await typeSelect.selectOption("income");
+  const incomeChoice = transactionSheet.locator('[data-testid="transaction-flow-choice"][data-flow-type="income"]').first();
+  await expect(incomeChoice).toBeVisible();
+  await incomeChoice.click();
+  await expect(incomeChoice).toHaveAttribute("aria-pressed", "true");
 
   const restoreNotice = transactionSheet.getByTestId("transaction-category-restore-notice");
   await expect(restoreNotice).toContainText("카테고리 선택을 비웠습니다.");
   await expect(restoreNotice).toContainText(category.minor);
-  await expect(
-    transactionSheet
-      .locator("label")
-      .filter({ hasText: /^\s*카테고리\s*\(/ })
-      .locator("select")
-      .first()
-  ).toHaveValue("");
+  await expect(transactionSheet.getByTestId("transaction-category-choice").filter({ hasText: category.minor })).toHaveCount(0);
 
   await transactionSheet.getByTestId("transaction-category-restore-button").click();
-  await expect(typeSelect).toHaveValue("expense");
-  await expect(labeledField(transactionSheet, "카테고리 그룹", "select")).toHaveValue(category.major);
-  await expect(
-    transactionSheet
-      .locator("label")
-      .filter({ hasText: /^\s*카테고리\s*\(/ })
-      .locator("select")
-      .first()
-  ).toHaveValue(String(expenseCategory.id));
+  await expect(transactionSheet.locator('[data-testid="transaction-flow-choice"][data-flow-type="expense"]').first()).toHaveAttribute(
+    "aria-pressed",
+    "true"
+  );
+  await expect(transactionSheet.getByTestId("transaction-category-group-choice").filter({ hasText: category.major }).first()).toHaveAttribute(
+    "aria-pressed",
+    "true"
+  );
+  await expect(transactionSheet.getByTestId("transaction-category-choice").filter({ hasText: expenseCategory.minor }).first()).toHaveAttribute(
+    "aria-pressed",
+    "true"
+  );
   await capture(page, "issue-195-entry-category-restored");
 });
 
@@ -1839,7 +1773,7 @@ test("issue 195: inline transaction edit restores the original category after ty
     occurredOn: currentE2EHistoryDateIso(),
   });
   await page.reload();
-  await page.waitForLoadState("networkidle");
+  await waitForTransactionAppShell(page);
   await page.setViewportSize({ width: 1440, height: 900 });
   await openTab(page, "거래");
 
@@ -1890,7 +1824,7 @@ test("issue 196: transaction save clears hiding filters and reveals the saved ro
     occurredOn,
   });
   await page.reload();
-  await page.waitForLoadState("networkidle");
+  await waitForTransactionAppShell(page);
   await page.setViewportSize({ width: 1440, height: 900 });
   await openTab(page, "거래");
 
@@ -1907,9 +1841,9 @@ test("issue 196: transaction save clears hiding filters and reveals the saved ro
   const transactionSheet = await openTransactionEntrySheet(page, { width: 1440, height: 900 });
   await openTransactionQuickDetails(transactionSheet, "추가 입력");
   await labeledField(transactionSheet, "일자", "input").fill(occurredOn);
-  await labeledField(transactionSheet, "유형", "select").selectOption("expense");
+  await transactionSheet.locator('[data-testid="transaction-flow-choice"][data-flow-type="expense"]').click();
   await selectTransactionFormCategory(transactionSheet, expenseCategory);
-  await selectFirstNonEmptyOption(labeledField(transactionSheet, "거래자", "select"));
+  await selectTransactionFormOwner(transactionSheet);
   await labeledField(transactionSheet, "금액", "input").fill("34567");
   await labeledField(transactionSheet, "메모", "input").fill(savedMemo);
   await capture(page, "issue-196-save-with-hiding-filter");
@@ -1959,7 +1893,7 @@ test("issue 212: mobile transaction quick amount requests a numeric keypad", asy
   });
   await capture(page, "issue-212-mobile-quick-amount-numeric-keypad");
 
-  await expect(transactionSheet).toContainText("금액, 카테고리, 메모 순서로 바로 저장합니다.");
+  await expect(transactionSheet).toContainText("일자부터 거래자까지 한 화면에서 저장합니다.");
 });
 
 test("mobile quick entry keeps repeat context and returns focus to amount", async ({ page }) => {
@@ -1973,7 +1907,7 @@ test("mobile quick entry keeps repeat context and returns focus to amount", asyn
     minor: unique("영수증"),
   });
   await page.reload();
-  await page.waitForLoadState("networkidle");
+  await waitForTransactionAppShell(page);
   const firstMemo = unique("tx-repeat-mobile-first");
   const secondMemo = unique("tx-repeat-mobile-second");
   const occurredOn = currentE2EHistoryDateIso(-1);
@@ -1984,14 +1918,13 @@ test("mobile quick entry keeps repeat context and returns focus to amount", asyn
 
   await openTransactionQuickDetails(transactionSheet, "추가 입력");
   const dateInput = labeledField(transactionSheet, "일자", "input");
-  const typeSelect = labeledField(transactionSheet, "유형", "select");
-  const ownerSelect = labeledField(transactionSheet, "거래자", "select");
+  const expenseChoice = transactionSheet.locator('[data-testid="transaction-flow-choice"][data-flow-type="expense"]').first();
   await dateInput.fill(occurredOn);
-  await typeSelect.selectOption("expense");
-  await selectFirstNonEmptyOption(ownerSelect);
-  const ownerValue = await ownerSelect.inputValue();
+  await expenseChoice.click();
+  const ownerChoice = await selectTransactionFormOwner(transactionSheet);
+  const ownerValue = await ownerChoice.getAttribute("data-owner-value");
   await openTransactionQuickDetails(transactionSheet, "전체 카테고리");
-  const { majorSelect, categorySelect } = await selectTransactionFormCategory(transactionSheet, category);
+  const { groupChoice, categoryChoice } = await selectTransactionFormCategory(transactionSheet, category);
   await quickAmount.fill("12345");
   await memoInput.fill(firstMemo);
   await capture(page, "transactions-repeat-mobile-before-save");
@@ -2003,10 +1936,13 @@ test("mobile quick entry keeps repeat context and returns focus to amount", asyn
   await expect(quickAmount).toHaveValue("");
   await expect(memoInput).toHaveValue("");
   await expect(dateInput).toHaveValue(occurredOn);
-  await expect(typeSelect).toHaveValue("expense");
-  await expect(majorSelect).toHaveValue(category.major);
-  await expect(categorySelect).toHaveValue(String(category.id));
-  await expect(ownerSelect).toHaveValue(ownerValue);
+  await expect(expenseChoice).toHaveAttribute("aria-pressed", "true");
+  await expect(groupChoice).toHaveAttribute("aria-pressed", "true");
+  await expect(categoryChoice).toHaveAttribute("aria-pressed", "true");
+  await expect(transactionSheet.locator(`[data-testid="transaction-owner-choice"][data-owner-value="${ownerValue}"]`)).toHaveAttribute(
+    "aria-pressed",
+    "true"
+  );
   await expect(quickAmount).toBeFocused();
   await capture(page, "transactions-repeat-mobile-context-preserved");
 
@@ -2047,7 +1983,7 @@ test("mobile quick entry rejects decimal KRW amount immediately", async ({ page 
   await capture(page, "transactions-quick-decimal-rejected");
 });
 
-test("mobile quick entry selected category chip remains readable while hovered", async ({ page }) => {
+test("mobile quick entry selected category button remains readable while hovered", async ({ page }) => {
   test.setTimeout(180_000);
 
   const email = `${unique("tx-quick-chip-hover")}@example.com`;
@@ -2069,43 +2005,41 @@ test("mobile quick entry selected category chip remains readable while hovered",
 
   const transactionSheet = await openMobileTransactionQuickEntry(page);
   await page.getByTestId("transaction-quick-amount").fill("27182");
-  const quickCategoryChip = page.getByTestId("transaction-quick-category-chip").first();
-  await expect(quickCategoryChip).toBeVisible();
-  await quickCategoryChip.hover();
+  const groupChoice = transactionSheet.getByTestId("transaction-category-group-choice").filter({ hasText: seedCategory.major }).first();
+  await expect(groupChoice).toBeVisible();
+  await groupChoice.click();
+  const categoryChoice = transactionSheet.getByTestId("transaction-category-choice").filter({ hasText: seedCategory.minor }).first();
+  await expect(categoryChoice).toBeVisible();
+  await categoryChoice.hover();
   await page.mouse.down();
   try {
-    await expectTextContrast(
-      quickCategoryChip.locator("span").first(),
-      "pressed quick category chip",
-    );
+    await expectTextContrast(categoryChoice, "pressed staged category button");
   } finally {
     await page.mouse.up();
   }
-  await quickCategoryChip.click();
-  await quickCategoryChip.hover();
-  await expect(quickCategoryChip).toHaveAttribute("aria-pressed", "true");
+  await categoryChoice.click();
+  await categoryChoice.hover();
+  await expect(categoryChoice).toHaveAttribute("aria-pressed", "true");
 
-  const selectedChipMetrics = await quickCategoryChip.evaluate((chip) => {
-    const style = getComputedStyle(chip);
-    const label = chip.querySelector("span");
-    const labelStyle = label ? getComputedStyle(label) : style;
+  const selectedChoiceMetrics = await categoryChoice.evaluate((choice) => {
+    const style = getComputedStyle(choice);
     return {
       backgroundColor: style.backgroundColor,
       backgroundImage: style.backgroundImage,
-      color: labelStyle.color || style.color,
-      text: chip.textContent?.replace(/\s+/g, " ").trim() || "",
+      color: style.color,
+      text: choice.textContent?.replace(/\s+/g, " ").trim() || "",
     };
   });
   expect(
-    selectedChipMetrics.backgroundImage,
-    `selected quick category chip should not inherit the global primary-button hover gradient: ${JSON.stringify(selectedChipMetrics)}`
+    selectedChoiceMetrics.backgroundImage,
+    `selected staged category button should not inherit the global primary-button hover gradient: ${JSON.stringify(selectedChoiceMetrics)}`
   ).toBe("none");
-  await expectTextContrast(quickCategoryChip.locator("span").first(), "selected quick category chip");
-  await capture(page, "transactions-quick-entry-selected-chip-hover");
+  await expectTextContrast(categoryChoice, "selected staged category button");
+  await capture(page, "transactions-quick-entry-selected-category-button-hover");
   await transactionSheet.getByTestId("transaction-entry-sheet-close").click();
 });
 
-test("mobile quick entry keeps expanded fields above sticky actions", async ({ page }) => {
+test("mobile quick entry keeps all fields and actions in one non-scrolling sheet", async ({ page }) => {
   test.setTimeout(180_000);
 
   const email = `${unique("tx-quick-sticky")}@example.com`;
@@ -2152,39 +2086,11 @@ test("mobile quick entry keeps expanded fields above sticky actions", async ({ p
     await expect(quickAmount).toBeVisible();
     await quickAmount.fill("24680");
 
-    const quickCategoryChip = page.getByTestId("transaction-quick-category-chip").first();
-    await expect(quickCategoryChip).toBeVisible();
-    await quickCategoryChip.click();
-
-    const quickDetailSummaryMetrics = await transactionSheet.locator("details.transaction-quick-details > summary").evaluateAll((summaries) =>
-      summaries.map((summary) => {
-        const box = summary.getBoundingClientRect();
-        return {
-          text: summary.textContent?.replace(/\s+/g, " ").trim() || "",
-          width: box.width,
-          height: box.height,
-          clientWidth: summary.clientWidth,
-          scrollWidth: summary.scrollWidth,
-        };
-      }),
-    );
-    expect(quickDetailSummaryMetrics.length, `${mobileCase.name} quick detail summaries`).toBeGreaterThanOrEqual(1);
-    expect(
-      quickDetailSummaryMetrics.every(({ height }) => height >= 44),
-      `${mobileCase.name} quick detail summaries should keep 44px hit targets: ${JSON.stringify(quickDetailSummaryMetrics)}`,
-    ).toBe(true);
-    expect(
-      quickDetailSummaryMetrics.every(({ clientWidth, scrollWidth }) => scrollWidth - clientWidth <= 1),
-      `${mobileCase.name} quick detail summaries should not clip: ${JSON.stringify(quickDetailSummaryMetrics)}`,
-    ).toBe(true);
-
-    await openTransactionQuickDetails(transactionSheet, "추가 입력");
-
+    await selectTransactionFormCategory(transactionSheet, seedCategory);
+    await expectTransactionEntryPrimaryPath(page, transactionSheet, mobileCase.name);
     await expectQuickEntryFieldClearOfStickyActions(transactionSheet, "일자", "input");
-    await expectQuickEntryFieldClearOfStickyActions(transactionSheet, "유형", "select");
-    await expectQuickEntryFieldClearOfStickyActions(transactionSheet, "거래자", "select");
     await expectNoHorizontalOverflow(page, 12);
-    await capture(page, `transactions-quick-entry-sticky-clearance-${mobileCase.name}`);
+    await capture(page, `transactions-quick-entry-one-screen-${mobileCase.name}`);
     await page.getByTestId("transaction-entry-sheet-close").click();
   }
 });
@@ -2260,7 +2166,7 @@ test("issue 197: transaction month direct input clearly marks unapplied changes 
   const listCard = page.locator(".transaction-list-card").first();
   await expect(listCard).toBeVisible();
   await expect(page.locator("tr.transaction-row", { hasText: currentMemo }).first()).toBeVisible({ timeout: 20_000 });
-  await page.waitForLoadState("networkidle");
+  await waitForTransactionAppShell(page);
 
   const previousRows = Array.from({ length: 28 }, (_, index) => {
     const day = index + 1;
@@ -2649,22 +2555,16 @@ test("issue 192: mobile quick entry asks before closing a dirty draft and preser
   const memoInput = labeledField(transactionSheet, "메모", "input");
   await expect(memoInput).toBeVisible();
   await memoInput.fill(draftMemo);
-  const quickCategoryChip = page.getByTestId("transaction-quick-category-chip").first();
-  await expect(quickCategoryChip).toBeVisible();
-  await quickCategoryChip.click();
+  const { categoryChoice } = await selectTransactionFormCategory(transactionSheet, seedCategory);
+  await expect(categoryChoice).toHaveAttribute("aria-pressed", "true");
 
   await page.evaluate(() => {
     document.dispatchEvent(new Event("visibilitychange"));
     window.dispatchEvent(new Event("focus"));
   });
-  const quickResume = page.getByTestId("transaction-quick-resume");
-  const resumeVisible = await quickResume.isVisible().catch(() => false);
-  if (resumeVisible) {
-    await expect(quickResume).toBeEnabled();
-  } else {
-    await expect(quickAmount).toHaveValue("11,223");
-    await expect(memoInput).toHaveValue(draftMemo);
-  }
+  await expect(page.getByTestId("transaction-quick-resume")).toHaveCount(0);
+  await expect(quickAmount).toHaveValue("11,223");
+  await expect(memoInput).toHaveValue(draftMemo);
 
   await page.getByTestId("transaction-entry-sheet-close").click();
   const closeDraftDialog = page.getByRole("alertdialog");
@@ -2745,7 +2645,7 @@ test("mobile quick entry restores the active field instead of jumping back to am
   await expect(memoInput).toBeFocused();
   await expect
     .poll(() => page.evaluate(() => window.__e2eScrollIntoViewCalls || []))
-    .toContainEqual(expect.objectContaining({ label: expect.stringContaining("메모") }));
+    .toEqual([]);
   await memoInput.fill("포커스 유지 메모");
 
   await page.evaluate(() => {
@@ -2754,10 +2654,10 @@ test("mobile quick entry restores the active field instead of jumping back to am
   });
   await expect(memoInput).toBeFocused();
 
-  const quickCategoryChip = page.getByTestId("transaction-quick-category-chip").first();
-  await expect(quickCategoryChip).toBeVisible();
-  await quickCategoryChip.click();
-  await expect(memoInput).toBeFocused();
+  const scrollBeforeCategory = await page.evaluate(() => window.scrollY);
+  await selectTransactionFormCategory(transactionSheet, seedCategory);
+  await expect.poll(() => page.evaluate(() => window.__e2eScrollIntoViewCalls || [])).toEqual([]);
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(scrollBeforeCategory);
   await expect(quickAmount).not.toBeFocused();
 
   await capture(page, "transactions-quick-entry-focus-restore");
@@ -2805,11 +2705,14 @@ test("mobile quick entry defaults owner to current user over recent other member
   await page.reload();
 
   const transactionSheet = await openMobileTransactionQuickEntry(page);
-  await openTransactionQuickDetails(transactionSheet, "추가 입력");
-  const ownerSelect = labeledField(transactionSheet, "거래자", "select");
-  await expect(ownerSelect).toHaveValue(currentUser.id);
-  await expect(ownerSelect.locator("option:checked")).toContainText(displayName);
-  await expect(ownerSelect.locator("option:checked")).not.toContainText(otherDisplayName);
+  const currentOwnerChoice = transactionSheet.locator(`[data-testid="transaction-owner-choice"][data-owner-value="${currentUser.id}"]`);
+  await expect(currentOwnerChoice).toBeVisible();
+  await expect(currentOwnerChoice).toHaveAttribute("aria-pressed", "true");
+  await expect(currentOwnerChoice).toContainText(displayName);
+  await expect(transactionSheet.getByTestId("transaction-owner-choice").filter({ hasText: otherDisplayName })).toHaveAttribute(
+    "aria-pressed",
+    "false"
+  );
 
   await capture(page, "transactions-quick-entry-current-owner");
 });
@@ -2826,20 +2729,15 @@ test("desktop transaction entry defaults owner and exposes quick member selectio
   });
 
   const transactionSheet = await openTransactionEntrySheet(page, { width: 1440, height: 900 });
-  await openTransactionQuickDetails(transactionSheet, "추가 입력");
-  const ownerSelect = labeledField(transactionSheet, "거래자", "select");
-  await expect(ownerSelect).toHaveValue(currentUser.id);
-  await expect(ownerSelect.locator("option:checked")).toContainText(displayName);
-
-  const ownerQuickSelect = transactionSheet.getByTestId("transaction-owner-quick-select");
-  await expect(ownerQuickSelect).toBeVisible();
-  const currentUserChip = ownerQuickSelect.getByRole("button", { name: `${displayName} 거래자 선택` });
-  await expect(currentUserChip).toBeVisible();
-  await expect(currentUserChip).toHaveAttribute("aria-pressed", "true");
-  await capture(page, "issue-201-transaction-owner-quick-select");
+  const currentUserChoice = transactionSheet.locator(`[data-testid="transaction-owner-choice"][data-owner-value="${currentUser.id}"]`);
+  await expect(currentUserChoice).toBeVisible();
+  await expect(currentUserChoice).toContainText(displayName);
+  await expect(currentUserChoice).toHaveAttribute("aria-pressed", "true");
+  await expect(transactionSheet.getByTestId("transaction-owner-quick-select")).toHaveCount(0);
+  await capture(page, "issue-201-transaction-owner-button-select");
 });
 
-test("mobile quick entry keeps owner override and filters ordered category chips", async ({ page }) => {
+test("mobile quick entry keeps owner override and filters staged category choices", async ({ page }) => {
   test.setTimeout(180_000);
 
   const email = `${unique("tx-quick-owner")}@example.com`;
@@ -2904,28 +2802,22 @@ test("mobile quick entry keeps owner override and filters ordered category chips
   const transactionSheet = await openMobileTransactionQuickEntry(page);
   expect(staleHistoryFixture.wasInjected(), "stale category fixture should be present in the monthly transaction ledger").toBe(true);
   await expect(page.locator("tr.transaction-row", { hasText: staleMemo }).first()).toBeVisible();
-  const chips = page.getByTestId("transaction-quick-category-chip");
-  await expect(chips.first()).toBeVisible();
-  await expectQuickCategoryLayoutStable(page);
-  await expect(chips.first()).toContainText(recentExpenseCategory.minor);
-  const chipTexts = (await chips.allTextContents()).join(" ");
-  expect(chipTexts).toContain(recentExpenseCategory.minor);
-  expect(chipTexts).toContain(olderExpenseCategory.minor);
-  expect(chipTexts).not.toContain(incomeCategory.minor);
-  expect(chipTexts).not.toContain(staleCategory.minor);
+  await expectStagedCategoryLayoutStable(page);
+  const groupTexts = (await transactionSheet.getByTestId("transaction-category-group-choice").allTextContents()).join(" ");
+  expect(groupTexts).toContain(recentExpenseCategory.major);
+  expect(groupTexts).toContain(olderExpenseCategory.major);
+  expect(groupTexts).not.toContain(incomeCategory.major);
+  expect(groupTexts).not.toContain(staleCategory.major);
 
-  await openTransactionQuickDetails(transactionSheet, "추가 입력");
-  const ownerSelect = labeledField(transactionSheet, "거래자", "select");
-  await expect(ownerSelect).toBeVisible();
-  await ownerSelect.selectOption("");
-  await expect(ownerSelect).toHaveValue("");
+  const ownerNoneChoice = await selectTransactionFormOwner(transactionSheet, { ownerless: true });
+  await expect(ownerNoneChoice).toHaveAttribute("aria-pressed", "true");
   await page.waitForTimeout(500);
-  await expect(ownerSelect).toHaveValue("");
+  await expect(ownerNoneChoice).toHaveAttribute("aria-pressed", "true");
   await capture(page, "transactions-quick-entry-owner-order");
   await staleHistoryFixture.unroute();
 });
 
-test("issue 82: mobile quick category guidance and chips stay readable at 320px", async ({ page }) => {
+test("issue 82: mobile staged category buttons stay readable at 320px", async ({ page }) => {
   test.setTimeout(120_000);
 
   const email = `${unique("tx-issue-82")}@example.com`;
@@ -2952,32 +2844,26 @@ test("issue 82: mobile quick category guidance and chips stay readable at 320px"
 
   await openMobileTransactionQuickEntry(page);
   await expect(page.getByTestId("transaction-quick-form")).toBeVisible();
-  await expect(page.getByTestId("transaction-quick-category-chip").first()).toBeVisible();
-  await expectQuickCategoryLayoutStable(page);
+  await expect(page.getByTestId("transaction-staged-category")).toBeVisible();
+  await expectStagedCategoryLayoutStable(page);
+  await page.getByTestId("transaction-category-group-choice").filter({ hasText: category.major }).click();
 
-  const issueMetrics = await page.locator(".transaction-quick-category-panel").evaluate((panel) => {
-    const hint = panel.querySelector(".transaction-quick-section-title small");
-    const chips = Array.from(panel.querySelectorAll("[data-testid='transaction-quick-category-chip']"));
+  const issueMetrics = await page.getByTestId("transaction-staged-category").evaluate((panel) => {
+    const buttons = Array.from(
+      panel.querySelectorAll("[data-testid='transaction-flow-choice'], [data-testid='transaction-category-group-choice'], [data-testid='transaction-category-choice']"),
+    );
     return {
-      hintText: hint?.textContent?.trim() || "",
-      hintClientWidth: hint?.clientWidth || 0,
-      hintScrollWidth: hint?.scrollWidth || 0,
-      hintClientHeight: hint?.clientHeight || 0,
-      hintScrollHeight: hint?.scrollHeight || 0,
-      chipHeights: chips.map((chip) => chip.getBoundingClientRect().height),
-      chipTexts: chips.map((chip) => chip.textContent?.trim() || ""),
+      buttonHeights: buttons.map((button) => button.getBoundingClientRect().height),
+      buttonTexts: buttons.map((button) => button.textContent?.trim() || ""),
+      overflowingButtons: buttons.filter((button) => button.scrollWidth - button.clientWidth > 1 || button.scrollHeight - button.clientHeight > 1).length,
     };
   });
 
-  expect(issueMetrics.hintText).toBe("추천 카테고리를 탭하면 바로 연결됩니다.");
-  expect(issueMetrics.hintScrollWidth, JSON.stringify(issueMetrics)).toBeLessThanOrEqual(issueMetrics.hintClientWidth + 1);
-  expect(issueMetrics.hintScrollHeight, JSON.stringify(issueMetrics)).toBeLessThanOrEqual(issueMetrics.hintClientHeight + 1);
-  expect(issueMetrics.chipHeights.every((height) => height >= 44), JSON.stringify(issueMetrics)).toBe(true);
-  expect(issueMetrics.chipTexts.join(" ")).toContain(category.minor);
+  expect(issueMetrics.overflowingButtons, JSON.stringify(issueMetrics)).toBe(0);
+  expect(issueMetrics.buttonHeights.every((height) => height >= 32), JSON.stringify(issueMetrics)).toBe(true);
+  expect(issueMetrics.buttonTexts.join(" ")).toContain(category.minor);
   await expectNoHorizontalOverflow(page, 12);
-  await capture(page, "issue-82-mobile-category-guidance-fit");
-  await page.getByTestId("transaction-quick-category-chip").first().scrollIntoViewIfNeeded();
-  await capture(page, "issue-82-mobile-category-chip-fit");
+  await capture(page, "issue-82-mobile-staged-category-fit");
 });
 
 test("mobile quick entry stays usable across viewport and Korean font fallbacks", async ({ page }) => {
@@ -3014,13 +2900,19 @@ test("mobile quick entry stays usable across viewport and Korean font fallbacks"
     await expect(page.getByTestId("transaction-quick-form")).toBeVisible();
     await expect(page.getByTestId("transaction-quick-amount")).toBeVisible();
     await expect(page.getByTestId("transaction-quick-save")).toBeVisible();
-    await expect(page.getByTestId("transaction-quick-category-chip").first()).toBeVisible();
-    await expectQuickCategoryLayoutStable(page);
+    await expect(page.getByTestId("transaction-staged-category")).toBeVisible();
+    await expectStagedCategoryLayoutStable(page);
+    await page.getByTestId("transaction-category-group-choice").filter({ hasText: seedCategory.major }).click();
+    await expect(page.getByTestId("transaction-category-choice").filter({ hasText: seedCategory.minor })).toBeVisible();
     await expectNoHorizontalOverflow(page, 12);
     const sheetBox = await transactionSheet.boundingBox();
     expect(sheetBox?.width ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(scenario.width);
     await capture(page, `transactions-quick-entry-${scenario.slug}`);
     await page.getByTestId("transaction-entry-sheet-close").click();
+    const closeDraftDialog = page.getByRole("alertdialog");
+    if (await closeDraftDialog.isVisible().catch(() => false)) {
+      await closeDraftDialog.getByRole("button", { name: "입력 닫기" }).click();
+    }
     await expect(transactionSheet).toBeHidden();
   }
 });
@@ -3047,7 +2939,7 @@ test("desktop transaction row click and sweep selection keep toolbar summary sta
   await page.reload();
   await page.setViewportSize({ width: 1366, height: 960 });
   await openTab(page, "거래");
-  await page.waitForLoadState("networkidle");
+  await waitForTransactionAppShell(page);
 
   const rows = page.locator("tr.transaction-row[data-transaction-id]");
   await expect(rows.nth(2)).toBeVisible({ timeout: 20_000 });
@@ -3073,20 +2965,16 @@ test("desktop transaction row click and sweep selection keep toolbar summary sta
 
   await clearTransactionSelection(page);
   await expect(targetRow).toHaveAttribute("data-row-selected", "false");
-  await targetRow.locator("td").first().locator("input[type='checkbox']").check();
+  await targetRow.focus();
+  await expect(targetRow).toBeFocused();
+  await expect(targetRow).toHaveAttribute("aria-keyshortcuts", /Space/);
+  await page.keyboard.press("Space");
   await expect(targetRow).toHaveAttribute("data-row-selected", "true");
   await expectTransactionSelectionSummary(page, 1, `${amounts[0].toLocaleString("ko-KR")}원`);
-  await clearTransactionSelection(page);
-
-  const headerCheckbox = page.getByLabel("표시된 거래 전체 선택");
-  await headerCheckbox.check();
-  const selectedAfterHeaderCheck = await page.locator("tr.transaction-row[data-row-selected='true']").count();
-  expect(selectedAfterHeaderCheck, "header checkbox should select at least this test's visible seeded rows").toBeGreaterThanOrEqual(
-    memos.length,
-  );
-  await expectTransactionSelectionSummary(page, selectedAfterHeaderCheck);
-  await headerCheckbox.uncheck();
+  await page.keyboard.press("Space");
+  await expect(targetRow).toHaveAttribute("data-row-selected", "false");
   await expectTransactionSelectionSummary(page, 0, "0원");
+  await clearTransactionSelection(page);
 
   const sweepRows = [memos[1], memos[2], memos[3]].map((memo) =>
     page.locator("tr.transaction-row", { hasText: memo }).first(),
@@ -3134,7 +3022,7 @@ test("transaction selection persists through passive websocket transaction refre
   await page.reload();
   await page.setViewportSize({ width: 1366, height: 900 });
   await openTab(page, "거래");
-  await page.waitForLoadState("networkidle");
+  await waitForTransactionAppShell(page);
 
   const selectedRow = page.locator("tr.transaction-row", { hasText: selectedMemo }).first();
   await selectTransactionRowForToolbar(page, selectedRow);
@@ -3155,7 +3043,7 @@ test("transaction selection persists through passive websocket transaction refre
   await capture(page, "transactions-selection-passive-refresh");
 });
 
-test("issue 233: desktop transaction selection checkboxes expose a 32px hit target", async ({ page }) => {
+test("issue 233: desktop transaction rows expose keyboard selection", async ({ page }) => {
   test.setTimeout(120_000);
 
   const email = `${unique("tx-checkbox-hitarea")}@example.com`;
@@ -3171,36 +3059,36 @@ test("issue 233: desktop transaction selection checkboxes expose a 32px hit targ
   await page.reload();
   await page.setViewportSize({ width: 1024, height: 768 });
   await openTab(page, "거래");
-  await page.waitForLoadState("networkidle");
+  await waitForTransactionAppShell(page);
 
-  const headerCheckbox = page.getByLabel("표시된 거래 전체 선택");
   const targetRow = page.locator("tr.transaction-row", { hasText: memo }).first();
-  const rowCheckbox = targetRow.locator(".transaction-col-select input[type='checkbox']").first();
-  await expect(rowCheckbox).toBeVisible({ timeout: 20_000 });
-  const checkboxMetrics = await Promise.all(
-    [headerCheckbox, rowCheckbox].map((locator) =>
-      locator.evaluate((input) => {
-        const rect = input.getBoundingClientRect();
-        const cellRect = input.closest(".transaction-col-select")?.getBoundingClientRect();
-        return {
-          width: rect.width,
-          height: rect.height,
-          cellWidth: cellRect?.width || 0,
-          cellHeight: cellRect?.height || 0,
-        };
-      }),
-    ),
-  );
-  for (const metric of checkboxMetrics) {
-    expect(metric.width, "desktop transaction checkbox width should be at least 32px").toBeGreaterThanOrEqual(32);
-    expect(metric.height, "desktop transaction checkbox height should be at least 32px").toBeGreaterThanOrEqual(32);
-    expect(metric.cellWidth, "desktop transaction selection cell should contain the checkbox target").toBeGreaterThanOrEqual(32);
-  }
+  await expect(targetRow).toBeVisible({ timeout: 20_000 });
+  const rowMetrics = await targetRow.evaluate((row) => {
+    const rect = row.getBoundingClientRect();
+    return {
+      width: rect.width,
+      height: rect.height,
+      tabIndex: row.getAttribute("tabindex"),
+      ariaKeyshortcuts: row.getAttribute("aria-keyshortcuts") || "",
+      ariaLabel: row.getAttribute("aria-label") || "",
+      selected: row.getAttribute("data-row-selected"),
+    };
+  });
+  expect(rowMetrics.height, `desktop transaction row should keep a comfortable focus target: ${JSON.stringify(rowMetrics)}`).toBeGreaterThanOrEqual(32);
+  expect(rowMetrics.tabIndex, `desktop transaction row should be keyboard focusable: ${JSON.stringify(rowMetrics)}`).toBe("0");
+  expect(rowMetrics.ariaKeyshortcuts, `desktop transaction row should advertise Space selection: ${JSON.stringify(rowMetrics)}`).toContain("Space");
+  expect(rowMetrics.ariaLabel, `desktop transaction row should describe Space selection: ${JSON.stringify(rowMetrics)}`).toContain("Space");
+  expect(rowMetrics.selected, `desktop transaction row should start unselected: ${JSON.stringify(rowMetrics)}`).toBe("false");
 
-  await rowCheckbox.check();
+  await targetRow.focus();
+  await expect(targetRow).toBeFocused();
+  await page.keyboard.press("Space");
   await expect(targetRow).toHaveAttribute("data-row-selected", "true");
   await expectTransactionSelectionSummary(page, 1, "23,300원");
-  await capture(page, "issue-233-desktop-transaction-checkbox-hitarea");
+  await page.keyboard.press("Space");
+  await expect(targetRow).toHaveAttribute("data-row-selected", "false");
+  await expectTransactionSelectionSummary(page, 0, "0원");
+  await capture(page, "issue-233-desktop-transaction-keyboard-selection");
 });
 
 test("desktop transaction sticky column titles and sweep auto-scroll selection toggle work", async ({ page }) => {
@@ -3225,7 +3113,7 @@ test("desktop transaction sticky column titles and sweep auto-scroll selection t
   await page.reload();
   await page.setViewportSize({ width: 1366, height: 620 });
   await openTab(page, "거래");
-  await page.waitForLoadState("networkidle");
+  await waitForTransactionAppShell(page);
   await expect(page.locator("tr.transaction-row", { hasText: memos[2] }).first()).toBeVisible({ timeout: 20_000 });
 
   await page.evaluate(() => window.scrollTo(0, Math.min(document.documentElement.scrollHeight - window.innerHeight, 520)));
@@ -3321,7 +3209,7 @@ test("mobile transaction row selection, touch scroll, and sticky ledger head sur
       content: `html, body, button, input, select, textarea { font-family: "${scenario.font}", "Noto Sans KR", sans-serif !important; }`,
     });
     await openTab(page, "거래");
-    await page.waitForLoadState("networkidle");
+    await waitForTransactionAppShell(page);
     await expect(page.locator("tr.transaction-row", { hasText: memos[scenario.targetIndex] }).first()).toBeVisible({
       timeout: 20_000,
     });
@@ -3403,7 +3291,7 @@ test("transaction FAB and sticky toolbar stay reachable after ledger scroll", as
 
   await page.setViewportSize({ width: 1366, height: 960 });
   await openTab(page, "거래");
-  await page.waitForLoadState("networkidle");
+  await waitForTransactionAppShell(page);
   await expect(page.locator("tr.transaction-row", { hasText: `${memoPrefix}-00` }).first()).toBeVisible();
   await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
   await page.waitForTimeout(250);
@@ -3493,7 +3381,7 @@ test("issue 211: transaction add opens a visible sheet from a scrolled list", as
 
   await page.setViewportSize({ width: 1366, height: 960 });
   await openTab(page, "거래");
-  await page.waitForLoadState("networkidle");
+  await waitForTransactionAppShell(page);
   await expect(page.locator("tr.transaction-row", { hasText: `${memoPrefix}-00` }).first()).toBeVisible();
   await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
   await page.waitForTimeout(250);
@@ -3533,14 +3421,12 @@ test("issue 211: transaction add opens a visible sheet from a scrolled list", as
   await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute("data-testid") || "")).toBe("transactions-desktop-add-action");
 });
 
-test("issue 213: mobile transaction add inherits the visible month date context", async ({ page }) => {
+test("issue 213: mobile transaction add defaults to today outside visible month context", async ({ page }) => {
   test.setTimeout(180_000);
 
   const email = `${unique("tx-add-month-context")}@example.com`;
   const displayName = unique("tx-add-month-context-name");
   const monthContextDate = isoDaysFromToday(-75);
-  const { year, month } = yearMonthFromIso(monthContextDate);
-  const monthPrefix = `${year}-${String(month).padStart(2, "0")}`;
   const monthMemo = unique("tx-add-month-context-row");
 
   await registerAndVerify(page, { email, displayName });
@@ -3564,16 +3450,20 @@ test("issue 213: mobile transaction add inherits the visible month date context"
   await transactionFab.click();
   const transactionSheet = page.getByTestId("transaction-entry-sheet");
   await expect(page.getByRole("dialog", { name: "거래 추가 레이어" })).toBeVisible();
-  await expect(transactionSheet).toContainText("금액, 카테고리, 메모 순서로 바로 저장합니다.");
+  await expect(transactionSheet).toContainText("일자부터 거래자까지 한 화면에서 저장합니다.");
 
-  const details = await openTransactionQuickDetails(transactionSheet, "추가 입력");
-  const dateInput = labeledField(details, "일자", "input");
+  const dateInput = labeledField(transactionSheet, "일자", "input");
   await expect(dateInput).toBeVisible();
-  await expect(dateInput).toHaveValue(new RegExp(`^${monthPrefix}-`));
-  await capture(page, "issue-213-mobile-add-date-in-visible-month-context");
+  await expect(dateInput).toHaveValue(await browserLocalTodayIso(page));
+
+  await dateInput.fill(monthContextDate);
+  await expect(dateInput).toHaveValue(monthContextDate);
+  await transactionSheet.getByTestId("transaction-quick-reset").click();
+  await expect(dateInput).toHaveValue(await browserLocalTodayIso(page));
+  await capture(page, "issue-213-mobile-add-date-defaults-today");
 });
 
-test("issue 234: mobile transaction add keeps saved context in secondary details", async ({ page }) => {
+test("issue 234: mobile transaction add keeps context visible without secondary details", async ({ page }) => {
   test.setTimeout(120_000);
 
   const email = `${unique("tx-add-context-first-screen")}@example.com`;
@@ -3585,56 +3475,212 @@ test("issue 234: mobile transaction add keeps saved context in secondary details
   await expect(page.getByRole("dialog", { name: "거래 추가 레이어" })).toBeVisible();
   await expect(page.getByTestId("transaction-quick-save")).toBeVisible();
   await expect(page.getByTestId("transaction-quick-amount")).toBeFocused();
-
-  const secondaryDetails = transactionSheet.locator("details.transaction-quick-details").first();
-  const secondarySummaryLabel = secondaryDetails.locator("summary > span").first();
-  await expect(secondarySummaryLabel).toHaveText("추가 설정");
-  await expect(transactionSheet.locator("details.transaction-quick-details[open]")).toHaveCount(0);
+  await expect(transactionSheet.locator("details.transaction-quick-details")).toHaveCount(0);
+  await expect(transactionSheet.getByTestId("transaction-staged-category")).toBeVisible();
+  await expect(transactionSheet.getByTestId("transaction-owner-choice").first()).toBeVisible();
 
   const metrics = await transactionSheet.evaluate((sheet) => {
+    const date = sheet.querySelector("[data-testid='transaction-quick-date']");
     const amount = sheet.querySelector("[data-testid='transaction-quick-amount']");
-    const recommendation = sheet.querySelector(".transaction-quick-category-panel");
+    const category = sheet.querySelector("[data-testid='transaction-staged-category']");
+    const owner = sheet.querySelector(".transaction-owner-choice-section");
     const memo = Array.from(sheet.querySelectorAll("label"))
       .find((candidate) => candidate.textContent?.replace(/\s+/g, " ").trim().startsWith("메모"))
       ?.querySelector("input");
-    const details = sheet.querySelector("details.transaction-quick-details");
     const saveButton = sheet.querySelector("[data-testid='transaction-quick-save']");
+    const actions = sheet.querySelector(".transaction-quick-actions");
+    const dateRect = date?.getBoundingClientRect();
     const amountRect = amount?.getBoundingClientRect();
-    const recommendationRect = recommendation?.getBoundingClientRect();
+    const categoryRect = category?.getBoundingClientRect();
+    const ownerRect = owner?.getBoundingClientRect();
     const memoRect = memo?.getBoundingClientRect();
-    const detailsRect = details?.getBoundingClientRect();
     const saveRect = saveButton?.getBoundingClientRect();
+    const actionsStyle = actions ? getComputedStyle(actions) : null;
     const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
     return {
       viewportHeight,
+      dateTop: dateRect?.top || 0,
+      dateBottom: dateRect?.bottom || 0,
       amountTop: amountRect?.top || 0,
       amountBottom: amountRect?.bottom || 0,
-      recommendationTop: recommendationRect?.top || 0,
-      recommendationBottom: recommendationRect?.bottom || 0,
+      categoryTop: categoryRect?.top || 0,
+      categoryBottom: categoryRect?.bottom || 0,
+      ownerTop: ownerRect?.top || 0,
+      ownerBottom: ownerRect?.bottom || 0,
       memoTop: memoRect?.top || 0,
       memoBottom: memoRect?.bottom || 0,
-      detailsTop: detailsRect?.top || 0,
+      actionPosition: actionsStyle?.position || "",
       saveTop: saveRect?.top || 0,
       saveBottom: saveRect?.bottom || 0,
+      sheetClientHeight: sheet.clientHeight,
+      sheetScrollHeight: sheet.scrollHeight,
     };
   });
 
-  expect(metrics.amountTop, JSON.stringify(metrics)).toBeGreaterThanOrEqual(0);
-  expect(metrics.recommendationTop, "recommendation should remain below amount").toBeGreaterThan(metrics.amountBottom);
-  expect(metrics.memoTop, "memo should remain below category").toBeGreaterThan(metrics.recommendationTop);
-  expect(metrics.detailsTop, "secondary details should not precede primary fields").toBeGreaterThan(metrics.memoTop);
+  expect(metrics.dateTop, JSON.stringify(metrics)).toBeGreaterThanOrEqual(0);
+  expect(metrics.dateTop, "date should remain above amount").toBeLessThan(metrics.amountTop);
+  expect(metrics.categoryTop, "category should remain below amount").toBeGreaterThan(metrics.amountBottom);
+  expect(metrics.ownerTop, "owner should remain below category").toBeGreaterThan(metrics.categoryTop);
+  expect(metrics.memoTop, "memo should remain below owner").toBeGreaterThan(metrics.ownerTop);
+  expect(metrics.actionPosition).toBe("static");
+  expect(metrics.sheetScrollHeight, JSON.stringify(metrics)).toBeLessThanOrEqual(metrics.sheetClientHeight + 2);
   expect(metrics.saveTop, JSON.stringify(metrics)).toBeLessThan(metrics.viewportHeight);
-  await openTransactionQuickDetails(transactionSheet, "추가 입력");
-  const contextItems = [
-    ["transaction-quick-context-flow", "유형"],
-    ["transaction-quick-context-date", "일자"],
-    ["transaction-quick-context-owner", "거래자"],
-    ["transaction-quick-context-category", "카테고리"],
-  ];
-  for (const [testId, label] of contextItems) {
-    await expect(page.getByTestId(testId)).toContainText(label);
+  await capture(page, "issue-234-mobile-add-context-first-screen");
+});
+
+test("mobile transaction add keeps actions reachable with many staged category options", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("tx-add-many-categories")}@example.com`;
+  const displayName = unique("tx-add-many-categories-name");
+  const crowdedMajor = unique("과밀그룹");
+  const otherMajorPrefix = unique("추가그룹");
+
+  await registerAndVerify(page, { email, displayName });
+  for (let index = 0; index < 12; index += 1) {
+    await createCategoryViaApi(page, {
+      major: crowdedMajor,
+      minor: `${unique("선택항목")}-${index}`,
+    });
   }
-  await capture(page, "issue-234-mobile-add-context-secondary-details");
+  for (let index = 0; index < 12; index += 1) {
+    await createCategoryViaApi(page, {
+      major: `${otherMajorPrefix}-${index}`,
+      minor: `${unique("보조항목")}-${index}`,
+    });
+  }
+
+  await page.reload();
+  await page.setViewportSize({ width: 320, height: 568 });
+  const transactionSheet = await openMobileTransactionQuickEntry(page);
+  await expect(page.getByRole("dialog", { name: "거래 추가 레이어" })).toBeVisible();
+  const groupChoice = transactionSheet.getByTestId("transaction-category-group-choice").filter({ hasText: crowdedMajor }).first();
+  await expect(groupChoice).toBeVisible();
+  await groupChoice.click();
+  await expect(transactionSheet.getByTestId("transaction-category-choice").first()).toBeVisible();
+
+  const metrics = await transactionSheet.evaluate((sheet) => {
+    const boxOf = (element) => {
+      const box = element?.getBoundingClientRect();
+      return box
+        ? {
+            top: box.top,
+            bottom: box.bottom,
+            left: box.left,
+            right: box.right,
+            width: box.width,
+            height: box.height,
+          }
+        : null;
+    };
+    const scrollState = (element) => {
+      const style = element ? getComputedStyle(element) : null;
+      return {
+        ...boxOf(element),
+        clientHeight: element?.clientHeight || 0,
+        scrollHeight: element?.scrollHeight || 0,
+        overflowY: style?.overflowY || "",
+      };
+    };
+    const save = sheet.querySelector("[data-testid='transaction-quick-save']");
+    const primary = sheet.querySelector(".transaction-quick-primary-stack");
+    const groupGrid = sheet.querySelector(".transaction-category-group-grid");
+    const categoryGrid = sheet.querySelector(".transaction-category-choice-grid");
+    const actions = sheet.querySelector(".transaction-quick-actions");
+    const saveBox = boxOf(save);
+    const centerX = saveBox ? saveBox.left + saveBox.width / 2 : -1;
+    const centerY = saveBox ? saveBox.top + saveBox.height / 2 : -1;
+    const topElement = centerX >= 0 && centerY >= 0 ? document.elementFromPoint(centerX, centerY) : null;
+    return {
+      viewportHeight: window.innerHeight || document.documentElement.clientHeight || 0,
+      documentOverflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      sheet: scrollState(sheet),
+      primary: scrollState(primary),
+      groupGrid: scrollState(groupGrid),
+      categoryGrid: scrollState(categoryGrid),
+      actions: boxOf(actions),
+      save: saveBox,
+      saveHitVisible: Boolean(topElement && save && (topElement === save || save.contains(topElement))),
+    };
+  });
+
+  expect(metrics.documentOverflowX, `crowded quick entry should not overflow horizontally: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
+  expect(metrics.save?.bottom ?? Number.POSITIVE_INFINITY, `save should stay in the viewport: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(
+    metrics.viewportHeight + 1,
+  );
+  expect(metrics.actions?.bottom ?? Number.POSITIVE_INFINITY, `actions should stay inside the sheet: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(
+    (metrics.sheet.bottom ?? metrics.viewportHeight) + 1,
+  );
+  expect(metrics.saveHitVisible, `save button center should stay clickable: ${JSON.stringify(metrics)}`).toBe(true);
+  expect(metrics.primary.overflowY, `primary stack should provide overflow fallback: ${JSON.stringify(metrics)}`).toMatch(/auto|overlay/);
+  expect(metrics.groupGrid.overflowY, `category group grid should provide overflow fallback: ${JSON.stringify(metrics)}`).toMatch(/auto|overlay/);
+  expect(metrics.categoryGrid.overflowY, `category grid should provide overflow fallback: ${JSON.stringify(metrics)}`).toMatch(/auto|overlay/);
+  expect(
+    metrics.primary.scrollHeight > metrics.primary.clientHeight ||
+      metrics.groupGrid.scrollHeight > metrics.groupGrid.clientHeight ||
+      metrics.categoryGrid.scrollHeight > metrics.categoryGrid.clientHeight,
+    `crowded options should be bounded by a scrollable region: ${JSON.stringify(metrics)}`,
+  ).toBe(true);
+
+  await page.evaluate(() => {
+    window.__e2eScrollIntoViewCalls = [];
+    const original = Element.prototype.scrollIntoView;
+    if (!window.__e2eOriginalScrollIntoView) {
+      Object.defineProperty(window, "__e2eOriginalScrollIntoView", {
+        configurable: true,
+        value: original,
+      });
+    }
+    Element.prototype.scrollIntoView = function scrollIntoViewSpy(options) {
+      window.__e2eScrollIntoViewCalls.push({
+        tagName: this.tagName,
+        testId: this.getAttribute("data-testid") || "",
+        label: this.closest("label")?.textContent?.trim() || "",
+        block: options && typeof options === "object" ? String(options.block || "") : "",
+      });
+    };
+  });
+
+  const quickAmount = transactionSheet.getByTestId("transaction-quick-amount");
+  const memoInput = labeledField(transactionSheet, "메모", "input");
+  const windowScrollBeforeFocusMove = await page.evaluate(() => window.scrollY);
+  await quickAmount.click();
+  await quickAmount.fill("24680");
+  await quickAmount.press("Enter");
+  await expect(memoInput).toBeFocused();
+
+  const focusMetrics = await transactionSheet.evaluate((sheet) => {
+    const primary = sheet.querySelector(".transaction-quick-primary-stack");
+    const memo = Array.from(sheet.querySelectorAll("label"))
+      .find((label) => label.textContent?.includes("메모"))
+      ?.querySelector("input");
+    const primaryBox = primary?.getBoundingClientRect();
+    const memoBox = memo?.getBoundingClientRect();
+    return {
+      windowScrollY: window.scrollY,
+      primaryScrollTop: primary?.scrollTop || 0,
+      primaryTop: primaryBox?.top || 0,
+      primaryBottom: primaryBox?.bottom || 0,
+      memoTop: memoBox?.top || 0,
+      memoBottom: memoBox?.bottom || 0,
+    };
+  });
+  expect(focusMetrics.windowScrollY, `focus move should not scroll the page: ${JSON.stringify(focusMetrics)}`).toBe(windowScrollBeforeFocusMove);
+  expect(focusMetrics.primaryScrollTop, `focus move should use the internal primary stack scroll: ${JSON.stringify(focusMetrics)}`).toBeGreaterThan(0);
+  expect(focusMetrics.memoTop, `focused memo should be visible inside primary stack: ${JSON.stringify(focusMetrics)}`).toBeGreaterThanOrEqual(
+    focusMetrics.primaryTop - 1,
+  );
+  expect(focusMetrics.memoBottom, `focused memo should be visible inside primary stack: ${JSON.stringify(focusMetrics)}`).toBeLessThanOrEqual(
+    focusMetrics.primaryBottom + 1,
+  );
+  await expect.poll(() => page.evaluate(() => window.__e2eScrollIntoViewCalls || [])).toEqual([]);
+  await page.evaluate(() => {
+    if (window.__e2eOriginalScrollIntoView) {
+      Element.prototype.scrollIntoView = window.__e2eOriginalScrollIntoView;
+    }
+  });
+
+  await capture(page, "transactions-add-many-categories-scroll-fallback");
 });
 
 test("issue 237: mobile transaction edit keeps completion controls in the first viewport", async ({ page }) => {
@@ -3655,7 +3701,7 @@ test("issue 237: mobile transaction edit keeps completion controls in the first 
   await page.reload();
   await page.setViewportSize({ width: 390, height: 844 });
   await openTab(page, "거래");
-  await page.waitForLoadState("networkidle");
+  await waitForTransactionAppShell(page);
 
   const mobileRow = page.locator("tr.transaction-row", { hasText: memo }).first();
   await expect(mobileRow).toBeVisible({ timeout: 20_000 });
@@ -3720,7 +3766,7 @@ test("issue 198: mobile collapsed transaction row keeps key details and actions 
   await page.reload();
   await page.setViewportSize({ width: 390, height: 844 });
   await openTab(page, "거래");
-  await page.waitForLoadState("networkidle");
+  await waitForTransactionAppShell(page);
 
   const mobileRow = page.locator("tr.transaction-row", { hasText: memo }).first();
   await expect(mobileRow).toBeVisible({ timeout: 20_000 });
@@ -3832,7 +3878,7 @@ test("mobile normal add clears stale anchored insert fields after cancelled inse
   await page.reload();
   await page.setViewportSize({ width: 390, height: 844 });
   await openTab(page, "거래");
-  await page.waitForLoadState("networkidle");
+  await waitForTransactionAppShell(page);
 
   const targetRow = page.locator("tr.transaction-row", { hasText: targetMemo }).first();
   await expect(targetRow).toBeVisible({ timeout: 20_000 });
@@ -3885,7 +3931,7 @@ test("issue 220: mobile collapsed transaction row scans as one ledger line", asy
   await page.reload();
   await page.setViewportSize({ width: 390, height: 844 });
   await openTab(page, "거래");
-  await page.waitForLoadState("networkidle");
+  await waitForTransactionAppShell(page);
 
   const mobileRow = page.locator("tr.transaction-row", { hasText: memo }).first();
   await expect(mobileRow).toBeVisible({ timeout: 20_000 });
@@ -4019,7 +4065,7 @@ test("mobile collapsed transaction row keeps large KRW amount readable", async (
   await page.reload();
   await page.setViewportSize({ width: 360, height: 780 });
   await openTab(page, "거래");
-  await page.waitForLoadState("networkidle");
+  await waitForTransactionAppShell(page);
 
   const mobileRow = page.locator("tr.transaction-row", { hasText: memo }).first();
   await expect(mobileRow).toBeVisible({ timeout: 20_000 });
@@ -4100,7 +4146,7 @@ test("issue 221: mobile transaction status chips keep clear action in viewport",
   await page.reload();
   await page.setViewportSize({ width: 390, height: 844 });
   await openTab(page, "거래");
-  await page.waitForLoadState("networkidle");
+  await waitForTransactionAppShell(page);
   const mobileRow = page.locator("tr.transaction-row", { hasText: memo }).first();
   await expect(mobileRow).toBeVisible({ timeout: 20_000 });
   await selectTransactionRowForToolbar(page, mobileRow);
@@ -4183,7 +4229,7 @@ test("issue 222: mobile transaction add FAB does not cover bottom ledger rows", 
   await page.reload();
   await page.setViewportSize({ width: 390, height: 844 });
   await openTab(page, "거래");
-  await page.waitForLoadState("networkidle");
+  await waitForTransactionAppShell(page);
 
   const transactionFab = page.getByTestId("transactions-fab");
   await expect(transactionFab).toBeVisible();
@@ -4310,12 +4356,12 @@ test("issue 223: desktop transaction add action does not cover bottom row action
 
   await page.setViewportSize({ width: 1280, height: 720 });
   await openTab(page, "거래");
-  await page.waitForLoadState("networkidle");
+  await waitForTransactionAppShell(page);
 
   await page.evaluate(() => {
     const fab = document.querySelector("[data-testid='transactions-fab']");
     const row = Array.from(document.querySelectorAll("tr.transaction-row"))[Math.min(28, document.querySelectorAll("tr.transaction-row").length - 1)];
-    const actionButton = row?.querySelector(".transaction-col-select input[type='checkbox'], .transaction-col-actions button");
+    const actionButton = row?.querySelector(".transaction-col-actions button");
     const fabBox = fab?.getBoundingClientRect();
     const actionBox = actionButton?.getBoundingClientRect();
     if (!fabBox || !actionBox) {
@@ -4327,10 +4373,10 @@ test("issue 223: desktop transaction add action does not cover bottom row action
     window.scrollTo(0, Math.max(0, actionCenterY - fabCenterY));
   });
   await page.waitForTimeout(300);
+  await expectDesktopTransactionAddActionReachable(page, "desktop transaction add action");
 
   const metrics = await page.evaluate(() => {
     const fixedFab = document.querySelector("[data-testid='transactions-fab']");
-    const desktopAdd = document.querySelector("[data-testid='transactions-desktop-add-action']");
     const boxOf = (element) => {
       if (!element) {
         return null;
@@ -4361,7 +4407,7 @@ test("issue 223: desktop transaction add action does not cover bottom row action
       );
     const fabBox = boxOf(fixedFab);
     const actionTargets = Array.from(
-      document.querySelectorAll("tr.transaction-row .transaction-col-select input[type='checkbox'], tr.transaction-row .transaction-col-actions button"),
+      document.querySelectorAll("tr.transaction-row .transaction-col-actions button"),
     )
       .map((button) => {
         const box = boxOf(button);
@@ -4386,11 +4432,14 @@ test("issue 223: desktop transaction add action does not cover bottom row action
         };
       })
       .filter((target) => target && target.top < window.innerHeight && target.bottom > 0);
+    const visibleRows = Array.from(document.querySelectorAll("tr.transaction-row"))
+      .map((row) => boxOf(row))
+      .filter((target) => target && target.top < window.innerHeight && target.bottom > 0);
     return {
       scrollY: window.scrollY,
       viewport: { width: window.innerWidth, height: window.innerHeight },
       fixedFab: fabBox,
-      desktopAdd: boxOf(desktopAdd),
+      visibleRowCount: visibleRows.length,
       coveredActionTargets: actionTargets.filter((target) => intersects(target, fabBox, 1)),
       centerCoveredActionTargets: actionTargets.filter((target) => target.centerCoveredByFab && !target.hitVisible),
       visibleActionTargetCount: actionTargets.length,
@@ -4398,12 +4447,11 @@ test("issue 223: desktop transaction add action does not cover bottom row action
     };
   });
 
-  expect(metrics.visibleActionTargetCount, `test should exercise visible row targets: ${JSON.stringify(metrics)}`).toBeGreaterThan(0);
+  expect(metrics.fixedFab, `desktop should not render a fixed transaction FAB: ${JSON.stringify(metrics)}`).toBeNull();
+  expect(metrics.visibleRowCount, `test should exercise visible ledger rows: ${JSON.stringify(metrics)}`).toBeGreaterThan(0);
+  expect(metrics.visibleActionTargetCount, `row edit/delete targets should move out of the ledger row: ${JSON.stringify(metrics)}`).toBe(0);
   expect(metrics.coveredActionTargets, `desktop add affordance should not cover row targets: ${JSON.stringify(metrics)}`).toEqual([]);
   expect(metrics.centerCoveredActionTargets, `desktop row target centers should remain directly hittable: ${JSON.stringify(metrics)}`).toEqual([]);
-  expect(metrics.desktopAdd, `desktop add action should be docked in the toolbar: ${JSON.stringify(metrics)}`).toBeTruthy();
-  expect(metrics.desktopAdd.display, `desktop add action should be visible: ${JSON.stringify(metrics)}`).not.toBe("none");
-  expect(metrics.desktopAdd.visibility, `desktop add action should be visible: ${JSON.stringify(metrics)}`).toBe("visible");
   expect(metrics.pageOverflowX, `desktop add clearance should not create horizontal overflow: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
   await expectNoHorizontalOverflow(page, 12);
   await capture(page, "issue-223-desktop-add-action-row-clearance");
@@ -4433,7 +4481,7 @@ test("issue 224: desktop transaction row edit and delete targets stay comfortabl
 
   await page.setViewportSize({ width: 1280, height: 720 });
   await openTab(page, "거래");
-  await page.waitForLoadState("networkidle");
+  await waitForTransactionAppShell(page);
   await page.locator(".transaction-list-card").first().evaluate((element) => element.scrollIntoView({ block: "start" }));
   const targetMemo = `${memoPrefix}-00`;
   const targetRow = page.locator("tr.transaction-row", { hasText: targetMemo }).first();
@@ -4511,10 +4559,6 @@ test("issue 273: desktop transaction row double-click opens inline edit only fro
   await expect(page.locator("tr.transaction-inline-editor-row")).toHaveCount(0);
   await expect(createdRow).toHaveAttribute("data-row-selected", "false");
   await expect(createdRow).toHaveAttribute("data-row-expanded", "false");
-
-  const checkbox = createdRow.locator(".transaction-col-select input[type='checkbox']").first();
-  await checkbox.dblclick({ force: true });
-  await expect(page.locator("tr.transaction-inline-editor-row")).toHaveCount(0);
 
   await createdRow.locator(".transaction-col-memo").dblclick();
   const editorRow = page.locator("tr.transaction-inline-editor-row").first();
@@ -4625,7 +4669,7 @@ test("issue 227: 1024px transaction row actions stay inside the viewport", async
   await page.reload();
   await page.setViewportSize({ width: 1024, height: 768 });
   await openTab(page, "거래");
-  await page.waitForLoadState("networkidle");
+  await waitForTransactionAppShell(page);
 
   const targetMemo = `${memoPrefix}-00`;
   const targetRow = page.locator("tr.transaction-row", { hasText: targetMemo }).first();
@@ -4692,16 +4736,13 @@ test("issue 227: 1024px transaction row actions stay inside the viewport", async
     };
   }, memoPrefix);
 
-  expect(metrics.headerAction, `desktop action header should exist: ${JSON.stringify(metrics)}`).toBeTruthy();
-  expect(metrics.actionCell, `target row action cell should exist: ${JSON.stringify(metrics)}`).toBeTruthy();
   expect(metrics.actionButtons.length, `row-level edit/delete targets should move out of the ledger row: ${JSON.stringify(metrics)}`).toBe(0);
   expect(metrics.pageOverflowX, `1024px desktop page should not overflow horizontally: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
-  expect(metrics.scroller.scrollOverflowX, `1024px transaction table should not need horizontal scroll for row actions: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
-  expect(metrics.outsideViewport, `desktop action header/cell should stay inside viewport: ${JSON.stringify(metrics)}`).toEqual([]);
+  expect(metrics.scroller.scrollOverflowX, `1024px transaction table should not need horizontal scroll after action column removal: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
+  expect(metrics.outsideViewport, `desktop ledger action remnants should stay inside viewport: ${JSON.stringify(metrics)}`).toEqual([]);
   expect(metrics.undersizedTargets, `desktop row should not expose undersized edit/delete targets: ${JSON.stringify(metrics)}`).toEqual([]);
   expect(metrics.hiddenHitTargets, `desktop row should not expose hidden edit/delete centers: ${JSON.stringify(metrics)}`).toEqual([]);
-  await targetRow.locator("input[type='checkbox']").check({ force: true });
-  await expectTransactionSelectionSummary(page, 1);
+  await selectTransactionRowForToolbar(page, targetRow);
   const selectionToolbar = page.getByTestId("transaction-sticky-toolbar");
   await expect(selectionToolbar.getByTestId("transaction-selection-edit")).toBeVisible();
   await expect(selectionToolbar.getByTestId("transaction-selection-edit")).toBeEnabled();
@@ -4815,12 +4856,12 @@ test("transaction selection toolbar bulk deletes multiple rows in one request", 
   await page.reload();
   await page.setViewportSize({ width: 1280, height: 820 });
   await openTab(page, "거래");
-  await page.waitForLoadState("networkidle");
+  await waitForTransactionAppShell(page);
 
-  for (const memo of memos) {
+  for (const [index, memo] of memos.entries()) {
     const row = page.locator("tr.transaction-row", { hasText: memo }).first();
     await expect(row).toBeVisible({ timeout: 20_000 });
-    await row.locator(".transaction-col-select input[type='checkbox']").check({ force: true });
+    await selectTransactionRowForToolbar(page, row, { expectedCount: index + 1 });
     await expect(row).toHaveAttribute("data-row-selected", "true");
   }
   await expectTransactionSelectionSummary(page, 2);
@@ -4862,7 +4903,7 @@ test("transaction ledger selection toolbar stays overflow-free at 820px and 1100
   for (const width of [820, 1100]) {
     await page.setViewportSize({ width, height: 860 });
     await openTab(page, "거래");
-    await page.waitForLoadState("networkidle");
+    await waitForTransactionAppShell(page);
     const row = page.locator("tr.transaction-row", { hasText: memo }).first();
     await selectTransactionRowForToolbar(page, row);
     await expect(page.getByTestId("transaction-selection-edit")).toBeVisible();
@@ -4900,7 +4941,7 @@ test("issue 228: mobile transaction filters use ledger headers without duplicate
   await registerAndVerify(page, { email, displayName });
   await page.setViewportSize({ width: 390, height: 844 });
   await openTab(page, "거래");
-  await page.waitForLoadState("networkidle");
+  await waitForTransactionAppShell(page);
 
   const toolbar = page.getByTestId("transaction-sticky-toolbar");
   const genericFilterToggle = toolbar.getByRole("button", { name: "필터 열기", exact: true });
@@ -4944,7 +4985,7 @@ test("issue #249: mobile transaction sticky stack uses measured heights", async 
   });
   await page.setViewportSize({ width: 390, height: 844 });
   await openTab(page, "거래");
-  await page.waitForLoadState("networkidle");
+  await waitForTransactionAppShell(page);
 
   const mobileLedgerHead = page.locator(".transactions-mobile-ledger-head").first();
   await expect(mobileLedgerHead).toBeVisible();
@@ -5101,7 +5142,7 @@ test("transactions flow: create, inline edit, delete, responsive", async ({ page
 
   await page.setViewportSize({ width: 390, height: 844 });
   await openTab(page, "거래");
-  await page.waitForLoadState("networkidle");
+  await waitForTransactionAppShell(page);
   const transactionEmptyState = page.getByTestId("transactions-empty-state");
   await expect(transactionEmptyState).toBeVisible();
   await expect(transactionEmptyState).toContainText("거래 내역이 없습니다.");
@@ -5123,7 +5164,7 @@ test("transaction date controls use unambiguous ISO text fields", async ({ page 
   await registerAndVerify(page, { email, displayName });
   await page.setViewportSize({ width: 1366, height: 768 });
   await openTab(page, "거래");
-  await page.waitForLoadState("networkidle");
+  await waitForTransactionAppShell(page);
 
   const desktopTransactionSheet = page.getByTestId("transaction-entry-sheet");
   const desktopTransactionAddAction = await expectDesktopTransactionAddActionReachable(page, "desktop transaction add action for ISO date entry");
@@ -5162,7 +5203,7 @@ test("transaction date controls use unambiguous ISO text fields", async ({ page 
   await page.reload();
   await page.setViewportSize({ width: 390, height: 844 });
   await openTab(page, "거래");
-  await page.waitForLoadState("networkidle");
+  await waitForTransactionAppShell(page);
 
   const dateFilterTrigger = page
     .locator(".transactions-mobile-ledger-head")
@@ -5206,7 +5247,7 @@ test("issue 219: mobile inline transaction date edit uses numeric ISO assistance
   await page.reload();
   await page.setViewportSize({ width: 390, height: 844 });
   await openTab(page, "거래");
-  await page.waitForLoadState("networkidle");
+  await waitForTransactionAppShell(page);
 
   const mobileRow = page.locator("tr.transaction-row", { hasText: memo }).first();
   await expect(mobileRow).toBeVisible({ timeout: 20_000 });
@@ -5245,7 +5286,7 @@ test("issue 230: narrow mobile transaction date filters keep ISO placeholders re
   await registerAndVerify(page, { email, displayName });
   await page.setViewportSize({ width: 320, height: 568 });
   await openTab(page, "거래");
-  await page.waitForLoadState("networkidle");
+  await waitForTransactionAppShell(page);
 
   await page
     .locator(".transactions-mobile-ledger-head")
@@ -5321,7 +5362,7 @@ test("mobile transaction expanded row keeps details readable with filter panel o
   await page.reload();
   await page.setViewportSize({ width: 360, height: 740 });
   await openTab(page, "거래");
-  await page.waitForLoadState("networkidle");
+  await waitForTransactionAppShell(page);
 
   const mobileLedgerHead = page.locator(".transactions-mobile-ledger-head").first();
   await mobileLedgerHead.getByRole("button", { name: "유형 필터 열기" }).click();
@@ -5414,7 +5455,7 @@ test("mobile transaction filter panel stays visible after list scroll", async ({
   await page.reload();
   await page.setViewportSize({ width: 390, height: 844 });
   await openTab(page, "거래");
-  await page.waitForLoadState("networkidle");
+  await waitForTransactionAppShell(page);
 
   const scrolledRow = page.locator("tr.transaction-row", { hasText: `${memoPrefix}-14` }).first();
   await expect(scrolledRow).toBeVisible();
@@ -5655,7 +5696,7 @@ test("issue 287: Android PWA transaction ledger uses monthly dense rows", async 
   await page.reload();
   await page.setViewportSize({ width: 390, height: 844 });
   await openTab(page, "거래");
-  await page.waitForLoadState("networkidle");
+  await waitForTransactionAppShell(page);
 
   const mobileRow = page.locator("tr.transaction-row", { hasText: currentMemo }).first();
   await expect(mobileRow).toBeVisible({ timeout: 20_000 });
@@ -5664,14 +5705,7 @@ test("issue 287: Android PWA transaction ledger uses monthly dense rows", async 
   await expect(page.locator(".transaction-history-sentinel")).toHaveCount(0);
   await expect(page.getByText("연속 내역순", { exact: false })).toHaveCount(0);
   await expect(page.locator(".transaction-row .transaction-col-actions button")).toHaveCount(0);
-  const visibleMobileCheckboxes = await page.locator(".transaction-row .transaction-col-select input[type='checkbox']").evaluateAll((nodes) =>
-    nodes.filter((node) => {
-      const box = node.getBoundingClientRect();
-      const style = getComputedStyle(node);
-      return style.display !== "none" && style.visibility !== "hidden" && box.width > 0 && box.height > 0;
-    }).length
-  );
-  expect(visibleMobileCheckboxes, "Android ledger should not show a checkbox/checkmark selection column").toBe(0);
+  await expect(page.locator(".transaction-row").getByRole("checkbox")).toHaveCount(0);
   await expect(mobileRow).toHaveAttribute("aria-keyshortcuts", /Space/);
 
   const metrics = await mobileRow.evaluate((row) => {
@@ -5751,8 +5785,11 @@ test("issue 287: Android PWA transaction ledger uses monthly dense rows", async 
   for (const [key, delta] of Object.entries(metrics.alignment)) {
     expect(delta, `${key} header should align with the row field: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(8);
   }
-  expect(metrics.fields.owner?.text, `owner should use a clear two-character compact cue: ${JSON.stringify(metrics)}`).toBe(
-    displayName.slice(0, 2)
+  expect(metrics.fields.owner?.text, `owner should use a compact first-letter cue: ${JSON.stringify(metrics)}`).toBe(
+    Array.from(displayName.trim()).slice(0, 1).join("")
+  );
+  expect(metrics.fields.owner?.ariaLabel || "", `owner cue should preserve the full accessible name: ${JSON.stringify(metrics)}`).toContain(
+    displayName
   );
   expect(metrics.fields.category?.text || "", `category should have its own column: ${JSON.stringify(metrics)}`).toContain(
     category.minor.slice(0, 4)
@@ -5916,7 +5953,7 @@ test("issue 287: stale monthly transaction refresh cannot replace the active mon
   await registerAndVerify(page, { email, displayName });
   await page.setViewportSize({ width: 390, height: 844 });
   await openTab(page, "거래");
-  await page.waitForLoadState("networkidle");
+  await waitForTransactionAppShell(page);
 
   await page.route("**/api/v1/transactions**", async (route) => {
     const request = route.request();
@@ -6033,7 +6070,7 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   await expect(page.getByText("연속 내역순", { exact: false })).toHaveCount(0);
   await expectDesktopTransactionRowsSingleLine(page);
 
-  await createdRow.locator("td").first().locator("input[type='checkbox']").check();
+  await selectTransactionRowForToolbar(page, createdRow);
   await expectTransactionSelectionSummary(page, 1, "22,222원");
   await clearTransactionSelection(page);
   await expect(createdRow).toHaveAttribute("data-row-selected", "false");
@@ -6083,7 +6120,7 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
 
   await page.setViewportSize({ width: 390, height: 844 });
   await openTab(page, "거래");
-  await page.waitForLoadState("networkidle");
+  await waitForTransactionAppShell(page);
   const mobileSupportSummary = page.locator("details.transaction-support-card > summary").first();
   await expect(mobileSupportSummary).toContainText("분석·관리");
   const mobileSupportSummaryMetrics = await mobileSupportSummary.evaluate((summary) => {
@@ -6229,8 +6266,10 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   ).toBe(true);
   await expectBackgroundNotPlainWhite(mobileRow);
   await expectTransparentBackground(mobileRow.locator(".transaction-col-memo").first());
-  await expect(mobileRow.locator(".transaction-owner-compact").first()).toHaveText(displayName.slice(0, 2));
-  await expect(mobileRow.locator(".transaction-owner-compact").first()).toBeVisible();
+  const mobileOwnerCompact = mobileRow.locator(".transaction-owner-compact").first();
+  await expect(mobileOwnerCompact).toHaveText(Array.from(displayName.trim()).slice(0, 1).join(""));
+  await expect(mobileOwnerCompact).toBeVisible();
+  await expect(mobileOwnerCompact).toHaveAttribute("aria-label", new RegExp(displayName));
   await expect(mobileRow.locator(".transaction-col-owner .transaction-mobile-detail-value").first()).toBeHidden();
   await expect(mobileRow.locator(".transaction-flow-short").first()).toBeVisible();
   const mobileOwnerlessRow = page.locator("tr.transaction-row", { hasText: ownerlessMemo }).first();
