@@ -227,7 +227,7 @@ export function TransactionSurfaceTable({
       window.removeEventListener("touchcancel", clearPointerGesture);
       window.removeEventListener("pointerup", clearPointerGesture);
       window.removeEventListener("pointercancel", cancelPointerGesture);
-      stopAutoScroll();
+      clearPointerGesture();
       if (rowClickSuppressTimerRef.current) {
         window.clearTimeout(rowClickSuppressTimerRef.current);
       }
@@ -1048,7 +1048,16 @@ export function TransactionSurfaceTable({
               openTransactionInlineEditor(item);
             };
             const handleRowKeyDown = (event) => {
-              if (isEditing || isInteractiveRowTarget(event.target) || typeof openTransactionInlineEditor !== "function") {
+              if (isEditing || isInteractiveRowTarget(event.target)) {
+                return;
+              }
+              if (isCompactViewport && (event.key === " " || event.key === "Spacebar")) {
+                event.preventDefault();
+                clearPendingRowClickAction();
+                toggleExpandedTransactionRow(item.id);
+                return;
+              }
+              if (typeof openTransactionInlineEditor !== "function") {
                 return;
               }
               if (event.key !== "Enter" && event.key !== "F2") {
@@ -1059,6 +1068,13 @@ export function TransactionSurfaceTable({
               openTransactionInlineEditor(item);
             };
             const rowEditShortcutLabel = canEditRecords ? "Enter 또는 F2로 편집" : "편집 권한 없음";
+            const rowKeyboardShortcutLabel = isCompactViewport
+              ? `${rowEditShortcutLabel}. Space로 세부를 열고 닫습니다.`
+              : rowEditShortcutLabel;
+            const rowKeyShortcuts = [
+              ...(canEditRecords ? ["Enter", "F2"] : []),
+              ...(isCompactViewport ? ["Space"] : []),
+            ].join(" ");
             const updateInlineFlowType = (nextFlowType) => {
               if (!editForm) {
                 return;
@@ -1295,8 +1311,8 @@ export function TransactionSurfaceTable({
                   data-transaction-id={item.id}
                   data-transaction-date={item.occurred_on}
                   aria-selected={selectedTransactionIds.has(item.id) ? "true" : "false"}
-                  aria-label={`거래 ${item.occurred_on} ${flowLabel} ${ownerSummaryLabel} ${compactCategoryLabel} ${item.memo || "-"} ${amountLabel}. 탭하면 세부를 열고 길게 누르면 선택합니다. ${rowEditShortcutLabel}`}
-                  aria-keyshortcuts={canEditRecords ? "Enter F2" : undefined}
+                  aria-label={`거래 ${item.occurred_on} ${flowLabel} ${ownerSummaryLabel} ${compactCategoryLabel} ${item.memo || "-"} ${amountLabel}. 탭하면 세부를 열고 길게 누르면 선택합니다. ${rowKeyboardShortcutLabel}`}
+                  aria-keyshortcuts={rowKeyShortcuts || undefined}
                   tabIndex={isEditing ? -1 : 0}
                   onPointerDown={(event) => startRowPointerGesture(event, item.id, isEditing)}
                   onPointerMove={(event) => updateRowPointerGesture(event, item.id)}

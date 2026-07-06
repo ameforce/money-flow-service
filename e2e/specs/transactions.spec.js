@@ -5623,6 +5623,7 @@ test("issue 287: Android PWA transaction ledger uses monthly dense rows", async 
     }).length
   );
   expect(visibleMobileCheckboxes, "Android ledger should not show a checkbox/checkmark selection column").toBe(0);
+  await expect(mobileRow).toHaveAttribute("aria-keyshortcuts", /Space/);
 
   const metrics = await mobileRow.evaluate((row) => {
     const read = (selector) => {
@@ -5711,6 +5712,13 @@ test("issue 287: Android PWA transaction ledger uses monthly dense rows", async 
 
   const ownerlessRow = page.locator("tr.transaction-row", { hasText: ownerlessMemo }).first();
   await expect(ownerlessRow.locator(".transaction-owner-compact-empty")).toHaveText("-");
+  await mobileRow.focus();
+  await expect(mobileRow).toBeFocused();
+  await page.keyboard.press("Space");
+  await expect(mobileRow).toHaveClass(/mobile-row-expanded/);
+  await expect(mobileRow).toHaveAttribute("data-row-selected", "false");
+  await page.keyboard.press("Space");
+  await expect(mobileRow).not.toHaveClass(/mobile-row-expanded/);
   await mobileRow.click({ position: { x: 88, y: 22 } });
   await expect(mobileRow).toHaveClass(/mobile-row-expanded/);
   await expect(mobileRow).toHaveAttribute("data-row-selected", "false");
@@ -5737,6 +5745,69 @@ test("issue 287: Android PWA transaction ledger uses monthly dense rows", async 
   await expect(page.locator("tr.transaction-row", { hasText: currentMemo })).toHaveCount(0);
   await expectNoHorizontalOverflow(page, 12);
   await capture(page, "issue-287-android-monthly-dense-ledger");
+});
+
+test("issue 287: monthly transaction ledger loads every paged row", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("tx-monthly-paged")}@example.com`;
+  const displayName = unique("tx-monthly-paged-name");
+  const currentDate = currentE2EHistoryDateIso();
+  const targetYearMonth = yearMonthFromIso(currentDate);
+  const pagedMemoPrefix = unique("tx-paged-ledger");
+  const rows = Array.from({ length: 1001 }, (_, index) => ({
+    id: `tx-paged-${index + 1}`,
+    occurred_on: currentDate,
+    flow_type: "expense",
+    amount: 1000 + index,
+    currency: "KRW",
+    memo: `${pagedMemoPrefix}-${String(index + 1).padStart(4, "0")}`,
+    category_id: null,
+    owner_user_id: null,
+    owner_name: displayName,
+    source_ref: null,
+    order_key: (index + 1) * 1024,
+    created_at: "2026-07-01T00:00:00Z",
+    updated_at: "2026-07-01T00:00:00Z",
+  }));
+  const transactionRequests = [];
+
+  await page.route("**/api/v1/transactions**", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const isTargetMonth =
+      request.method() === "GET" &&
+      url.pathname.endsWith("/api/v1/transactions") &&
+      url.searchParams.get("year") === String(targetYearMonth.year) &&
+      url.searchParams.get("month") === String(targetYearMonth.month);
+    if (!isTargetMonth) {
+      await route.fallback();
+      return;
+    }
+    const limit = Number(url.searchParams.get("limit") || "500");
+    const offset = Number(url.searchParams.get("offset") || "0");
+    transactionRequests.push({ limit, offset });
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(rows.slice(offset, offset + limit)),
+    });
+  });
+
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openTab(page, "거래");
+  await expect(page.locator("tr.transaction-row", { hasText: `${pagedMemoPrefix}-0001` })).toHaveCount(1);
+  await expect(page.locator("tr.transaction-row", { hasText: `${pagedMemoPrefix}-1001` })).toHaveCount(1);
+  await expect(page.locator("tr.transaction-row")).toHaveCount(1001);
+  expect(transactionRequests, "monthly ledger should request the first page").toContainEqual({ limit: 1000, offset: 0 });
+  expect(transactionRequests, "monthly ledger should request the second page").toContainEqual({ limit: 1000, offset: 1000 });
+  expect(
+    transactionRequests.some((request) => request.offset >= 2000),
+    `monthly ledger should stop after the short second page: ${JSON.stringify(transactionRequests)}`
+  ).toBe(false);
+  await expect(page.locator(".transaction-history-date-row")).toHaveCount(0);
+  await expect(page.locator(".transaction-history-sentinel")).toHaveCount(0);
 });
 
 test("transactions list affordance: top filters, compact ledger, ownerless marker", async ({ page }) => {

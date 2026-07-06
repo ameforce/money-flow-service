@@ -41,6 +41,8 @@ const COPYRIGHT_TEXT = `© ENM Software v${APP_VERSION}`;
 
 const API_PREFIX = "/api/v1";
 const CLIENT_VERSION_CHECK_INTERVAL_MS = 60_000;
+const TRANSACTION_LEDGER_PAGE_LIMIT = 1000;
+const TRANSACTION_LEDGER_MAX_PAGES = 60;
 const SAVED_EMAIL_KEY = "money-flow-saved-email";
 const ACTIVE_HOUSEHOLD_KEY = "money-flow-active-household-id";
 const ACTIVE_TAB_KEY = "money-flow-active-tab";
@@ -5023,6 +5025,37 @@ function App() {
     return rows;
   }
 
+  async function loadTransactionLedgerItems(txQuery, nextToken = token) {
+    const allRows = [];
+    const seenIds = new Set();
+    let offset = 0;
+    for (let pageIndex = 0; pageIndex < TRANSACTION_LEDGER_MAX_PAGES; pageIndex += 1) {
+      const pageRows = await api(
+        `${API_PREFIX}/transactions?${txQuery}&limit=${TRANSACTION_LEDGER_PAGE_LIMIT}&offset=${offset}`,
+        {},
+        nextToken
+      );
+      const safeRows = Array.isArray(pageRows) ? pageRows : [];
+      let appendedCount = 0;
+      for (const row of safeRows) {
+        const rowId = String(row?.id || "");
+        if (rowId && seenIds.has(rowId)) {
+          continue;
+        }
+        if (rowId) {
+          seenIds.add(rowId);
+        }
+        allRows.push(row);
+        appendedCount += 1;
+      }
+      if (safeRows.length < TRANSACTION_LEDGER_PAGE_LIMIT || appendedCount === 0) {
+        break;
+      }
+      offset += safeRows.length;
+    }
+    return allRows;
+  }
+
   async function refreshData(REFRESH_PRICES = false, nextToken = token, filterOverride = null, options = {}) {
     const silent = Boolean(options?.silent);
     void REFRESH_PRICES;
@@ -5034,7 +5067,7 @@ function App() {
       const { txQuery, overviewQuery } = resolveFilterQuery(filterOverride);
       const [overviewResp, txResp, holdingResp, portfolioResp, statusResp] = await Promise.all([
         api(`${API_PREFIX}/dashboard/overview?${overviewQuery}`, {}, nextToken),
-        api(`${API_PREFIX}/transactions?${txQuery}&limit=1000`, {}, nextToken),
+        loadTransactionLedgerItems(txQuery, nextToken),
         api(`${API_PREFIX}/holdings`, {}, nextToken),
         api(`${API_PREFIX}/dashboard/portfolio`, {}, nextToken),
         loadPriceStatusQuietly(nextToken),
@@ -5082,7 +5115,7 @@ function App() {
       if (includeTransactions) {
         requests.push(
           api(`${API_PREFIX}/dashboard/overview?${overviewQuery}`, {}, nextToken).then((data) => ({ key: "overview", data })),
-          api(`${API_PREFIX}/transactions?${txQuery}&limit=1000`, {}, nextToken).then((data) => ({ key: "transactions", data })),
+          loadTransactionLedgerItems(txQuery, nextToken).then((data) => ({ key: "transactions", data })),
         );
       }
       if (includeHoldings) {
