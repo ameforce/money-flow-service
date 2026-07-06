@@ -17,16 +17,16 @@ const MOBILE_VIEWPORTS = [
   { name: "m414", width: 414, height: 896 },
 ];
 
-async function readToggleMetrics(page, { selector, label }) {
-  return page.locator(selector).first().evaluate((button, metricLabel) => {
-    const box = button.getBoundingClientRect();
+async function readTargetMetrics(page, { selector, label }) {
+  return page.locator(selector).first().evaluate((target, metricLabel) => {
+    const box = target.getBoundingClientRect();
     const centerX = box.left + box.width / 2;
     const centerY = box.top + box.height / 2;
     const topElement = document.elementFromPoint(centerX, centerY);
-    const style = getComputedStyle(button);
+    const style = getComputedStyle(target);
     return {
       label: metricLabel,
-      text: button.textContent?.replace(/\s+/g, " ").trim() || button.getAttribute("aria-label") || "",
+      text: target.textContent?.replace(/\s+/g, " ").trim() || target.getAttribute("aria-label") || "",
       width: box.width,
       height: box.height,
       left: box.left,
@@ -36,7 +36,7 @@ async function readToggleMetrics(page, { selector, label }) {
       display: style.display,
       visibility: style.visibility,
       centerInViewport: centerX >= 0 && centerX <= window.innerWidth && centerY >= 0 && centerY <= window.innerHeight,
-      hitVisible: Boolean(topElement && (topElement === button || button.contains(topElement))),
+      hitVisible: Boolean(topElement && (topElement === target || target.contains(topElement))),
       viewport: { width: window.innerWidth, height: window.innerHeight },
     };
   }, label);
@@ -52,7 +52,7 @@ async function focusListForMeasurement(page, selector) {
   await page.waitForTimeout(150);
 }
 
-test("issue 225: mobile transaction and holding detail toggles expose 44px hit targets", async ({ page }) => {
+test("issue 225: mobile transaction rows and holding detail toggles expose 44px hit targets", async ({ page }) => {
   test.setTimeout(180_000);
 
   const email = `${unique("issue-225-touch")}@example.com`;
@@ -82,12 +82,12 @@ test("issue 225: mobile transaction and holding detail toggles expose 44px hit t
     const transactionRow = page.locator("tr.transaction-row", { hasText: txMemo }).first();
     await expect(transactionRow).toBeVisible();
     await centerRowForMeasurement(page, transactionRow);
-    const transactionToggle = transactionRow.locator(".mobile-toggle-btn").first();
-    await expect(transactionToggle).toBeVisible();
+    await expect(transactionRow.locator(".mobile-toggle-btn")).toHaveCount(0);
+    await expect(transactionRow).toHaveAttribute("aria-keyshortcuts", /Space/);
     allMetrics.push(
-      await readToggleMetrics(page, {
-        selector: `tr.transaction-row:has-text("${txMemo}") .mobile-toggle-btn`,
-        label: `${viewport.name} transaction detail toggle`,
+      await readTargetMetrics(page, {
+        selector: `tr.transaction-row:has-text("${txMemo}")`,
+        label: `${viewport.name} transaction ledger row`,
       })
     );
     await expectNoHorizontalOverflow(page, 12);
@@ -100,7 +100,7 @@ test("issue 225: mobile transaction and holding detail toggles expose 44px hit t
     const holdingToggle = holdingRow.locator(".mobile-toggle-btn").first();
     await expect(holdingToggle).toBeVisible();
     allMetrics.push(
-      await readToggleMetrics(page, {
+      await readTargetMetrics(page, {
         selector: `tr.holding-row:has-text("${holdingName}") .mobile-toggle-btn`,
         label: `${viewport.name} holding detail toggle`,
       })
@@ -110,10 +110,10 @@ test("issue 225: mobile transaction and holding detail toggles expose 44px hit t
 
   const undersizedTargets = allMetrics.filter((metric) => metric.width < 44 || metric.height < 44);
   const blockedCenters = allMetrics.filter((metric) => !metric.centerInViewport || !metric.hitVisible);
-  expect(undersizedTargets, `mobile row detail toggles should be at least 44x44px: ${JSON.stringify(allMetrics)}`).toEqual(
+  expect(undersizedTargets, `mobile transaction rows and holding detail toggles should be at least 44x44px: ${JSON.stringify(allMetrics)}`).toEqual(
     []
   );
-  expect(blockedCenters, `mobile row detail toggle centers should be directly tappable: ${JSON.stringify(allMetrics)}`).toEqual(
+  expect(blockedCenters, `mobile transaction rows and holding detail toggle centers should be directly tappable: ${JSON.stringify(allMetrics)}`).toEqual(
     []
   );
   await capture(page, "issue-225-mobile-row-detail-touch-targets");

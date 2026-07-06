@@ -1,0 +1,128 @@
+
+> money-flow-workspace@0.1.0 e2e
+> uv run python scripts/run_e2e_with_orchestrator.py e2e/specs/import.spec.js --project=desktop-chromium --grep import flow: workbook dry-run and apply --workers=1
+
+[e2e-runner] isolated run -> backend:11136, frontend:11137, mode:dev, db:e2e_run_5704d22d2d674e1cb6bc4873c9214fca.db
+[orchestrator] backend start: C:\Users\enmso\.codex\worktrees\4e5e\money-flow-service\.venv\Scripts\python.exe -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 11136 --use-colors
+[orchestrator] waiting backend ready: http://127.0.0.1:11136/healthz
+2026-07-06 12:09:29 [backend] [32mINFO[0m:     Started server process [[36m8224[0m]
+2026-07-06 12:09:29 [backend] [32mINFO[0m:     Waiting for application startup.
+2026-07-06 12:09:29 [backend] [32mINFO[0m:     Application startup complete.
+2026-07-06 12:09:29 [backend] [32mINFO[0m:     Uvicorn running on [1mhttp://127.0.0.1:11136[0m (Press CTRL+C to quit)
+2026-07-06 12:09:30 [backend] [32mINFO[0m:     127.0.0.1:11145 - "[1mGET /healthz HTTP/1.1[0m" [32m200 OK[0m
+[orchestrator] backend is ready
+[orchestrator] frontend start: cmd /c npm run dev --prefix frontend -- --strictPort --host 127.0.0.1 --port 11137
+2026-07-06 12:09:30 [backend] [32mINFO[0m:     127.0.0.1:11146 - "[1mGET /healthz HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 12:09:30 [frontend]
+2026-07-06 12:09:30 [frontend] > frontend@0.0.0 dev
+2026-07-06 12:09:30 [frontend] > vite --strictPort --host 127.0.0.1 --port 11137
+2026-07-06 12:09:30 [frontend]
+2026-07-06 12:09:30 [frontend]
+2026-07-06 12:09:30 [frontend]   [32m[1mVITE[22m v7.3.3[39m  [2mready in [0m[1m200[22m[2m[0m ms[22m
+2026-07-06 12:09:30 [frontend]
+2026-07-06 12:09:30 [frontend]   [32m?[39m  [1mLocal[22m:   [36mhttp://127.0.0.1:[1m11137[22m/[39m
+
+Running 1 test using 1 worker
+
+2026-07-06 12:09:33 [backend] [32mINFO[0m:     127.0.0.1:9855 - "[1mGET /api/v1/system/client-version HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 12:09:33 [backend] [32mINFO[0m:     127.0.0.1:9856 - "[1mGET /api/v1/auth/client-config HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 12:09:33 [backend] [32mINFO[0m:     127.0.0.1:9858 - "[1mGET /api/v1/household/current HTTP/1.1[0m" [31m401 Unauthorized[0m
+2026-07-06 12:09:33 [backend] [32mINFO[0m:     127.0.0.1:9859 - "[1mGET /api/v1/household/list HTTP/1.1[0m" [31m401 Unauthorized[0m
+2026-07-06 12:09:33 [backend] [32mINFO[0m:     127.0.0.1:9857 - "[1mGET /api/v1/auth/me HTTP/1.1[0m" [31m401 Unauthorized[0m
+2026-07-06 12:09:33 [backend] [32mINFO[0m:     127.0.0.1:9860 - "[1mPOST /api/v1/auth/refresh HTTP/1.1[0m" [31m401 Unauthorized[0m
+2026-07-06 12:09:33 [backend] [32mINFO[0m:     127.0.0.1:8232 - "[1mGET /api/v1/auth/client-config HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 12:09:34 [backend] [32mINFO[0m:     127.0.0.1:14507 - "[1mPOST /api/v1/auth/register HTTP/1.1[0m" [32m201 Created[0m
+2026-07-06 12:09:45 [backend] [32mINFO[0m:     127.0.0.1:3704 - "[1mGET /api/v1/auth/client-config HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 12:09:45 [backend] [32mINFO[0m:     127.0.0.1:13862 - "[1mPOST /api/v1/auth/verify-email HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 12:09:45 [backend] [32mINFO[0m:     127.0.0.1:10362 - "[1mGET /api/v1/auth/me HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 12:09:45 [backend] [32mINFO[0m:     127.0.0.1:11439 - "[1mGET /api/v1/household/current HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 12:09:45 [backend] [32mINFO[0m:     127.0.0.1:11438 - "[1mGET /api/v1/household/list HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 12:09:45 [backend] [32mINFO[0m:     127.0.0.1:3231 - "[1mGET /api/v1/household/settings HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 12:09:45 [backend] [32mINFO[0m:     127.0.0.1:3232 - "[1mGET /api/v1/categories HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 12:09:45 [backend] [32mINFO[0m:     127.0.0.1:14029 - "[1mGET /api/v1/household/members HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 12:09:45 [backend] [32mINFO[0m:     127.0.0.1:1111 - "[1mGET /api/v1/household/invitations/received HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 12:09:45 [backend] [32mINFO[0m:     127.0.0.1:1110 - "[1mGET /api/v1/household/invitations HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 12:09:46 [backend] [32mINFO[0m:     127.0.0.1:10902 - "[1mGET /api/v1/dashboard/overview?year=2026&month=7 HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 12:09:46 [backend] [32mINFO[0m:     127.0.0.1:4703 - "[1mGET /api/v1/transactions?year=2026&month=7&limit=1000&offset=0 HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 12:09:46 [backend] [32mINFO[0m:     127.0.0.1:13620 - "[1mGET /api/v1/prices/status HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 12:09:46 [backend] [32mINFO[0m:     127.0.0.1:13618 - "[1mGET /api/v1/holdings HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 12:09:46 [backend] [32mINFO[0m:     127.0.0.1:13619 - "[1mGET /api/v1/dashboard/portfolio HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 12:09:46 [backend] [32mINFO[0m:     127.0.0.1:12430 - "[1mPOST /api/v1/household/ws-ticket HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 12:09:46 [backend] [32mINFO[0m:     127.0.0.1:7924 - "WebSocket /ws/v1/household/37d7adb6-0478-4577-83e0-3f72a3fec9a6" [accepted]
+2026-07-06 12:09:46 [backend] [32mINFO[0m:     connection open
+2026-07-06 12:09:46 [backend] [32mINFO[0m:     127.0.0.1:5885 - "[1mGET /api/v1/transactions?limit=3000 HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 12:09:46 [backend] [32mINFO[0m:     127.0.0.1:6674 - "[1mPOST /api/v1/imports/workbook/upload?mode=dry_run HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 12:09:47 [backend] [32mINFO[0m:     127.0.0.1:13278 - "[1mPOST /api/v1/imports/workbook/upload?mode=apply HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 12:09:47 [backend] [32mINFO[0m:     127.0.0.1:1538 - "[1mGET /api/v1/auth/me HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 12:09:47 [backend] [32mINFO[0m:     127.0.0.1:1683 - "[1mGET /api/v1/household/list HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 12:09:47 [backend] [32mINFO[0m:     127.0.0.1:1682 - "[1mGET /api/v1/household/current HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 12:09:47 [backend] [32mINFO[0m:     127.0.0.1:9382 - "[1mGET /api/v1/household/settings HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 12:09:47 [backend] [32mINFO[0m:     127.0.0.1:9383 - "[1mGET /api/v1/categories HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 12:09:47 [backend] [32mINFO[0m:     127.0.0.1:10052 - "[1mGET /api/v1/dashboard/overview?year=2026&month=7 HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 12:09:47 [backend] [32mINFO[0m:     127.0.0.1:9384 - "[1mGET /api/v1/holdings HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 12:09:47 [backend] [32mINFO[0m:     127.0.0.1:9386 - "[1mGET /api/v1/prices/status HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 12:09:47 [backend] [32mINFO[0m:     127.0.0.1:9383 - "[1mGET /api/v1/transactions?year=2026&month=7&limit=1000&offset=0 HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 12:09:47 [backend] [32mINFO[0m:     127.0.0.1:9385 - "[1mGET /api/v1/dashboard/portfolio HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 12:09:47 [backend] [32mINFO[0m:     127.0.0.1:6930 - "[1mGET /api/v1/dashboard/overview?year=2026&month=3 HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 12:09:47 [backend] [32mINFO[0m:     127.0.0.1:3836 - "[1mGET /api/v1/prices/status HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 12:09:47 [backend] [32mINFO[0m:     127.0.0.1:3833 - "[1mGET /api/v1/transactions?year=2026&month=3&limit=1000&offset=0 HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 12:09:47 [backend] [32mINFO[0m:     127.0.0.1:3834 - "[1mGET /api/v1/holdings HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 12:09:47 [backend] [32mINFO[0m:     127.0.0.1:3835 - "[1mGET /api/v1/dashboard/portfolio HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 12:09:57 [backend] [32mINFO[0m:     connection closed
+  x  1 [desktop-chromium] › e2e\specs\import.spec.js:283:5 › import flow: workbook dry-run and apply (25.0s)
+
+
+  1) [desktop-chromium] › e2e\specs\import.spec.js:283:5 › import flow: workbook dry-run and apply ─
+
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
+
+    Locator: locator('tr.transaction-row.transaction-row-imported').filter({ hasText: 'import-tx-1783307373183-1954' }).first()
+    Expected: visible
+    Timeout: 10000ms
+    Error: element(s) not found
+
+    Call log:
+    [2m  - Expect "toBeVisible" with timeout 10000ms[22m
+    [2m  - waiting for locator('tr.transaction-row.transaction-row-imported').filter({ hasText: 'import-tx-1783307373183-1954' }).first()[22m
+
+
+      340 |   await postApplyActions.getByRole("button", { name: "가져온 거래 보기", exact: true }).click();
+      341 |   const importedTransactionRow = page.locator("tr.transaction-row.transaction-row-imported", { hasText: importTxMemo }).first();
+    > 342 |   await expect(importedTransactionRow).toBeVisible();
+          |                                        ^
+      343 |   await expect(importedTransactionRow).toHaveAttribute("data-import-highlight", "true");
+      344 |
+      345 |   await page.getByRole("button", { name: "데이터 가져오기", exact: true }).click();
+        at C:\Users\enmso\.codex\worktrees\4e5e\money-flow-service\e2e\specs\import.spec.js:342:40
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results\import-import-flow-workbook-dry-run-and-apply-desktop-chromium\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results\import-import-flow-workbook-dry-run-and-apply-desktop-chromium\video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results\import-import-flow-workbook-dry-run-and-apply-desktop-chromium\error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results\import-import-flow-workbook-dry-run-and-apply-desktop-chromium\trace.zip
+    Usage:
+
+        npx playwright show-trace test-results\import-import-flow-workbook-dry-run-and-apply-desktop-chromium\trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  1 failed
+    [desktop-chromium] › e2e\specs\import.spec.js:283:5 › import flow: workbook dry-run and apply ──
+[e2e-runner] stop orchestrator
+^C
+[orchestrator] shutdown signal received(signum=21)
+[orchestrator] shutdown requested -> cleanup all
+[orchestrator] terminate frontend(pid=67264)
+2026-07-06 12:09:58 [frontend] ^C
+[orchestrator] terminate backend(pid=12920)
+2026-07-06 12:09:58 [backend] [32mINFO[0m:     Shutting down
+2026-07-06 12:09:58 [backend] [32mINFO[0m:     Waiting for application shutdown.
+2026-07-06 12:09:58 [backend] [32mINFO[0m:     Application shutdown complete.
+2026-07-06 12:09:58 [backend] [32mINFO[0m:     Finished server process [[36m8224[0m]

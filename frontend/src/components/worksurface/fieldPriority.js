@@ -3,14 +3,14 @@ export const WORK_SURFACE_FIELDS = {
     desktop: [
       { key: 'occurred_on', label: '일자', priority: 'primary', className: 'transaction-col-date' },
       { key: 'flow_type', label: '유형', priority: 'cue', className: 'transaction-col-type' },
+      { key: 'owner_name', label: '거래자명', priority: 'cue', className: 'transaction-col-owner' },
       { key: 'category', label: '카테고리', priority: 'primary', className: 'transaction-col-category' },
       { key: 'memo', label: '메모', priority: 'primary', className: 'transaction-col-memo' },
       { key: 'amount', label: '금액', priority: 'primary', className: 'transaction-col-amount' },
-      { key: 'owner_name', label: '거래자명', priority: 'cue', className: 'transaction-col-owner' },
       { key: 'updated_at', label: '최종 수정일', priority: 'secondary', className: 'transaction-col-updated' },
     ],
-    mobileCompact: ['occurred_on', 'flow_type', 'amount', 'memo'],
-    cues: ['category', 'owner_name', 'updated_at'],
+    mobileCompact: ['occurred_on', 'flow_type', 'owner_name', 'category', 'memo', 'amount'],
+    cues: ['updated_at'],
   },
   holdings: {
     desktop: [

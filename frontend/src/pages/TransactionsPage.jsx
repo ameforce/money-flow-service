@@ -14,7 +14,6 @@ export function TransactionsPage({
   entrySheet,
   inlineEdit,
   categoryManager,
-  history,
   support,
   breakdown,
   ownerHelpers,
@@ -54,6 +53,7 @@ export function TransactionsPage({
     showTransactionScrollTop,
     sortedTransactions,
     transactionSortSummary,
+    transactionLedgerItems,
     transactionsMobileStickyActive,
     txListFilter,
     txSortDirection,
@@ -126,16 +126,6 @@ export function TransactionsPage({
     updateShowTxCategoryManager,
   } = categoryManager;
   const {
-    transactionHistoryAnchorDate,
-    transactionHistoryBottomSentinelRef,
-    transactionHistoryError,
-    transactionHistoryInitialized,
-    transactionHistoryLoading,
-    transactionHistoryToday,
-    transactionHistoryTopSentinelRef,
-    transactionLedgerItems,
-  } = history;
-  const {
     transactionSupportDetailsRef,
     transactionSupportOpen,
     updateTransactionSupportOpen,
@@ -165,7 +155,7 @@ export function TransactionsPage({
         constants={{ DEFAULT_TRANSACTION_ROW_COLORS, FLOW_TYPE_LABELS, FLOW_TYPE_OPTIONS }}
         permissions={{ canEditHouseholdData, canEditRecords, isCompactViewport, isLedgerCompactViewport, loading }}
         monthFilter={{ handleMoveToCurrentMonth, handleShiftYearMonth, handleYearMonthInputKeyDown, isMonthFilterPending, isNextMonthDisabled, isPrevMonthDisabled, maxMonth, minMonth, updateYearMonthInput, yearMonth }}
-        listState={{ expandedTransactionRows, isTransactionFilterActive, recentImportTransactionIds, recentSavedTransactionIds, selectedTransactionSummary, showTransactionFilterPanel, showTransactionScrollTop, sortedTransactions, transactionSortSummary, transactionsMobileStickyActive, txListFilter, txSortDirection }}
+        listState={{ expandedTransactionRows, isTransactionFilterActive, recentImportTransactionIds, recentSavedTransactionIds, selectedTransactionSummary, showTransactionFilterPanel, showTransactionScrollTop, sortedTransactions, transactionSortSummary, transactionLedgerItems, transactionsMobileStickyActive, txListFilter, txSortDirection }}
         listRefs={{ transactionListCardRef, transactionListHeadingRef, transactionStickyToolbarRef }}
         listLookups={{ categoryById, householdSettings, normalizeTransactionRowColors, renderCategoryCell }}
         listActions={{ clearTxListFilter, selectTransactionRows, scrollTransactionListToTop, toggleExpandedTransactionRow, toggleTxSortDirection, updateShowTransactionFilterPanel, updateTransactionRowsExpanded, updateTransactionRowsSelected, updateTxListFilter }}
@@ -173,7 +163,6 @@ export function TransactionsPage({
         entrySheet={{ openNormalTransactionEntrySheet, transactionDesktopAddActionRef, transactionFabRef }}
         inlineEdit={{ closeTxInlineEdit, createAndApplyTxInlineCategory, handleGroupedDecimalInput, handleTransactionAmountInput, handleTxInlineEditKeyDown, openTransactionInlineEditor, submitTxInlineEdit, txInlineEdit, updateTxInlineEdit }}
         categoryManager={{ renderLegacyOwnerRemapHelper, txInlineCategoryMajor, txInlineCategoryMajorOptions, txInlineCategoryMinorOptions, txInlineCategoryOptions, txInlineCategoryQuickChips }}
-        history={{ transactionHistoryAnchorDate, transactionHistoryBottomSentinelRef, transactionHistoryError, transactionHistoryInitialized, transactionHistoryLoading, transactionHistoryToday, transactionHistoryTopSentinelRef, transactionLedgerItems }}
         ownerHelpers={{ ownerOptionsWithFallback, ownerSelectValue, ownerSelectionFromValue }}
         formatters={{ fmtDate, fmtKrw, toCategoryMajorLabel, toCategoryMinorLabel, toYearMonthKey }}
       />

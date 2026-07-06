@@ -13,7 +13,6 @@ export function TransactionListCard({
   entrySheet,
   inlineEdit,
   categoryManager,
-  history,
   ownerHelpers,
   formatters,
 }) {
@@ -35,7 +34,6 @@ export function TransactionListCard({
           selection={selection}
           entrySheet={entrySheet}
           inlineEdit={inlineEdit}
-          history={history}
           formatters={formatters}
         />
         <TransactionListTablePanel
@@ -47,7 +45,6 @@ export function TransactionListCard({
           selection={selection}
           inlineEdit={inlineEdit}
           categoryManager={categoryManager}
-          history={history}
           ownerHelpers={ownerHelpers}
           formatters={formatters}
         />
