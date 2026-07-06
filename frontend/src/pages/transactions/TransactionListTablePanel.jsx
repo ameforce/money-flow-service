@@ -3,6 +3,7 @@ import { TransactionSurfaceTable } from "../../components/worksurface/Transactio
 export function TransactionListTablePanel({
   constants,
   permissions,
+  requestTransactionFilterPanel,
   listState,
   listLookups,
   listActions,
@@ -20,7 +21,7 @@ export function TransactionListTablePanel({
     isLedgerCompactViewport = isCompactViewport,
     loading,
   } = permissions;
-  const { expandedTransactionRows, recentImportTransactionIds, recentSavedTransactionIds, showTransactionScrollTop, sortedTransactions, transactionsMobileStickyActive, txListFilter, txSortDirection } = listState;
+  const { expandedTransactionRows, recentImportTransactionIds, recentSavedTransactionIds, showTransactionFilterPanel, showTransactionScrollTop, sortedTransactions, transactionsMobileStickyActive, txListFilter, txSortDirection } = listState;
   const { categoryById, householdSettings, normalizeTransactionRowColors, renderCategoryCell } = listLookups;
   const { clearTxListFilter, selectTransactionRows, scrollTransactionListToTop, toggleExpandedTransactionRow, toggleTxSortDirection, updateTransactionRowsExpanded, updateTransactionRowsSelected, updateTxListFilter } = listActions;
   const { areAllFilteredTransactionsSelected, selectedTransactionIds, toggleAllFilteredTransactionSelection, toggleTransactionSelection } = selection;
@@ -62,6 +63,8 @@ export function TransactionListTablePanel({
         txListFilter={txListFilter}
         setTxListFilter={updateTxListFilter}
         clearTxListFilter={clearTxListFilter}
+        showTransactionFilterPanel={showTransactionFilterPanel}
+        requestDesktopFilterPanel={requestTransactionFilterPanel}
         householdSettings={householdSettings}
         normalizeTransactionRowColors={normalizeTransactionRowColors}
         DEFAULT_TRANSACTION_ROW_COLORS={DEFAULT_TRANSACTION_ROW_COLORS}

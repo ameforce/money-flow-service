@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 
 import {
   capture,
+  createCategoryViaApi,
   createTransactionViaApi,
   expectNoHorizontalOverflow,
   openTab,
@@ -291,4 +292,232 @@ test("transaction ledger keeps dense columns, bottom mobile chrome, and quiet se
   );
 
   await capture(page, "transactions-ledger-layout-selection-buttons");
+});
+
+test("transaction ledger aligns desktop cells and keeps mobile rows compact", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("ledger-consistency")}@example.com`;
+  const displayName = "댕댕 가족비서";
+  const memoPrefix = `${unique("ledger-consistency-memo")}-생활비`;
+
+  await registerAndVerify(page, { email, displayName });
+  const category = await createCategoryViaApi(page, {
+    major: "생활",
+    minor: "생활용품",
+  });
+  for (let index = 0; index < 14; index += 1) {
+    await createTransactionViaApi(page, {
+      memo: `${memoPrefix}-${String(index).padStart(2, "0")}`,
+      amount: String(15000 + index),
+      categoryId: category.id,
+      ownerName: displayName,
+    });
+  }
+  await page.reload();
+
+  await openLedger(page, DESKTOP_PROFILE);
+  const desktopMetrics = await page.locator("tr.transaction-row", { hasText: `${memoPrefix}-00` }).first().evaluate((row) => {
+    const header = document.querySelector(".transactions-desktop-ledger-head");
+    const boxOf = (element) => {
+      const box = element?.getBoundingClientRect();
+      return box
+        ? {
+            top: box.top,
+            bottom: box.bottom,
+            left: box.left,
+            right: box.right,
+            width: box.width,
+            height: box.height,
+            centerY: box.top + box.height / 2,
+          }
+        : null;
+    };
+    const visible = (element) => {
+      if (!element) {
+        return false;
+      }
+      const style = getComputedStyle(element);
+      const box = element.getBoundingClientRect();
+      return style.display !== "none" && style.visibility !== "hidden" && box.width > 0 && box.height > 0;
+    };
+    const ownerCell = row.querySelector(".transaction-col-owner");
+    const categoryCell = row.querySelector(".transaction-col-category");
+    const bodyCells = Array.from(row.querySelectorAll("td"));
+    const dateHead = header?.querySelector('[data-field-key="occurred_on"]');
+    const dateButton = dateHead?.querySelector(".sort-header");
+    return {
+      owner: {
+        compactVisible: visible(ownerCell?.querySelector(".transaction-owner-compact")),
+        cueVisible: visible(ownerCell?.querySelector(".transaction-owner-cue")),
+        cueText: ownerCell?.querySelector(".transaction-owner-cue")?.textContent?.replace(/\s+/g, " ").trim() || "",
+      },
+      category: {
+        desktopCueVisible: visible(categoryCell?.querySelector(".transaction-desktop-category-cue")),
+        desktopCueText: categoryCell?.querySelector(".transaction-desktop-category-cue")?.textContent?.replace(/\s+/g, " ").trim() || "",
+        fullValueVisible: visible(categoryCell?.querySelector(".transaction-mobile-detail-value")),
+      },
+      dateHeader: {
+        cell: boxOf(dateHead),
+        button: boxOf(dateButton),
+      },
+      rowSeparators: bodyCells.slice(0, -1).map((cell) => {
+        const style = getComputedStyle(cell);
+        return {
+          field: cell.getAttribute("data-field-key") || cell.className,
+          borderRightWidth: Number.parseFloat(style.borderRightWidth || "0"),
+        };
+      }),
+    };
+  });
+
+  expect(desktopMetrics.owner.compactVisible, `desktop should not show mobile owner initials: ${JSON.stringify(desktopMetrics)}`).toBe(false);
+  expect(desktopMetrics.owner.cueVisible, `desktop should show the full owner cue: ${JSON.stringify(desktopMetrics)}`).toBe(true);
+  expect(desktopMetrics.owner.cueText).toBe(displayName);
+  expect(desktopMetrics.category.desktopCueVisible, `desktop should use the compact category cue: ${JSON.stringify(desktopMetrics)}`).toBe(true);
+  expect(desktopMetrics.category.desktopCueText).toBe("생활용품");
+  expect(desktopMetrics.category.fullValueVisible, `desktop should not render the long category value in the tight column: ${JSON.stringify(desktopMetrics)}`).toBe(false);
+  expect(desktopMetrics.dateHeader.cell, `date header cell should exist: ${JSON.stringify(desktopMetrics)}`).not.toBeNull();
+  expect(desktopMetrics.dateHeader.button, `date sort button should fill the date header cell: ${JSON.stringify(desktopMetrics)}`).not.toBeNull();
+  expectClose(desktopMetrics.dateHeader.button.centerY, desktopMetrics.dateHeader.cell.centerY, 1, "desktop date header vertical center");
+  expect(desktopMetrics.dateHeader.button.height).toBeGreaterThanOrEqual(desktopMetrics.dateHeader.cell.height - 2);
+  expect(
+    desktopMetrics.rowSeparators.every((cell) => cell.borderRightWidth >= 1),
+    `desktop body cells should carry the same vertical separators as the header: ${JSON.stringify(desktopMetrics.rowSeparators)}`,
+  ).toBe(true);
+  await capture(page, "transactions-ledger-consistency-desktop");
+
+  const desktopMemoFilter = page.locator(".transactions-desktop-ledger-head").getByRole("button", { name: "메모 필터 열기" });
+  await expect(desktopMemoFilter).toHaveAttribute("aria-controls", "transaction-filter-panel");
+  await expect(desktopMemoFilter).toHaveAttribute("aria-expanded", "false");
+  await desktopMemoFilter.click();
+  await expect(desktopMemoFilter).toHaveAttribute("aria-expanded", "true");
+  const desktopFilterPanel = page.locator("#transaction-filter-panel");
+  await expect(desktopFilterPanel).toBeVisible();
+  await expect(desktopFilterPanel.getByPlaceholder("검색")).toBeFocused();
+
+  const desktopAmountFilter = page.locator(".transactions-desktop-ledger-head").getByRole("button", { name: "금액 필터 열기" });
+  await desktopAmountFilter.click();
+  const amountMinInput = desktopFilterPanel.locator("[data-transaction-filter-field='amount_min']");
+  await expect(amountMinInput).toBeFocused();
+  await amountMinInput.fill("abc");
+  await expect(amountMinInput).toHaveValue("");
+  await amountMinInput.fill("123456");
+  await expect(amountMinInput).toHaveValue("123,456");
+  const amountMaxInput = desktopFilterPanel.locator("[data-transaction-filter-field='amount_max']");
+  await amountMaxInput.fill("987654");
+  await expect(amountMaxInput).toHaveValue("987,654");
+  await desktopFilterPanel.getByRole("button", { name: "초기화" }).click();
+  await expect(amountMinInput).toHaveValue("");
+  await expect(amountMaxInput).toHaveValue("");
+
+  const desktopTypeFilter = page.locator(".transactions-desktop-ledger-head").getByRole("button", { name: "유형 필터 열기" });
+  await desktopTypeFilter.click();
+  await expect(desktopFilterPanel.locator("[data-transaction-filter-field='flow_type']")).toBeFocused();
+
+  for (const profile of MOBILE_PROFILES) {
+    await openLedger(page, profile);
+    const mobileMetrics = await page.locator("tr.transaction-row", { hasText: `${memoPrefix}-00` }).first().evaluate((row) => {
+      const head = document.querySelector(".transactions-mobile-ledger-head");
+      const toolbar = document.querySelector("[data-testid='transaction-sticky-toolbar']");
+      const rowBox = row.getBoundingClientRect();
+      const memo = row.querySelector(".transaction-col-memo");
+      const memoText = row.querySelector(".transaction-memo-text");
+      const headerFit = (selector) => {
+        const item = head?.querySelector(selector);
+        return {
+          text: item?.textContent?.replace(/\s+/g, " ").trim() || "",
+          clientWidth: item?.clientWidth || 0,
+          scrollWidth: item?.scrollWidth || 0,
+        };
+      };
+      const categoryCue = row.querySelector(".transaction-mobile-category-cue");
+      const headerItems = Array.from(head?.children || []).filter((element) => {
+        const style = getComputedStyle(element);
+        const box = element.getBoundingClientRect();
+        return style.display !== "none" && style.visibility !== "hidden" && box.width > 0 && box.height > 0;
+      });
+      const headBox = head?.getBoundingClientRect();
+      const boxOf = (element) => {
+        const box = element?.getBoundingClientRect();
+        return box
+          ? {
+              top: box.top,
+              bottom: box.bottom,
+              left: box.left,
+              right: box.right,
+              width: box.width,
+              height: box.height,
+              centerY: box.top + box.height / 2,
+            }
+          : null;
+      };
+      const countSummary = toolbar?.querySelector(".surface-count-summary");
+      return {
+        viewportWidth: document.documentElement.clientWidth,
+        rowHeight: rowBox.height,
+        rowTopGap: memoText ? memoText.getBoundingClientRect().top - rowBox.top : 0,
+        rowBottomGap: memoText ? rowBox.bottom - memoText.getBoundingClientRect().bottom : 0,
+        memoWidth: memo?.getBoundingClientRect().width || 0,
+        dateHeadText: head?.querySelector(".ledger-head-date")?.textContent?.replace(/\s+/g, " ").trim() || "",
+        labelFits: {
+          owner: headerFit(".ledger-head-owner"),
+          category: headerFit(".ledger-head-category"),
+          categoryCue: {
+            text: categoryCue?.textContent?.replace(/\s+/g, " ").trim() || "",
+            clientWidth: categoryCue?.clientWidth || 0,
+            scrollWidth: categoryCue?.scrollWidth || 0,
+          },
+        },
+        headerCenterDeltas: headerItems.map((item) => ({
+          className: item.className,
+          text: item.textContent?.replace(/\s+/g, " ").trim() || "",
+          delta: Math.abs((boxOf(item)?.centerY || 0) - ((headBox?.top || 0) + (headBox?.height || 0) / 2)),
+        })),
+        toolbar: {
+          summaryText: countSummary?.textContent?.replace(/\s+/g, " ").trim() || "",
+          summaryHeight: countSummary?.getBoundingClientRect().height || 0,
+          controlStripHeight: toolbar?.querySelector(".surface-control-strip")?.getBoundingClientRect().height || 0,
+        },
+      };
+    });
+
+    expect(mobileMetrics.dateHeadText, `${profile.name} date header should not include a visible filter suffix: ${JSON.stringify(mobileMetrics)}`).toBe("일자");
+    expect(mobileMetrics.labelFits.owner.text).toBe("거래자");
+    expect(mobileMetrics.labelFits.category.text).toBe("카테고리");
+    expect(mobileMetrics.labelFits.categoryCue.text).toBe("생활용품");
+    for (const [label, metrics] of Object.entries(mobileMetrics.labelFits)) {
+      expect(
+        metrics.scrollWidth,
+        `${profile.name} ${label} label should fit without horizontal clipping: ${JSON.stringify(metrics)}`,
+      ).toBeLessThanOrEqual(metrics.clientWidth + 1);
+    }
+    expect(
+      mobileMetrics.headerCenterDeltas.every((item) => item.delta <= 3),
+      `${profile.name} header labels should be vertically centered: ${JSON.stringify(mobileMetrics.headerCenterDeltas)}`,
+    ).toBe(true);
+    expect(
+      mobileMetrics.memoWidth,
+      `${profile.name} memo text column should have enough room: ${JSON.stringify(mobileMetrics)}`,
+    ).toBeGreaterThanOrEqual(profile.width <= 360 ? 86 : 104);
+    expect(
+      mobileMetrics.rowHeight,
+      `${profile.name} collapsed rows should stay dense: ${JSON.stringify(mobileMetrics)}`,
+    ).toBeLessThanOrEqual(44.5);
+    expect(
+      Math.min(mobileMetrics.rowTopGap, mobileMetrics.rowBottomGap),
+      `${profile.name} row text should not sit against row borders: ${JSON.stringify(mobileMetrics)}`,
+    ).toBeGreaterThanOrEqual(4);
+    expect(mobileMetrics.toolbar.summaryText).toContain("총 14건 중 14건 표시");
+    expect(mobileMetrics.toolbar.summaryText).toContain("오래된순");
+    expect(
+      mobileMetrics.toolbar.summaryHeight,
+      `${profile.name} count and sort meta should stay on one compact line: ${JSON.stringify(mobileMetrics.toolbar)}`,
+    ).toBeLessThanOrEqual(18);
+    expect(
+      mobileMetrics.toolbar.controlStripHeight,
+      `${profile.name} empty status chip row should not consume vertical space: ${JSON.stringify(mobileMetrics.toolbar)}`,
+    ).toBeLessThanOrEqual(2);
+    await capture(page, `transactions-ledger-consistency-${profile.name}`);
+  }
 });
