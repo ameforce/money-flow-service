@@ -2814,8 +2814,11 @@ button.transaction-selection-clear {
   width: min(100%, 32rem);
   max-width: calc(100vw - 1.5rem);
   max-height: min(40rem, calc(100dvh - 1.4rem));
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 0.48rem;
   background: #ffffff;
   border: 1px solid #dbe3ef;
@@ -2867,12 +2870,15 @@ button.transaction-selection-clear {
 }
 
 .transaction-entry-sheet-form {
+  min-height: 0;
   padding-top: 0.1rem;
 }
 
 .transaction-quick-form {
   display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
   gap: 0.44rem;
+  min-height: 0;
   min-width: 0;
   padding-top: 0;
 }
@@ -2880,7 +2886,13 @@ button.transaction-selection-clear {
 .transaction-quick-primary-stack {
   display: grid;
   gap: 0.4rem;
+  min-height: 0;
   min-width: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 0.08rem;
+  scrollbar-gutter: stable;
 }
 
 .transaction-quick-form label {
@@ -3354,6 +3366,17 @@ button.transaction-selection-clear {
   min-width: 0;
 }
 
+.transaction-category-group-grid,
+.transaction-category-choice-grid,
+.transaction-owner-choice-grid {
+  max-height: 5rem;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 0.08rem;
+  scrollbar-gutter: stable;
+}
+
 .transaction-flow-choice-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -3390,32 +3413,20 @@ button.transaction-selection-clear {
 }
 
 .transaction-choice-chip.selected {
-  border-color: #2f7d74;
-  background: #e8f7f4;
-  color: #124d47;
-  box-shadow: inset 0 0 0 1px rgba(47, 125, 116, 0.2);
+  border-color: var(--mf-color-blue-600);
+  background: var(--mf-color-blue-100);
+  color: var(--mf-color-blue-700);
+  box-shadow: inset 0 0 0 1px rgba(8, 103, 232, 0.18);
 }
 
 .transaction-choice-chip.selected:hover:not(:disabled),
 .transaction-choice-chip.selected:active:not(:disabled),
 .transaction-choice-chip.selected:focus-visible {
-  border-color: #256f66;
-  background: #e8f7f4;
-  color: #124d47;
+  border-color: var(--mf-color-blue-600);
+  background: var(--mf-color-blue-100);
+  color: var(--mf-color-blue-700);
   transform: none;
-  box-shadow: inset 0 0 0 1px rgba(47, 125, 116, 0.22);
-}
-
-.transaction-category-group-grid .transaction-choice-chip,
-.transaction-category-choice-grid .transaction-choice-chip {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  white-space: normal;
-  overflow-wrap: anywhere;
-  word-break: break-word;
-  overflow: hidden;
-  text-overflow: clip;
+  box-shadow: inset 0 0 0 1px rgba(8, 103, 232, 0.22);
 }
 
 .transaction-choice-empty {
@@ -8671,9 +8682,9 @@ tr.holding-row-imported {
 
   .transactions-mobile-ledger-head,
   .transactions-surface-table tbody tr.transaction-row {
-    --transaction-mobile-date-column-width: 34px;
-    --transaction-mobile-cue-column-width: 34px;
-    --transaction-mobile-owner-column-width: 32px;
+    --transaction-mobile-date-column-width: 40px;
+    --transaction-mobile-cue-column-width: 40px;
+    --transaction-mobile-owner-column-width: 40px;
     --transaction-mobile-category-column-width: 44px;
     --transaction-mobile-amount-column-width: 60px;
     --transaction-action-strip-width: 0rem;

@@ -1069,10 +1069,10 @@ export function TransactionSurfaceTable({
               if (isEditing || isInteractiveRowTarget(event.target)) {
                 return;
               }
-              if (isCompactViewport && (event.key === " " || event.key === "Spacebar")) {
+              if (event.key === " " || event.key === "Spacebar") {
                 event.preventDefault();
                 clearPendingRowClickAction();
-                if (event.shiftKey) {
+                if (!isCompactViewport || event.shiftKey) {
                   toggleTransactionSelection(item.id);
                   return;
                 }
@@ -1092,13 +1092,13 @@ export function TransactionSurfaceTable({
             const rowEditShortcutLabel = canEditRecords ? "Enter 또는 F2로 편집" : "편집 권한 없음";
             const rowKeyboardShortcutLabel = isCompactViewport
               ? `${rowEditShortcutLabel}. Space로 세부를 열고 닫고 Shift+Space로 선택합니다.`
-              : `${rowEditShortcutLabel}. 클릭으로 선택합니다.`;
+              : `${rowEditShortcutLabel}. Space로 선택합니다.`;
             const rowActivationLabel = isCompactViewport
               ? "탭하면 세부를 열고 길게 누르거나 Shift+Space로 선택합니다."
-              : "행을 클릭해 선택합니다.";
+              : "행을 클릭하거나 Space로 선택합니다.";
             const rowKeyShortcuts = [
               ...(canEditRecords ? ["Enter", "F2"] : []),
-              ...(isCompactViewport ? ["Space", "Shift+Space"] : []),
+              ...(isCompactViewport ? ["Space", "Shift+Space"] : ["Space"]),
             ].join(" ");
             const updateInlineFlowType = (nextFlowType) => {
               if (!editForm) {

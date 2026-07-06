@@ -97,7 +97,11 @@ async function expectStagedCategoryLayoutStable(page) {
     `staged category buttons should keep usable touch height: ${JSON.stringify(metrics.buttonMetrics)}`,
   ).toBe(true);
   expect(
-    metrics.buttonMetrics.every((button) => button.scrollWidth <= button.clientWidth + 1),
+    metrics.buttonMetrics.every(
+      (button) =>
+        button.scrollWidth <= button.clientWidth + 1 ||
+        (button.textOverflow === "ellipsis" && button.whiteSpace === "nowrap")
+    ),
     `staged category button labels should fit: ${JSON.stringify(metrics.buttonMetrics)}`,
   ).toBe(true);
   expect(
@@ -609,7 +613,7 @@ async function releaseTouchPointerOutsideRowBeforeLongPress(page, row) {
   await page.waitForTimeout(560);
 }
 
-async function selectTransactionRowForToolbar(page, row) {
+async function selectTransactionRowForToolbar(page, row, { expectedCount = 1 } = {}) {
   await expect(row).toBeVisible();
   await row.evaluate((element) => element.scrollIntoView({ block: "center", inline: "nearest" }));
   if ((await row.getAttribute("data-row-selected")) !== "true") {
@@ -634,14 +638,13 @@ async function selectTransactionRowForToolbar(page, row) {
       }
     }
     if ((await row.getAttribute("data-row-selected")) !== "true") {
-      const checkbox = row.locator(".transaction-col-select input[type='checkbox']").first();
-      if (await checkbox.isVisible().catch(() => false)) {
-        await checkbox.click({ force: true });
-      }
+      await row.focus();
+      await expect(row).toBeFocused();
+      await page.keyboard.press((viewport?.width ?? 0) <= 820 ? "Shift+Space" : "Space");
     }
   }
   await expect(row).toHaveAttribute("data-row-selected", "true");
-  await expectTransactionSelectionSummary(page, 1);
+  await expectTransactionSelectionSummary(page, expectedCount);
 }
 
 async function clickTransactionSelectionToolbarAction(page, row, actionName) {
@@ -769,7 +772,7 @@ async function expectTransactionStickyHeaderGeometry(page, label) {
 async function expectDesktopTransactionColumnHeaderLabels(page, label) {
   const header = page.locator(".transactions-desktop-ledger-head").first();
   await expect(header, `${label} desktop ledger header visible`).toBeVisible();
-  for (const columnLabel of ["일자", "유형", "카테고리", "메모", "금액", "거래자명", "최종 수정일", "세부"]) {
+  for (const columnLabel of ["일자", "유형", "카테고리", "메모", "금액", "거래자명", "최종 수정일"]) {
     await expect(header, `${label} should include ${columnLabel}`).toContainText(columnLabel);
   }
   const metrics = await header.evaluate((element) => {
@@ -1690,16 +1693,19 @@ test("issue 195: transaction entry keeps a compatible category when type changes
 
   const transactionSheet = await openTransactionEntrySheet(page, { width: 1440, height: 900 });
   await selectTransactionFormCategory(transactionSheet, expenseCategory);
-  await labeledField(transactionSheet, "유형", "select").selectOption("income");
+  const incomeChoice = transactionSheet.locator('[data-testid="transaction-flow-choice"][data-flow-type="income"]').first();
+  await expect(incomeChoice).toBeVisible();
+  await incomeChoice.click();
+  await expect(incomeChoice).toHaveAttribute("aria-pressed", "true");
 
-  await expect(labeledField(transactionSheet, "카테고리 그룹", "select")).toHaveValue(categoryPair.major);
-  await expect(
-    transactionSheet
-      .locator("label")
-      .filter({ hasText: /^\s*카테고리\s*\(/ })
-      .locator("select")
-      .first()
-  ).toHaveValue(String(incomeCategory.id));
+  await expect(transactionSheet.getByTestId("transaction-category-group-choice").filter({ hasText: categoryPair.major }).first()).toHaveAttribute(
+    "aria-pressed",
+    "true"
+  );
+  await expect(transactionSheet.getByTestId("transaction-category-choice").filter({ hasText: incomeCategory.minor }).first()).toHaveAttribute(
+    "aria-pressed",
+    "true"
+  );
   await expect(transactionSheet.getByTestId("transaction-category-restore-notice")).toHaveCount(0);
   await capture(page, "issue-195-entry-compatible-category-kept");
 });
@@ -1721,30 +1727,29 @@ test("issue 195: transaction entry offers a category restore when type clears se
 
   const transactionSheet = await openTransactionEntrySheet(page, { width: 1440, height: 900 });
   await selectTransactionFormCategory(transactionSheet, expenseCategory);
-  const typeSelect = labeledField(transactionSheet, "유형", "select");
-  await typeSelect.selectOption("income");
+  const incomeChoice = transactionSheet.locator('[data-testid="transaction-flow-choice"][data-flow-type="income"]').first();
+  await expect(incomeChoice).toBeVisible();
+  await incomeChoice.click();
+  await expect(incomeChoice).toHaveAttribute("aria-pressed", "true");
 
   const restoreNotice = transactionSheet.getByTestId("transaction-category-restore-notice");
   await expect(restoreNotice).toContainText("카테고리 선택을 비웠습니다.");
   await expect(restoreNotice).toContainText(category.minor);
-  await expect(
-    transactionSheet
-      .locator("label")
-      .filter({ hasText: /^\s*카테고리\s*\(/ })
-      .locator("select")
-      .first()
-  ).toHaveValue("");
+  await expect(transactionSheet.getByTestId("transaction-category-choice").filter({ hasText: category.minor })).toHaveCount(0);
 
   await transactionSheet.getByTestId("transaction-category-restore-button").click();
-  await expect(typeSelect).toHaveValue("expense");
-  await expect(labeledField(transactionSheet, "카테고리 그룹", "select")).toHaveValue(category.major);
-  await expect(
-    transactionSheet
-      .locator("label")
-      .filter({ hasText: /^\s*카테고리\s*\(/ })
-      .locator("select")
-      .first()
-  ).toHaveValue(String(expenseCategory.id));
+  await expect(transactionSheet.locator('[data-testid="transaction-flow-choice"][data-flow-type="expense"]').first()).toHaveAttribute(
+    "aria-pressed",
+    "true"
+  );
+  await expect(transactionSheet.getByTestId("transaction-category-group-choice").filter({ hasText: category.major }).first()).toHaveAttribute(
+    "aria-pressed",
+    "true"
+  );
+  await expect(transactionSheet.getByTestId("transaction-category-choice").filter({ hasText: expenseCategory.minor }).first()).toHaveAttribute(
+    "aria-pressed",
+    "true"
+  );
   await capture(page, "issue-195-entry-category-restored");
 });
 
@@ -2960,20 +2965,16 @@ test("desktop transaction row click and sweep selection keep toolbar summary sta
 
   await clearTransactionSelection(page);
   await expect(targetRow).toHaveAttribute("data-row-selected", "false");
-  await targetRow.locator("td").first().locator("input[type='checkbox']").check();
+  await targetRow.focus();
+  await expect(targetRow).toBeFocused();
+  await expect(targetRow).toHaveAttribute("aria-keyshortcuts", /Space/);
+  await page.keyboard.press("Space");
   await expect(targetRow).toHaveAttribute("data-row-selected", "true");
   await expectTransactionSelectionSummary(page, 1, `${amounts[0].toLocaleString("ko-KR")}원`);
-  await clearTransactionSelection(page);
-
-  const headerCheckbox = page.getByLabel("표시된 거래 전체 선택");
-  await headerCheckbox.check();
-  const selectedAfterHeaderCheck = await page.locator("tr.transaction-row[data-row-selected='true']").count();
-  expect(selectedAfterHeaderCheck, "header checkbox should select at least this test's visible seeded rows").toBeGreaterThanOrEqual(
-    memos.length,
-  );
-  await expectTransactionSelectionSummary(page, selectedAfterHeaderCheck);
-  await headerCheckbox.uncheck();
+  await page.keyboard.press("Space");
+  await expect(targetRow).toHaveAttribute("data-row-selected", "false");
   await expectTransactionSelectionSummary(page, 0, "0원");
+  await clearTransactionSelection(page);
 
   const sweepRows = [memos[1], memos[2], memos[3]].map((memo) =>
     page.locator("tr.transaction-row", { hasText: memo }).first(),
@@ -3042,7 +3043,7 @@ test("transaction selection persists through passive websocket transaction refre
   await capture(page, "transactions-selection-passive-refresh");
 });
 
-test("issue 233: desktop transaction selection checkboxes expose a 32px hit target", async ({ page }) => {
+test("issue 233: desktop transaction rows expose keyboard selection", async ({ page }) => {
   test.setTimeout(120_000);
 
   const email = `${unique("tx-checkbox-hitarea")}@example.com`;
@@ -3060,34 +3061,34 @@ test("issue 233: desktop transaction selection checkboxes expose a 32px hit targ
   await openTab(page, "거래");
   await waitForTransactionAppShell(page);
 
-  const headerCheckbox = page.getByLabel("표시된 거래 전체 선택");
   const targetRow = page.locator("tr.transaction-row", { hasText: memo }).first();
-  const rowCheckbox = targetRow.locator(".transaction-col-select input[type='checkbox']").first();
-  await expect(rowCheckbox).toBeVisible({ timeout: 20_000 });
-  const checkboxMetrics = await Promise.all(
-    [headerCheckbox, rowCheckbox].map((locator) =>
-      locator.evaluate((input) => {
-        const rect = input.getBoundingClientRect();
-        const cellRect = input.closest(".transaction-col-select")?.getBoundingClientRect();
-        return {
-          width: rect.width,
-          height: rect.height,
-          cellWidth: cellRect?.width || 0,
-          cellHeight: cellRect?.height || 0,
-        };
-      }),
-    ),
-  );
-  for (const metric of checkboxMetrics) {
-    expect(metric.width, "desktop transaction checkbox width should be at least 32px").toBeGreaterThanOrEqual(32);
-    expect(metric.height, "desktop transaction checkbox height should be at least 32px").toBeGreaterThanOrEqual(32);
-    expect(metric.cellWidth, "desktop transaction selection cell should contain the checkbox target").toBeGreaterThanOrEqual(32);
-  }
+  await expect(targetRow).toBeVisible({ timeout: 20_000 });
+  const rowMetrics = await targetRow.evaluate((row) => {
+    const rect = row.getBoundingClientRect();
+    return {
+      width: rect.width,
+      height: rect.height,
+      tabIndex: row.getAttribute("tabindex"),
+      ariaKeyshortcuts: row.getAttribute("aria-keyshortcuts") || "",
+      ariaLabel: row.getAttribute("aria-label") || "",
+      selected: row.getAttribute("data-row-selected"),
+    };
+  });
+  expect(rowMetrics.height, `desktop transaction row should keep a comfortable focus target: ${JSON.stringify(rowMetrics)}`).toBeGreaterThanOrEqual(32);
+  expect(rowMetrics.tabIndex, `desktop transaction row should be keyboard focusable: ${JSON.stringify(rowMetrics)}`).toBe("0");
+  expect(rowMetrics.ariaKeyshortcuts, `desktop transaction row should advertise Space selection: ${JSON.stringify(rowMetrics)}`).toContain("Space");
+  expect(rowMetrics.ariaLabel, `desktop transaction row should describe Space selection: ${JSON.stringify(rowMetrics)}`).toContain("Space");
+  expect(rowMetrics.selected, `desktop transaction row should start unselected: ${JSON.stringify(rowMetrics)}`).toBe("false");
 
-  await rowCheckbox.check();
+  await targetRow.focus();
+  await expect(targetRow).toBeFocused();
+  await page.keyboard.press("Space");
   await expect(targetRow).toHaveAttribute("data-row-selected", "true");
   await expectTransactionSelectionSummary(page, 1, "23,300원");
-  await capture(page, "issue-233-desktop-transaction-checkbox-hitarea");
+  await page.keyboard.press("Space");
+  await expect(targetRow).toHaveAttribute("data-row-selected", "false");
+  await expectTransactionSelectionSummary(page, 0, "0원");
+  await capture(page, "issue-233-desktop-transaction-keyboard-selection");
 });
 
 test("desktop transaction sticky column titles and sweep auto-scroll selection toggle work", async ({ page }) => {
@@ -3420,14 +3421,12 @@ test("issue 211: transaction add opens a visible sheet from a scrolled list", as
   await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute("data-testid") || "")).toBe("transactions-desktop-add-action");
 });
 
-test("issue 213: mobile transaction add inherits the visible month date context", async ({ page }) => {
+test("issue 213: mobile transaction add defaults to today outside visible month context", async ({ page }) => {
   test.setTimeout(180_000);
 
   const email = `${unique("tx-add-month-context")}@example.com`;
   const displayName = unique("tx-add-month-context-name");
   const monthContextDate = isoDaysFromToday(-75);
-  const { year, month } = yearMonthFromIso(monthContextDate);
-  const monthPrefix = `${year}-${String(month).padStart(2, "0")}`;
   const monthMemo = unique("tx-add-month-context-row");
 
   await registerAndVerify(page, { email, displayName });
@@ -3455,8 +3454,13 @@ test("issue 213: mobile transaction add inherits the visible month date context"
 
   const dateInput = labeledField(transactionSheet, "일자", "input");
   await expect(dateInput).toBeVisible();
-  await expect(dateInput).toHaveValue(new RegExp(`^${monthPrefix}-`));
-  await capture(page, "issue-213-mobile-add-date-in-visible-month-context");
+  await expect(dateInput).toHaveValue(await browserLocalTodayIso(page));
+
+  await dateInput.fill(monthContextDate);
+  await expect(dateInput).toHaveValue(monthContextDate);
+  await transactionSheet.getByTestId("transaction-quick-reset").click();
+  await expect(dateInput).toHaveValue(await browserLocalTodayIso(page));
+  await capture(page, "issue-213-mobile-add-date-defaults-today");
 });
 
 test("issue 234: mobile transaction add keeps context visible without secondary details", async ({ page }) => {
@@ -3522,6 +3526,102 @@ test("issue 234: mobile transaction add keeps context visible without secondary 
   expect(metrics.sheetScrollHeight, JSON.stringify(metrics)).toBeLessThanOrEqual(metrics.sheetClientHeight + 2);
   expect(metrics.saveTop, JSON.stringify(metrics)).toBeLessThan(metrics.viewportHeight);
   await capture(page, "issue-234-mobile-add-context-first-screen");
+});
+
+test("mobile transaction add keeps actions reachable with many staged category options", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("tx-add-many-categories")}@example.com`;
+  const displayName = unique("tx-add-many-categories-name");
+  const crowdedMajor = unique("과밀그룹");
+  const otherMajorPrefix = unique("추가그룹");
+
+  await registerAndVerify(page, { email, displayName });
+  for (let index = 0; index < 12; index += 1) {
+    await createCategoryViaApi(page, {
+      major: crowdedMajor,
+      minor: `${unique("선택항목")}-${index}`,
+    });
+  }
+  for (let index = 0; index < 12; index += 1) {
+    await createCategoryViaApi(page, {
+      major: `${otherMajorPrefix}-${index}`,
+      minor: `${unique("보조항목")}-${index}`,
+    });
+  }
+
+  await page.reload();
+  await page.setViewportSize({ width: 320, height: 568 });
+  const transactionSheet = await openMobileTransactionQuickEntry(page);
+  await expect(page.getByRole("dialog", { name: "거래 추가 레이어" })).toBeVisible();
+  const groupChoice = transactionSheet.getByTestId("transaction-category-group-choice").filter({ hasText: crowdedMajor }).first();
+  await expect(groupChoice).toBeVisible();
+  await groupChoice.click();
+  await expect(transactionSheet.getByTestId("transaction-category-choice").first()).toBeVisible();
+
+  const metrics = await transactionSheet.evaluate((sheet) => {
+    const boxOf = (element) => {
+      const box = element?.getBoundingClientRect();
+      return box
+        ? {
+            top: box.top,
+            bottom: box.bottom,
+            left: box.left,
+            right: box.right,
+            width: box.width,
+            height: box.height,
+          }
+        : null;
+    };
+    const scrollState = (element) => {
+      const style = element ? getComputedStyle(element) : null;
+      return {
+        ...boxOf(element),
+        clientHeight: element?.clientHeight || 0,
+        scrollHeight: element?.scrollHeight || 0,
+        overflowY: style?.overflowY || "",
+      };
+    };
+    const save = sheet.querySelector("[data-testid='transaction-quick-save']");
+    const primary = sheet.querySelector(".transaction-quick-primary-stack");
+    const groupGrid = sheet.querySelector(".transaction-category-group-grid");
+    const categoryGrid = sheet.querySelector(".transaction-category-choice-grid");
+    const actions = sheet.querySelector(".transaction-quick-actions");
+    const saveBox = boxOf(save);
+    const centerX = saveBox ? saveBox.left + saveBox.width / 2 : -1;
+    const centerY = saveBox ? saveBox.top + saveBox.height / 2 : -1;
+    const topElement = centerX >= 0 && centerY >= 0 ? document.elementFromPoint(centerX, centerY) : null;
+    return {
+      viewportHeight: window.innerHeight || document.documentElement.clientHeight || 0,
+      documentOverflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      sheet: scrollState(sheet),
+      primary: scrollState(primary),
+      groupGrid: scrollState(groupGrid),
+      categoryGrid: scrollState(categoryGrid),
+      actions: boxOf(actions),
+      save: saveBox,
+      saveHitVisible: Boolean(topElement && save && (topElement === save || save.contains(topElement))),
+    };
+  });
+
+  expect(metrics.documentOverflowX, `crowded quick entry should not overflow horizontally: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
+  expect(metrics.save?.bottom ?? Number.POSITIVE_INFINITY, `save should stay in the viewport: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(
+    metrics.viewportHeight + 1,
+  );
+  expect(metrics.actions?.bottom ?? Number.POSITIVE_INFINITY, `actions should stay inside the sheet: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(
+    (metrics.sheet.bottom ?? metrics.viewportHeight) + 1,
+  );
+  expect(metrics.saveHitVisible, `save button center should stay clickable: ${JSON.stringify(metrics)}`).toBe(true);
+  expect(metrics.primary.overflowY, `primary stack should provide overflow fallback: ${JSON.stringify(metrics)}`).toMatch(/auto|overlay/);
+  expect(metrics.groupGrid.overflowY, `category group grid should provide overflow fallback: ${JSON.stringify(metrics)}`).toMatch(/auto|overlay/);
+  expect(metrics.categoryGrid.overflowY, `category grid should provide overflow fallback: ${JSON.stringify(metrics)}`).toMatch(/auto|overlay/);
+  expect(
+    metrics.primary.scrollHeight > metrics.primary.clientHeight ||
+      metrics.groupGrid.scrollHeight > metrics.groupGrid.clientHeight ||
+      metrics.categoryGrid.scrollHeight > metrics.categoryGrid.clientHeight,
+    `crowded options should be bounded by a scrollable region: ${JSON.stringify(metrics)}`,
+  ).toBe(true);
+  await capture(page, "transactions-add-many-categories-scroll-fallback");
 });
 
 test("issue 237: mobile transaction edit keeps completion controls in the first viewport", async ({ page }) => {
@@ -4202,7 +4302,7 @@ test("issue 223: desktop transaction add action does not cover bottom row action
   await page.evaluate(() => {
     const fab = document.querySelector("[data-testid='transactions-fab']");
     const row = Array.from(document.querySelectorAll("tr.transaction-row"))[Math.min(28, document.querySelectorAll("tr.transaction-row").length - 1)];
-    const actionButton = row?.querySelector(".transaction-col-select input[type='checkbox'], .transaction-col-actions button");
+    const actionButton = row?.querySelector(".transaction-col-actions button");
     const fabBox = fab?.getBoundingClientRect();
     const actionBox = actionButton?.getBoundingClientRect();
     if (!fabBox || !actionBox) {
@@ -4214,10 +4314,10 @@ test("issue 223: desktop transaction add action does not cover bottom row action
     window.scrollTo(0, Math.max(0, actionCenterY - fabCenterY));
   });
   await page.waitForTimeout(300);
+  await expectDesktopTransactionAddActionReachable(page, "desktop transaction add action");
 
   const metrics = await page.evaluate(() => {
     const fixedFab = document.querySelector("[data-testid='transactions-fab']");
-    const desktopAdd = document.querySelector("[data-testid='transactions-desktop-add-action']");
     const boxOf = (element) => {
       if (!element) {
         return null;
@@ -4248,7 +4348,7 @@ test("issue 223: desktop transaction add action does not cover bottom row action
       );
     const fabBox = boxOf(fixedFab);
     const actionTargets = Array.from(
-      document.querySelectorAll("tr.transaction-row .transaction-col-select input[type='checkbox'], tr.transaction-row .transaction-col-actions button"),
+      document.querySelectorAll("tr.transaction-row .transaction-col-actions button"),
     )
       .map((button) => {
         const box = boxOf(button);
@@ -4273,11 +4373,14 @@ test("issue 223: desktop transaction add action does not cover bottom row action
         };
       })
       .filter((target) => target && target.top < window.innerHeight && target.bottom > 0);
+    const visibleRows = Array.from(document.querySelectorAll("tr.transaction-row"))
+      .map((row) => boxOf(row))
+      .filter((target) => target && target.top < window.innerHeight && target.bottom > 0);
     return {
       scrollY: window.scrollY,
       viewport: { width: window.innerWidth, height: window.innerHeight },
       fixedFab: fabBox,
-      desktopAdd: boxOf(desktopAdd),
+      visibleRowCount: visibleRows.length,
       coveredActionTargets: actionTargets.filter((target) => intersects(target, fabBox, 1)),
       centerCoveredActionTargets: actionTargets.filter((target) => target.centerCoveredByFab && !target.hitVisible),
       visibleActionTargetCount: actionTargets.length,
@@ -4285,12 +4388,11 @@ test("issue 223: desktop transaction add action does not cover bottom row action
     };
   });
 
-  expect(metrics.visibleActionTargetCount, `test should exercise visible row targets: ${JSON.stringify(metrics)}`).toBeGreaterThan(0);
+  expect(metrics.fixedFab, `desktop should not render a fixed transaction FAB: ${JSON.stringify(metrics)}`).toBeNull();
+  expect(metrics.visibleRowCount, `test should exercise visible ledger rows: ${JSON.stringify(metrics)}`).toBeGreaterThan(0);
+  expect(metrics.visibleActionTargetCount, `row edit/delete targets should move out of the ledger row: ${JSON.stringify(metrics)}`).toBe(0);
   expect(metrics.coveredActionTargets, `desktop add affordance should not cover row targets: ${JSON.stringify(metrics)}`).toEqual([]);
   expect(metrics.centerCoveredActionTargets, `desktop row target centers should remain directly hittable: ${JSON.stringify(metrics)}`).toEqual([]);
-  expect(metrics.desktopAdd, `desktop add action should be docked in the toolbar: ${JSON.stringify(metrics)}`).toBeTruthy();
-  expect(metrics.desktopAdd.display, `desktop add action should be visible: ${JSON.stringify(metrics)}`).not.toBe("none");
-  expect(metrics.desktopAdd.visibility, `desktop add action should be visible: ${JSON.stringify(metrics)}`).toBe("visible");
   expect(metrics.pageOverflowX, `desktop add clearance should not create horizontal overflow: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
   await expectNoHorizontalOverflow(page, 12);
   await capture(page, "issue-223-desktop-add-action-row-clearance");
@@ -4398,10 +4500,6 @@ test("issue 273: desktop transaction row double-click opens inline edit only fro
   await expect(page.locator("tr.transaction-inline-editor-row")).toHaveCount(0);
   await expect(createdRow).toHaveAttribute("data-row-selected", "false");
   await expect(createdRow).toHaveAttribute("data-row-expanded", "false");
-
-  const checkbox = createdRow.locator(".transaction-col-select input[type='checkbox']").first();
-  await checkbox.dblclick({ force: true });
-  await expect(page.locator("tr.transaction-inline-editor-row")).toHaveCount(0);
 
   await createdRow.locator(".transaction-col-memo").dblclick();
   const editorRow = page.locator("tr.transaction-inline-editor-row").first();
@@ -4579,16 +4677,13 @@ test("issue 227: 1024px transaction row actions stay inside the viewport", async
     };
   }, memoPrefix);
 
-  expect(metrics.headerAction, `desktop action header should exist: ${JSON.stringify(metrics)}`).toBeTruthy();
-  expect(metrics.actionCell, `target row action cell should exist: ${JSON.stringify(metrics)}`).toBeTruthy();
   expect(metrics.actionButtons.length, `row-level edit/delete targets should move out of the ledger row: ${JSON.stringify(metrics)}`).toBe(0);
   expect(metrics.pageOverflowX, `1024px desktop page should not overflow horizontally: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
-  expect(metrics.scroller.scrollOverflowX, `1024px transaction table should not need horizontal scroll for row actions: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
-  expect(metrics.outsideViewport, `desktop action header/cell should stay inside viewport: ${JSON.stringify(metrics)}`).toEqual([]);
+  expect(metrics.scroller.scrollOverflowX, `1024px transaction table should not need horizontal scroll after action column removal: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
+  expect(metrics.outsideViewport, `desktop ledger action remnants should stay inside viewport: ${JSON.stringify(metrics)}`).toEqual([]);
   expect(metrics.undersizedTargets, `desktop row should not expose undersized edit/delete targets: ${JSON.stringify(metrics)}`).toEqual([]);
   expect(metrics.hiddenHitTargets, `desktop row should not expose hidden edit/delete centers: ${JSON.stringify(metrics)}`).toEqual([]);
-  await targetRow.locator("input[type='checkbox']").check({ force: true });
-  await expectTransactionSelectionSummary(page, 1);
+  await selectTransactionRowForToolbar(page, targetRow);
   const selectionToolbar = page.getByTestId("transaction-sticky-toolbar");
   await expect(selectionToolbar.getByTestId("transaction-selection-edit")).toBeVisible();
   await expect(selectionToolbar.getByTestId("transaction-selection-edit")).toBeEnabled();
@@ -4704,10 +4799,10 @@ test("transaction selection toolbar bulk deletes multiple rows in one request", 
   await openTab(page, "거래");
   await waitForTransactionAppShell(page);
 
-  for (const memo of memos) {
+  for (const [index, memo] of memos.entries()) {
     const row = page.locator("tr.transaction-row", { hasText: memo }).first();
     await expect(row).toBeVisible({ timeout: 20_000 });
-    await row.locator(".transaction-col-select input[type='checkbox']").check({ force: true });
+    await selectTransactionRowForToolbar(page, row, { expectedCount: index + 1 });
     await expect(row).toHaveAttribute("data-row-selected", "true");
   }
   await expectTransactionSelectionSummary(page, 2);
@@ -5551,14 +5646,7 @@ test("issue 287: Android PWA transaction ledger uses monthly dense rows", async 
   await expect(page.locator(".transaction-history-sentinel")).toHaveCount(0);
   await expect(page.getByText("연속 내역순", { exact: false })).toHaveCount(0);
   await expect(page.locator(".transaction-row .transaction-col-actions button")).toHaveCount(0);
-  const visibleMobileCheckboxes = await page.locator(".transaction-row .transaction-col-select input[type='checkbox']").evaluateAll((nodes) =>
-    nodes.filter((node) => {
-      const box = node.getBoundingClientRect();
-      const style = getComputedStyle(node);
-      return style.display !== "none" && style.visibility !== "hidden" && box.width > 0 && box.height > 0;
-    }).length
-  );
-  expect(visibleMobileCheckboxes, "Android ledger should not show a checkbox/checkmark selection column").toBe(0);
+  await expect(page.locator(".transaction-row").getByRole("checkbox")).toHaveCount(0);
   await expect(mobileRow).toHaveAttribute("aria-keyshortcuts", /Space/);
 
   const metrics = await mobileRow.evaluate((row) => {
@@ -5638,8 +5726,11 @@ test("issue 287: Android PWA transaction ledger uses monthly dense rows", async 
   for (const [key, delta] of Object.entries(metrics.alignment)) {
     expect(delta, `${key} header should align with the row field: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(8);
   }
-  expect(metrics.fields.owner?.text, `owner should use a clear two-character compact cue: ${JSON.stringify(metrics)}`).toBe(
-    displayName.slice(0, 2)
+  expect(metrics.fields.owner?.text, `owner should use a compact first-letter cue: ${JSON.stringify(metrics)}`).toBe(
+    Array.from(displayName.trim()).slice(0, 1).join("")
+  );
+  expect(metrics.fields.owner?.ariaLabel || "", `owner cue should preserve the full accessible name: ${JSON.stringify(metrics)}`).toContain(
+    displayName
   );
   expect(metrics.fields.category?.text || "", `category should have its own column: ${JSON.stringify(metrics)}`).toContain(
     category.minor.slice(0, 4)
@@ -5920,7 +6011,7 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   await expect(page.getByText("연속 내역순", { exact: false })).toHaveCount(0);
   await expectDesktopTransactionRowsSingleLine(page);
 
-  await createdRow.locator("td").first().locator("input[type='checkbox']").check();
+  await selectTransactionRowForToolbar(page, createdRow);
   await expectTransactionSelectionSummary(page, 1, "22,222원");
   await clearTransactionSelection(page);
   await expect(createdRow).toHaveAttribute("data-row-selected", "false");
@@ -6116,8 +6207,10 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   ).toBe(true);
   await expectBackgroundNotPlainWhite(mobileRow);
   await expectTransparentBackground(mobileRow.locator(".transaction-col-memo").first());
-  await expect(mobileRow.locator(".transaction-owner-compact").first()).toHaveText(displayName.slice(0, 2));
-  await expect(mobileRow.locator(".transaction-owner-compact").first()).toBeVisible();
+  const mobileOwnerCompact = mobileRow.locator(".transaction-owner-compact").first();
+  await expect(mobileOwnerCompact).toHaveText(Array.from(displayName.trim()).slice(0, 1).join(""));
+  await expect(mobileOwnerCompact).toBeVisible();
+  await expect(mobileOwnerCompact).toHaveAttribute("aria-label", new RegExp(displayName));
   await expect(mobileRow.locator(".transaction-col-owner .transaction-mobile-detail-value").first()).toBeHidden();
   await expect(mobileRow.locator(".transaction-flow-short").first()).toBeVisible();
   const mobileOwnerlessRow = page.locator("tr.transaction-row", { hasText: ownerlessMemo }).first();

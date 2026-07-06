@@ -3044,7 +3044,7 @@ function App() {
       String(txForm.category_id || "").trim() ||
       String(txCategoryMajor || "").trim() ||
       String(txForm.flow_type || "expense") !== "expense" ||
-      String(txForm.occurred_on || "") !== String(transactionEntryContextDate()) ||
+      String(txForm.occurred_on || "") !== String(transactionEntryTodayDate()) ||
       (txQuickOwnerTouched && (txForm.owner_user_id || txForm.owner_name))
   );
   const isTransactionEntryDraftDirty = txDraftTouched && transactionDraftHasContent;
@@ -3336,7 +3336,7 @@ function App() {
   }
 
   useEffect(() => {
-    const nextDefaultDate = transactionEntryContextDate();
+    const nextDefaultDate = transactionEntryTodayDate();
     const previousDefaultDate = transactionEntryDefaultDateRef.current || transactionEntryTodayDate();
     transactionEntryDefaultDateRef.current = nextDefaultDate;
     setTxForm((prev) => {
@@ -3351,7 +3351,7 @@ function App() {
       }
       return { ...prev, occurred_on: nextDefaultDate };
     });
-  }, [transactionEntryContextDate, transactionEntryTodayDate, txDraftTouched]);
+  }, [transactionEntryTodayDate, txDraftTouched]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -3815,7 +3815,7 @@ function App() {
     if (isTransactionEntryDraftDirty) {
       setTxForm((previous) => clearTransactionInsertAnchor(previous));
     } else {
-      setTxForm(createTransactionForm(transactionEntryContextDate()));
+      setTxForm(createTransactionForm(transactionEntryTodayDate()));
       setTxFormErrors(createTransactionFormErrors());
       setTxCategoryMajor("");
       setTxCategoryRestore(null);
@@ -3874,7 +3874,7 @@ function App() {
   }, [showTransactionForm, closeTransactionEntrySheet]);
 
   function resetTransactionDraft() {
-    setTxForm(createTransactionForm(transactionEntryContextDate()));
+    setTxForm(createTransactionForm(transactionEntryTodayDate()));
     setTxFormErrors(createTransactionFormErrors());
     setTxCategoryMajor("");
     setTxCategoryRestore(null);
@@ -6353,7 +6353,14 @@ function App() {
         }
         return next;
       });
-      await refreshData(false);
+      setTransactions((prev) =>
+        Array.isArray(prev) ? prev.filter((item) => !deletedIds.has(String(item?.id || "").trim())) : prev
+      );
+      try {
+        await refreshData(false);
+      } catch (refreshError) {
+        void refreshError;
+      }
       setMessage(uiGuideMessage("선택한 거래를 삭제했습니다.", `${deletedIds.size}건을 목록에서 제거했습니다.`));
     } catch (error) {
       setMessage(formatApiError(error, "transaction_delete"));
