@@ -33,12 +33,13 @@ export function TransactionListToolbar({
     selectedTransactionSummary,
     showTransactionFilterPanel,
     sortedTransactions,
+    transactionFilterFocusTarget,
     transactionSortSummary,
     transactionLedgerItems,
     txListFilter,
   } = listState;
   const { transactionListHeadingRef, transactionStickyToolbarRef } = listRefs;
-  const { clearTxListFilter, updateShowTransactionFilterPanel, updateTxListFilter } = listActions;
+  const { clearTxListFilter, updateShowTransactionFilterPanel, updateTransactionFilterFocusTarget, updateTxListFilter } = listActions;
   const {
     openSelectedTransactionEdit,
     openSelectedTransactionInsert,
@@ -55,11 +56,19 @@ export function TransactionListToolbar({
       return undefined;
     }
     const frameId = window.requestAnimationFrame(() => {
-      const firstControl = filterPanelRef.current?.querySelector("input, select, button");
+      const focusSelectorByTarget = {
+        amount: "[data-transaction-filter-field='amount_min']",
+        flow_type: "[data-transaction-filter-field='flow_type']",
+        memo: "[data-transaction-filter-field='memo']",
+      };
+      const targetSelector = focusSelectorByTarget[transactionFilterFocusTarget];
+      const firstControl = (
+        targetSelector ? filterPanelRef.current?.querySelector(targetSelector) : null
+      ) || filterPanelRef.current?.querySelector("input, select, button");
       firstControl?.focus?.({ preventScroll: true });
     });
     return () => window.cancelAnimationFrame(frameId);
-  }, [isCompactViewport, showTransactionFilterPanel]);
+  }, [isCompactViewport, showTransactionFilterPanel, transactionFilterFocusTarget]);
 
   return (
     <div ref={transactionStickyToolbarRef} className="transaction-sticky-toolbar" data-testid="transaction-sticky-toolbar">
@@ -102,7 +111,18 @@ export function TransactionListToolbar({
       {(!isCompactViewport || isTransactionFilterActive) && (
         <div className="transaction-filter-actions" aria-label="거래 필터 빠른 조작">
           {!isCompactViewport && (
-            <button type="button" className="secondary" aria-expanded={showTransactionFilterPanel ? "true" : "false"} aria-controls="transaction-filter-panel" onClick={() => updateShowTransactionFilterPanel((prev) => !prev)}>
+            <button
+              type="button"
+              className="secondary"
+              aria-expanded={showTransactionFilterPanel ? "true" : "false"}
+              aria-controls="transaction-filter-panel"
+              onClick={() => {
+                if (typeof updateTransactionFilterFocusTarget === "function") {
+                  updateTransactionFilterFocusTarget("");
+                }
+                updateShowTransactionFilterPanel((prev) => !prev);
+              }}
+            >
               {showTransactionFilterPanel ? "필터 닫기" : "필터 열기"}
             </button>
           )}
@@ -116,11 +136,11 @@ export function TransactionListToolbar({
         <div ref={filterPanelRef} id="transaction-filter-panel" className="tx-header-filters" aria-label="거래 제목행 필터">
           <label className="tx-header-filter tx-header-filter-search">
             <span>메모</span>
-            <input placeholder="검색" value={txListFilter.keyword} onChange={(e) => updateTxListFilter({ ...txListFilter, keyword: e.target.value })} enterKeyHint="search" />
+            <input data-transaction-filter-field="memo" placeholder="검색" value={txListFilter.keyword} onChange={(e) => updateTxListFilter({ ...txListFilter, keyword: e.target.value })} enterKeyHint="search" />
           </label>
           <label className="tx-header-filter tx-header-filter-type">
             <span>유형</span>
-            <select value={txListFilter.flow_type} onChange={(e) => updateTxListFilter({ ...txListFilter, flow_type: e.target.value })}>
+            <select data-transaction-filter-field="flow_type" value={txListFilter.flow_type} onChange={(e) => updateTxListFilter({ ...txListFilter, flow_type: e.target.value })}>
               <option value="all">전체</option>
               {FLOW_TYPE_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
             </select>
@@ -137,6 +157,7 @@ export function TransactionListToolbar({
             <span>최소 금액</span>
             <input
               inputMode="numeric"
+              data-transaction-filter-field="amount_min"
               placeholder="0"
               value={txListFilter.amount_min}
               onChange={(e) => updateTxListFilter({ ...txListFilter, amount_min: e.target.value })}

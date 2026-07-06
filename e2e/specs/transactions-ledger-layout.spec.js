@@ -396,6 +396,14 @@ test("transaction ledger aligns desktop cells and keeps mobile rows compact", as
   await expect(desktopFilterPanel).toBeVisible();
   await expect(desktopFilterPanel.getByPlaceholder("검색")).toBeFocused();
 
+  const desktopAmountFilter = page.locator(".transactions-desktop-ledger-head").getByRole("button", { name: "금액 필터 열기" });
+  await desktopAmountFilter.click();
+  await expect(desktopFilterPanel.locator("[data-transaction-filter-field='amount_min']")).toBeFocused();
+
+  const desktopTypeFilter = page.locator(".transactions-desktop-ledger-head").getByRole("button", { name: "유형 필터 열기" });
+  await desktopTypeFilter.click();
+  await expect(desktopFilterPanel.locator("[data-transaction-filter-field='flow_type']")).toBeFocused();
+
   for (const profile of MOBILE_PROFILES) {
     await openLedger(page, profile);
     const mobileMetrics = await page.locator("tr.transaction-row", { hasText: `${memoPrefix}-00` }).first().evaluate((row) => {

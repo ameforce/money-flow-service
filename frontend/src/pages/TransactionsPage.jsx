@@ -52,6 +52,7 @@ export function TransactionsPage({
     showTransactionFilterPanel,
     showTransactionScrollTop,
     sortedTransactions,
+    transactionFilterFocusTarget,
     transactionSortSummary,
     transactionLedgerItems,
     transactionsMobileStickyActive,
@@ -76,6 +77,7 @@ export function TransactionsPage({
     toggleExpandedTransactionRow,
     toggleTxSortDirection,
     updateShowTransactionFilterPanel,
+    updateTransactionFilterFocusTarget,
     updateTransactionRowsExpanded,
     updateTransactionRowsSelected,
     updateTxListFilter,
@@ -155,10 +157,10 @@ export function TransactionsPage({
         constants={{ DEFAULT_TRANSACTION_ROW_COLORS, FLOW_TYPE_LABELS, FLOW_TYPE_OPTIONS }}
         permissions={{ canEditHouseholdData, canEditRecords, isCompactViewport, isLedgerCompactViewport, loading }}
         monthFilter={{ handleMoveToCurrentMonth, handleShiftYearMonth, handleYearMonthInputKeyDown, isMonthFilterPending, isNextMonthDisabled, isPrevMonthDisabled, maxMonth, minMonth, updateYearMonthInput, yearMonth }}
-        listState={{ expandedTransactionRows, isTransactionFilterActive, recentImportTransactionIds, recentSavedTransactionIds, selectedTransactionSummary, showTransactionFilterPanel, showTransactionScrollTop, sortedTransactions, transactionSortSummary, transactionLedgerItems, transactionsMobileStickyActive, txListFilter, txSortDirection }}
+        listState={{ expandedTransactionRows, isTransactionFilterActive, recentImportTransactionIds, recentSavedTransactionIds, selectedTransactionSummary, showTransactionFilterPanel, showTransactionScrollTop, sortedTransactions, transactionFilterFocusTarget, transactionSortSummary, transactionLedgerItems, transactionsMobileStickyActive, txListFilter, txSortDirection }}
         listRefs={{ transactionListCardRef, transactionListHeadingRef, transactionStickyToolbarRef }}
         listLookups={{ categoryById, householdSettings, normalizeTransactionRowColors, renderCategoryCell }}
-        listActions={{ clearTxListFilter, selectTransactionRows, scrollTransactionListToTop, toggleExpandedTransactionRow, toggleTxSortDirection, updateShowTransactionFilterPanel, updateTransactionRowsExpanded, updateTransactionRowsSelected, updateTxListFilter }}
+        listActions={{ clearTxListFilter, selectTransactionRows, scrollTransactionListToTop, toggleExpandedTransactionRow, toggleTxSortDirection, updateShowTransactionFilterPanel, updateTransactionFilterFocusTarget, updateTransactionRowsExpanded, updateTransactionRowsSelected, updateTxListFilter }}
         selection={{ areAllFilteredTransactionsSelected, openSelectedTransactionEdit, openSelectedTransactionInsert, removeSelectedTransactions, selectedTransactionIds, toggleAllFilteredTransactionSelection, toggleTransactionSelection, updateSelectedTransactionIds }}
         entrySheet={{ openNormalTransactionEntrySheet, transactionDesktopAddActionRef, transactionFabRef }}
         inlineEdit={{ closeTxInlineEdit, createAndApplyTxInlineCategory, handleGroupedDecimalInput, handleTransactionAmountInput, handleTxInlineEditKeyDown, openTransactionInlineEditor, submitTxInlineEdit, txInlineEdit, updateTxInlineEdit }}

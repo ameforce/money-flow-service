@@ -22,7 +22,7 @@ export function TransactionListTablePanel({
   } = permissions;
   const { expandedTransactionRows, recentImportTransactionIds, recentSavedTransactionIds, showTransactionFilterPanel, showTransactionScrollTop, sortedTransactions, transactionsMobileStickyActive, txListFilter, txSortDirection } = listState;
   const { categoryById, householdSettings, normalizeTransactionRowColors, renderCategoryCell } = listLookups;
-  const { clearTxListFilter, selectTransactionRows, scrollTransactionListToTop, toggleExpandedTransactionRow, toggleTxSortDirection, updateShowTransactionFilterPanel, updateTransactionRowsExpanded, updateTransactionRowsSelected, updateTxListFilter } = listActions;
+  const { clearTxListFilter, selectTransactionRows, scrollTransactionListToTop, toggleExpandedTransactionRow, toggleTxSortDirection, updateShowTransactionFilterPanel, updateTransactionFilterFocusTarget, updateTransactionRowsExpanded, updateTransactionRowsSelected, updateTxListFilter } = listActions;
   const { areAllFilteredTransactionsSelected, selectedTransactionIds, toggleAllFilteredTransactionSelection, toggleTransactionSelection } = selection;
   const { closeTxInlineEdit, createAndApplyTxInlineCategory, handleGroupedDecimalInput, handleTransactionAmountInput, handleTxInlineEditKeyDown, openTransactionInlineEditor, submitTxInlineEdit, txInlineEdit, updateTxInlineEdit } = inlineEdit;
   const { renderLegacyOwnerRemapHelper, txInlineCategoryMajor, txInlineCategoryMajorOptions, txInlineCategoryMinorOptions, txInlineCategoryOptions, txInlineCategoryQuickChips } = categoryManager;
@@ -64,6 +64,7 @@ export function TransactionListTablePanel({
         clearTxListFilter={clearTxListFilter}
         showTransactionFilterPanel={showTransactionFilterPanel}
         updateShowTransactionFilterPanel={updateShowTransactionFilterPanel}
+        updateTransactionFilterFocusTarget={updateTransactionFilterFocusTarget}
         householdSettings={householdSettings}
         normalizeTransactionRowColors={normalizeTransactionRowColors}
         DEFAULT_TRANSACTION_ROW_COLORS={DEFAULT_TRANSACTION_ROW_COLORS}

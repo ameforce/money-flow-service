@@ -112,6 +112,7 @@ export function TransactionSurfaceTable({
   clearTxListFilter,
   showTransactionFilterPanel,
   updateShowTransactionFilterPanel,
+  updateTransactionFilterFocusTarget,
   householdSettings,
   normalizeTransactionRowColors,
   DEFAULT_TRANSACTION_ROW_COLORS,
@@ -715,11 +716,32 @@ export function TransactionSurfaceTable({
     String(safeTxListFilter.amount_min || "").trim() || String(safeTxListFilter.amount_max || "").trim()
   );
   const isTypeFilterActive = safeTxListFilter.flow_type !== "all";
-  const openDesktopFilterPanel = () => {
+  const queueDesktopFilterFocus = (focusTarget) => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const focusSelectorByTarget = {
+      amount: "[data-transaction-filter-field='amount_min']",
+      flow_type: "[data-transaction-filter-field='flow_type']",
+      memo: "[data-transaction-filter-field='memo']",
+    };
+    const targetSelector = focusSelectorByTarget[focusTarget] || focusSelectorByTarget.memo;
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        document.querySelector(`#transaction-filter-panel ${targetSelector}`)?.focus?.({ preventScroll: true });
+      });
+    });
+  };
+
+  const openDesktopFilterPanel = (focusTarget) => {
     if (isCompactViewport || typeof updateShowTransactionFilterPanel !== "function") {
       return;
     }
+    if (typeof updateTransactionFilterFocusTarget === "function") {
+      updateTransactionFilterFocusTarget(focusTarget);
+    }
     updateShowTransactionFilterPanel(true);
+    queueDesktopFilterFocus(focusTarget);
   };
   const desktopFilterActiveByField = {
     amount: isAmountFilterActive,
@@ -754,7 +776,7 @@ export function TransactionSurfaceTable({
         >
           <button
             type="button"
-            className={`sort-header${txSortDirection ? " active" : ""}`}
+            className={`sort-header ledger-head-action${txSortDirection ? " active" : ""}`}
             aria-label={`일자 정렬 ${txSortDirection === "asc" ? "내림차순으로 변경" : "오름차순으로 변경"}`}
             onClick={toggleTxSortDirection}
           >
@@ -774,11 +796,11 @@ export function TransactionSurfaceTable({
         >
           <button
             type="button"
-            className={`sort-header desktop-filter-header${active ? " active" : ""}`}
+            className={`ledger-head-action desktop-filter-header${active ? " active" : ""}`}
             aria-label={`${field.label} 필터 열기`}
             aria-expanded={showTransactionFilterPanel ? "true" : "false"}
             aria-controls="transaction-filter-panel"
-            onClick={openDesktopFilterPanel}
+            onClick={() => openDesktopFilterPanel(field.key)}
           >
             {field.label}
             {active && <span className="ledger-head-filter-indicator" aria-hidden="true" />}
