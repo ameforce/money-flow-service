@@ -2,6 +2,12 @@ import { useEffect, useRef } from "react";
 
 import { IsoDateInput } from "../../components/IsoDateInput";
 
+const TRANSACTION_FILTER_FOCUS_SELECTORS = {
+  amount: "[data-transaction-filter-field='amount_min']",
+  flow_type: "[data-transaction-filter-field='flow_type']",
+  memo: "[data-transaction-filter-field='memo']",
+};
+
 export function TransactionListToolbar({
   constants,
   permissions,
@@ -55,19 +61,12 @@ export function TransactionListToolbar({
     if (isCompactViewport || !showTransactionFilterPanel) {
       return undefined;
     }
-    const frameId = window.requestAnimationFrame(() => {
-      const focusSelectorByTarget = {
-        amount: "[data-transaction-filter-field='amount_min']",
-        flow_type: "[data-transaction-filter-field='flow_type']",
-        memo: "[data-transaction-filter-field='memo']",
-      };
-      const targetSelector = focusSelectorByTarget[transactionFilterFocusTarget];
-      const firstControl = (
-        targetSelector ? filterPanelRef.current?.querySelector(targetSelector) : null
-      ) || filterPanelRef.current?.querySelector("input, select, button");
-      firstControl?.focus?.({ preventScroll: true });
-    });
-    return () => window.cancelAnimationFrame(frameId);
+    const targetSelector = TRANSACTION_FILTER_FOCUS_SELECTORS[transactionFilterFocusTarget];
+    const firstControl = (
+      targetSelector ? filterPanelRef.current?.querySelector(targetSelector) : null
+    ) || filterPanelRef.current?.querySelector("input, select, button");
+    firstControl?.focus?.({ preventScroll: true });
+    return undefined;
   }, [isCompactViewport, showTransactionFilterPanel, transactionFilterFocusTarget]);
 
   return (

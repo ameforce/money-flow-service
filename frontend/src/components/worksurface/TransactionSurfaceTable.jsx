@@ -111,8 +111,7 @@ export function TransactionSurfaceTable({
   setTxListFilter,
   clearTxListFilter,
   showTransactionFilterPanel,
-  updateShowTransactionFilterPanel,
-  updateTransactionFilterFocusTarget,
+  requestDesktopFilterPanel,
   householdSettings,
   normalizeTransactionRowColors,
   DEFAULT_TRANSACTION_ROW_COLORS,
@@ -716,32 +715,11 @@ export function TransactionSurfaceTable({
     String(safeTxListFilter.amount_min || "").trim() || String(safeTxListFilter.amount_max || "").trim()
   );
   const isTypeFilterActive = safeTxListFilter.flow_type !== "all";
-  const queueDesktopFilterFocus = (focusTarget) => {
-    if (typeof window === "undefined") {
-      return;
-    }
-    const focusSelectorByTarget = {
-      amount: "[data-transaction-filter-field='amount_min']",
-      flow_type: "[data-transaction-filter-field='flow_type']",
-      memo: "[data-transaction-filter-field='memo']",
-    };
-    const targetSelector = focusSelectorByTarget[focusTarget] || focusSelectorByTarget.memo;
-    window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => {
-        document.querySelector(`#transaction-filter-panel ${targetSelector}`)?.focus?.({ preventScroll: true });
-      });
-    });
-  };
-
   const openDesktopFilterPanel = (focusTarget) => {
-    if (isCompactViewport || typeof updateShowTransactionFilterPanel !== "function") {
+    if (isCompactViewport || typeof requestDesktopFilterPanel !== "function") {
       return;
     }
-    if (typeof updateTransactionFilterFocusTarget === "function") {
-      updateTransactionFilterFocusTarget(focusTarget);
-    }
-    updateShowTransactionFilterPanel(true);
-    queueDesktopFilterFocus(focusTarget);
+    requestDesktopFilterPanel(focusTarget);
   };
   const desktopFilterActiveByField = {
     amount: isAmountFilterActive,

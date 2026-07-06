@@ -18,8 +18,19 @@ export function TransactionListCard({
 }) {
   const { isCompactViewport, loading } = permissions;
   const { transactionListCardRef } = listRefs;
+  const {
+    updateShowTransactionFilterPanel,
+    updateTransactionFilterFocusTarget,
+  } = listActions;
   const { openNormalTransactionEntrySheet, transactionFabRef } = entrySheet;
   const { txInlineEdit } = inlineEdit;
+  const requestTransactionFilterPanel = (focusTarget) => {
+    if (isCompactViewport) {
+      return;
+    }
+    updateTransactionFilterFocusTarget?.(focusTarget);
+    updateShowTransactionFilterPanel?.(true);
+  };
 
   return (
     <>
@@ -39,6 +50,7 @@ export function TransactionListCard({
         <TransactionListTablePanel
           constants={constants}
           permissions={permissions}
+          requestTransactionFilterPanel={requestTransactionFilterPanel}
           listState={listState}
           listLookups={listLookups}
           listActions={listActions}
