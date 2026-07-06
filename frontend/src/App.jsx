@@ -3922,8 +3922,45 @@ function App() {
     );
   }
 
-  function keepTransactionQuickFieldVisible() {
+  function keepTransactionQuickFieldVisible(element) {
     clearTransactionQuickFocusScrollTimers();
+    if (typeof window === "undefined" || !(element instanceof HTMLElement)) {
+      return;
+    }
+    const quickForm = txQuickFormRef.current;
+    const primaryStack = quickForm?.querySelector(".transaction-quick-primary-stack");
+    if (!(primaryStack instanceof HTMLElement) || !primaryStack.contains(element)) {
+      return;
+    }
+
+    const revealFocusedField = () => {
+      if (!txQuickFormRef.current?.contains(element) || !primaryStack.contains(element)) {
+        return;
+      }
+      const targetRect = element.getBoundingClientRect();
+      const stackRect = primaryStack.getBoundingClientRect();
+      if (!targetRect.height || !stackRect.height) {
+        return;
+      }
+
+      const margin = 8;
+      const topOverflow = stackRect.top + margin - targetRect.top;
+      if (topOverflow > 0) {
+        primaryStack.scrollTop -= topOverflow;
+        return;
+      }
+
+      const bottomOverflow = targetRect.bottom - (stackRect.bottom - margin);
+      if (bottomOverflow > 0) {
+        primaryStack.scrollTop += bottomOverflow;
+      }
+    };
+
+    revealFocusedField();
+    txQuickFocusScrollTimersRef.current = [
+      window.setTimeout(revealFocusedField, 0),
+      window.setTimeout(revealFocusedField, 80),
+    ];
   }
 
   function rememberTransactionQuickField(element) {

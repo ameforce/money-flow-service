@@ -3621,6 +3621,65 @@ test("mobile transaction add keeps actions reachable with many staged category o
       metrics.categoryGrid.scrollHeight > metrics.categoryGrid.clientHeight,
     `crowded options should be bounded by a scrollable region: ${JSON.stringify(metrics)}`,
   ).toBe(true);
+
+  await page.evaluate(() => {
+    window.__e2eScrollIntoViewCalls = [];
+    const original = Element.prototype.scrollIntoView;
+    if (!window.__e2eOriginalScrollIntoView) {
+      Object.defineProperty(window, "__e2eOriginalScrollIntoView", {
+        configurable: true,
+        value: original,
+      });
+    }
+    Element.prototype.scrollIntoView = function scrollIntoViewSpy(options) {
+      window.__e2eScrollIntoViewCalls.push({
+        tagName: this.tagName,
+        testId: this.getAttribute("data-testid") || "",
+        label: this.closest("label")?.textContent?.trim() || "",
+        block: options && typeof options === "object" ? String(options.block || "") : "",
+      });
+    };
+  });
+
+  const quickAmount = transactionSheet.getByTestId("transaction-quick-amount");
+  const memoInput = labeledField(transactionSheet, "메모", "input");
+  const windowScrollBeforeFocusMove = await page.evaluate(() => window.scrollY);
+  await quickAmount.click();
+  await quickAmount.fill("24680");
+  await quickAmount.press("Enter");
+  await expect(memoInput).toBeFocused();
+
+  const focusMetrics = await transactionSheet.evaluate((sheet) => {
+    const primary = sheet.querySelector(".transaction-quick-primary-stack");
+    const memo = Array.from(sheet.querySelectorAll("label"))
+      .find((label) => label.textContent?.includes("메모"))
+      ?.querySelector("input");
+    const primaryBox = primary?.getBoundingClientRect();
+    const memoBox = memo?.getBoundingClientRect();
+    return {
+      windowScrollY: window.scrollY,
+      primaryScrollTop: primary?.scrollTop || 0,
+      primaryTop: primaryBox?.top || 0,
+      primaryBottom: primaryBox?.bottom || 0,
+      memoTop: memoBox?.top || 0,
+      memoBottom: memoBox?.bottom || 0,
+    };
+  });
+  expect(focusMetrics.windowScrollY, `focus move should not scroll the page: ${JSON.stringify(focusMetrics)}`).toBe(windowScrollBeforeFocusMove);
+  expect(focusMetrics.primaryScrollTop, `focus move should use the internal primary stack scroll: ${JSON.stringify(focusMetrics)}`).toBeGreaterThan(0);
+  expect(focusMetrics.memoTop, `focused memo should be visible inside primary stack: ${JSON.stringify(focusMetrics)}`).toBeGreaterThanOrEqual(
+    focusMetrics.primaryTop - 1,
+  );
+  expect(focusMetrics.memoBottom, `focused memo should be visible inside primary stack: ${JSON.stringify(focusMetrics)}`).toBeLessThanOrEqual(
+    focusMetrics.primaryBottom + 1,
+  );
+  await expect.poll(() => page.evaluate(() => window.__e2eScrollIntoViewCalls || [])).toEqual([]);
+  await page.evaluate(() => {
+    if (window.__e2eOriginalScrollIntoView) {
+      Element.prototype.scrollIntoView = window.__e2eOriginalScrollIntoView;
+    }
+  });
+
   await capture(page, "transactions-add-many-categories-scroll-fallback");
 });
 
