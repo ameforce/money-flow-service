@@ -4,6 +4,7 @@
 
 - Pagination cap: fixed by adding the `offset` query parameter to `GET /api/v1/transactions`, using `offset/limit` in the SQL query, and walking pages in `loadTransactionLedgerItems` until a short page is returned.
 - Compact keyboard expansion: fixed by handling `Space` on compact transaction rows, exposing `aria-keyshortcuts`, and asserting the behavior in the Android ledger E2E.
+- Compact keyboard selection: fixed by handling `Shift+Space` on compact transaction rows, exposing the shortcut in `aria-keyshortcuts` and row instructions, and asserting keyboard select/deselect in the Android ledger E2E.
 
 ## OMO review findings
 

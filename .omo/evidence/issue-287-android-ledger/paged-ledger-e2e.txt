@@ -2,66 +2,66 @@
 > money-flow-workspace@0.1.0 e2e
 > uv run python scripts/run_e2e_with_orchestrator.py --grep monthly transaction ledger loads every paged row --project=desktop-chromium --workers=1
 
-[e2e-runner] isolated run -> backend:11045, frontend:11046, mode:dev, db:e2e_run_87fefea5d5134693b01b7a755e5533ca.db
-[orchestrator] backend start: C:\Users\enmso\.codex\worktrees\4e5e\money-flow-service\.venv\Scripts\python.exe -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 11045 --use-colors
-[orchestrator] waiting backend ready: http://127.0.0.1:11045/healthz
-2026-07-06 09:30:32 [backend] [32mINFO[0m:     Started server process [[36m32164[0m]
-2026-07-06 09:30:32 [backend] [32mINFO[0m:     Waiting for application startup.
-2026-07-06 09:30:32 [backend] [32mINFO[0m:     Application startup complete.
-2026-07-06 09:30:32 [backend] [32mINFO[0m:     Uvicorn running on [1mhttp://127.0.0.1:11045[0m (Press CTRL+C to quit)
-2026-07-06 09:30:33 [backend] [32mINFO[0m:     127.0.0.1:11055 - "[1mGET /healthz HTTP/1.1[0m" [32m200 OK[0m
+[e2e-runner] isolated run -> backend:12165, frontend:12166, mode:dev, db:e2e_run_486d1a20b2ba4f1e9b1fb87415be0d8d.db
+[orchestrator] backend start: C:\Users\enmso\.codex\worktrees\4e5e\money-flow-service\.venv\Scripts\python.exe -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 12165 --use-colors
+[orchestrator] waiting backend ready: http://127.0.0.1:12165/healthz
+2026-07-06 10:44:50 [backend] [32mINFO[0m:     Started server process [[36m35956[0m]
+2026-07-06 10:44:50 [backend] [32mINFO[0m:     Waiting for application startup.
+2026-07-06 10:44:50 [backend] [32mINFO[0m:     Application startup complete.
+2026-07-06 10:44:50 [backend] [32mINFO[0m:     Uvicorn running on [1mhttp://127.0.0.1:12165[0m (Press CTRL+C to quit)
+2026-07-06 10:44:51 [backend] [32mINFO[0m:     127.0.0.1:12175 - "[1mGET /healthz HTTP/1.1[0m" [32m200 OK[0m
 [orchestrator] backend is ready
-[orchestrator] frontend start: cmd /c npm run dev --prefix frontend -- --strictPort --host 127.0.0.1 --port 11046
-2026-07-06 09:30:33 [backend] [32mINFO[0m:     127.0.0.1:11056 - "[1mGET /healthz HTTP/1.1[0m" [32m200 OK[0m
-2026-07-06 09:30:33 [frontend]
-2026-07-06 09:30:33 [frontend] > frontend@0.0.0 dev
-2026-07-06 09:30:33 [frontend] > vite --strictPort --host 127.0.0.1 --port 11046
-2026-07-06 09:30:33 [frontend]
-2026-07-06 09:30:33 [frontend]
-2026-07-06 09:30:33 [frontend]   [32m[1mVITE[22m v7.3.3[39m  [2mready in [0m[1m226[22m[2m[0m ms[22m
-2026-07-06 09:30:33 [frontend]
-2026-07-06 09:30:33 [frontend]   [32m?[39m  [1mLocal[22m:   [36mhttp://127.0.0.1:[1m11046[22m/[39m
+[orchestrator] frontend start: cmd /c npm run dev --prefix frontend -- --strictPort --host 127.0.0.1 --port 12166
+2026-07-06 10:44:51 [backend] [32mINFO[0m:     127.0.0.1:12176 - "[1mGET /healthz HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 10:44:51 [frontend]
+2026-07-06 10:44:51 [frontend] > frontend@0.0.0 dev
+2026-07-06 10:44:51 [frontend] > vite --strictPort --host 127.0.0.1 --port 12166
+2026-07-06 10:44:51 [frontend]
+2026-07-06 10:44:51 [frontend]
+2026-07-06 10:44:51 [frontend]   [32m[1mVITE[22m v7.3.3[39m  [2mready in [0m[1m206[22m[2m[0m ms[22m
+2026-07-06 10:44:51 [frontend]
+2026-07-06 10:44:51 [frontend]   [32m?[39m  [1mLocal[22m:   [36mhttp://127.0.0.1:[1m12166[22m/[39m
 
 Running 1 test using 1 worker
 
-2026-07-06 09:30:36 [backend] [32mINFO[0m:     127.0.0.1:6263 - "[1mGET /api/v1/system/client-version HTTP/1.1[0m" [32m200 OK[0m
-2026-07-06 09:30:36 [backend] [32mINFO[0m:     127.0.0.1:6264 - "[1mGET /api/v1/auth/client-config HTTP/1.1[0m" [32m200 OK[0m
-2026-07-06 09:30:36 [backend] [32mINFO[0m:     127.0.0.1:6265 - "[1mGET /api/v1/auth/me HTTP/1.1[0m" [31m401 Unauthorized[0m
-2026-07-06 09:30:36 [backend] [32mINFO[0m:     127.0.0.1:6266 - "[1mGET /api/v1/household/current HTTP/1.1[0m" [31m401 Unauthorized[0m
-2026-07-06 09:30:36 [backend] [32mINFO[0m:     127.0.0.1:6267 - "[1mGET /api/v1/household/list HTTP/1.1[0m" [31m401 Unauthorized[0m
-2026-07-06 09:30:36 [backend] [32mINFO[0m:     127.0.0.1:6268 - "[1mPOST /api/v1/auth/refresh HTTP/1.1[0m" [31m401 Unauthorized[0m
-2026-07-06 09:30:36 [backend] [32mINFO[0m:     127.0.0.1:11242 - "[1mGET /api/v1/auth/client-config HTTP/1.1[0m" [32m200 OK[0m
-2026-07-06 09:30:36 [backend] [32mINFO[0m:     127.0.0.1:13556 - "[1mPOST /api/v1/auth/register HTTP/1.1[0m" [32m201 Created[0m
-2026-07-06 09:30:48 [backend] [32mINFO[0m:     127.0.0.1:6667 - "[1mGET /api/v1/auth/client-config HTTP/1.1[0m" [32m200 OK[0m
-2026-07-06 09:30:48 [backend] [32mINFO[0m:     127.0.0.1:4124 - "[1mPOST /api/v1/auth/verify-email HTTP/1.1[0m" [32m200 OK[0m
-2026-07-06 09:30:48 [backend] [32mINFO[0m:     127.0.0.1:1193 - "[1mGET /api/v1/auth/me HTTP/1.1[0m" [32m200 OK[0m
-2026-07-06 09:30:48 [backend] [32mINFO[0m:     127.0.0.1:5639 - "[1mGET /api/v1/household/list HTTP/1.1[0m" [32m200 OK[0m
-2026-07-06 09:30:48 [backend] [32mINFO[0m:     127.0.0.1:5638 - "[1mGET /api/v1/household/current HTTP/1.1[0m" [32m200 OK[0m
-2026-07-06 09:30:48 [backend] [32mINFO[0m:     127.0.0.1:14946 - "[1mGET /api/v1/household/settings HTTP/1.1[0m" [32m200 OK[0m
-2026-07-06 09:30:48 [backend] [32mINFO[0m:     127.0.0.1:8806 - "[1mGET /api/v1/categories HTTP/1.1[0m" [32m200 OK[0m
-2026-07-06 09:30:48 [backend] [32mINFO[0m:     127.0.0.1:14420 - "[1mGET /api/v1/household/invitations/received HTTP/1.1[0m" [32m200 OK[0m
-2026-07-06 09:30:48 [backend] [32mINFO[0m:     127.0.0.1:14419 - "[1mGET /api/v1/household/invitations HTTP/1.1[0m" [32m200 OK[0m
-2026-07-06 09:30:48 [backend] [32mINFO[0m:     127.0.0.1:7683 - "[1mGET /api/v1/household/members HTTP/1.1[0m" [32m200 OK[0m
-2026-07-06 09:30:48 [backend] [32mINFO[0m:     127.0.0.1:11132 - "[1mGET /api/v1/holdings HTTP/1.1[0m" [32m200 OK[0m
-2026-07-06 09:30:48 [backend] [32mINFO[0m:     127.0.0.1:11131 - "[1mGET /api/v1/dashboard/overview?year=2026&month=7 HTTP/1.1[0m" [32m200 OK[0m
-2026-07-06 09:30:48 [backend] [32mINFO[0m:     127.0.0.1:2368 - "[1mGET /api/v1/prices/status HTTP/1.1[0m" [32m200 OK[0m
-2026-07-06 09:30:48 [backend] [32mINFO[0m:     127.0.0.1:2367 - "[1mGET /api/v1/dashboard/portfolio HTTP/1.1[0m" [32m200 OK[0m
-2026-07-06 09:30:49 [backend] [32mINFO[0m:     127.0.0.1:6788 - "[1mPOST /api/v1/household/ws-ticket HTTP/1.1[0m" [32m200 OK[0m
-2026-07-06 09:30:49 [backend] [32mINFO[0m:     127.0.0.1:14702 - "WebSocket /ws/v1/household/198ac559-cc61-48f1-8fde-00c6adff4148" [accepted]
-2026-07-06 09:30:49 [backend] [32mINFO[0m:     connection open
-2026-07-06 09:30:51 [backend] [32mINFO[0m:     connection closed
-  ok 1 [desktop-chromium] › e2e\specs\transactions.spec.js:5750:5 › issue 287: monthly transaction ledger loads every paged row (15.0s)
+2026-07-06 10:44:54 [backend] [32mINFO[0m:     127.0.0.1:5014 - "[1mGET /api/v1/system/client-version HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 10:44:54 [backend] [32mINFO[0m:     127.0.0.1:5015 - "[1mGET /api/v1/auth/client-config HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 10:44:54 [backend] [32mINFO[0m:     127.0.0.1:5018 - "[1mGET /api/v1/household/list HTTP/1.1[0m" [31m401 Unauthorized[0m
+2026-07-06 10:44:54 [backend] [32mINFO[0m:     127.0.0.1:5016 - "[1mGET /api/v1/auth/me HTTP/1.1[0m" [31m401 Unauthorized[0m
+2026-07-06 10:44:54 [backend] [32mINFO[0m:     127.0.0.1:5017 - "[1mGET /api/v1/household/current HTTP/1.1[0m" [31m401 Unauthorized[0m
+2026-07-06 10:44:54 [backend] [32mINFO[0m:     127.0.0.1:5019 - "[1mPOST /api/v1/auth/refresh HTTP/1.1[0m" [31m401 Unauthorized[0m
+2026-07-06 10:44:54 [backend] [32mINFO[0m:     127.0.0.1:11623 - "[1mGET /api/v1/auth/client-config HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 10:44:54 [backend] [32mINFO[0m:     127.0.0.1:6779 - "[1mPOST /api/v1/auth/register HTTP/1.1[0m" [32m201 Created[0m
+2026-07-06 10:45:06 [backend] [32mINFO[0m:     127.0.0.1:9150 - "[1mGET /api/v1/auth/client-config HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 10:45:06 [backend] [32mINFO[0m:     127.0.0.1:8806 - "[1mPOST /api/v1/auth/verify-email HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 10:45:06 [backend] [32mINFO[0m:     127.0.0.1:4748 - "[1mGET /api/v1/auth/me HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 10:45:06 [backend] [32mINFO[0m:     127.0.0.1:10822 - "[1mGET /api/v1/household/list HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 10:45:06 [backend] [32mINFO[0m:     127.0.0.1:10821 - "[1mGET /api/v1/household/current HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 10:45:06 [backend] [32mINFO[0m:     127.0.0.1:10562 - "[1mGET /api/v1/household/settings HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 10:45:06 [backend] [32mINFO[0m:     127.0.0.1:10563 - "[1mGET /api/v1/categories HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 10:45:06 [backend] [32mINFO[0m:     127.0.0.1:13381 - "[1mGET /api/v1/household/members HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 10:45:06 [backend] [32mINFO[0m:     127.0.0.1:5145 - "[1mGET /api/v1/household/invitations/received HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 10:45:06 [backend] [32mINFO[0m:     127.0.0.1:5144 - "[1mGET /api/v1/household/invitations HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 10:45:06 [backend] [32mINFO[0m:     127.0.0.1:6625 - "[1mGET /api/v1/holdings HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 10:45:06 [backend] [32mINFO[0m:     127.0.0.1:11609 - "[1mGET /api/v1/dashboard/overview?year=2026&month=7 HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 10:45:06 [backend] [32mINFO[0m:     127.0.0.1:6626 - "[1mGET /api/v1/dashboard/portfolio HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 10:45:06 [backend] [32mINFO[0m:     127.0.0.1:6791 - "[1mGET /api/v1/prices/status HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 10:45:07 [backend] [32mINFO[0m:     127.0.0.1:7199 - "[1mPOST /api/v1/household/ws-ticket HTTP/1.1[0m" [32m200 OK[0m
+2026-07-06 10:45:07 [backend] [32mINFO[0m:     127.0.0.1:1039 - "WebSocket /ws/v1/household/f70afb8b-9fe3-4e87-ae4c-eb84e22e2bb6" [accepted]
+2026-07-06 10:45:07 [backend] [32mINFO[0m:     connection open
+2026-07-06 10:45:09 [backend] [32mINFO[0m:     connection closed
+  ok 1 [desktop-chromium] › e2e\specs\transactions.spec.js:5757:5 › issue 287: monthly transaction ledger loads every paged row (15.6s)
 
-  1 passed (16.4s)
-[e2e-runner] screenshot capture missing: output/playwright/e2e-flow/*.png
+  1 passed (17.0s)
+[e2e-runner] screenshot capture: 1 files
 [e2e-runner] stop orchestrator
 ^C
 [orchestrator] shutdown signal received(signum=21)
 [orchestrator] shutdown requested -> cleanup all
-[orchestrator] terminate frontend(pid=57364)
-2026-07-06 09:30:51 [frontend] ^C
-[orchestrator] terminate backend(pid=66120)
-2026-07-06 09:30:51 [backend] [32mINFO[0m:     Shutting down
-2026-07-06 09:30:52 [backend] [32mINFO[0m:     Waiting for application shutdown.
-2026-07-06 09:30:52 [backend] [32mINFO[0m:     Application shutdown complete.
-2026-07-06 09:30:52 [backend] [32mINFO[0m:     Finished server process [[36m32164[0m]
+[orchestrator] terminate frontend(pid=56812)
+2026-07-06 10:45:10 [frontend] ^C
+[orchestrator] terminate backend(pid=63672)
+2026-07-06 10:45:10 [backend] [32mINFO[0m:     Shutting down
+2026-07-06 10:45:10 [backend] [32mINFO[0m:     Waiting for application shutdown.
+2026-07-06 10:45:10 [backend] [32mINFO[0m:     Application shutdown complete.
+2026-07-06 10:45:10 [backend] [32mINFO[0m:     Finished server process [[36m35956[0m]

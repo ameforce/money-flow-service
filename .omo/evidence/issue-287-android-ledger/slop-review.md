@@ -8,13 +8,14 @@ Behavior lock:
 - `test_transaction_list_rejects_excessive_offset`
 - `issue 287: monthly transaction ledger loads every paged row`
 - `issue 287: stale monthly transaction refresh cannot replace the active month`
+- `issue 287: Android PWA transaction ledger uses monthly dense rows` covers compact `Space` expansion and `Shift+Space` selection
 - Existing Android/PWA monthly ledger and mobile selection E2E coverage
 
 Cleanup plan:
 
 - `backend/app/api/routes/transactions.py`: boundary control only. Keep offset pagination, add server-side cap.
 - `frontend/src/App.jsx`: root-cause fix at the shared refresh seam. Keep one request/filter guard instead of per-call stale checks.
-- `frontend/src/components/worksurface/TransactionSurfaceTable.jsx`: keep compact Space handler and unmount cleanup. No extra abstraction.
+- `frontend/src/components/worksurface/TransactionSurfaceTable.jsx`: keep compact Space/Shift+Space handlers and unmount cleanup. No extra abstraction.
 - `e2e/specs/transactions.spec.js`: add observable regressions only; no snapshot or implementation-only assertions beyond the API pagination contract.
 
 Slop review results:

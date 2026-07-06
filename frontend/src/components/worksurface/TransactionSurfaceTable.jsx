@@ -1054,6 +1054,10 @@ export function TransactionSurfaceTable({
               if (isCompactViewport && (event.key === " " || event.key === "Spacebar")) {
                 event.preventDefault();
                 clearPendingRowClickAction();
+                if (event.shiftKey) {
+                  toggleTransactionSelection(item.id);
+                  return;
+                }
                 toggleExpandedTransactionRow(item.id);
                 return;
               }
@@ -1069,11 +1073,11 @@ export function TransactionSurfaceTable({
             };
             const rowEditShortcutLabel = canEditRecords ? "Enter 또는 F2로 편집" : "편집 권한 없음";
             const rowKeyboardShortcutLabel = isCompactViewport
-              ? `${rowEditShortcutLabel}. Space로 세부를 열고 닫습니다.`
+              ? `${rowEditShortcutLabel}. Space로 세부를 열고 닫고 Shift+Space로 선택합니다.`
               : rowEditShortcutLabel;
             const rowKeyShortcuts = [
               ...(canEditRecords ? ["Enter", "F2"] : []),
-              ...(isCompactViewport ? ["Space"] : []),
+              ...(isCompactViewport ? ["Space", "Shift+Space"] : []),
             ].join(" ");
             const updateInlineFlowType = (nextFlowType) => {
               if (!editForm) {
@@ -1311,7 +1315,7 @@ export function TransactionSurfaceTable({
                   data-transaction-id={item.id}
                   data-transaction-date={item.occurred_on}
                   aria-selected={selectedTransactionIds.has(item.id) ? "true" : "false"}
-                  aria-label={`거래 ${item.occurred_on} ${flowLabel} ${ownerSummaryLabel} ${compactCategoryLabel} ${item.memo || "-"} ${amountLabel}. 탭하면 세부를 열고 길게 누르면 선택합니다. ${rowKeyboardShortcutLabel}`}
+                  aria-label={`거래 ${item.occurred_on} ${flowLabel} ${ownerSummaryLabel} ${compactCategoryLabel} ${item.memo || "-"} ${amountLabel}. 탭하면 세부를 열고 길게 누르거나 Shift+Space로 선택합니다. ${rowKeyboardShortcutLabel}`}
                   aria-keyshortcuts={rowKeyShortcuts || undefined}
                   tabIndex={isEditing ? -1 : 0}
                   onPointerDown={(event) => startRowPointerGesture(event, item.id, isEditing)}

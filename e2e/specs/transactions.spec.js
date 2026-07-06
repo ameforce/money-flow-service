@@ -5719,6 +5719,13 @@ test("issue 287: Android PWA transaction ledger uses monthly dense rows", async 
   await expect(mobileRow).toHaveAttribute("data-row-selected", "false");
   await page.keyboard.press("Space");
   await expect(mobileRow).not.toHaveClass(/mobile-row-expanded/);
+  await page.keyboard.press("Shift+Space");
+  await expect(mobileRow).toHaveAttribute("data-row-selected", "true");
+  await expect(mobileRow).not.toHaveClass(/mobile-row-expanded/);
+  await expectTransactionSelectionSummary(page, 1);
+  await page.keyboard.press("Shift+Space");
+  await expect(mobileRow).toHaveAttribute("data-row-selected", "false");
+  await expect(mobileRow).not.toHaveClass(/mobile-row-expanded/);
   await mobileRow.click({ position: { x: 88, y: 22 } });
   await expect(mobileRow).toHaveClass(/mobile-row-expanded/);
   await expect(mobileRow).toHaveAttribute("data-row-selected", "false");
@@ -5808,6 +5815,7 @@ test("issue 287: monthly transaction ledger loads every paged row", async ({ pag
   ).toBe(false);
   await expect(page.locator(".transaction-history-date-row")).toHaveCount(0);
   await expect(page.locator(".transaction-history-sentinel")).toHaveCount(0);
+  await capture(page, "issue-287-monthly-paged-ledger");
 });
 
 test("issue 287: stale monthly transaction refresh cannot replace the active month", async ({ page }) => {
@@ -5889,6 +5897,7 @@ test("issue 287: stale monthly transaction refresh cannot replace the active mon
   expect(transactionRequests, "test should exercise previous then active current month").toEqual(
     expect.arrayContaining(["previous", "current"])
   );
+  await capture(page, "issue-287-stale-month-refresh-guard");
 });
 
 test("transactions list affordance: top filters, compact ledger, ownerless marker", async ({ page }) => {

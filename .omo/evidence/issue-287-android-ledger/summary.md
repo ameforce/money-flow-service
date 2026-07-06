@@ -5,7 +5,7 @@
 - The transaction list still carried the retired continuous-history rendering path behind an always-false mode flag.
 - Mobile touch selection relied on pointer cleanup that did not clear the pending long-press timer when the touch ended outside the row.
 - The Android/PWA ledger contract needed real touch input coverage for tap, long press, long-press drag selection, and touch scrolling.
-- PR review found two follow-up defects after the first fix: the monthly ledger still capped at the first 1000 rows, and the compact row no longer had a keyboard path to expand details after the visible mobile toggle was removed.
+- PR review found three follow-up defects after the first fix: the monthly ledger still capped at the first 1000 rows, the compact row no longer had a keyboard path to expand details after the visible mobile toggle was removed, and the compact row still needed a non-pointer keyboard path for selection after row activation was repurposed for detail expansion.
 
 ## Fix
 
@@ -15,8 +15,8 @@
 - Added a server-side offset cap so authenticated direct callers cannot request arbitrarily large offsets.
 - Added an active filter/request guard so a slow previous month/range refresh cannot overwrite the currently selected ledger.
 - Hardened touch gesture cleanup so pointer/touch cancellation and component unmount clear pending long-press state.
-- Restored a compact-row keyboard expansion contract: `Space` toggles details while `Enter`/`F2` remain edit shortcuts when editing is available.
-- Added CDP touch-input E2E coverage for Android-style tap, long press, long-press drag selection, scrolling, keyboard expansion, and 1001-row monthly paging.
+- Restored compact-row keyboard contracts: `Space` toggles details, `Shift+Space` toggles selection, and `Enter`/`F2` remain edit shortcuts when editing is available.
+- Added CDP touch-input E2E coverage for Android-style tap, long press, long-press drag selection, scrolling, keyboard expansion, keyboard selection, and 1001-row monthly paging.
 
 ## Verification
 
@@ -27,6 +27,7 @@
 - PASS: `npm.cmd run lint --prefix frontend` with 11 existing App.jsx warnings and 0 errors
 - PASS: `npm.cmd run e2e -- --grep "issue 287|mobile transaction row selection|transaction tab rolls local date" --project=desktop-chromium --workers=1`
 - PASS: `npm.cmd run e2e -- --grep "stale monthly transaction refresh" --project=desktop-chromium --workers=1`
+- PASS: `npm.cmd run e2e -- --grep "issue 287: Android PWA transaction ledger uses monthly dense rows" --project=desktop-chromium --workers=1`
 - PASS: `npm.cmd run e2e -- --grep "monthly transaction ledger loads every paged row" --project=desktop-chromium --workers=1`
 - PASS: `npm.cmd run e2e -- e2e/specs/transactions.spec.js --project=desktop-chromium --workers=1` with 67 passed
 - PASS: `git diff --check`
