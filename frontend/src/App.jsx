@@ -7059,6 +7059,8 @@ function App() {
     filterModeRef.current = "month";
     setYearMonth(targetMonth);
     yearMonthRef.current = targetMonth;
+    appliedYearMonthRef.current = targetMonth;
+    setMonthFilterPending(false);
     if (startEdit) {
       setPendingImportEditTransactionId(firstRef.id);
     }

@@ -15,12 +15,14 @@
 - Unbounded offset blocker: fixed by adding `_TRANSACTION_LIST_MAX_OFFSET = 60_000` and `le=_TRANSACTION_LIST_MAX_OFFSET` to the backend route. Covered by `test_transaction_list_rejects_excessive_offset`.
 - Sticky header regression after latest anchoring: fixed by including `sortedTransactions.length` in the sticky geometry measurement effect dependencies. Covered by the focused Korean-font sticky ledger E2E and the full `transactions.spec.js` rerun.
 - Compact row shortcut instruction scope: fixed by using compact-only row activation instructions for `Shift+Space`; desktop rows now describe checkbox selection instead of mobile row shortcuts.
+- Import reveal stale guard blocker: fixed by making `showImportedTransactions()` update `appliedYearMonthRef` and clear month pending state before calling `refreshDataWithUiFeedback()`. Covered by RED/GREEN `import flow: workbook dry-run and apply`, which imports a March workbook while the app starts on July.
 - Stale style concern: reviewed `transaction-owner-chip` and `mobile-toggle-btn` selectors. They are still shared with owner chips and holdings/mobile touch-target regressions, so no unrelated CSS deletion was made in this PR.
 
 ## Programming / remove-ai-slops perspective
 
 - Behavior lock: existing #287 E2E plus new stale-refresh and offset-cap tests were added before claiming cleanup.
 - Latest-row behavior lock: the paged-ledger E2E now asserts that the newest rendered monthly row is visible on initial open and the oldest row is not the initial anchor.
+- Import reveal behavior lock: the existing workbook import E2E now serves as a stale-guard regression because it applies a March transaction from a July session and asserts the imported row appears after "가져온 거래 보기".
 - Deletion ladder: new request guard is kept because it fixes an observed race at the shared refresh seam; no speculative helper or per-caller duplicate guard was added.
 - Slop categories checked: no obvious comments, debug leftovers, broad catches, public API churn, new dependency, or behavior-weakening test changes were introduced.
 - Oversized modules: `frontend/src/App.jsx` and `e2e/specs/transactions.spec.js` are legacy oversized files. This hotfix adds scoped regression coverage and does not attempt unrelated extraction inside #287.

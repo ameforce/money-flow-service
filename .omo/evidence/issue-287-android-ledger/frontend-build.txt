@@ -14,5 +14,5 @@ computing gzip size...
 [2mdist/[22m[32mindex.html                 [39m[1m[2m  1.03 kB[22m[1m[22m[2m │ gzip:   0.59 kB[22m
 [2mdist/[22m[35massets/index-BhS96gyu.css  [39m[1m[2m169.48 kB[22m[1m[22m[2m │ gzip:  30.39 kB[22m
 [2mdist/[22m[36massets/vendor-B5cPcS6-.js  [39m[1m[2m365.91 kB[22m[1m[22m[2m │ gzip: 121.30 kB[22m
-[2mdist/[22m[36massets/index-ByuTN2Yp.js   [39m[1m[2m376.05 kB[22m[1m[22m[2m │ gzip:  98.34 kB[22m
-[32m✓ built in 902ms[39m
+[2mdist/[22m[36massets/index-D2k8tE0l.js   [39m[1m[2m376.08 kB[22m[1m[22m[2m │ gzip:  98.34 kB[22m
+[32m✓ built in 881ms[39m
