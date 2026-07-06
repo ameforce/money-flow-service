@@ -9,7 +9,6 @@ export function TransactionListTablePanel({
   selection,
   inlineEdit,
   categoryManager,
-  history,
   ownerHelpers,
   formatters,
 }) {
@@ -27,28 +26,17 @@ export function TransactionListTablePanel({
   const { areAllFilteredTransactionsSelected, selectedTransactionIds, toggleAllFilteredTransactionSelection, toggleTransactionSelection } = selection;
   const { closeTxInlineEdit, createAndApplyTxInlineCategory, handleGroupedDecimalInput, handleTransactionAmountInput, handleTxInlineEditKeyDown, openTransactionInlineEditor, submitTxInlineEdit, txInlineEdit, updateTxInlineEdit } = inlineEdit;
   const { renderLegacyOwnerRemapHelper, txInlineCategoryMajor, txInlineCategoryMajorOptions, txInlineCategoryMinorOptions, txInlineCategoryOptions, txInlineCategoryQuickChips } = categoryManager;
-  const { transactionHistoryBottomSentinelRef, transactionHistoryError, transactionHistoryInitialized, transactionHistoryLoading, transactionHistoryTopSentinelRef } = history;
   const { ownerOptionsWithFallback, ownerSelectValue, ownerSelectionFromValue } = ownerHelpers;
   const { fmtDate, fmtKrw, toCategoryMajorLabel, toCategoryMinorLabel } = formatters;
 
   return (
     <>
-      {(transactionHistoryLoading.initial || transactionHistoryError) && (
-        <p className={`table-summary transaction-history-status${transactionHistoryError ? " is-error" : ""}`} role={transactionHistoryError ? "alert" : "status"}>
-          {transactionHistoryError || "오늘 기준 거래 내역을 불러오는 중입니다."}
-        </p>
-      )}
       <TransactionSurfaceTable
         sortedTransactions={sortedTransactions}
         areAllFilteredTransactionsSelected={areAllFilteredTransactionsSelected}
         toggleAllFilteredTransactionSelection={toggleAllFilteredTransactionSelection}
-        txSortDirection={transactionHistoryInitialized ? "asc" : txSortDirection}
+        txSortDirection={txSortDirection}
         toggleTxSortDirection={toggleTxSortDirection}
-        historyMode={transactionHistoryInitialized}
-        historyTopSentinelRef={transactionHistoryTopSentinelRef}
-        historyBottomSentinelRef={transactionHistoryBottomSentinelRef}
-        historyLoadingOlder={transactionHistoryLoading.older}
-        historyLoadingNewer={transactionHistoryLoading.newer}
         selectedTransactionIds={selectedTransactionIds}
         recentImportTransactionIds={recentImportTransactionIds}
         recentSavedTransactionIds={recentSavedTransactionIds}

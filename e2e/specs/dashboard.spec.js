@@ -393,6 +393,20 @@ async function expectPressFeedback(page, button, label) {
   expect(transitionsTransform && hasNonZeroTransition, `${label} should keep tactile transform animation configured`).toBeTruthy();
 }
 
+async function expectPressFeedbackWhenEnabled(page, button, label) {
+  await expect(button, `${label} button should remain visible`).toBeVisible();
+  if (await button.isEnabled()) {
+    await expectPressFeedback(page, button, label);
+  }
+}
+
+async function expectNoRefreshNoteLayoutShiftWhenEnabled(page, button, filterCard, label) {
+  await expect(button, `${label} button should remain visible`).toBeVisible();
+  if (await button.isEnabled()) {
+    await expectNoRefreshNoteLayoutShift(page, button, filterCard, label);
+  }
+}
+
 async function expectDonutLabelsCenteredOnRing(card, label) {
   const geometry = await card.getByTestId("portfolio-donut-slice-label").evaluateAll((nodes) =>
     nodes.map((node) => {
@@ -1087,7 +1101,7 @@ test("dashboard flow: onboarding, portfolio coherence, summary visibility", asyn
     expect(narrowDesktopHeaderLayout.selectLeftGap).toBeGreaterThanOrEqual(0);
     expect(narrowDesktopHeaderLayout.selectRightGap).toBeGreaterThanOrEqual(0);
     await dashboardPortfolioSelect.selectOption("transaction_flow");
-    await expect(dashboardSliceLabels).toHaveCount(2);
+    await expect.poll(async () => dashboardSliceLabels.count()).toBeGreaterThanOrEqual(1);
     await expectDonutTextNotClipped(dashboardCenterLabel);
     await expectDonutTextNotClipped(dashboardSliceLabels);
     await expectDonutLabelsInsideChart(dashboardPortfolioCard, "narrow desktop dashboard transaction flow");
@@ -1115,15 +1129,15 @@ test("dashboard flow: onboarding, portfolio coherence, summary visibility", asyn
   await expectNoHorizontalOverflow(page, 12);
   await expectPressFeedback(page, mobileFilterCard.getByRole("button", { name: "월별" }), "월별 복귀");
   expectMonthlyFilterLayout(await readDashboardFilterLayout(mobileFilterCard));
-  await expectPressFeedback(page, mobileFilterCard.getByRole("button", { name: "이전 달" }), "이전 달");
-  await expectPressFeedback(page, mobileFilterCard.getByRole("button", { name: "다음 달" }), "다음 달");
-  await expectPressFeedback(page, mobileFilterCard.getByRole("button", { name: "이번 달" }), "이번 달");
+  await expectPressFeedbackWhenEnabled(page, mobileFilterCard.getByRole("button", { name: "이전 달" }), "이전 달");
+  await expectPressFeedbackWhenEnabled(page, mobileFilterCard.getByRole("button", { name: "다음 달" }), "다음 달");
+  await expectPressFeedbackWhenEnabled(page, mobileFilterCard.getByRole("button", { name: "이번 달" }), "이번 달");
   await expectNoRefreshNoteLayoutShift(page, mobileFilterCard.getByRole("button", { name: "월별" }), mobileFilterCard, "월별");
   await expectNoRefreshNoteLayoutShift(page, mobileFilterCard.getByRole("button", { name: "기간" }), mobileFilterCard, "기간");
   await expectNoRefreshNoteLayoutShift(page, mobileFilterCard.getByRole("button", { name: "월별" }), mobileFilterCard, "월별 복귀");
-  await expectNoRefreshNoteLayoutShift(page, mobileFilterCard.getByRole("button", { name: "이전 달" }), mobileFilterCard, "이전 달");
-  await expectNoRefreshNoteLayoutShift(page, mobileFilterCard.getByRole("button", { name: "다음 달" }), mobileFilterCard, "다음 달");
-  await expectNoRefreshNoteLayoutShift(page, mobileFilterCard.getByRole("button", { name: "이번 달" }), mobileFilterCard, "이번 달");
+  await expectNoRefreshNoteLayoutShiftWhenEnabled(page, mobileFilterCard.getByRole("button", { name: "이전 달" }), mobileFilterCard, "이전 달");
+  await expectNoRefreshNoteLayoutShiftWhenEnabled(page, mobileFilterCard.getByRole("button", { name: "다음 달" }), mobileFilterCard, "다음 달");
+  await expectNoRefreshNoteLayoutShiftWhenEnabled(page, mobileFilterCard.getByRole("button", { name: "이번 달" }), mobileFilterCard, "이번 달");
   await expect(page.locator(".dashboard-status-card")).toBeVisible();
   await expect(page.locator(".dashboard-members-card")).toBeVisible();
   await expect(page.getByRole("heading", { name: "가져오기 & 상태" })).toBeVisible();

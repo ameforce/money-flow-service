@@ -10,7 +10,6 @@ export function TransactionListToolbar({
   selection,
   entrySheet,
   inlineEdit,
-  history,
   formatters,
 }) {
   const { FLOW_TYPE_OPTIONS } = constants;
@@ -33,6 +32,7 @@ export function TransactionListToolbar({
     showTransactionFilterPanel,
     sortedTransactions,
     transactionSortSummary,
+    transactionLedgerItems,
     txListFilter,
   } = listState;
   const { transactionListHeadingRef, transactionStickyToolbarRef } = listRefs;
@@ -45,12 +45,6 @@ export function TransactionListToolbar({
   } = selection;
   const { openNormalTransactionEntrySheet, transactionDesktopAddActionRef } = entrySheet;
   const { txInlineEdit } = inlineEdit;
-  const {
-    transactionHistoryAnchorDate,
-    transactionHistoryInitialized,
-    transactionHistoryToday,
-    transactionLedgerItems,
-  } = history;
   const { fmtKrw, toYearMonthKey } = formatters;
 
   return (
@@ -61,7 +55,7 @@ export function TransactionListToolbar({
           <h2>거래 목록</h2>
         </div>
         <p className="table-summary surface-count-summary">
-          {transactionHistoryInitialized ? "불러온" : "총"} {transactionLedgerItems.length}건 중 {sortedTransactions.length}건 표시
+          총 {transactionLedgerItems.length}건 중 {sortedTransactions.length}건 표시
         </p>
         {!isCompactViewport && !txInlineEdit && (
           <button ref={transactionDesktopAddActionRef} type="button" className="primary surface-heading-action transaction-desktop-add-action" data-testid="transactions-desktop-add-action" disabled={loading} onClick={() => openNormalTransactionEntrySheet("form")}>
@@ -72,9 +66,6 @@ export function TransactionListToolbar({
       </div>
       <div className="surface-control-strip" aria-label="거래 목록 상태">
         <span className="surface-chip surface-chip-strong">{transactionSortSummary}</span>
-        {transactionHistoryInitialized && (
-          <span className="surface-chip surface-chip-muted">기준 {transactionHistoryAnchorDate || transactionHistoryToday}</span>
-        )}
         <span className={`surface-chip${isTransactionFilterActive ? " surface-chip-strong" : " surface-chip-muted"}`}>
           필터 {isTransactionFilterActive ? "적용됨" : "기본"}
         </span>

@@ -4870,6 +4870,36 @@ def test_transaction_list_uses_order_key() -> None:
         assert [item["order_key"] for item in items[:2]] == [1024, 2048]
 
 
+def test_transaction_list_supports_offset_pagination_in_order() -> None:
+    with TestClient(app) as client:
+        token = _auth(client, f"tx-list-offset-{uuid.uuid4().hex}@example.com", "Password1234", "TxListOffset")
+        memos = [f"offset-page-{index}" for index in range(4)]
+        for memo in memos:
+            created = client.post(
+                "/api/v1/transactions",
+                headers=_headers(token),
+                json={
+                    "occurred_on": "2026-05-03",
+                    "flow_type": "expense",
+                    "amount": 1000,
+                    "currency": "KRW",
+                    "memo": memo,
+                },
+            )
+            assert created.status_code == 201
+
+        page = client.get("/api/v1/transactions?year=2026&month=5&limit=2&offset=1", headers=_headers(token))
+        assert page.status_code == 200
+        assert [item["memo"] for item in page.json()] == memos[1:3]
+
+
+def test_transaction_list_rejects_excessive_offset() -> None:
+    with TestClient(app) as client:
+        token = _auth(client, f"tx-list-offset-cap-{uuid.uuid4().hex}@example.com", "Password1234", "TxOffsetCap")
+        response = client.get("/api/v1/transactions?year=2026&month=5&limit=2&offset=60001", headers=_headers(token))
+        assert response.status_code == 400
+
+
 def test_transaction_create_rejects_category_flow_type_mismatch() -> None:
     with TestClient(app) as client:
         token = _auth(client, f"tx-flow-mismatch-{uuid.uuid4().hex}@example.com", "Password1234", "TxFlow")
