@@ -959,6 +959,78 @@ async function fillInputUntilValue(locator, inputValue, expectedValue, fieldName
   await expect(locator, `${fieldName} 입력값 확인`).toHaveValue(expectedValue);
 }
 
+const TRANSACTION_FLOW_LABELS = {
+  income: "수입",
+  expense: "지출",
+  investment: "투자",
+  transfer: "이체",
+};
+
+async function selectTransactionFlowChoice(container, flowType) {
+  if (!flowType) {
+    return;
+  }
+  const flowChoices = container.getByTestId("transaction-flow-choice");
+  if ((await flowChoices.count()) > 0) {
+    const flowLabel = TRANSACTION_FLOW_LABELS[flowType] || flowType;
+    const choice = flowChoices.filter({ hasText: flowLabel }).first();
+    await expect(choice).toBeVisible();
+    await choice.click();
+    await expect(choice).toHaveAttribute("aria-pressed", "true");
+    return;
+  }
+  await labeledField(container, "유형", "select").selectOption(flowType);
+}
+
+async function selectTransactionOwnerChoice(container, { ownerless = false } = {}) {
+  const ownerChoices = container.getByTestId("transaction-owner-choice");
+  if ((await ownerChoices.count()) > 0) {
+    const choice = ownerless
+      ? container.locator('[data-testid="transaction-owner-choice"][data-owner-value=""]').first()
+      : container.locator('[data-testid="transaction-owner-choice"]:not([data-owner-value=""])').first();
+    await expect(choice).toBeVisible();
+    await choice.click();
+    await expect(choice).toHaveAttribute("aria-pressed", "true");
+    return;
+  }
+  const ownerSelect = labeledField(container, "거래자", "select");
+  if (ownerless) {
+    await ownerSelect.selectOption("");
+    await expect(ownerSelect).toHaveValue("");
+  } else {
+    await selectFirstNonEmptyOption(ownerSelect);
+  }
+}
+
+async function selectFirstTransactionCategoryChoice(container) {
+  const groupChoices = container.getByTestId("transaction-category-group-choice");
+  if ((await groupChoices.count()) > 0) {
+    const groupChoice = groupChoices.first();
+    await expect(groupChoice).toBeVisible();
+    await groupChoice.click();
+    const categoryChoice = container.getByTestId("transaction-category-choice").first();
+    if ((await categoryChoice.count()) > 0) {
+      await expect(categoryChoice).toBeVisible();
+      await categoryChoice.click();
+      await expect(categoryChoice).toHaveAttribute("aria-pressed", "true");
+    }
+    return;
+  }
+
+  const majorSelectNew = labeledField(container, "카테고리 그룹", "select");
+  const hasNewCategoryLabels = (await majorSelectNew.count()) > 0;
+  const majorSelect = hasNewCategoryLabels
+    ? majorSelectNew
+    : labeledField(container, "대분류", "select");
+  const hasMajor = await selectFirstNonEmptyOption(majorSelect);
+  if (hasMajor) {
+    const minorSelect = hasNewCategoryLabels
+      ? labeledField(container, "카테고리", "select")
+      : labeledField(container, "중분류", "select");
+    await selectFirstNonEmptyOption(minorSelect);
+  }
+}
+
 export async function createBasicTransaction(
   page,
   { memo, amount = "12000", flowType = "", ownerless = false, occurredOn = currentE2EHistoryDateIso() }
@@ -968,32 +1040,11 @@ export async function createBasicTransaction(
   const transactionSheet = page.getByTestId("transaction-entry-sheet");
   await expandQuickTransactionDetails(transactionContainer);
 
-  if (flowType) {
-    await labeledField(transactionContainer, "유형", "select").selectOption(flowType);
-  }
+  await selectTransactionFlowChoice(transactionContainer, flowType);
 
-  const ownerSelect = labeledField(transactionContainer, "거래자", "select");
   await ensureTransactionFormValues(transactionContainer, { memo, amount, occurredOn: effectiveOccurredOn });
-
-  if (ownerless) {
-    await ownerSelect.selectOption("");
-    await expect(ownerSelect).toHaveValue("");
-  } else {
-    await selectFirstNonEmptyOption(ownerSelect);
-  }
-
-  const majorSelectNew = labeledField(transactionContainer, "카테고리 그룹", "select");
-  const hasNewCategoryLabels = (await majorSelectNew.count()) > 0;
-  const majorSelect = hasNewCategoryLabels
-    ? majorSelectNew
-    : labeledField(transactionContainer, "대분류", "select");
-  const hasMajor = await selectFirstNonEmptyOption(majorSelect);
-  if (hasMajor) {
-    const minorSelect = hasNewCategoryLabels
-      ? labeledField(transactionContainer, "카테고리", "select")
-      : labeledField(transactionContainer, "중분류", "select");
-    await selectFirstNonEmptyOption(minorSelect);
-  }
+  await selectTransactionOwnerChoice(transactionContainer, { ownerless });
+  await selectFirstTransactionCategoryChoice(transactionContainer);
 
   const { amountInput } = await ensureTransactionFormValues(transactionContainer, {
     memo,

@@ -2167,7 +2167,7 @@ function App() {
   const [transactionFilterFocusTarget, setTransactionFilterFocusTarget] = useState("");
   const [transactionSupportOpen, setTransactionSupportOpen] = useState(false);
   const [txEntrySheetStep, setTxEntrySheetStep] = useState("form");
-  const [showTransactionQuickResume, setShowTransactionQuickResume] = useState(false);
+  const [, setShowTransactionQuickResume] = useState(false);
   const [txRepeatFocusRequest, setTxRepeatFocusRequest] = useState(0);
   const [txQuickOwnerTouched, setTxQuickOwnerTouched] = useState(false);
   const [txDraftTouched, setTxDraftTouched] = useState(false);
@@ -2245,7 +2245,7 @@ function App() {
         return;
       }
       event.preventDefault();
-      nextField.focus({ preventScroll: false });
+      nextField.focus({ preventScroll: true });
       if (nextField instanceof HTMLInputElement && typeof nextField.select === "function") {
         nextField.select();
       }
@@ -2573,16 +2573,6 @@ function App() {
         .sort((left, right) => Number(right.amount) - Number(left.amount)),
     }));
   }, [categoryById, sortedTransactions]);
-  const transactionQuickCategoryChips = useMemo(
-    () =>
-      buildTransactionCategoryQuickChips({
-        categoryOptions,
-        categoryById,
-        flowType: txForm.flow_type,
-        transactionItems: transactionLedgerItems,
-      }),
-    [categoryById, categoryOptions, transactionLedgerItems, txForm.flow_type]
-  );
   const txInlineCategoryQuickChips = useMemo(
     () =>
       buildTransactionCategoryQuickChips({
@@ -3463,7 +3453,7 @@ function App() {
         return;
       }
       txQuickLastFocusedFieldRef.current = focusTarget;
-      focusTarget?.focus?.({ preventScroll: false });
+      focusTarget?.focus?.({ preventScroll: true });
       if (focusTarget === txAmountInputRef.current) {
         setShowTransactionQuickResume(false);
       }
@@ -3495,7 +3485,7 @@ function App() {
           return;
         }
         txQuickLastFocusedFieldRef.current = amountInput;
-        amountInput.focus?.({ preventScroll: false });
+        amountInput.focus?.({ preventScroll: true });
         amountInput.select?.();
         if (document.activeElement === amountInput) {
           setShowTransactionQuickResume(false);
@@ -3537,7 +3527,7 @@ function App() {
         if (!focusTarget) {
           return;
         }
-        focusTarget.focus?.({ preventScroll: false });
+        focusTarget.focus?.({ preventScroll: true });
         const focusRestored = document.activeElement === focusTarget;
         if (focusRestored) {
           txQuickLastFocusedFieldRef.current = focusTarget;
@@ -3899,7 +3889,7 @@ function App() {
   function focusTransactionQuickAmount() {
     txQuickLastFocusedFieldRef.current = txAmountInputRef.current;
     requestAnimationFrame(() => {
-      txAmountInputRef.current?.focus?.({ preventScroll: false });
+      txAmountInputRef.current?.focus?.({ preventScroll: true });
       if (document.activeElement === txAmountInputRef.current) {
         setShowTransactionQuickResume(false);
       }
@@ -3917,7 +3907,7 @@ function App() {
   function focusFirstTransactionFormError(errors) {
     const target = errors.occurred_on ? txDateInputRef.current : errors.amount ? txAmountInputRef.current : null;
     requestAnimationFrame(() => {
-      target?.focus?.({ preventScroll: false });
+      target?.focus?.({ preventScroll: true });
     });
   }
 
@@ -3932,41 +3922,8 @@ function App() {
     );
   }
 
-  function keepTransactionQuickFieldVisible(element, options = {}) {
-    if (!isTransactionQuickRestorableField(element) || typeof window === "undefined") {
-      return;
-    }
-    const behavior = options.behavior || "smooth";
+  function keepTransactionQuickFieldVisible() {
     clearTransactionQuickFocusScrollTimers();
-    const run = () => {
-      if (!isTransactionQuickRestorableField(element)) {
-        return;
-      }
-      element.scrollIntoView?.({
-        behavior,
-        block: "center",
-        inline: "nearest",
-      });
-
-      const sheet = txQuickFormRef.current?.closest(".transaction-entry-sheet");
-      if (!sheet) {
-        return;
-      }
-      const viewport = window.visualViewport;
-      const visibleTop = viewport ? viewport.offsetTop : 0;
-      const visibleBottom = viewport ? viewport.offsetTop + viewport.height : window.innerHeight;
-      const rect = element.getBoundingClientRect();
-      const lowerGuard = visibleBottom - Math.max(96, Math.round(window.innerHeight * 0.18));
-      const upperGuard = visibleTop + 72;
-      if (rect.bottom > lowerGuard) {
-        sheet.scrollBy?.({ top: rect.bottom - lowerGuard + 18, behavior });
-      } else if (rect.top < upperGuard) {
-        sheet.scrollBy?.({ top: rect.top - upperGuard - 18, behavior });
-      }
-    };
-
-    window.requestAnimationFrame(run);
-    txQuickFocusScrollTimersRef.current = [120, 320].map((delay) => window.setTimeout(run, delay));
   }
 
   function rememberTransactionQuickField(element) {
@@ -3978,18 +3935,6 @@ function App() {
   function handleTransactionQuickFieldFocus(element) {
     rememberTransactionQuickField(element);
     keepTransactionQuickFieldVisible(element);
-  }
-
-  function handleTransactionQuickDetailsToggle(event) {
-    const details = event.currentTarget;
-    if (!details?.open) {
-      return;
-    }
-    const firstField = details.querySelector(MOBILE_FORM_FIELD_SELECTOR);
-    if (firstField instanceof HTMLElement) {
-      rememberTransactionQuickField(firstField);
-      keepTransactionQuickFieldVisible(firstField, { behavior: "auto" });
-    }
   }
 
   function rememberActiveTransactionQuickField() {
@@ -4004,36 +3949,17 @@ function App() {
     return Array.from(quickForm.querySelectorAll(MOBILE_FORM_FIELD_SELECTOR)).filter(isSequentialEnterField);
   }
 
-  function getTransactionQuickFocusTarget() {
-    const rememberedField = txQuickLastFocusedFieldRef.current;
-    if (isTransactionQuickRestorableField(rememberedField)) {
-      return rememberedField;
-    }
-    if (isTransactionQuickRestorableField(txAmountInputRef.current)) {
-      return txAmountInputRef.current;
-    }
-    return null;
-  }
-
   function focusTransactionQuickTarget(target) {
     if (!target) {
       return false;
     }
-    target.focus?.({ preventScroll: false });
+    target.focus?.({ preventScroll: true });
     const restored = document.activeElement === target;
     if (restored) {
       txQuickLastFocusedFieldRef.current = target;
       keepTransactionQuickFieldVisible(target);
     }
     return restored;
-  }
-
-  function restoreTransactionQuickFocus() {
-    requestAnimationFrame(() => {
-      const focusTarget = getTransactionQuickFocusTarget();
-      const focusRestored = focusTransactionQuickTarget(focusTarget);
-      setShowTransactionQuickResume(!focusRestored);
-    });
   }
 
   function focusNextTransactionQuickField(target) {
@@ -4126,11 +4052,6 @@ function App() {
     setTxCategoryRestore(null);
   }
 
-  function selectTransactionQuickCategory(categoryId) {
-    applyTransactionCategory(categoryId);
-    restoreTransactionQuickFocus();
-  }
-
   function changeTransactionFlowType(nextFlowType) {
     const normalizedFlowType = normalizeCategoryFlowType(nextFlowType);
     if (normalizedFlowType === txForm.flow_type) {
@@ -4220,7 +4141,7 @@ function App() {
         : hasAmount
           ? txMemoInputRef.current || txAmountInputRef.current
           : txAmountInputRef.current || txMemoInputRef.current;
-      target?.focus?.({ preventScroll: false });
+      target?.focus?.({ preventScroll: true });
     }, 0);
   }
 
@@ -4233,7 +4154,7 @@ function App() {
       const target =
         editorRow?.querySelector('input[aria-label="메모"]') ||
         editorRow?.querySelector('input[aria-label="금액"]');
-      target?.focus?.({ preventScroll: false });
+      target?.focus?.({ preventScroll: true });
     }, 0);
   }
 
@@ -9090,48 +9011,38 @@ function App() {
   const renderTransactionQuickEntryForm = () => {
     const transactionFormDisabled = !canEditRecords || loading;
     const selectedCategoryId = String(txForm.category_id || "").trim();
-    const selectedCategoryLabel = selectedCategoryId
-      ? toCategoryPairLabel(categoryById.get(selectedCategoryId))
-      : transactionQuickCategoryChips.length > 0
-        ? "추천 카테고리를 탭하면 바로 연결됩니다."
-        : "미선택 저장 가능";
-    const selectedCategoryContextLabel = selectedCategoryId
-      ? toCategoryPairLabel(categoryById.get(selectedCategoryId))
-      : "미선택";
+    const selectedCategory = categoryById.get(selectedCategoryId);
+    const selectedCategoryLabel = selectedCategory ? toCategoryPairLabel(selectedCategory) : "미선택";
     const selectedOwnerValue = ownerSelectValue(txForm.owner_user_id, txForm.owner_name);
     const selectedOwnerOption = transactionOwnerOptions.find(
       (option) => String(option.value || "") === selectedOwnerValue
     );
     const selectedOwnerLabel = selectedOwnerOption?.label || txForm.owner_name || "미선택";
-    const transactionQuickContextItems = [
-      {
-        key: "flow",
-        label: "유형",
-        value: FLOW_TYPE_LABELS[txForm.flow_type] || txForm.flow_type || "지출",
-      },
-      {
-        key: "date",
-        label: "일자",
-        value: txForm.occurred_on || transactionEntryContextDate(),
-      },
-      {
-        key: "owner",
-        label: "거래자",
-        value: selectedOwnerLabel,
-      },
-      {
-        key: "category",
-        label: "카테고리",
-        value: selectedCategoryContextLabel,
-      },
+    const ownerChoiceOptions = [
+      { value: "", label: "선택 안함", displayName: "" },
+      ...transactionOwnerOptions,
     ];
-    const transactionQuickSecondarySummary = [
-      FLOW_TYPE_LABELS[txForm.flow_type] || txForm.flow_type || "지출",
-      txForm.occurred_on || transactionEntryContextDate(),
-      selectedOwnerLabel,
-    ]
-      .filter(Boolean)
-      .join(" · ");
+    if (selectedOwnerValue && !ownerChoiceOptions.some((option) => String(option.value || "") === selectedOwnerValue)) {
+      ownerChoiceOptions.push({ value: selectedOwnerValue, label: selectedOwnerLabel, displayName: selectedOwnerLabel });
+    }
+    const chooseCategoryMajor = (major) => {
+      setTxDraftTouched(true);
+      setTxCategoryMajor(major);
+      setTxCategoryRestore(null);
+      setTxForm((prev) => {
+        const currentCategory = categoryById.get(String(prev.category_id || ""));
+        const keepCurrentCategory = currentCategory && String(currentCategory.major || "") === String(major || "");
+        return { ...prev, category_id: keepCurrentCategory ? prev.category_id : "" };
+      });
+    };
+    const chooseOwner = (option) => {
+      setTxQuickOwnerTouched(true);
+      setTxDraftTouched(true);
+      setTxForm((prev) => ({
+        ...prev,
+        ...ownerSelectionFromValue(option.value, transactionOwnerOptions),
+      }));
+    };
 
     return (
       <form
@@ -9145,6 +9056,44 @@ function App() {
         onPointerDownCapture={rememberActiveTransactionQuickField}
       >
         <div className="transaction-quick-primary-stack" data-testid="transaction-quick-primary-path">
+          <label className="date-field transaction-quick-date-field">
+            일자
+            <div className="date-input-wrap">
+              <IsoDateInput
+                ref={txDateInputRef}
+                data-testid="transaction-quick-date"
+                enterKeyHint="next"
+                value={txForm.occurred_on}
+                onValueChange={(value) => {
+                  clearTransactionFormError("occurred_on");
+                  setTxDraftTouched(true);
+                  setTxForm((prev) => ({ ...prev, occurred_on: value }));
+                }}
+                aria-invalid={txFormErrors.occurred_on ? "true" : undefined}
+                aria-describedby={txFormErrors.occurred_on ? "transaction-quick-date-error" : undefined}
+                disabled={transactionFormDisabled}
+                required
+              />
+              <button
+                type="button"
+                className="secondary today-btn"
+                onClick={() => {
+                  clearTransactionFormError("occurred_on");
+                  setTxDraftTouched(true);
+                  setTxForm((prev) => ({ ...prev, occurred_on: transactionEntryTodayDate() }));
+                }}
+                disabled={transactionFormDisabled}
+              >
+                오늘
+              </button>
+            </div>
+            {txFormErrors.occurred_on && (
+              <p id="transaction-quick-date-error" className="field-helper field-error" role="alert">
+                {txFormErrors.occurred_on}
+              </p>
+            )}
+          </label>
+
           <label className="transaction-quick-amount-field">
             <span>금액</span>
             <input
@@ -9170,33 +9119,120 @@ function App() {
             )}
           </label>
 
-          <TransactionCategoryQuickPicker
-            categories={categoryOptions}
-            quickOptions={transactionQuickCategoryChips}
-            selectedCategoryId={selectedCategoryId}
-            disabled={transactionFormDisabled}
-            allowCreate={canEditHouseholdData}
-            createDisabled={!canEditHouseholdData}
-            createMode="toggle"
-            createToggleLabel="새 카테고리"
-            createToggleVisibility="on-query"
-            maxOptions={6}
-            onSelect={selectTransactionQuickCategory}
-            onCreate={createAndApplyTransactionCategory}
-            title="카테고리"
-            selectedEmptyText={selectedCategoryLabel}
-            searchLabel="검색"
-            searchPlaceholder="추천 또는 검색"
-            searchMode="toggle"
-            searchToggleLabel="카테고리 선택"
-            rootClassName="transaction-quick-category-panel"
-            titleClassName="transaction-quick-section-title"
-            optionsClassName="transaction-quick-category-chips"
-            optionClassName="transaction-quick-category-chip"
-            optionTestId="transaction-quick-category-chip"
-            toCategoryMajorLabel={toCategoryMajorLabel}
-            toCategoryMinorLabel={toCategoryMinorLabel}
-          />
+          <section className="transaction-choice-section transaction-staged-category" data-testid="transaction-staged-category">
+            <div className="transaction-choice-section-title">
+              <span>유형</span>
+              <small>{FLOW_TYPE_LABELS[txForm.flow_type] || txForm.flow_type || "지출"}</small>
+            </div>
+            <div className="transaction-choice-grid transaction-flow-choice-grid" role="group" aria-label="유형 선택">
+              {FLOW_TYPE_OPTIONS.map((item) => {
+                const selected = item.value === txForm.flow_type;
+                return (
+                  <button
+                    key={item.value}
+                    type="button"
+                    className={`transaction-choice-chip${selected ? " selected" : ""}`}
+                    data-testid="transaction-flow-choice"
+                    data-flow-type={item.value}
+                    aria-pressed={selected ? "true" : "false"}
+                    onClick={() => changeTransactionFlowType(item.value)}
+                    disabled={transactionFormDisabled}
+                  >
+                    {item.label}
+                  </button>
+                );
+              })}
+            </div>
+            {renderTransactionCategoryRestoreNotice()}
+
+            <div className="transaction-choice-section-title">
+              <span>그룹</span>
+              <small>{txCategoryMajor ? toCategoryMajorLabel(txCategoryMajor) : "미선택"}</small>
+            </div>
+            {categoryMajorOptions.length > 0 ? (
+              <div className="transaction-choice-grid transaction-category-group-grid" role="group" aria-label="카테고리 그룹 선택">
+                {categoryMajorOptions.map((major) => {
+                  const selected = major === txCategoryMajor;
+                  return (
+                    <button
+                      key={major}
+                      type="button"
+                      className={`transaction-choice-chip${selected ? " selected" : ""}`}
+                      data-testid="transaction-category-group-choice"
+                      data-category-major={major}
+                      aria-pressed={selected ? "true" : "false"}
+                      onClick={() => chooseCategoryMajor(major)}
+                      disabled={transactionFormDisabled}
+                    >
+                      {toCategoryMajorLabel(major)}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="transaction-choice-empty">등록된 그룹이 없습니다.</p>
+            )}
+
+            {txCategoryMajor && (
+              <>
+                <div className="transaction-choice-section-title">
+                  <span>카테고리</span>
+                  <small>{selectedCategoryLabel}</small>
+                </div>
+                {categoryMinorOptions.length > 0 ? (
+                  <div className="transaction-choice-grid transaction-category-choice-grid" role="group" aria-label="카테고리 선택">
+                    {categoryMinorOptions.map((item) => {
+                      const selected = String(item.id || "") === selectedCategoryId;
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          className={`transaction-choice-chip${selected ? " selected" : ""}`}
+                          data-testid="transaction-category-choice"
+                          data-category-id={item.id}
+                          aria-pressed={selected ? "true" : "false"}
+                          onClick={() => applyTransactionCategory(String(item.id || ""), item)}
+                          disabled={transactionFormDisabled}
+                        >
+                          {toCategoryMinorLabel(item.minor)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="transaction-choice-empty">선택한 그룹에 카테고리가 없습니다.</p>
+                )}
+              </>
+            )}
+          </section>
+
+          <section className="transaction-choice-section transaction-owner-choice-section">
+            <div className="transaction-choice-section-title">
+              <span>거래자</span>
+              <small>{selectedOwnerLabel}</small>
+            </div>
+            <div className="transaction-choice-grid transaction-owner-choice-grid" role="group" aria-label="거래자 선택">
+              {ownerChoiceOptions.map((option) => {
+                const normalizedValue = String(option.value || "");
+                const selected = normalizedValue === selectedOwnerValue;
+                return (
+                  <button
+                    key={normalizedValue || "__none__"}
+                    type="button"
+                    className={`transaction-choice-chip transaction-owner-choice${selected ? " selected" : ""}`}
+                    data-testid="transaction-owner-choice"
+                    data-owner-value={normalizedValue}
+                    aria-pressed={selected ? "true" : "false"}
+                    title={option.email ? `${option.label} (${option.email})` : option.label}
+                    onClick={() => chooseOwner(option)}
+                    disabled={transactionFormDisabled}
+                  >
+                    {option.displayName || option.label}
+                  </button>
+                );
+              })}
+            </div>
+          </section>
 
           <label className="transaction-quick-memo-field">
             메모
@@ -9215,184 +9251,7 @@ function App() {
           </label>
         </div>
 
-        {showTransactionQuickResume && (
-          <button
-            type="button"
-            className="secondary transaction-quick-resume"
-            data-testid="transaction-quick-resume"
-            onClick={restoreTransactionQuickFocus}
-            disabled={transactionFormDisabled}
-          >
-            입력 계속하기
-          </button>
-        )}
-
-        <details className="transaction-quick-details transaction-quick-secondary-details" onToggle={handleTransactionQuickDetailsToggle}>
-          <summary>
-            <span>추가 설정</span>
-            <small>{transactionQuickSecondarySummary}</small>
-          </summary>
-          <div className="transaction-quick-detail-grid transaction-quick-detail-grid-secondary">
-            <div
-              className="transaction-quick-context-strip"
-              data-testid="transaction-quick-context-summary"
-              aria-label="저장 컨텍스트 요약"
-            >
-              {transactionQuickContextItems.map((item) => (
-                <div
-                  key={item.key}
-                  className="transaction-quick-context-item"
-                  data-testid={`transaction-quick-context-${item.key}`}
-                >
-                  <span>{item.label}</span>
-                  <strong title={item.value}>{item.value}</strong>
-                </div>
-              ))}
-            </div>
-            {transactionQuickOwnerSuggestion && (
-              <p className="transaction-quick-owner-hint">
-                거래자 기본값: {transactionQuickOwnerSuggestion.displayName || transactionQuickOwnerSuggestion.label}
-              </p>
-            )}
-            <label className="date-field">
-              일자
-              <div className="date-input-wrap">
-                <IsoDateInput
-                  ref={txDateInputRef}
-                  enterKeyHint="next"
-                  value={txForm.occurred_on}
-                  onValueChange={(value) => {
-                    clearTransactionFormError("occurred_on");
-                    setTxDraftTouched(true);
-                    setTxForm((prev) => ({ ...prev, occurred_on: value }));
-                  }}
-                  aria-invalid={txFormErrors.occurred_on ? "true" : undefined}
-                  aria-describedby={txFormErrors.occurred_on ? "transaction-quick-date-error" : undefined}
-                  disabled={transactionFormDisabled}
-                  required
-                />
-                <button
-                  type="button"
-                  className="secondary today-btn"
-                  onClick={() => {
-                    clearTransactionFormError("occurred_on");
-                    setTxDraftTouched(true);
-                    setTxForm((prev) => ({ ...prev, occurred_on: transactionEntryTodayDate() }));
-                  }}
-                  disabled={transactionFormDisabled}
-                >
-                  오늘
-                </button>
-              </div>
-              {txFormErrors.occurred_on && (
-                <p id="transaction-quick-date-error" className="field-helper field-error" role="alert">
-                  {txFormErrors.occurred_on}
-                </p>
-              )}
-            </label>
-            <label>
-              유형
-              <select
-                enterKeyHint="next"
-                value={txForm.flow_type}
-                disabled={transactionFormDisabled}
-                onChange={(e) => changeTransactionFlowType(e.target.value)}
-              >
-                {FLOW_TYPE_OPTIONS.map((item) => (
-                  <option key={item.value} value={item.value}>
-                    {item.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {renderTransactionCategoryRestoreNotice()}
-            <label>
-              카테고리 그룹
-              <select
-                enterKeyHint="next"
-                value={txCategoryMajor}
-                disabled={transactionFormDisabled}
-                onChange={(e) => {
-                  setTxDraftTouched(true);
-                  setTxCategoryMajor(e.target.value);
-                  setTxCategoryRestore(null);
-                  setTxForm((prev) => ({ ...prev, category_id: "" }));
-                }}
-              >
-                <option value="">(선택 안함)</option>
-                {categoryMajorOptions.map((major) => (
-                  <option key={major} value={major}>
-                    {toCategoryMajorLabel(major)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              카테고리
-              <select
-                enterKeyHint="next"
-                value={txForm.category_id}
-                disabled={transactionFormDisabled || !txCategoryMajor}
-                onChange={(e) => {
-                  setTxDraftTouched(true);
-                  setTxCategoryRestore(null);
-                  setTxForm((prev) => ({ ...prev, category_id: e.target.value }));
-                }}
-              >
-                <option value="">(선택 안함)</option>
-                {categoryMinorOptions.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {toCategoryMinorLabel(item.minor)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              거래자
-              <select
-                enterKeyHint="done"
-                value={ownerSelectValue(txForm.owner_user_id, txForm.owner_name)}
-                disabled={transactionFormDisabled}
-                onChange={(event) => {
-                  const nextOwner = ownerSelectionFromValue(event.target.value, transactionOwnerOptions);
-                  setTxQuickOwnerTouched(true);
-                  setTxDraftTouched(true);
-                  setTxForm((prev) => ({ ...prev, ...nextOwner }));
-                }}
-              >
-                <option value="">(선택 안함)</option>
-                {transactionOwnerOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {renderOwnerQuickSelect({
-              ownerLabel: "거래자",
-              testId: "transaction-owner-quick-select",
-              selectedValue: txForm.owner_user_id,
-              disabled: transactionFormDisabled,
-              onSelect: applyTransactionOwnerOption,
-            })}
-            {renderLegacyOwnerRemapHelper({
-              ownerUserId: txForm.owner_user_id,
-              ownerName: txForm.owner_name,
-              disabled: transactionFormDisabled,
-              onApply: (target) => {
-                setTxQuickOwnerTouched(true);
-                setTxDraftTouched(true);
-                setTxForm((prev) => ({
-                  ...prev,
-                  owner_user_id: target.value,
-                  owner_name: target.displayName,
-                }));
-              },
-            })}
-          </div>
-        </details>
-
-        <div className="transaction-quick-sticky-actions">
+        <div className="transaction-quick-actions">
           <button
             type="button"
             className="secondary"
@@ -9495,7 +9354,7 @@ function App() {
       </label>
       <TransactionCategoryQuickPicker
         categories={categoryOptions}
-        quickOptions={transactionQuickCategoryChips}
+        quickOptions={[]}
         selectedCategoryId={txForm.category_id}
         disabled={transactionFormDisabled}
         allowCreate={canEditHouseholdData}

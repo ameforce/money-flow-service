@@ -9,7 +9,7 @@ import {
   unique,
 } from "../support/helpers";
 
-test("issue #269: transaction category picker exposes existing category list while keeping search suggestions", async ({
+test("issue #269: transaction entry exposes existing categories as staged buttons without search suggestions", async ({
   page,
 }) => {
   test.setTimeout(120_000);
@@ -28,7 +28,7 @@ test("issue #269: transaction category picker exposes existing category list whi
 
   await registerAndVerify(page, { email, displayName });
   await createCategoryViaApi(page, groceries);
-  const transitCategory = await createCategoryViaApi(page, transit);
+  await createCategoryViaApi(page, transit);
 
   await page.reload();
   await page.setViewportSize({ width: 390, height: 844 });
@@ -39,38 +39,23 @@ test("issue #269: transaction category picker exposes existing category list whi
   const transactionSheet = page.getByTestId("transaction-entry-sheet");
   await expect(transactionSheet).toBeVisible();
 
-  const picker = transactionSheet.getByTestId("transaction-category-quick-picker");
-  await expect(picker).toBeVisible();
-  await expect(picker).toContainText("기존 카테고리");
+  await expect(transactionSheet.getByTestId("transaction-category-quick-picker")).toHaveCount(0);
+  await expect(transactionSheet.getByTestId("transaction-category-search-toggle")).toHaveCount(0);
+  await expect(transactionSheet.getByTestId("transaction-category-search")).toHaveCount(0);
 
-  const categoryList = picker.getByTestId("transaction-category-list");
-  await expect(categoryList).toBeVisible();
-  await expect(categoryList).toBeEnabled();
+  const categoryStage = transactionSheet.getByTestId("transaction-staged-category");
+  await expect(categoryStage).toBeVisible();
+  await expect(categoryStage.getByTestId("transaction-category-group-choice").filter({ hasText: categoryMajor })).toBeVisible();
+  await categoryStage.getByTestId("transaction-category-group-choice").filter({ hasText: categoryMajor }).click();
 
-  const optionTexts = await categoryList.locator("option").evaluateAll((options) =>
-    options.map((option) => option.textContent?.replace(/\s+/g, " ").trim() || "")
-  );
-  expect(optionTexts).toEqual(
-    expect.arrayContaining([
-      `${groceries.major} / ${groceries.minor}`,
-      `${transit.major} / ${transit.minor}`,
-    ])
-  );
+  await expect(categoryStage.getByTestId("transaction-category-choice").filter({ hasText: groceries.minor })).toBeVisible();
+  const transitButton = categoryStage.getByTestId("transaction-category-choice").filter({ hasText: transit.minor });
+  await expect(transitButton).toBeVisible();
+  await transitButton.click();
+  await expect(transitButton).toHaveAttribute("aria-pressed", "true");
+  await expect(categoryStage.locator("select")).toHaveCount(0);
+  await expect(transactionSheet).not.toContainText("추천 카테고리");
 
-  await categoryList.selectOption(String(transitCategory.id));
-  await expect(categoryList).toHaveValue(String(transitCategory.id));
-  await expect(picker).toContainText(`${transit.major} / ${transit.minor}`);
-
-  await categoryList.selectOption("");
-  await expect(categoryList).toHaveValue("");
-
-  await expect(picker.getByTestId("transaction-category-search-toggle")).toBeVisible();
-  await picker.getByTestId("transaction-category-search-toggle").click();
-  const searchInput = picker.getByTestId("transaction-category-search");
-  await expect(searchInput).toBeVisible();
-  await searchInput.fill(groceries.minor);
-  await expect(picker.getByTestId("transaction-quick-category-chip").filter({ hasText: groceries.minor })).toBeVisible();
-
-  await capture(page, "issue-269-transaction-category-picker-list");
+  await capture(page, "issue-269-transaction-staged-category-buttons");
   await expectNoHorizontalOverflow(page, 12);
 });

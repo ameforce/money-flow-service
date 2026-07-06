@@ -77,7 +77,6 @@ test("transaction ledger keeps dense columns, bottom mobile chrome, and quiet se
 
   const desktopMetrics = await page.evaluate(() => {
     const columnSpecs = [
-      { key: "select", head: ".transaction-col-select", body: ".transaction-col-select" },
       { key: "occurred_on", head: '[data-field-key="occurred_on"]', body: '[data-field-key="occurred_on"]' },
       { key: "flow_type", head: '[data-field-key="flow_type"]', body: '[data-field-key="flow_type"]' },
       { key: "category", head: '[data-field-key="category"]', body: '[data-field-key="category"]' },
@@ -85,10 +84,12 @@ test("transaction ledger keeps dense columns, bottom mobile chrome, and quiet se
       { key: "amount", head: '[data-field-key="amount"]', body: '[data-field-key="amount"]' },
       { key: "owner_name", head: '[data-field-key="owner_name"]', body: '[data-field-key="owner_name"]' },
       { key: "updated_at", head: '[data-field-key="updated_at"]', body: '[data-field-key="updated_at"]' },
-      { key: "actions", head: ".transaction-col-actions", body: ".transaction-col-actions" },
     ];
     const header = document.querySelector(".transactions-desktop-ledger-head");
     const row = document.querySelector("tr.transaction-row[data-transaction-id]");
+    const typeBadge = row?.querySelector(".transaction-col-type .transaction-flow-full");
+    const ownerCompact = row?.querySelector(".transaction-col-owner .transaction-owner-compact");
+    const ownerText = row?.querySelector(".transaction-col-owner .transaction-owner-cue");
     const boxOf = (element) => {
       const box = element?.getBoundingClientRect();
       return box
@@ -101,9 +102,36 @@ test("transaction ledger keeps dense columns, bottom mobile chrome, and quiet se
           }
         : null;
     };
+    const visible = (element) => {
+      if (!element) {
+        return false;
+      }
+      const style = getComputedStyle(element);
+      const box = element.getBoundingClientRect();
+      return style.display !== "none" && style.visibility !== "hidden" && box.width > 0 && box.height > 0;
+    };
     return {
       rowHeight: row?.getBoundingClientRect().height ?? 0,
       headerDisplay: header ? getComputedStyle(header).display : "missing",
+      visibleSelectColumns: [header?.querySelector(".transaction-col-select"), row?.querySelector(".transaction-col-select")].filter(
+        visible
+      ).length,
+      visibleActionColumns: [
+        header?.querySelector(".transaction-col-actions"),
+        row?.querySelector(".transaction-col-actions"),
+      ].filter(visible).length,
+      typeBadge: typeBadge
+        ? {
+            text: typeBadge.textContent?.trim() || "",
+            clientWidth: typeBadge.clientWidth,
+            scrollWidth: typeBadge.scrollWidth,
+          }
+        : null,
+      owner: {
+        compactVisible: visible(ownerCompact),
+        compactText: ownerCompact?.textContent?.trim() || "",
+        cueText: ownerText?.textContent?.trim() || "",
+      },
       columns: columnSpecs.map((spec) => {
         const head = header?.querySelector(spec.head);
         const body = row?.querySelector(spec.body);
@@ -124,10 +152,21 @@ test("transaction ledger keeps dense columns, bottom mobile chrome, and quiet se
   });
 
   expect(desktopMetrics.headerDisplay, `desktop header should be rendered: ${JSON.stringify(desktopMetrics)}`).toBe("grid");
+  expect(desktopMetrics.visibleSelectColumns, `desktop should not show selection checkbox columns: ${JSON.stringify(desktopMetrics)}`).toBe(0);
+  expect(desktopMetrics.visibleActionColumns, `desktop should not show detail/status columns: ${JSON.stringify(desktopMetrics)}`).toBe(0);
   expect(
     desktopMetrics.rowHeight,
     `desktop transaction row should stay ledger-dense: ${JSON.stringify(desktopMetrics)}`,
-  ).toBeLessThanOrEqual(36);
+  ).toBeLessThanOrEqual(38);
+  expect(desktopMetrics.typeBadge, `desktop type badge should exist: ${JSON.stringify(desktopMetrics)}`).not.toBeNull();
+  expect(desktopMetrics.typeBadge.text).toBe("지출");
+  expect(
+    desktopMetrics.typeBadge.scrollWidth,
+    `desktop type badge should not clip: ${JSON.stringify(desktopMetrics.typeBadge)}`,
+  ).toBeLessThanOrEqual(desktopMetrics.typeBadge.clientWidth + 1);
+  expect(desktopMetrics.owner.compactVisible, `desktop owner initial should be visible: ${JSON.stringify(desktopMetrics.owner)}`).toBe(true);
+  expect(Array.from(desktopMetrics.owner.compactText)).toHaveLength(1);
+  expect(desktopMetrics.owner.cueText).toBeTruthy();
   for (const column of desktopMetrics.columns) {
     expect(column.headBox, `${column.key} header box should exist: ${JSON.stringify(desktopMetrics)}`).not.toBeNull();
     expect(column.bodyBox, `${column.key} body box should exist: ${JSON.stringify(desktopMetrics)}`).not.toBeNull();
@@ -138,6 +177,22 @@ test("transaction ledger keeps dense columns, bottom mobile chrome, and quiet se
     expect(column.justifyContent, `${column.key} header should center content: ${JSON.stringify(column)}`).toBe("center");
     expect(column.textAlign, `${column.key} header should center text: ${JSON.stringify(column)}`).toBe("center");
   }
+
+  const hoverTarget = page.locator(".transactions-desktop-ledger-head .ledger-head-action").first();
+  await hoverTarget.hover();
+  const hoverMetrics = await hoverTarget.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return {
+      backgroundImage: style.backgroundImage,
+      boxShadow: style.boxShadow,
+      transform: style.transform,
+    };
+  });
+  expect(hoverMetrics.transform, `desktop header hover should not float: ${JSON.stringify(hoverMetrics)}`).toBe("none");
+  expect(hoverMetrics.backgroundImage, `desktop header hover should not paint blue: ${JSON.stringify(hoverMetrics)}`).toBe(
+    "none"
+  );
+  expect(hoverMetrics.boxShadow, `desktop header hover should remain flat: ${JSON.stringify(hoverMetrics)}`).toBe("none");
 
   await expectNoHorizontalOverflow(page, 8);
   await capture(page, "transactions-ledger-layout-desktop");
@@ -187,9 +242,12 @@ test("transaction ledger keeps dense columns, bottom mobile chrome, and quiet se
             }
           : null,
         rowHeight: rowBox?.height ?? 0,
+        rowDisplay: row ? getComputedStyle(row).display : "missing",
+        rowGridAreas: row ? getComputedStyle(row).gridTemplateAreas : "",
         amount: readBox(amount?.getBoundingClientRect()),
         action: readBox(action?.getBoundingClientRect()),
         actionButtonCount: row?.querySelectorAll(".transaction-col-actions button").length ?? 0,
+        actionCellCount: row?.querySelectorAll(".transaction-col-actions").length ?? 0,
         documentOverflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
       };
     });
@@ -224,8 +282,15 @@ test("transaction ledger keeps dense columns, bottom mobile chrome, and quiet se
       mobileMetrics.rowHeight,
       `${profile.name} transaction row should stay dense: ${JSON.stringify(mobileMetrics)}`,
     ).toBeLessThanOrEqual(46);
+    expect(mobileMetrics.rowDisplay, `${profile.name} transaction row should use mobile grid: ${JSON.stringify(mobileMetrics)}`).toBe(
+      "grid"
+    );
+    expect(mobileMetrics.rowGridAreas, `${profile.name} mobile grid should expose transaction cells: ${JSON.stringify(mobileMetrics)}`).toContain(
+      "memo"
+    );
     expect(mobileMetrics.amount, `${profile.name} amount cell should exist: ${JSON.stringify(mobileMetrics)}`).not.toBeNull();
-    expect(mobileMetrics.action, `${profile.name} action cell should exist: ${JSON.stringify(mobileMetrics)}`).not.toBeNull();
+    expect(mobileMetrics.actionCellCount, `${profile.name} action cell should not be rendered: ${JSON.stringify(mobileMetrics)}`).toBe(0);
+    expect(mobileMetrics.action, `${profile.name} action cell should not take layout space: ${JSON.stringify(mobileMetrics)}`).toBeNull();
     expect(mobileMetrics.actionButtonCount, `${profile.name} mobile transaction row should not expose row action buttons: ${JSON.stringify(mobileMetrics)}`).toBe(0);
     expect(
       mobileMetrics.amount.right,
@@ -349,6 +414,7 @@ test("transaction ledger aligns desktop cells and keeps mobile rows compact", as
     return {
       owner: {
         compactVisible: visible(ownerCell?.querySelector(".transaction-owner-compact")),
+        compactText: ownerCell?.querySelector(".transaction-owner-compact")?.textContent?.replace(/\s+/g, " ").trim() || "",
         cueVisible: visible(ownerCell?.querySelector(".transaction-owner-cue")),
         cueText: ownerCell?.querySelector(".transaction-owner-cue")?.textContent?.replace(/\s+/g, " ").trim() || "",
       },
@@ -371,7 +437,8 @@ test("transaction ledger aligns desktop cells and keeps mobile rows compact", as
     };
   });
 
-  expect(desktopMetrics.owner.compactVisible, `desktop should not show mobile owner initials: ${JSON.stringify(desktopMetrics)}`).toBe(false);
+  expect(desktopMetrics.owner.compactVisible, `desktop should show the owner initial chip: ${JSON.stringify(desktopMetrics)}`).toBe(true);
+  expect(desktopMetrics.owner.compactText).toBe(Array.from(displayName.trim())[0]);
   expect(desktopMetrics.owner.cueVisible, `desktop should show the full owner cue: ${JSON.stringify(desktopMetrics)}`).toBe(true);
   expect(desktopMetrics.owner.cueText).toBe(displayName);
   expect(desktopMetrics.category.desktopCueVisible, `desktop should use the compact category cue: ${JSON.stringify(desktopMetrics)}`).toBe(true);
