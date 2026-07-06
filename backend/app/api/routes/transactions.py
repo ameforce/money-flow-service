@@ -35,6 +35,7 @@ router = APIRouter(prefix="/transactions", tags=["transactions"])
 _HISTORY_CURSOR_VERSION = 2
 _TRANSACTION_REPLAY_WINDOW_SECONDS = 120
 _TRANSACTION_ORDER_STEP = 1024
+_TRANSACTION_LIST_MAX_OFFSET = 60_000
 
 
 class _HistoryCursor:
@@ -411,7 +412,7 @@ def list_transactions(
     start_date: date | None = Query(default=None),
     end_date: date | None = Query(default=None),
     limit: int = Query(default=500, ge=1, le=3000),
-    offset: int = Query(default=0, ge=0),
+    offset: int = Query(default=0, ge=0, le=_TRANSACTION_LIST_MAX_OFFSET),
     ctx=Depends(get_current_household),
     db: Session = Depends(get_db),
 ) -> list[TransactionRead]:

@@ -4893,6 +4893,13 @@ def test_transaction_list_supports_offset_pagination_in_order() -> None:
         assert [item["memo"] for item in page.json()] == memos[1:3]
 
 
+def test_transaction_list_rejects_excessive_offset() -> None:
+    with TestClient(app) as client:
+        token = _auth(client, f"tx-list-offset-cap-{uuid.uuid4().hex}@example.com", "Password1234", "TxOffsetCap")
+        response = client.get("/api/v1/transactions?year=2026&month=5&limit=2&offset=60001", headers=_headers(token))
+        assert response.status_code == 400
+
+
 def test_transaction_create_rejects_category_flow_type_mismatch() -> None:
     with TestClient(app) as client:
         token = _auth(client, f"tx-flow-mismatch-{uuid.uuid4().hex}@example.com", "Password1234", "TxFlow")

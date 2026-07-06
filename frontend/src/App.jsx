@@ -2293,6 +2293,7 @@ function App() {
   const importFileInputRef = useRef(null);
   const tossFileInputRef = useRef(null);
   const dashboardRequestCountRef = useRef(0);
+  const transactionLedgerRequestRef = useRef(0);
   const clientVersionCheckInFlightRef = useRef(false);
   const wsTicketMethodRef = useRef("POST");
   const wsRefreshTimerRef = useRef(null);
@@ -4950,6 +4951,21 @@ function App() {
     };
   }
 
+  function beginTransactionLedgerRequest(txQuery) {
+    transactionLedgerRequestRef.current += 1;
+    return {
+      id: transactionLedgerRequestRef.current,
+      txQuery,
+    };
+  }
+
+  function isTransactionLedgerRequestCurrent(request) {
+    return (
+      request?.id === transactionLedgerRequestRef.current &&
+      resolveFilterQuery().txQuery === request.txQuery
+    );
+  }
+
   function captureDocumentScrollPosition() {
     if (typeof document === "undefined" || typeof window === "undefined") {
       return null;
@@ -5065,6 +5081,7 @@ function App() {
     }
     try {
       const { txQuery, overviewQuery } = resolveFilterQuery(filterOverride);
+      const ledgerRequest = beginTransactionLedgerRequest(txQuery);
       const [overviewResp, txResp, holdingResp, portfolioResp, statusResp] = await Promise.all([
         api(`${API_PREFIX}/dashboard/overview?${overviewQuery}`, {}, nextToken),
         loadTransactionLedgerItems(txQuery, nextToken),
@@ -5072,6 +5089,9 @@ function App() {
         api(`${API_PREFIX}/dashboard/portfolio`, {}, nextToken),
         loadPriceStatusQuietly(nextToken),
       ]);
+      if (!isTransactionLedgerRequestCurrent(ledgerRequest)) {
+        return;
+      }
       setOverview(overviewResp);
       setTransactions(txResp);
       setHoldings(holdingResp);
@@ -5111,6 +5131,7 @@ function App() {
     }
     try {
       const { txQuery, overviewQuery } = resolveFilterQuery();
+      const ledgerRequest = includeTransactions ? beginTransactionLedgerRequest(txQuery) : null;
       const requests = [];
       if (includeTransactions) {
         requests.push(
@@ -5136,6 +5157,9 @@ function App() {
         );
       }
       const responses = await Promise.all(requests);
+      if (ledgerRequest && !isTransactionLedgerRequestCurrent(ledgerRequest)) {
+        return;
+      }
       for (const item of responses) {
         if (item.key === "overview") {
           setOverview(item.data);
@@ -5165,9 +5189,13 @@ function App() {
   }
 
   async function refreshDataWithUiFeedback(filterOverride = null) {
+    const expectedTxQuery = resolveFilterQuery(filterOverride).txQuery;
     try {
       await refreshData(false, token, filterOverride);
     } catch (error) {
+      if (resolveFilterQuery().txQuery !== expectedTxQuery) {
+        return;
+      }
       setMessage(formatApiError(error, "bootstrap"));
       const code = String(error?.code || "").toUpperCase();
       if (code === "AUTH_TOKEN_INVALID" || Number(error?.status || 0) === 401) {

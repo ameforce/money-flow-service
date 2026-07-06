@@ -1,1 +1,2 @@
-exit=0
+$ git diff --summary --diff-filter=T
+exit_code=0

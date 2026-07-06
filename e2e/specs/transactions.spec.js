@@ -5810,6 +5810,87 @@ test("issue 287: monthly transaction ledger loads every paged row", async ({ pag
   await expect(page.locator(".transaction-history-sentinel")).toHaveCount(0);
 });
 
+test("issue 287: stale monthly transaction refresh cannot replace the active month", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("tx-stale-month")}@example.com`;
+  const displayName = unique("tx-stale-month-name");
+  const currentDate = currentE2EHistoryDateIso();
+  const previousDate = currentE2EHistoryDateIso(-35);
+  const currentYearMonth = yearMonthFromIso(currentDate);
+  const previousYearMonth = yearMonthFromIso(previousDate);
+  const currentMemo = unique("tx-stale-current");
+  const previousMemo = unique("tx-stale-previous");
+  const rowFor = (id, occurredOn, memo) => ({
+    id,
+    occurred_on: occurredOn,
+    flow_type: "expense",
+    amount: 12000,
+    currency: "KRW",
+    memo,
+    category_id: null,
+    owner_user_id: null,
+    owner_name: displayName,
+    source_ref: null,
+    order_key: 1024,
+    created_at: "2026-07-01T00:00:00Z",
+    updated_at: "2026-07-01T00:00:00Z",
+  });
+  let releasePreviousMonth;
+  const previousMonthCanResolve = new Promise((resolve) => {
+    releasePreviousMonth = resolve;
+  });
+  const transactionRequests = [];
+
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openTab(page, "거래");
+  await page.waitForLoadState("networkidle");
+
+  await page.route("**/api/v1/transactions**", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (request.method() !== "GET" || !url.pathname.endsWith("/api/v1/transactions")) {
+      await route.fallback();
+      return;
+    }
+    const year = url.searchParams.get("year");
+    const month = url.searchParams.get("month");
+    if (year === String(previousYearMonth.year) && month === String(previousYearMonth.month)) {
+      transactionRequests.push("previous");
+      await previousMonthCanResolve;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([rowFor("tx-stale-previous", previousDate, previousMemo)]),
+      });
+      return;
+    }
+    if (year === String(currentYearMonth.year) && month === String(currentYearMonth.month)) {
+      transactionRequests.push("current");
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([rowFor("tx-stale-current", currentDate, currentMemo)]),
+      });
+      return;
+    }
+    await route.fallback();
+  });
+
+  await jumpTransactionListToMonth(page, previousDate);
+  await expect.poll(() => transactionRequests.includes("previous")).toBe(true);
+  await jumpTransactionListToMonth(page, currentDate);
+  await expect(page.locator("tr.transaction-row", { hasText: currentMemo }).first()).toBeVisible({ timeout: 20_000 });
+  releasePreviousMonth();
+  await page.waitForTimeout(600);
+  await expect(page.locator("tr.transaction-row", { hasText: currentMemo }).first()).toBeVisible();
+  await expect(page.locator("tr.transaction-row", { hasText: previousMemo })).toHaveCount(0);
+  expect(transactionRequests, "test should exercise previous then active current month").toEqual(
+    expect.arrayContaining(["previous", "current"])
+  );
+});
+
 test("transactions list affordance: top filters, compact ledger, ownerless marker", async ({ page }) => {
   test.setTimeout(240_000);
 
