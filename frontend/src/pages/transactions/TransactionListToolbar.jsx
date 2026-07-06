@@ -1,3 +1,5 @@
+import { useEffect, useRef } from "react";
+
 import { IsoDateInput } from "../../components/IsoDateInput";
 
 export function TransactionListToolbar({
@@ -46,6 +48,18 @@ export function TransactionListToolbar({
   const { openNormalTransactionEntrySheet, transactionDesktopAddActionRef } = entrySheet;
   const { txInlineEdit } = inlineEdit;
   const { fmtKrw, toYearMonthKey } = formatters;
+  const filterPanelRef = useRef(null);
+
+  useEffect(() => {
+    if (isCompactViewport || !showTransactionFilterPanel) {
+      return undefined;
+    }
+    const frameId = window.requestAnimationFrame(() => {
+      const firstControl = filterPanelRef.current?.querySelector("input, select, button");
+      firstControl?.focus?.({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, [isCompactViewport, showTransactionFilterPanel]);
 
   return (
     <div ref={transactionStickyToolbarRef} className="transaction-sticky-toolbar" data-testid="transaction-sticky-toolbar">
@@ -55,7 +69,8 @@ export function TransactionListToolbar({
           <h2>거래 목록</h2>
         </div>
         <p className="table-summary surface-count-summary">
-          총 {transactionLedgerItems.length}건 중 {sortedTransactions.length}건 표시
+          <span>총 {transactionLedgerItems.length}건 중 {sortedTransactions.length}건 표시</span>
+          <span className="surface-count-sort">, {transactionSortSummary}</span>
         </p>
         {!isCompactViewport && !txInlineEdit && (
           <button ref={transactionDesktopAddActionRef} type="button" className="primary surface-heading-action transaction-desktop-add-action" data-testid="transactions-desktop-add-action" disabled={loading} onClick={() => openNormalTransactionEntrySheet("form")}>
@@ -65,7 +80,7 @@ export function TransactionListToolbar({
         )}
       </div>
       <div className="surface-control-strip" aria-label="거래 목록 상태">
-        <span className="surface-chip surface-chip-strong">{transactionSortSummary}</span>
+        <span className="surface-chip surface-chip-strong transaction-sort-status-chip">{transactionSortSummary}</span>
         <span className={`surface-chip${isTransactionFilterActive ? " surface-chip-strong" : " surface-chip-muted"}`}>
           필터 {isTransactionFilterActive ? "적용됨" : "기본"}
         </span>
@@ -98,7 +113,7 @@ export function TransactionListToolbar({
         </div>
       )}
       {showTransactionFilterPanel && (
-        <div id="transaction-filter-panel" className="tx-header-filters" aria-label="거래 제목행 필터">
+        <div ref={filterPanelRef} id="transaction-filter-panel" className="tx-header-filters" aria-label="거래 제목행 필터">
           <label className="tx-header-filter tx-header-filter-search">
             <span>메모</span>
             <input placeholder="검색" value={txListFilter.keyword} onChange={(e) => updateTxListFilter({ ...txListFilter, keyword: e.target.value })} enterKeyHint="search" />
@@ -117,6 +132,24 @@ export function TransactionListToolbar({
           <label className="tx-header-filter">
             <span>종료</span>
             <IsoDateInput value={txListFilter.end} onValueChange={(value) => updateTxListFilter({ ...txListFilter, end: value })} />
+          </label>
+          <label className="tx-header-filter">
+            <span>최소 금액</span>
+            <input
+              inputMode="numeric"
+              placeholder="0"
+              value={txListFilter.amount_min}
+              onChange={(e) => updateTxListFilter({ ...txListFilter, amount_min: e.target.value })}
+            />
+          </label>
+          <label className="tx-header-filter">
+            <span>최대 금액</span>
+            <input
+              inputMode="numeric"
+              placeholder="100,000"
+              value={txListFilter.amount_max}
+              onChange={(e) => updateTxListFilter({ ...txListFilter, amount_max: e.target.value })}
+            />
           </label>
           <button type="button" className="secondary tx-header-filter-reset" onClick={clearTxListFilter}>초기화</button>
         </div>

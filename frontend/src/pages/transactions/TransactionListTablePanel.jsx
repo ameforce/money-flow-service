@@ -20,9 +20,9 @@ export function TransactionListTablePanel({
     isLedgerCompactViewport = isCompactViewport,
     loading,
   } = permissions;
-  const { expandedTransactionRows, recentImportTransactionIds, recentSavedTransactionIds, showTransactionScrollTop, sortedTransactions, transactionsMobileStickyActive, txListFilter, txSortDirection } = listState;
+  const { expandedTransactionRows, recentImportTransactionIds, recentSavedTransactionIds, showTransactionFilterPanel, showTransactionScrollTop, sortedTransactions, transactionsMobileStickyActive, txListFilter, txSortDirection } = listState;
   const { categoryById, householdSettings, normalizeTransactionRowColors, renderCategoryCell } = listLookups;
-  const { clearTxListFilter, selectTransactionRows, scrollTransactionListToTop, toggleExpandedTransactionRow, toggleTxSortDirection, updateTransactionRowsExpanded, updateTransactionRowsSelected, updateTxListFilter } = listActions;
+  const { clearTxListFilter, selectTransactionRows, scrollTransactionListToTop, toggleExpandedTransactionRow, toggleTxSortDirection, updateShowTransactionFilterPanel, updateTransactionRowsExpanded, updateTransactionRowsSelected, updateTxListFilter } = listActions;
   const { areAllFilteredTransactionsSelected, selectedTransactionIds, toggleAllFilteredTransactionSelection, toggleTransactionSelection } = selection;
   const { closeTxInlineEdit, createAndApplyTxInlineCategory, handleGroupedDecimalInput, handleTransactionAmountInput, handleTxInlineEditKeyDown, openTransactionInlineEditor, submitTxInlineEdit, txInlineEdit, updateTxInlineEdit } = inlineEdit;
   const { renderLegacyOwnerRemapHelper, txInlineCategoryMajor, txInlineCategoryMajorOptions, txInlineCategoryMinorOptions, txInlineCategoryOptions, txInlineCategoryQuickChips } = categoryManager;
@@ -62,6 +62,8 @@ export function TransactionListTablePanel({
         txListFilter={txListFilter}
         setTxListFilter={updateTxListFilter}
         clearTxListFilter={clearTxListFilter}
+        showTransactionFilterPanel={showTransactionFilterPanel}
+        updateShowTransactionFilterPanel={updateShowTransactionFilterPanel}
         householdSettings={householdSettings}
         normalizeTransactionRowColors={normalizeTransactionRowColors}
         DEFAULT_TRANSACTION_ROW_COLORS={DEFAULT_TRANSACTION_ROW_COLORS}

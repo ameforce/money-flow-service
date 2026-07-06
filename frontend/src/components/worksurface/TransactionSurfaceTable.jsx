@@ -110,6 +110,8 @@ export function TransactionSurfaceTable({
   txListFilter,
   setTxListFilter,
   clearTxListFilter,
+  showTransactionFilterPanel,
+  updateShowTransactionFilterPanel,
   householdSettings,
   normalizeTransactionRowColors,
   DEFAULT_TRANSACTION_ROW_COLORS,
@@ -713,10 +715,20 @@ export function TransactionSurfaceTable({
     String(safeTxListFilter.amount_min || "").trim() || String(safeTxListFilter.amount_max || "").trim()
   );
   const isTypeFilterActive = safeTxListFilter.flow_type !== "all";
+  const openDesktopFilterPanel = () => {
+    if (isCompactViewport || typeof updateShowTransactionFilterPanel !== "function") {
+      return;
+    }
+    updateShowTransactionFilterPanel(true);
+  };
+  const desktopFilterActiveByField = {
+    amount: isAmountFilterActive,
+    flow_type: isTypeFilterActive,
+    memo: isMemoFilterActive,
+  };
 
   const renderMobileFilterTrigger = ({ keyName, className, label, active }) => {
     const isOpen = mobileFilterKey === keyName;
-    const showFilterKind = keyName === "date";
     return (
       <button
         type="button"
@@ -727,7 +739,6 @@ export function TransactionSurfaceTable({
         onClick={() => openMobileFilter(keyName)}
       >
         <span>{label}</span>
-        {showFilterKind && <span className="ledger-head-trigger-kind">필터</span>}
         {active && <span className="ledger-head-filter-indicator" aria-hidden="true" />}
       </button>
     );
@@ -749,6 +760,28 @@ export function TransactionSurfaceTable({
           >
             {field.label}
             <span className="sort-indicator" aria-hidden="true">{txSortDirection === "asc" ? "↑" : "↓"}</span>
+          </button>
+        </div>
+      );
+    }
+    if (Object.prototype.hasOwnProperty.call(desktopFilterActiveByField, field.key)) {
+      const active = Boolean(desktopFilterActiveByField[field.key]);
+      return (
+        <div
+          key={field.key}
+          className={`desktop-ledger-head-cell ${field.className}`}
+          data-field-key={field.key}
+        >
+          <button
+            type="button"
+            className={`sort-header desktop-filter-header${active ? " active" : ""}`}
+            aria-label={`${field.label} 필터 열기`}
+            aria-expanded={showTransactionFilterPanel ? "true" : "false"}
+            aria-controls="transaction-filter-panel"
+            onClick={openDesktopFilterPanel}
+          >
+            {field.label}
+            {active && <span className="ledger-head-filter-indicator" aria-hidden="true" />}
           </button>
         </div>
       );
@@ -989,10 +1022,10 @@ export function TransactionSurfaceTable({
                 (String(editForm.flow_type || "") !== String(item.flow_type || "") ||
                   String(editForm.category_id || "") !== String(item.category_id || ""))
             );
-            const compactCategoryLabel = [
-              category?.minor ? toCategoryMinorLabel(category.minor) : "",
-              !category?.minor && category?.major ? toCategoryMajorLabel(category.major) : "",
-            ].find(Boolean) || "미분류";
+            const categoryMajorLabel = category?.major ? toCategoryMajorLabel(category.major) : "";
+            const categoryMinorLabel = category?.minor ? toCategoryMinorLabel(category.minor) : "";
+            const compactCategoryLabel = categoryMinorLabel || categoryMajorLabel || "미분류";
+            const fullCategoryLabel = [categoryMajorLabel, categoryMinorLabel].filter(Boolean).join(" / ") || compactCategoryLabel;
             const flowLabel = FLOW_TYPE_LABELS[item.flow_type] || item.flow_type;
             const flowShortLabel = String(flowLabel || "").slice(0, 2) || "-";
             const ownerCompactLabel = Array.from(String(item.owner_name || "").trim()).slice(0, 2).join("");
@@ -1382,6 +1415,7 @@ export function TransactionSurfaceTable({
                     <div className="transaction-mobile-detail-value transaction-owner-cue">{item.owner_name || "-"}</div>
                   </td>
                   <td data-label="카테고리" className="transaction-col-category transaction-mobile-detail-cell" data-field-key="category" data-mobile-priority={transactionMobilePriority("category")}>
+                    <span className="transaction-desktop-category-cue" title={fullCategoryLabel} aria-label={`카테고리 ${fullCategoryLabel}`}>{compactCategoryLabel}</span>
                     <span className="transaction-mobile-category-cue">{compactCategoryLabel}</span>
                     <span className="transaction-mobile-detail-label">카테고리</span>
                     <div className="transaction-mobile-detail-value">{renderCategoryCell(category)}</div>

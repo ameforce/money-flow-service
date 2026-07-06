@@ -6141,7 +6141,7 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   await expect(memoFilterTrigger).toBeVisible();
   await expect(amountFilterTrigger).toBeVisible();
   await expect(typeFilterTrigger).toBeVisible();
-  await expect(dateFilterTrigger).toContainText("필터");
+  await expect(dateFilterTrigger).toHaveText("일자");
   await expectMobileTransactionFilterTriggersSeparated(page, "390px transaction ledger head");
   for (const profile of [
     { label: "320px transaction ledger head", width: 320, height: 568 },
@@ -6155,7 +6155,6 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   const transactionStickyToolbar = page.getByTestId("transaction-sticky-toolbar");
   const transactionToolbarBox = await transactionStickyToolbar.boundingBox();
   const transactionHeadingBox = await transactionStickyToolbar.locator(".surface-list-heading").first().boundingBox();
-  await expect(transactionStickyToolbar.locator(".surface-control-strip").first()).toBeVisible();
   const transactionControlStripBox = await transactionStickyToolbar.locator(".surface-control-strip").first().boundingBox();
   const transactionHeaderGroupBox = await transactionStickyToolbar.locator(".table-header-group").first().boundingBox();
   const transactionLedgerBox = await page.locator(".transactions-mobile-ledger-head").boundingBox();
@@ -6163,16 +6162,18 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   expect(mobileTopbarBox, "mobile topbar should have a bounding box").not.toBeNull();
   expect(transactionToolbarBox, "transaction sticky toolbar should have a bounding box").not.toBeNull();
   expect(transactionHeadingBox, "transaction heading should have a bounding box").not.toBeNull();
-  expect(transactionControlStripBox, "transaction control strip should have a bounding box").not.toBeNull();
   expect(transactionHeaderGroupBox, "transaction header group should have a bounding box").not.toBeNull();
   expect(transactionLedgerBox, "transaction ledger head should have a bounding box").not.toBeNull();
   expect(transactionTableBox, "transaction table should have a bounding box").not.toBeNull();
+  expect(
+    transactionControlStripBox?.height ?? 0,
+    "inactive transaction control strip should not consume vertical space",
+  ).toBeLessThanOrEqual(2);
   expect(mobileTopbarBox?.height ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(88);
   expect(transactionToolbarBox?.y ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
     (mobileTopbarBox?.y ?? 0) + (mobileTopbarBox?.height ?? 0) + 112,
   );
   expect(transactionHeadingBox?.y ?? Number.NEGATIVE_INFINITY).toBeGreaterThanOrEqual((transactionToolbarBox?.y ?? 0) - 2);
-  expect(transactionControlStripBox?.y ?? Number.NEGATIVE_INFINITY).toBeGreaterThanOrEqual((transactionHeadingBox?.y ?? 0) - 2);
   expect(transactionHeaderGroupBox?.y ?? Number.NEGATIVE_INFINITY).toBeGreaterThanOrEqual((transactionHeadingBox?.y ?? 0) - 8);
   expect(transactionHeaderGroupBox?.y ?? Number.POSITIVE_INFINITY).toBeLessThan(transactionLedgerBox?.y ?? 0);
   expect(transactionToolbarBox?.height ?? Number.POSITIVE_INFINITY).toBeLessThan(220);
