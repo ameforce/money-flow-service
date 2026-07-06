@@ -115,18 +115,19 @@ test("issues #265/#268: transaction tab opens at latest rows and price refresh p
   await registerAndVerify(page, { email, displayName });
   await page.setViewportSize({ width: 1366, height: 540 });
 
+  const currentLedgerDate = currentE2EHistoryDateIso();
   for (let index = 34; index > 0; index -= 1) {
     await createTransactionViaApi(page, {
       memo: index === 14 ? anchorMemo : `${memoPrefix}-${String(index).padStart(2, "0")}`,
       amount: String(20_000 + index),
-      occurredOn: currentE2EHistoryDateIso(-index),
+      occurredOn: currentLedgerDate,
       ownerName: displayName,
     });
   }
   await createTransactionViaApi(page, {
     memo: latestMemo,
     amount: "77777",
-    occurredOn: currentE2EHistoryDateIso(),
+    occurredOn: currentLedgerDate,
     ownerName: displayName,
   });
 

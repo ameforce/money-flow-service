@@ -11,6 +11,7 @@
 - Architecture review found one more stale-request invariant bug: `showImportedTransactions()` switched the visible month for imported rows but did not update `appliedYearMonthRef`, so the new ledger guard could discard the import reveal refresh as stale.
 - Codex review found that the one-time latest-row auto anchor could remain pending while `showImportedTransactions()` performed its explicit imported-row reveal, letting the generic latest-row scroll compete with the targeted import scroll.
 - Codex review found another entry-point gap in the same latest-row behavior: month changes while already on the Transactions tab refreshed the ledger without re-arming the latest-row anchor. The effect also only depended on row count, so a same-size month replacement could leave a pending anchor unconsumed.
+- Full-suite E2E exposed stale test contracts after the #287 fix: several tests still expected the retired mobile transaction row toggle, previous-month seeded rows in the current monthly ledger, exactly two visible donut slice labels, and always-enabled month navigation buttons.
 
 ## Fix
 
@@ -27,6 +28,7 @@
 - Suppressed the generic latest-row anchor while a targeted imported-transaction reveal is in progress, then released the suppression after the explicit imported-row scroll has settled.
 - Re-armed the latest-row anchor for month and range filter applies while the user is already on the Transactions tab, and made the anchor effect observe the sorted row set instead of only its length.
 - Added CDP touch-input E2E coverage for Android-style tap, long press, long-press drag selection, scrolling, keyboard expansion, keyboard selection, and 1001-row monthly paging.
+- Updated stale E2E contracts to match the shipped UI: mobile transaction rows are the 44px detail target with keyboard shortcuts, monthly-ledger tests seed the active month, WebSocket transaction sync uses the active month, dashboard slice-label assertions allow data/geometry-dependent labels, and disabled month navigation buttons are not pressed for tactile feedback checks.
 
 ## Verification
 
@@ -44,6 +46,10 @@
 - PASS: `npm.cmd run e2e -- e2e/specs/import.spec.js --project=desktop-chromium --grep "import flow: workbook dry-run and apply" --workers=1` with newer same-month rows proving the targeted import reveal is not replaced by latest-row auto anchoring.
 - RED then PASS: `npm.cmd run e2e -- --grep "issue 197: transaction month direct input" --project=desktop-chromium --workers=1` with a 28-row applied month proving month switches re-anchor to the latest row.
 - PASS: `npm.cmd run e2e -- e2e/specs/transactions.spec.js --project=desktop-chromium --workers=1` with 67 passed
+- RED: `npm.cmd run e2e` initially failed 6 stale-contract assertions after the #287 monthly/no-toggle contract landed; see `full-e2e.txt`.
+- PASS: `npm.cmd run e2e -- e2e/specs/dashboard.spec.js e2e/specs/layout-stability.spec.js e2e/specs/mobile-touch-targets.spec.js e2e/specs/transactions-ledger-layout.spec.js e2e/specs/transactions-tab-state.spec.js e2e/specs/ws.spec.js --project=desktop-chromium --workers=3` with 23 passed; see `green-full-e2e-failure-rerun-2.txt`.
+- PASS: `npm.cmd run e2e` with 164 passed; see `full-e2e-rerun-after-test-contract.txt`.
+- PASS: Jenkins branch build #9 deployed `b6c3aa0fcf16dc75ec348b5046fa1569250e2d22` to dev as `v0.1.37.9`; see `jenkins-dev-build-9.md`.
 - PASS: `git diff --check`
 - PASS: `git diff --summary --diff-filter=T` produced no mode-only diffs
 
