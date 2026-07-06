@@ -12,6 +12,7 @@ Behavior lock:
 - `issue 287: stale monthly transaction refresh cannot replace the active month`
 - `import flow: workbook dry-run and apply` covers import reveal after a different-month workbook applies.
 - `import flow: workbook dry-run and apply` also covers targeted import reveal priority by adding newer same-month rows and asserting the imported row stays in view.
+- `issue 197: transaction month direct input clearly marks unapplied changes until Enter` now also covers latest-row anchoring after an applied month switch with many target rows.
 - `issue 287: Android PWA transaction ledger uses monthly dense rows` covers compact `Space` expansion and `Shift+Space` selection
 - Existing Android/PWA monthly ledger and mobile selection E2E coverage
 

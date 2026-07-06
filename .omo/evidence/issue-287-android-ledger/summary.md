@@ -10,6 +10,7 @@
 - Latest-row auto anchoring exposed a sticky-header timing regression: the header geometry measurement had not re-run after the monthly row count changed, so the first rendered row could sit underneath the sticky filter stack.
 - Architecture review found one more stale-request invariant bug: `showImportedTransactions()` switched the visible month for imported rows but did not update `appliedYearMonthRef`, so the new ledger guard could discard the import reveal refresh as stale.
 - Codex review found that the one-time latest-row auto anchor could remain pending while `showImportedTransactions()` performed its explicit imported-row reveal, letting the generic latest-row scroll compete with the targeted import scroll.
+- Codex review found another entry-point gap in the same latest-row behavior: month changes while already on the Transactions tab refreshed the ledger without re-arming the latest-row anchor. The effect also only depended on row count, so a same-size month replacement could leave a pending anchor unconsumed.
 
 ## Fix
 
@@ -24,6 +25,7 @@
 - Re-ran sticky toolbar geometry measurement when the rendered transaction count changes so the latest-row anchor does not overlap the sticky ledger header.
 - Aligned import reveal with the month-filter apply path by updating `appliedYearMonthRef` and clearing pending month state before refreshing imported transactions.
 - Suppressed the generic latest-row anchor while a targeted imported-transaction reveal is in progress, then released the suppression after the explicit imported-row scroll has settled.
+- Re-armed the latest-row anchor for month and range filter applies while the user is already on the Transactions tab, and made the anchor effect observe the sorted row set instead of only its length.
 - Added CDP touch-input E2E coverage for Android-style tap, long press, long-press drag selection, scrolling, keyboard expansion, keyboard selection, and 1001-row monthly paging.
 
 ## Verification
@@ -40,6 +42,7 @@
 - PASS: `npm.cmd run e2e -- --grep "mobile transaction row selection, touch scroll, and sticky ledger head survive Korean font viewports" --project=desktop-chromium --workers=1`
 - RED then PASS: `npm.cmd run e2e -- e2e/specs/import.spec.js --project=desktop-chromium --grep "import flow: workbook dry-run and apply" --workers=1`
 - PASS: `npm.cmd run e2e -- e2e/specs/import.spec.js --project=desktop-chromium --grep "import flow: workbook dry-run and apply" --workers=1` with newer same-month rows proving the targeted import reveal is not replaced by latest-row auto anchoring.
+- RED then PASS: `npm.cmd run e2e -- --grep "issue 197: transaction month direct input" --project=desktop-chromium --workers=1` with a 28-row applied month proving month switches re-anchor to the latest row.
 - PASS: `npm.cmd run e2e -- e2e/specs/transactions.spec.js --project=desktop-chromium --workers=1` with 67 passed
 - PASS: `git diff --check`
 - PASS: `git diff --summary --diff-filter=T` produced no mode-only diffs

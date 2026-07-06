@@ -2241,14 +2241,19 @@ test("issue 197: transaction month direct input clearly marks unapplied changes 
   const email = `${unique("tx-month-apply")}@example.com`;
   const displayName = unique("tx-month-apply-name");
   const currentMemo = unique("tx-month-apply-current");
-  const previousMemo = unique("tx-month-apply-previous");
+  const previousMemoPrefix = unique("tx-month-apply-previous");
+  const previousBoundaryMemo = unique("tx-month-apply-boundary");
   const currentDate = currentE2EHistoryDateIso();
   const previousDate = currentE2EHistoryDateIso(-35);
   const previousMonth = yearMonthFromIso(previousDate);
+  const previousMonthDate = (day) =>
+    `${previousMonth.year}-${String(previousMonth.month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  const previousOldestMemo = `${previousMemoPrefix}-01`;
+  const previousLatestMemo = `${previousMemoPrefix}-28`;
 
   await registerAndVerify(page, { email, displayName });
   await createTransactionViaApi(page, { memo: currentMemo, amount: "12000", occurredOn: currentDate });
-  await createTransactionViaApi(page, { memo: previousMemo, amount: "34000", occurredOn: previousDate });
+  await createTransactionViaApi(page, { memo: previousBoundaryMemo, amount: "34000", occurredOn: previousDate });
   await page.setViewportSize({ width: 390, height: 844 });
   await openTab(page, "거래");
 
@@ -2257,11 +2262,45 @@ test("issue 197: transaction month direct input clearly marks unapplied changes 
   await expect(page.locator("tr.transaction-row", { hasText: currentMemo }).first()).toBeVisible({ timeout: 20_000 });
   await page.waitForLoadState("networkidle");
 
+  const previousRows = Array.from({ length: 28 }, (_, index) => {
+    const day = index + 1;
+    return {
+      id: `tx-month-apply-${day}`,
+      occurred_on: previousMonthDate(day),
+      flow_type: "expense",
+      amount: 34_000 + day,
+      currency: "KRW",
+      memo: `${previousMemoPrefix}-${String(day).padStart(2, "0")}`,
+      category_id: null,
+      owner_user_id: null,
+      owner_name: displayName,
+      source_ref: null,
+      order_key: day * 1024,
+      created_at: "2026-07-01T00:00:00Z",
+      updated_at: "2026-07-01T00:00:00Z",
+    };
+  });
   const previousMonthRequests = [];
-  page.on("response", (response) => {
-    if (isMonthlyTransactionsResponse(response, previousMonth)) {
-      previousMonthRequests.push(response.url());
+  await page.route("**/api/v1/transactions**", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const isPreviousMonthRequest =
+      request.method() === "GET" &&
+      url.pathname.endsWith("/api/v1/transactions") &&
+      url.searchParams.get("year") === String(previousMonth.year) &&
+      url.searchParams.get("month") === String(previousMonth.month);
+    if (!isPreviousMonthRequest) {
+      await route.fallback();
+      return;
     }
+    const limit = Number(url.searchParams.get("limit") || "1000");
+    const offset = Number(url.searchParams.get("offset") || "0");
+    previousMonthRequests.push(request.url());
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(previousRows.slice(offset, offset + limit)),
+    });
   });
 
   await listCard.getByLabel("연도").fill(String(previousMonth.year));
@@ -2283,7 +2322,17 @@ test("issue 197: transaction month direct input clearly marks unapplied changes 
   await listCard.getByLabel("월").press("Enter");
   await appliedResponse;
   await expect(pendingStatus).toHaveCount(0);
-  await expect(page.locator("tr.transaction-row", { hasText: previousMemo }).first()).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator("tr.transaction-row", { hasText: previousOldestMemo }).first()).toBeVisible({ timeout: 20_000 });
+  const latestPreviousRow = page.locator("tr.transaction-row", { hasText: previousLatestMemo }).first();
+  await expect(latestPreviousRow).toBeVisible();
+  await expect.poll(
+    async () =>
+      latestPreviousRow.evaluate((row) => {
+        const box = row.getBoundingClientRect();
+        return box.top >= 0 && box.bottom <= window.innerHeight;
+      }),
+    { message: "applied month changes should re-anchor the ledger to the latest row" }
+  ).toBe(true);
   await capture(page, "issue-197-month-input-applied");
 });
 

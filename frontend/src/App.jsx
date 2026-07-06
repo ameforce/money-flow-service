@@ -4700,7 +4700,7 @@ function App() {
     return () => {
       disposed = true;
     };
-  }, [tab, sortedTransactions.length, txSortDirection]);
+  }, [tab, sortedTransactions, txSortDirection]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -5275,6 +5275,9 @@ function App() {
     appliedYearMonthRef.current = normalized;
     setMonthFilterPending(false);
     setYearMonth(normalized);
+    if (tab === "transactions" && !transactionLatestAnchorSuppressedRef.current) {
+      transactionLatestAnchorPendingRef.current = true;
+    }
     refreshDataWithUiFeedback({ filterMode: "month", yearMonth: normalized }).catch(() => undefined);
   }
 
@@ -5303,6 +5306,9 @@ function App() {
     setRange(nextRange);
     if (!nextRange.start || !nextRange.end) {
       return;
+    }
+    if (tab === "transactions" && !transactionLatestAnchorSuppressedRef.current) {
+      transactionLatestAnchorPendingRef.current = true;
     }
     refreshDataWithUiFeedback({ filterMode: "range", range: nextRange }).catch(() => undefined);
   }
