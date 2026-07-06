@@ -81,8 +81,6 @@ function clearRowSweepTextSelection() {
 
 export function TransactionSurfaceTable({
   sortedTransactions,
-  areAllFilteredTransactionsSelected,
-  toggleAllFilteredTransactionSelection,
   txSortDirection,
   toggleTxSortDirection,
   selectedTransactionIds,
@@ -134,7 +132,7 @@ export function TransactionSurfaceTable({
   toCategoryMajorLabel,
   toCategoryMinorLabel,
 }) {
-  const columnSpan = TRANSACTION_SURFACE_FIELDS.length + 2;
+  const columnSpan = TRANSACTION_SURFACE_FIELDS.length;
   const rowColors = normalizeTransactionRowColors(householdSettings?.transaction_row_colors);
   const ownerColors = householdSettings?.holding_settings?.owner_colors || {};
   const categoryColors = householdSettings?.holding_settings?.category_colors || {};
@@ -938,16 +936,7 @@ export function TransactionSurfaceTable({
         </div>
       )}
       <div className="surface-ledger-desktop-head transactions-desktop-ledger-head">
-        <div className="desktop-ledger-head-cell transaction-col-select">
-          <input
-            type="checkbox"
-            aria-label="표시된 거래 전체 선택"
-            checked={areAllFilteredTransactionsSelected}
-            onChange={(event) => toggleAllFilteredTransactionSelection(Boolean(event.target.checked))}
-          />
-        </div>
         {TRANSACTION_SURFACE_FIELDS.map(renderDesktopColumnHead)}
-        <div className="desktop-ledger-head-cell transaction-col-actions">세부</div>
       </div>
       <div className="transactions-surface-scroll">
         <table
@@ -955,7 +944,6 @@ export function TransactionSurfaceTable({
           aria-label="거래 작업 표"
         >
           <colgroup>
-            <col className="transaction-col-select" />
             <col className="transaction-col-date" />
             <col className="transaction-col-type" />
             <col className="transaction-col-owner" />
@@ -963,11 +951,9 @@ export function TransactionSurfaceTable({
             <col className="transaction-col-memo" />
             <col className="transaction-col-amount" />
             <col className="transaction-col-updated" />
-            <col className="transaction-col-actions" />
           </colgroup>
           <thead>
             <tr>
-              <th data-mobile-priority="hidden">선택</th>
               {TRANSACTION_SURFACE_FIELDS.map((field) => {
                 if (field.key === "occurred_on") {
                   return (
@@ -993,7 +979,6 @@ export function TransactionSurfaceTable({
                   </th>
                 );
               })}
-              <th data-mobile-priority="action">세부</th>
             </tr>
           </thead>
           <tbody>
@@ -1028,7 +1013,7 @@ export function TransactionSurfaceTable({
             const fullCategoryLabel = [categoryMajorLabel, categoryMinorLabel].filter(Boolean).join(" / ") || compactCategoryLabel;
             const flowLabel = FLOW_TYPE_LABELS[item.flow_type] || item.flow_type;
             const flowShortLabel = String(flowLabel || "").slice(0, 2) || "-";
-            const ownerCompactLabel = Array.from(String(item.owner_name || "").trim()).slice(0, 2).join("");
+            const ownerCompactLabel = Array.from(String(item.owner_name || "").trim()).slice(0, 1).join("");
             const ownerSummaryLabel = item.owner_name || "거래자 미입력";
             const flowAccent = rowColors[item.flow_type] || DEFAULT_TRANSACTION_ROW_COLORS[item.flow_type];
             const ownerColor = resolveSemanticColor(
@@ -1084,10 +1069,10 @@ export function TransactionSurfaceTable({
               if (isEditing || isInteractiveRowTarget(event.target)) {
                 return;
               }
-              if (isCompactViewport && (event.key === " " || event.key === "Spacebar")) {
+              if (event.key === " " || event.key === "Spacebar") {
                 event.preventDefault();
                 clearPendingRowClickAction();
-                if (event.shiftKey) {
+                if (!isCompactViewport || event.shiftKey) {
                   toggleTransactionSelection(item.id);
                   return;
                 }
@@ -1107,13 +1092,13 @@ export function TransactionSurfaceTable({
             const rowEditShortcutLabel = canEditRecords ? "Enter 또는 F2로 편집" : "편집 권한 없음";
             const rowKeyboardShortcutLabel = isCompactViewport
               ? `${rowEditShortcutLabel}. Space로 세부를 열고 닫고 Shift+Space로 선택합니다.`
-              : rowEditShortcutLabel;
+              : `${rowEditShortcutLabel}. Space로 선택합니다.`;
             const rowActivationLabel = isCompactViewport
               ? "탭하면 세부를 열고 길게 누르거나 Shift+Space로 선택합니다."
-              : "선택 체크박스로 선택합니다.";
+              : "행을 클릭하거나 Space로 선택합니다.";
             const rowKeyShortcuts = [
               ...(canEditRecords ? ["Enter", "F2"] : []),
-              ...(isCompactViewport ? ["Space", "Shift+Space"] : []),
+              ...(isCompactViewport ? ["Space", "Shift+Space"] : ["Space"]),
             ].join(" ");
             const updateInlineFlowType = (nextFlowType) => {
               if (!editForm) {
@@ -1375,18 +1360,6 @@ export function TransactionSurfaceTable({
                     "--transaction-owner-chip-ring": withAlpha(ownerColor, 0.22),
                   }}
                 >
-                  <td data-label="선택" className="transaction-col-select" data-mobile-priority="hidden">
-                    <input
-                      type="checkbox"
-                      aria-label={`${item.occurred_on} 거래 선택`}
-                      checked={selectedTransactionIds.has(item.id)}
-                      onClick={(event) => {
-                        clearPendingRowClickAction();
-                        event.stopPropagation();
-                      }}
-                      onChange={() => toggleTransactionSelection(item.id)}
-                    />
-                  </td>
                   <td data-label="일자" className="transaction-col-date" data-field-key="occurred_on" data-mobile-priority={transactionMobilePriority("occurred_on")}>
                     <span className="desktop-date-text">{item.occurred_on}</span>
                     <span className="mobile-date-text">{formatCompactDate(item.occurred_on)}</span>
@@ -1431,9 +1404,6 @@ export function TransactionSurfaceTable({
                   <td data-label="최종 수정일" className="transaction-col-updated transaction-mobile-detail-cell" data-field-key="updated_at" data-mobile-priority={transactionMobilePriority("updated_at")}>
                     <span className="transaction-mobile-detail-label">최종 수정일</span>
                     <div className="transaction-mobile-detail-value">{fmtDate(item.updated_at)}</div>
-                  </td>
-                  <td data-label="세부" className="transaction-col-actions" data-mobile-priority="action">
-                    <span className="transaction-row-state-cue" aria-hidden="true" />
                   </td>
                 </tr>
                 {!shouldRenderInlineEditorBeforeRow && inlineEditorRow}

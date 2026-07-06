@@ -848,20 +848,27 @@ test("mobile transaction sheet actions keep navigation reachable", async ({ page
   );
   await capture(page, "layout-mobile-transaction-fab-sheet-layer");
 
-  const metrics = await page.locator(".transaction-quick-sticky-actions").evaluate((element) => {
+  const metrics = await page.locator(".transaction-quick-actions").evaluate((element) => {
     const button = element.querySelector("button");
+    const sheet = element.closest("[data-testid='transaction-entry-sheet']");
+    const sheetBox = sheet?.getBoundingClientRect();
+    const actionBox = element.getBoundingClientRect();
     return {
+      position: getComputedStyle(element).position,
       containerPointerEvents: getComputedStyle(element).pointerEvents,
       buttonPointerEvents: button ? getComputedStyle(button).pointerEvents : "missing",
-      bottom: getComputedStyle(element).bottom,
-      marginBottom: getComputedStyle(element).marginBottom,
+      sheetScrollHeight: sheet?.scrollHeight || 0,
+      sheetClientHeight: sheet?.clientHeight || 0,
+      actionBottom: actionBox.bottom,
+      sheetBottom: sheetBox?.bottom || 0,
     };
   });
 
-  expect(metrics.containerPointerEvents).toBe("none");
+  expect(metrics.position).toBe("static");
+  expect(metrics.containerPointerEvents).toBe("auto");
   expect(metrics.buttonPointerEvents).toBe("auto");
-  expect(metrics.bottom).toBe("0px");
-  expect(metrics.marginBottom).toBe("0px");
+  expect(metrics.sheetScrollHeight).toBeLessThanOrEqual(metrics.sheetClientHeight + 2);
+  expect(metrics.actionBottom).toBeLessThanOrEqual(metrics.sheetBottom + 1);
 
   await page.getByTestId("transaction-entry-sheet-close").click();
   await expect(page.getByTestId("transaction-entry-sheet")).toBeHidden();

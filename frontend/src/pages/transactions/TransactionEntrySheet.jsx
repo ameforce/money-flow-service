@@ -30,7 +30,7 @@ export function TransactionEntrySheet({ permissions, entrySheet, categoryManager
             <p className="table-summary">
               {txEntrySheetStep === "category"
                 ? "같은 레이어 안에서 카테고리를 정리합니다."
-                : "금액, 카테고리, 메모 순서로 바로 저장합니다."}
+                : "일자부터 거래자까지 한 화면에서 저장합니다."}
             </p>
           </div>
           <button type="button" className="secondary" data-testid="transaction-entry-sheet-close" onClick={closeTransactionEntrySheet}>닫기</button>
