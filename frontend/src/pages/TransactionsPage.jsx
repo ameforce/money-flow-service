@@ -112,6 +112,7 @@ export function TransactionsPage({
     openTransactionInlineEditor,
     submitTxInlineEdit,
     txInlineEdit,
+    txInlineEditSubmitting,
     updateTxInlineEdit,
   } = inlineEdit;
   const {
@@ -163,7 +164,7 @@ export function TransactionsPage({
         listActions={{ clearTxListFilter, selectTransactionRows, scrollTransactionListToTop, toggleExpandedTransactionRow, toggleTxSortDirection, updateShowTransactionFilterPanel, updateTransactionFilterFocusTarget, updateTransactionRowsExpanded, updateTransactionRowsSelected, updateTxListFilter }}
         selection={{ areAllFilteredTransactionsSelected, openSelectedTransactionEdit, openSelectedTransactionInsert, removeSelectedTransactions, selectedTransactionIds, toggleAllFilteredTransactionSelection, toggleTransactionSelection, updateSelectedTransactionIds }}
         entrySheet={{ openNormalTransactionEntrySheet, transactionDesktopAddActionRef, transactionFabRef }}
-        inlineEdit={{ closeTxInlineEdit, createAndApplyTxInlineCategory, handleGroupedDecimalInput, handleTransactionAmountInput, handleTxInlineEditKeyDown, openTransactionInlineEditor, submitTxInlineEdit, txInlineEdit, updateTxInlineEdit }}
+        inlineEdit={{ closeTxInlineEdit, createAndApplyTxInlineCategory, handleGroupedDecimalInput, handleTransactionAmountInput, handleTxInlineEditKeyDown, openTransactionInlineEditor, submitTxInlineEdit, txInlineEdit, txInlineEditSubmitting, updateTxInlineEdit }}
         categoryManager={{ renderLegacyOwnerRemapHelper, txInlineCategoryMajor, txInlineCategoryMajorOptions, txInlineCategoryMinorOptions, txInlineCategoryOptions, txInlineCategoryQuickChips }}
         ownerHelpers={{ ownerOptionsWithFallback, ownerSelectValue, ownerSelectionFromValue }}
         formatters={{ fmtDate, fmtKrw, toCategoryMajorLabel, toCategoryMinorLabel, toYearMonthKey }}
