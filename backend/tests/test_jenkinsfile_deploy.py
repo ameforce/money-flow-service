@@ -279,3 +279,37 @@ def test_post_deploy_smoke_runs_representative_browser_flows() -> None:
     assert "x-debug-token-opt-in" not in post_deploy_stage
     assert "--project=desktop-chromium" in post_deploy_stage
     assert "exit 1" in post_deploy_stage
+
+
+def test_remote_deploy_retains_only_project_app_images_after_success() -> None:
+    source = _jenkinsfile_source()
+    deploy_stage = _stage_source(source, "Deploy Execute")
+    prod_compose = (ROOT / "docker-compose.deploy.yml").read_text(encoding="utf-8")
+    dev_compose = (ROOT / "docker-compose.dev.deploy.yml").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    for broad_cleanup in ("docker image prune", "docker system prune", "ctr images", "containerd"):
+        assert broad_cleanup not in deploy_stage
+
+    for compose in (prod_compose, dev_compose):
+        assert "image: ${DEPLOY_IMAGE_REPOSITORY:-" in compose
+        assert "moneyflow.compose.project: ${DEPLOY_IMAGE_PROJECT:-" in compose
+        assert "moneyflow.compose.service: app" in compose
+
+    assert 'DEPLOY_IMAGE_PROJECT="$COMPOSE_PROJECT"' in deploy_stage
+    assert 'DEPLOY_IMAGE_REPOSITORY="${COMPOSE_PROJECT}-app"' in deploy_stage
+    assert 'DEPLOY_IMAGE_RETENTION_COUNT="${DEPLOY_IMAGE_RETENTION_COUNT:-3}"' in deploy_stage
+    assert "previous_app_image_id=" in deploy_stage
+    assert "current_app_image_id=" in deploy_stage
+    assert "running_image_ids=" in deploy_stage
+    assert "recent_project_image_ids=" in deploy_stage
+    assert "cleanup_old_compose_app_images" in deploy_stage
+    assert 'docker image rm "$image_ref"' in deploy_stage
+    assert 'docker image rm "$image_id"' in deploy_stage
+    assert deploy_stage.index("assert_frontend_asset_version") < deploy_stage.rindex(
+        "cleanup_old_compose_app_images"
+    )
+    assert deploy_stage.index("echo '[deploy] health check success'") < deploy_stage.rindex(
+        "cleanup_old_compose_app_images"
+    )
+    assert "현재 배포 이미지, 직전 rollback 이미지, 실행 중인 이미지, 최근 3개" in readme

@@ -16,11 +16,15 @@ services:
     restart: unless-stopped
 
   app:
+    image: ${DEPLOY_IMAGE_REPOSITORY:-money-flow-service-app}:${APP_VERSION:-0.0.0}
     build:
       context: .
       dockerfile: Dockerfile
       args:
         APP_VERSION: ${APP_VERSION:-0.0.0}
+      labels:
+        moneyflow.compose.project: ${DEPLOY_IMAGE_PROJECT:-money-flow-service}
+        moneyflow.compose.service: app
     environment:
       APP_VERSION: ${APP_VERSION:-0.0.0}
       ENV: ${ENV:-prod}

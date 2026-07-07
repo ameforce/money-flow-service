@@ -136,6 +136,7 @@ cmd /c docker compose up -d --build
   - `RUN_PRE_DEPLOY_E2E=true`일 때 배포 전 live deep-link Playwright smoke를 온디맨드로 수행
   - `RUN_DEPLOY=true`일 때 배포 승인(필요 시 수동 승인) → enm-server SSH 전송 후 배포
   - schema upgrade, 원격 헬스체크(`/healthz`), frontend asset version, upload-limit probe 성공 확인
+  - 배포 성공 후 compose project app image만 제한 cleanup. `docker image prune`/`docker system prune` 없이 현재 배포 이미지, 직전 rollback 이미지, 실행 중인 이미지, 최근 3개 project app image를 보존한다.
   - 실배포 후 대상 URL 헬스체크를 항상 수행하고 실패 시 배포 실패 처리. dev 배포는 seeded-account `Post-Deploy E2E Smoke`를 수행하며, prod 배포는 dev-only seeded-account Playwright smoke를 건너뛴다.
   - Async/full gate 실패 시 `.jenkins-async-deploy-block.json`을 Jenkins artifact와 원격 `DEPLOY_PATH`에 모두 남기며, `ASYNC_FAILURE_RCA_LINK` 없이 다음 실배포를 진행하지 않음
 - 권장 Credential
