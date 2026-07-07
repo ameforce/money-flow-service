@@ -8954,6 +8954,17 @@ tr.holding-row-imported {
     min-height: 40px;
     padding: 0.18rem 0.16rem;
   }
+  .surface-ledger-mobile-head.transactions-mobile-ledger-head > .ledger-head-date,
+  .surface-ledger-mobile-head.transactions-mobile-ledger-head > .ledger-head-cues,
+  .surface-ledger-mobile-head.transactions-mobile-ledger-head > .ledger-head-owner,
+  .surface-ledger-mobile-head.transactions-mobile-ledger-head > .ledger-head-category,
+  .surface-ledger-mobile-head.transactions-mobile-ledger-head > .ledger-head-main {
+    border-right: 1px solid rgba(219, 227, 239, 0.82);
+  }
+
+  .surface-ledger-mobile-head.transactions-mobile-ledger-head > .ledger-head-amount {
+    border-right: 0;
+  }
 
   .surface-ledger-mobile-head.transactions-mobile-ledger-head > .ledger-head-date {
     justify-content: flex-start;
@@ -9511,6 +9522,17 @@ tr.holding-row-imported {
     text-align: center;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .transactions-surface-table tbody tr.transaction-row .transaction-col-date,
+  .transactions-surface-table tbody tr.transaction-row .transaction-col-type,
+  .transactions-surface-table tbody tr.transaction-row .transaction-col-owner,
+  .transactions-surface-table tbody tr.transaction-row .transaction-col-category,
+  .transactions-surface-table tbody tr.transaction-row .transaction-col-memo {
+    border-right: 1px solid #e8eef6;
+  }
+
+  .transactions-surface-table tbody tr.transaction-row .transaction-col-amount {
+    border-right: 0;
   }
 
   .transactions-surface-table tbody tr.transaction-row .transaction-col-date {

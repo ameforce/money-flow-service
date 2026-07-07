@@ -756,6 +756,16 @@ test("transaction ledger aligns desktop cells and keeps mobile rows compact", as
             scrollWidth: categoryCue?.scrollWidth || 0,
           },
         },
+        gridLines: {
+          header: headerItems
+            .slice(0, -1)
+            .map((item) => Number.parseFloat(getComputedStyle(item).borderRightWidth || "0")),
+          row: Array.from(
+            row.querySelectorAll(
+              ".transaction-col-date, .transaction-col-type, .transaction-col-owner, .transaction-col-category, .transaction-col-memo",
+            ),
+          ).map((cell) => Number.parseFloat(getComputedStyle(cell).borderRightWidth || "0")),
+        },
         headerCenterDeltas: headerItems.map((item) => ({
           className: item.className,
           text: item.textContent?.replace(/\s+/g, " ").trim() || "",
@@ -779,6 +789,14 @@ test("transaction ledger aligns desktop cells and keeps mobile rows compact", as
         `${profile.name} ${label} label should fit without horizontal clipping: ${JSON.stringify(metrics)}`,
       ).toBeLessThanOrEqual(metrics.clientWidth + 1);
     }
+    expect(
+      mobileMetrics.gridLines.header.every((width) => width >= 1),
+      `${profile.name} mobile header cells should use Excel-style vertical separators: ${JSON.stringify(mobileMetrics.gridLines)}`,
+    ).toBe(true);
+    expect(
+      mobileMetrics.gridLines.row.every((width) => width >= 1),
+      `${profile.name} mobile body cells should use Excel-style vertical separators like desktop: ${JSON.stringify(mobileMetrics.gridLines)}`,
+    ).toBe(true);
     expect(
       mobileMetrics.headerCenterDeltas.every((item) => item.delta <= 3),
       `${profile.name} header labels should be vertically centered: ${JSON.stringify(mobileMetrics.headerCenterDeltas)}`,
