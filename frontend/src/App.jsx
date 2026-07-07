@@ -2385,6 +2385,7 @@ function App() {
   const [holdingForm, setHoldingForm] = useState(() => createHoldingForm("cash"));
   const [holdingInlineEdit, setHoldingInlineEdit] = useState(null);
   const [txInlineEdit, setTxInlineEdit] = useState(null);
+  const [txInlineEditSubmitting, setTxInlineEditSubmitting] = useState(false);
 
   const [importFile, setImportFile] = useState(null);
   const [migrationPackageFile, setMigrationPackageFile] = useState(null);
@@ -2405,6 +2406,7 @@ function App() {
   const transactionStickyToolbarRef = useRef(null);
   const transactionDesktopAddActionRef = useRef(null);
   const transactionFabRef = useRef(null);
+  const txInlineEditSubmittingRef = useRef(false);
   const transactionSheetScrollYRef = useRef(0);
   const holdingSheetScrollYRef = useRef(0);
   const holdingEntryActionRef = useRef(null);
@@ -6514,6 +6516,9 @@ function App() {
     if (event && typeof event.preventDefault === "function") {
       event.preventDefault();
     }
+    if (txInlineEditSubmittingRef.current) {
+      return;
+    }
     if (!canEditRecords) {
       setMessage(uiGuideMessage("현재 권한으로는 거래를 수정할 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
       return;
@@ -6524,6 +6529,8 @@ function App() {
       setMessage(validationMessage);
       return;
     }
+    txInlineEditSubmittingRef.current = true;
+    setTxInlineEditSubmitting(true);
     setLoading(true);
     setMessage("");
     try {
@@ -6578,6 +6585,8 @@ function App() {
     } catch (error) {
       setMessage(formatApiError(error, "transaction_submit"));
     } finally {
+      txInlineEditSubmittingRef.current = false;
+      setTxInlineEditSubmitting(false);
       setLoading(false);
     }
   }
@@ -10232,6 +10241,7 @@ function App() {
       openTransactionInlineEditor,
       submitTxInlineEdit,
       txInlineEdit,
+      txInlineEditSubmitting,
       updateTxInlineEdit: (nextEdit) => setTxInlineEdit(nextEdit),
     },
     categoryManager: {

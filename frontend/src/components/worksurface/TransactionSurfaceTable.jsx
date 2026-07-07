@@ -119,6 +119,7 @@ export function TransactionSurfaceTable({
   setTransactionRowsSelected,
   setTransactionRowsExpanded,
   txInlineEdit,
+  txInlineEditSubmitting = false,
   ownerOptionsWithFallback,
   ownerSelectValue,
   txInlineCategoryMajor,
@@ -166,6 +167,7 @@ export function TransactionSurfaceTable({
   const categoryColors = householdSettings?.holding_settings?.category_colors || {};
   const transactionMobilePriority = (fieldKey) => getWorkSurfaceMobilePriority("transactions", fieldKey);
   const allCategoryOptions = Array.from(categoryById?.values?.() || []);
+  const inlineEditorDisabled = !canEditRecords || txInlineEditSubmitting;
   const [mobileFilterKey, setMobileFilterKey] = useState("");
   const mobileLedgerHeadRef = useRef(null);
   const mobileFilterPanelRef = useRef(null);
@@ -1163,7 +1165,11 @@ export function TransactionSurfaceTable({
             );
             const inlineEditorRow =
               isEditing && editForm ? (
-                <tr className="transaction-inline-editor-row transactions-inline-editor" onKeyDown={handleTxInlineEditKeyDown}>
+                <tr
+                  className="transaction-inline-editor-row transactions-inline-editor"
+                  aria-busy={txInlineEditSubmitting ? "true" : undefined}
+                  onKeyDown={handleTxInlineEditKeyDown}
+                >
                   <td colSpan={columnSpan} className="transaction-inline-editor-cell">
                     <div className="transaction-inline-editor-grid">
                       <label className="tx-inline-date-field">
@@ -1174,7 +1180,7 @@ export function TransactionSurfaceTable({
                           onValueChange={(value) =>
                             setTxInlineEdit((prev) => (prev ? { ...prev, occurred_on: value } : prev))
                           }
-                          disabled={!canEditRecords}
+                          disabled={inlineEditorDisabled}
                           required
                         />
                       </label>
@@ -1183,7 +1189,7 @@ export function TransactionSurfaceTable({
                         <select
                           aria-label="유형"
                           value={editForm.flow_type}
-                          disabled={!canEditRecords}
+                          disabled={inlineEditorDisabled}
                           onChange={(e) => updateInlineFlowType(e.target.value)}
                         >
                           {FLOW_TYPE_OPTIONS.map((opt) => (
@@ -1198,9 +1204,9 @@ export function TransactionSurfaceTable({
                           categories={txInlineCategoryOptions}
                           quickOptions={txInlineCategoryQuickChips}
                           selectedCategoryId={editForm.category_id}
-                          disabled={!canEditRecords}
+                          disabled={inlineEditorDisabled}
                           allowCreate={canEditHouseholdData}
-                          createDisabled={!canEditHouseholdData || loading}
+                          createDisabled={inlineEditorDisabled || !canEditHouseholdData || loading}
                           onSelect={(categoryId, category) =>
                             setTxInlineEdit({
                               ...editForm,
@@ -1231,7 +1237,7 @@ export function TransactionSurfaceTable({
                               className="secondary"
                               data-testid="tx-inline-category-restore-button"
                               onClick={restoreInlineOriginalCategory}
-                              disabled={!canEditRecords}
+                              disabled={inlineEditorDisabled}
                             >
                               원래 카테고리로 되돌리기
                             </button>
@@ -1242,7 +1248,7 @@ export function TransactionSurfaceTable({
                           <select
                             aria-label="카테고리 그룹"
                             value={txInlineCategoryMajor}
-                            disabled={!canEditRecords}
+                            disabled={inlineEditorDisabled}
                             onChange={(event) =>
                               setTxInlineEdit({
                                 ...editForm,
@@ -1264,7 +1270,7 @@ export function TransactionSurfaceTable({
                           <select
                             aria-label="카테고리"
                             value={editForm.category_id}
-                            disabled={!canEditRecords || !txInlineCategoryMajor}
+                            disabled={inlineEditorDisabled || !txInlineCategoryMajor}
                             onChange={(e) => setTxInlineEdit({ ...editForm, category_id: e.target.value })}
                           >
                             <option value="">(선택 안함)</option>
@@ -1283,7 +1289,7 @@ export function TransactionSurfaceTable({
                           placeholder="메모"
                           value={editForm.memo}
                           onChange={(e) => setTxInlineEdit({ ...editForm, memo: e.target.value })}
-                          disabled={!canEditRecords}
+                          disabled={inlineEditorDisabled}
                         />
                       </label>
                       <label className="tx-inline-amount-field">
@@ -1297,7 +1303,7 @@ export function TransactionSurfaceTable({
                           onChange={(event) =>
                             (handleTransactionAmountInput || handleGroupedDecimalInput)(event, setTxInlineEdit, "amount")
                           }
-                          disabled={!canEditRecords}
+                          disabled={inlineEditorDisabled}
                           required
                         />
                       </label>
@@ -1306,7 +1312,7 @@ export function TransactionSurfaceTable({
                         <select
                           aria-label="거래자"
                           value={ownerSelectValue(editForm.owner_user_id, editForm.owner_name)}
-                          disabled={!canEditRecords}
+                          disabled={inlineEditorDisabled}
                           onChange={(event) =>
                             setTxInlineEdit({
                               ...editForm,
@@ -1329,7 +1335,7 @@ export function TransactionSurfaceTable({
                         renderLegacyOwnerRemapHelper({
                           ownerUserId: editForm.owner_user_id,
                           ownerName: editForm.owner_name,
-                          disabled: !canEditRecords,
+                          disabled: inlineEditorDisabled,
                           onApply: (target) =>
                             setTxInlineEdit({
                               ...editForm,
@@ -1338,13 +1344,14 @@ export function TransactionSurfaceTable({
                             }),
                         })}
                       <div className="inline tx-inline-editor-actions">
-                        <button type="button" className="secondary" disabled={!canEditRecords} onClick={() => closeTxInlineEdit()}>
+                        <button type="button" className="secondary" disabled={inlineEditorDisabled} onClick={() => closeTxInlineEdit()}>
                           취소
                         </button>
                         <button
                           type="button"
                           className="primary"
-                          disabled={!canEditRecords}
+                          data-testid="tx-inline-save"
+                          disabled={inlineEditorDisabled}
                           onClick={() => {
                             void submitTxInlineEdit();
                           }}

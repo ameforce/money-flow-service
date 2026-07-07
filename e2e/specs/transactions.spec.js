@@ -4741,6 +4741,67 @@ test("issue 248: extracted transactions page keeps entry and inline edit wiring 
   await capture(page, "issue-248-transactions-page-wiring");
 });
 
+test("desktop inline insert locks save while a transaction POST is pending", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("tx-inline-submit-lock")}@example.com`;
+  const displayName = unique("tx-inline-submit-lock-owner");
+  const seedMemo = unique("tx-inline-submit-lock-seed");
+  const insertMemo = unique("tx-inline-submit-lock-insert");
+
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 1366, height: 900 });
+
+  const seedRow = await createBasicTransaction(page, { memo: seedMemo, amount: "12000" });
+  await expect(seedRow).toBeVisible();
+  await clickTransactionSelectionToolbarAction(page, seedRow, "위에 삽입");
+
+  const editorRow = page.locator("tr.transaction-inline-editor-row").first();
+  await expect(editorRow).toBeVisible();
+  await editorRow.getByLabel("금액").fill("43210");
+  await editorRow.getByLabel("메모").fill(insertMemo);
+
+  let resolveFirstPost;
+  let releasePost;
+  const firstPostSeen = new Promise((resolve) => {
+    resolveFirstPost = resolve;
+  });
+  const postRelease = new Promise((resolve) => {
+    releasePost = resolve;
+  });
+  let postCount = 0;
+
+  await page.route("**/api/v1/transactions", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (request.method() !== "POST" || !url.pathname.endsWith("/api/v1/transactions")) {
+      await route.continue();
+      return;
+    }
+
+    postCount += 1;
+    resolveFirstPost();
+    await postRelease;
+    const response = await route.fetch();
+    await route.fulfill({ response });
+  });
+
+  const saveButton = editorRow.getByTestId("tx-inline-save");
+  await expect(saveButton).toBeEnabled();
+  await saveButton.evaluate((button) => {
+    button.click();
+    button.click();
+  });
+  await firstPostSeen;
+  await expect(saveButton, "inline insert save should lock while POST is pending").toBeDisabled();
+  expect(postCount, "same-tick repeated inline save clicks should start one transaction POST").toBe(1);
+
+  releasePost();
+  await expect(page.locator("tr.transaction-row", { hasText: insertMemo }).first()).toBeVisible({ timeout: 20_000 });
+  expect(postCount, "inline insert should not replay after the original save resolves").toBe(1);
+  await capture(page, "transactions-inline-insert-submit-lock");
+});
+
 test("issue 227: 1024px transaction row actions stay inside the viewport", async ({ page }) => {
   test.setTimeout(120_000);
 
