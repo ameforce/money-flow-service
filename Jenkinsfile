@@ -1181,6 +1181,23 @@ cat >"$remote_deploy_script" <<'REMOTE_DEPLOY'
 set -euo pipefail
 
 cd "$REMOTE_DEPLOY_PATH"
+DEPLOY_IMAGE_PROJECT="$COMPOSE_PROJECT"
+DEPLOY_IMAGE_REPOSITORY="${COMPOSE_PROJECT}-app"
+DEPLOY_IMAGE_RETENTION_COUNT="${DEPLOY_IMAGE_RETENTION_COUNT:-3}"
+if [[ ! "$DEPLOY_IMAGE_RETENTION_COUNT" =~ ^[1-9][0-9]*$ ]]; then
+  echo "[deploy] invalid DEPLOY_IMAGE_RETENTION_COUNT: $DEPLOY_IMAGE_RETENTION_COUNT" >&2
+  exit 1
+fi
+export DEPLOY_IMAGE_PROJECT DEPLOY_IMAGE_REPOSITORY DEPLOY_IMAGE_RETENTION_COUNT
+
+previous_app_version=''
+previous_app_image_id=''
+if [ -f "$ENV_FILE_PATH" ]; then
+  previous_app_version="$(grep -E '^APP_VERSION=' "$ENV_FILE_PATH" | tail -n 1 | cut -d= -f2- || true)"
+fi
+if [ -n "$previous_app_version" ]; then
+  previous_app_image_id="$(docker image inspect --format '{{.Id}}' "${DEPLOY_IMAGE_REPOSITORY}:${previous_app_version}" 2>/dev/null || true)"
+fi
 if [ -f "$ENV_FILE_PATH" ]; then cp "$ENV_FILE_PATH" "$ENV_FILE_PATH.previous"; fi
 if [ -f "$BUNDLE_NAME" ]; then tar -xzf "$BUNDLE_NAME"; fi
 rm -f "$BUNDLE_NAME"
@@ -1324,6 +1341,10 @@ else
   fi
   validate_env_required_keys "$ENV_FILE_PATH" POSTGRES_USER POSTGRES_PASSWORD DATABASE_URL SECRET_KEY SMTP_HOST SMTP_PORT SMTP_SSL SMTP_STARTTLS SMTP_USER SMTP_PASS SMTP_FROM_EMAIL SMTP_ACCOUNT_LABEL
 fi
+previous_app_container="$(docker compose -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" --env-file "$ENV_FILE_PATH" ps -q app 2>/dev/null || true)"
+if [ -n "$previous_app_container" ]; then
+  previous_app_image_id="$(docker inspect --format '{{.Image}}' "$previous_app_container" 2>/dev/null || true)"
+fi
 if [ -f "$ENV_FILE_PATH" ]; then
   grep -v '^APP_VERSION=' "$ENV_FILE_PATH" > "$ENV_FILE_PATH.tmp" || true
   mv "$ENV_FILE_PATH.tmp" "$ENV_FILE_PATH"
@@ -1416,6 +1437,74 @@ assert_frontend_asset_version() {
   echo "[deploy] frontend asset version mismatch: expected ${expected_frontend_version} at ${asset_url}"
   exit 1
 }
+
+cleanup_old_compose_app_images() {
+  local current_app_image_id=''
+  local running_image_ids=''
+  local recent_project_image_ids=''
+  local image_ref=''
+  local image_id=''
+
+  current_app_image_id="$(docker image inspect --format '{{.Id}}' "${DEPLOY_IMAGE_REPOSITORY}:${APP_VERSION}" 2>/dev/null || true)"
+  if [ -z "$current_app_image_id" ]; then
+    echo "[deploy] image cleanup skipped: current image not found for ${DEPLOY_IMAGE_REPOSITORY}:${APP_VERSION}"
+    return 0
+  fi
+
+  running_image_ids="$(docker ps -q | xargs -r docker inspect --format '{{.Image}}' 2>/dev/null || true)"
+  recent_project_image_ids="$(
+    docker image ls "$DEPLOY_IMAGE_REPOSITORY" --no-trunc --format '{{.ID}}' |
+      awk '!seen[$0]++' |
+      sed -n "1,${DEPLOY_IMAGE_RETENTION_COUNT}p" || true
+  )"
+
+  image_id_is_retained() {
+    local candidate_image_id="$1"
+
+    if [ -z "$candidate_image_id" ]; then
+      return 0
+    fi
+    if [ "$candidate_image_id" = "$current_app_image_id" ]; then
+      return 0
+    fi
+    if [ -n "$previous_app_image_id" ] && [ "$candidate_image_id" = "$previous_app_image_id" ]; then
+      return 0
+    fi
+    if grep -Fxq "$candidate_image_id" <<<"$running_image_ids"; then
+      return 0
+    fi
+    if grep -Fxq "$candidate_image_id" <<<"$recent_project_image_ids"; then
+      return 0
+    fi
+    return 1
+  }
+
+  echo "[deploy] image cleanup retention: repository=${DEPLOY_IMAGE_REPOSITORY}, keep current=${current_app_image_id}, previous=${previous_app_image_id:-none}, recent=${DEPLOY_IMAGE_RETENTION_COUNT}"
+  docker image ls "$DEPLOY_IMAGE_REPOSITORY" --no-trunc --format '{{.Repository}}:{{.Tag}} {{.ID}}' |
+    while read -r image_ref image_id; do
+      if [ -z "$image_ref" ] || [ "$image_ref" = "${DEPLOY_IMAGE_REPOSITORY}:<none>" ]; then
+        continue
+      fi
+      if image_id_is_retained "$image_id"; then
+        continue
+      fi
+      echo "[deploy] removing old deploy image tag: ${image_ref} (${image_id})"
+      docker image rm "$image_ref" || echo "[deploy] skipped image removal; image may be in use: ${image_ref}"
+    done
+
+  docker image ls --quiet --no-trunc \
+    --filter dangling=true \
+    --filter "label=moneyflow.compose.project=${DEPLOY_IMAGE_PROJECT}" \
+    --filter "label=moneyflow.compose.service=app" |
+    while read -r image_id; do
+      if image_id_is_retained "$image_id"; then
+        continue
+      fi
+      echo "[deploy] removing dangling deploy image: ${image_id}"
+      docker image rm "$image_id" || echo "[deploy] skipped dangling image removal; image may be in use: ${image_id}"
+    done
+}
+
 if ! curl --fail --retry-all-errors --retry "$HEALTH_RETRY_MAX" --retry-delay "$HEALTH_RETRY_INTERVAL" -H "Host: $DOMAIN" "$HEALTHCHECK_URL"; then
   echo '[deploy] health check failed after retries'
   docker compose -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" --env-file "$ENV_FILE_PATH" logs --tail=200
@@ -1424,6 +1513,7 @@ fi
 echo '[deploy] health check success'
 server_base_url="${HEALTHCHECK_URL%/healthz}"
 assert_frontend_asset_version "$server_base_url" "$APP_VERSION" "$DOMAIN"
+cleanup_old_compose_app_images
 REMOTE_DEPLOY
 
 run_scp "upload-remote-deploy-script" "$remote_deploy_script" "$REMOTE:$REMOTE_DEPLOY_PATH/$remote_script_name"
