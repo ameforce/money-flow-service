@@ -361,7 +361,7 @@ async function expectTransactionMonthStepperSticky(page, label = "transaction mo
   );
 }
 
-async function expectTransactionFabBottomRightReachable(page, label = "transaction FAB") {
+async function expectTransactionAddActionReachable(page, label = "transaction add action") {
   const fab = page.getByTestId("transactions-fab");
   await expect(fab, `${label} visible`).toBeVisible();
   await expect(fab, `${label} enabled`).toBeEnabled();
@@ -373,8 +373,10 @@ async function expectTransactionFabBottomRightReachable(page, label = "transacti
     const style = getComputedStyle(element);
     const toolbar = document.querySelector('[data-testid="transaction-sticky-toolbar"]');
     const ledgerHead = document.querySelector(".transactions-mobile-ledger-head");
+    const firstRow = document.querySelector("tr.transaction-row");
     const toolbarBox = toolbar?.getBoundingClientRect();
     const ledgerBox = ledgerHead?.getBoundingClientRect();
+    const rowBox = firstRow?.getBoundingClientRect();
     const intersects = (left, right) =>
       Boolean(
         left &&
@@ -387,6 +389,7 @@ async function expectTransactionFabBottomRightReachable(page, label = "transacti
     return {
       position: style.position,
       zIndex: Number.parseInt(style.zIndex || "0", 10),
+      inListHeading: Boolean(element.closest(".surface-list-heading")),
       box: {
         left: box.left,
         right: box.right,
@@ -400,11 +403,12 @@ async function expectTransactionFabBottomRightReachable(page, label = "transacti
       hitTargetIsFab: topElement === element || element.contains(topElement),
       overlapsToolbar: intersects(box, toolbarBox),
       overlapsLedgerHead: intersects(box, ledgerBox),
+      overlapsFirstRow: intersects(box, rowBox),
       scrollY: window.scrollY,
     };
   });
-  expect(metrics.position, `${label} should be fixed: ${JSON.stringify(metrics)}`).toBe("fixed");
-  expect(metrics.zIndex, `${label} z-index should sit above sticky toolbar: ${JSON.stringify(metrics)}`).toBeGreaterThan(44);
+  expect(metrics.position, `${label} should be inline, not a fixed overlay: ${JSON.stringify(metrics)}`).toBe("static");
+  expect(metrics.inListHeading, `${label} should live in the transaction list heading: ${JSON.stringify(metrics)}`).toBe(true);
   expect(metrics.box.width, `${label} width should remain touch-friendly: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(48);
   expect(metrics.box.height, `${label} height should remain touch-friendly: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(48);
   expect(metrics.box.right, `${label} should stay inside right viewport edge: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(
@@ -413,13 +417,11 @@ async function expectTransactionFabBottomRightReachable(page, label = "transacti
   expect(metrics.box.left, `${label} should stay in the right half: ${JSON.stringify(metrics)}`).toBeGreaterThan(
     metrics.viewportWidth * 0.5,
   );
-  expect(metrics.box.bottom, `${label} should stay inside bottom viewport edge: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(
-    metrics.viewportHeight - 8,
-  );
   expect(metrics.box.top, `${label} should remain reachable after scroll: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(0);
   expect(metrics.hitTargetIsFab, `${label} should be topmost at its center: ${JSON.stringify(metrics)}`).toBe(true);
-  expect(metrics.overlapsToolbar, `${label} should not cover the sticky toolbar: ${JSON.stringify(metrics)}`).toBe(false);
+  expect(metrics.overlapsToolbar, `${label} should belong to the sticky toolbar: ${JSON.stringify(metrics)}`).toBe(true);
   expect(metrics.overlapsLedgerHead, `${label} should not cover the mobile ledger head: ${JSON.stringify(metrics)}`).toBe(false);
+  expect(metrics.overlapsFirstRow, `${label} should not cover transaction rows: ${JSON.stringify(metrics)}`).toBe(false);
 }
 
 async function expectDesktopTransactionAddActionReachable(page, label = "desktop transaction add action") {
@@ -1257,7 +1259,13 @@ async function expectTransactionEntryPrimaryPath(page, transactionSheet, label) 
 
   expect(metrics.documentOverflowX, `${label} document should not overflow horizontally: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
   expect(metrics.sheetOverflowX, `${label} sheet should not overflow horizontally: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
-  expect(metrics.date.top, `${label} date should precede amount: ${JSON.stringify(metrics)}`).toBeLessThan(metrics.amount.top);
+  expect(
+    Math.abs(metrics.date.top - metrics.amount.top),
+    `${label} date and amount should share the compact primary row: ${JSON.stringify(metrics)}`
+  ).toBeLessThanOrEqual(3);
+  expect(metrics.amount.left, `${label} amount should sit to the right of date: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(
+    metrics.date.right - 1
+  );
   expect(metrics.amount.top, `${label} amount should precede category: ${JSON.stringify(metrics)}`).toBeLessThan(metrics.category.top);
   expect(metrics.category.top, `${label} category should precede owner: ${JSON.stringify(metrics)}`).toBeLessThan(metrics.owner.top);
   expect(metrics.owner.top, `${label} owner should precede memo: ${JSON.stringify(metrics)}`).toBeLessThan(metrics.memo.top);
@@ -1366,7 +1374,11 @@ test("mobile quick entry creates an expense through one-screen staged buttons", 
     return visibleTops.length ? Math.min(...visibleTops) : Number.POSITIVE_INFINITY;
   });
   expect(dateBox?.y ?? Number.POSITIVE_INFINITY, "date should be the first meaningful sheet field").toBeLessThanOrEqual(firstSheetFieldTop + 4);
-  expect(dateBox?.y ?? Number.POSITIVE_INFINITY, "date should be above amount").toBeLessThan(amountBox?.y ?? 0);
+  expect(
+    Math.abs((dateBox?.y ?? Number.POSITIVE_INFINITY) - (amountBox?.y ?? Number.NEGATIVE_INFINITY)),
+    "date and amount should share the compact primary row"
+  ).toBeLessThanOrEqual(3);
+  expect(amountBox?.x ?? 0, "amount should sit to the right of date").toBeGreaterThanOrEqual((dateBox?.x ?? 0) + (dateBox?.width ?? 0) - 1);
   await expectMobileQuickEntryDefaults(page, transactionSheet);
 
   await quickAmount.fill("24680");
@@ -1388,6 +1400,73 @@ test("mobile quick entry creates an expense through one-screen staged buttons", 
 
   const createdRow = page.locator("tr.transaction-row", { hasText: memo }).first();
   await expect(createdRow).toBeVisible({ timeout: 20_000 });
+});
+
+test("mobile quick entry locks save while a transaction submit is pending", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("tx-quick-submit-lock")}@example.com`;
+  const displayName = unique("tx-quick-submit-lock-name");
+  const seedMemo = unique("tx-quick-submit-seed");
+  const memo = unique("tx-quick-submit-created");
+
+  await registerAndVerify(page, { email, displayName });
+  const seedCategory = await createCategoryViaApi(page, {
+    major: unique("빠른저장잠금"),
+    minor: unique("최근카테고리"),
+  });
+  await createTransactionViaApi(page, {
+    memo: seedMemo,
+    amount: "13579",
+    categoryId: seedCategory.id,
+    ownerName: displayName,
+  });
+  await page.reload();
+
+  const transactionSheet = await openMobileTransactionQuickEntry(page);
+  const quickAmount = page.getByTestId("transaction-quick-amount");
+  const memoInput = labeledField(transactionSheet, "메모", "input");
+  await quickAmount.fill("24680");
+  await memoInput.fill(memo);
+  await selectTransactionFormCategory(transactionSheet, seedCategory);
+
+  let resolveFirstPost;
+  let releasePost;
+  const firstPostSeen = new Promise((resolve) => {
+    resolveFirstPost = resolve;
+  });
+  const postRelease = new Promise((resolve) => {
+    releasePost = resolve;
+  });
+  let postCount = 0;
+
+  await page.route("**/api/v1/transactions", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (request.method() !== "POST" || !url.pathname.endsWith("/api/v1/transactions")) {
+      await route.continue();
+      return;
+    }
+
+    postCount += 1;
+    resolveFirstPost();
+    await postRelease;
+    const response = await route.fetch();
+    await route.fulfill({ response });
+  });
+
+  const quickSave = page.getByTestId("transaction-quick-save");
+  await expect(quickSave).toBeEnabled();
+  await quickSave.click();
+  await firstPostSeen;
+  await expect(quickSave, "transaction save should lock while POST is pending").toBeDisabled();
+  expect(postCount, "only one transaction POST should be started before the pending save resolves").toBe(1);
+
+  releasePost();
+  const createdRow = page.locator("tr.transaction-row", { hasText: memo }).first();
+  await expect(createdRow).toBeVisible({ timeout: 20_000 });
+  expect(postCount, "unlock should happen after the original save resolves, not by issuing another POST").toBe(1);
+  await capture(page, "transactions-quick-submit-lock");
 });
 
 test("transaction entry primary path stays shallow across mobile tablet and desktop", async ({ page }) => {
@@ -3272,7 +3351,7 @@ test("mobile transaction row selection, touch scroll, and sticky ledger head sur
   }
 });
 
-test("transaction FAB and sticky toolbar stay reachable after ledger scroll", async ({ page }) => {
+test("transaction add action and sticky toolbar stay reachable after ledger scroll", async ({ page }) => {
   test.setTimeout(180_000);
 
   const email = `${unique("tx-fab-sticky")}@example.com`;
@@ -3344,7 +3423,7 @@ test("transaction FAB and sticky toolbar stay reachable after ledger scroll", as
   await openTab(page, "거래");
   await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
   await page.waitForTimeout(250);
-  await expectTransactionFabBottomRightReachable(page, "mobile transaction FAB after ledger scroll");
+  await expectTransactionAddActionReachable(page, "mobile transaction add action after ledger scroll");
   await expectMobileTransactionMonthStepperSticky(page);
 
   const mobileScrollBeforeSheet = await page.evaluate(() => window.scrollY);
@@ -3501,8 +3580,12 @@ test("issue 234: mobile transaction add keeps context visible without secondary 
       viewportHeight,
       dateTop: dateRect?.top || 0,
       dateBottom: dateRect?.bottom || 0,
+      dateLeft: dateRect?.left || 0,
+      dateRight: dateRect?.right || 0,
       amountTop: amountRect?.top || 0,
       amountBottom: amountRect?.bottom || 0,
+      amountLeft: amountRect?.left || 0,
+      amountRight: amountRect?.right || 0,
       categoryTop: categoryRect?.top || 0,
       categoryBottom: categoryRect?.bottom || 0,
       ownerTop: ownerRect?.top || 0,
@@ -3518,7 +3601,8 @@ test("issue 234: mobile transaction add keeps context visible without secondary 
   });
 
   expect(metrics.dateTop, JSON.stringify(metrics)).toBeGreaterThanOrEqual(0);
-  expect(metrics.dateTop, "date should remain above amount").toBeLessThan(metrics.amountTop);
+  expect(Math.abs(metrics.dateTop - metrics.amountTop), `date and amount should share the primary row: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(3);
+  expect(metrics.amountLeft, `amount should sit to the right of date: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(metrics.dateRight - 1);
   expect(metrics.categoryTop, "category should remain below amount").toBeGreaterThan(metrics.amountBottom);
   expect(metrics.ownerTop, "owner should remain below category").toBeGreaterThan(metrics.categoryTop);
   expect(metrics.memoTop, "memo should remain below owner").toBeGreaterThan(metrics.ownerTop);
@@ -4204,7 +4288,7 @@ test("issue 221: mobile transaction status chips keep clear action in viewport",
   await capture(page, "issue-221-mobile-status-chips-visible");
 });
 
-test("issue 222: mobile transaction add FAB does not cover bottom ledger rows", async ({ page }) => {
+test("issue 222: mobile transaction add action does not cover ledger rows", async ({ page }) => {
   test.setTimeout(120_000);
 
   const email = `${unique("tx-fab-clearance")}@example.com`;
@@ -4239,6 +4323,13 @@ test("issue 222: mobile transaction add FAB does not cover bottom ledger rows", 
   const metrics = await page.evaluate(() => {
     const fab = document.querySelector("[data-testid='transactions-fab']");
     const fabBox = fab?.getBoundingClientRect();
+    const stickyToolbarBox = document.querySelector("[data-testid='transaction-sticky-toolbar']")?.getBoundingClientRect();
+    const stickyLedgerBox = document.querySelector(".transactions-mobile-ledger-head")?.getBoundingClientRect();
+    const visibleLedgerTop = Math.max(
+      stickyToolbarBox?.bottom ?? 0,
+      stickyLedgerBox?.bottom ?? 0,
+      0
+    );
     const intersects = (left, right, inset = 0) =>
       Boolean(
         left &&
@@ -4266,6 +4357,7 @@ test("issue 222: mobile transaction add FAB does not cover bottom ledger rows", 
         hidden,
       };
     };
+    const isVisibleLedgerTarget = (target) => target && !target.hidden && target.bottom > visibleLedgerTop + 1;
     const rows = Array.from(document.querySelectorAll("tr.transaction-row"))
       .map((row) => {
         const rowBox = row.getBoundingClientRect();
@@ -4279,7 +4371,7 @@ test("issue 222: mobile transaction add FAB does not cover bottom ledger rows", 
         ]
           .map((selector) => boxOf(row.querySelector(selector)))
           .concat(Array.from(row.querySelectorAll(".transaction-col-actions button")).map((button) => boxOf(button)))
-          .filter((target) => target && !target.hidden);
+          .filter(isVisibleLedgerTarget);
         return {
           text: row.textContent?.replace(/\s+/g, " ").trim() || "",
           row: {
@@ -4292,15 +4384,18 @@ test("issue 222: mobile transaction add FAB does not cover bottom ledger rows", 
           },
           targets,
           coveredTargets: targets.filter((target) => intersects(target, fabBox, 1)),
-          rowIntersectsFab: intersects(rowBox, fabBox, 1),
+          rowIntersectsFab: rowBox.bottom > visibleLedgerTop + 1 && intersects(rowBox, fabBox, 1),
         };
       })
-      .filter((row) => row.row.top < window.innerHeight && row.row.bottom > 0);
+      .filter((row) => row.row.top < window.innerHeight && row.row.bottom > visibleLedgerTop + 1);
     return {
       scrollY: window.scrollY,
       viewport: { width: window.innerWidth, height: window.innerHeight },
+      visibleLedgerTop,
       fab: fabBox
         ? {
+            position: getComputedStyle(fab).position,
+            inListHeading: Boolean(fab.closest(".surface-list-heading")),
             left: fabBox.left,
             right: fabBox.right,
             top: fabBox.top,
@@ -4316,20 +4411,22 @@ test("issue 222: mobile transaction add FAB does not cover bottom ledger rows", 
         coveredTargets: row.coveredTargets,
       })),
       coveredRows: rows.filter((row) => row.coveredTargets.length > 0),
+      intersectedRows: rows.filter((row) => row.rowIntersectsFab),
       visibleRowCount: rows.length,
       lowestVisibleRowBottom: rows.reduce((maxBottom, row) => Math.max(maxBottom, row.row.bottom), 0),
-      bottomFabClearance: fabBox ? fabBox.top - rows.reduce((maxBottom, row) => Math.max(maxBottom, row.row.bottom), 0) : null,
       pageOverflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
     };
   });
 
-  expect(metrics.fab, `transaction FAB should have geometry: ${JSON.stringify(metrics)}`).toBeTruthy();
+  expect(metrics.fab, `transaction add action should have geometry: ${JSON.stringify(metrics)}`).toBeTruthy();
+  expect(metrics.fab.position, `transaction add action should not be fixed over rows: ${JSON.stringify(metrics)}`).toBe("static");
+  expect(metrics.fab.inListHeading, `transaction add action should live in the list heading: ${JSON.stringify(metrics)}`).toBe(true);
   expect(metrics.visibleRowCount, `test should exercise visible ledger rows: ${JSON.stringify(metrics)}`).toBeGreaterThan(0);
-  expect(metrics.bottomFabClearance, `bottom rows should stop above the fixed FAB safe zone: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(16);
-  expect(metrics.coveredRows, `FAB should not cover readable or tappable row content: ${JSON.stringify(metrics)}`).toEqual([]);
-  expect(metrics.pageOverflowX, `FAB clearance should not create horizontal overflow: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
+  expect(metrics.intersectedRows, `transaction add action should not overlap ledger rows: ${JSON.stringify(metrics)}`).toEqual([]);
+  expect(metrics.coveredRows, `transaction add action should not cover readable or tappable row content: ${JSON.stringify(metrics)}`).toEqual([]);
+  expect(metrics.pageOverflowX, `transaction add action should not create horizontal overflow: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
   await expectNoHorizontalOverflow(page, 12);
-  await capture(page, "issue-222-mobile-fab-bottom-row-clearance");
+  await capture(page, "issue-222-mobile-add-action-row-clearance");
 });
 
 test("issue 223: desktop transaction add action does not cover bottom row actions", async ({ page }) => {
@@ -4642,6 +4739,67 @@ test("issue 248: extracted transactions page keeps entry and inline edit wiring 
 
   await expect(page.locator("tr.transaction-row", { hasText: editedMemo }).first()).toBeVisible();
   await capture(page, "issue-248-transactions-page-wiring");
+});
+
+test("desktop inline insert locks save while a transaction POST is pending", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("tx-inline-submit-lock")}@example.com`;
+  const displayName = unique("tx-inline-submit-lock-owner");
+  const seedMemo = unique("tx-inline-submit-lock-seed");
+  const insertMemo = unique("tx-inline-submit-lock-insert");
+
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 1366, height: 900 });
+
+  const seedRow = await createBasicTransaction(page, { memo: seedMemo, amount: "12000" });
+  await expect(seedRow).toBeVisible();
+  await clickTransactionSelectionToolbarAction(page, seedRow, "위에 삽입");
+
+  const editorRow = page.locator("tr.transaction-inline-editor-row").first();
+  await expect(editorRow).toBeVisible();
+  await editorRow.getByLabel("금액").fill("43210");
+  await editorRow.getByLabel("메모").fill(insertMemo);
+
+  let resolveFirstPost;
+  let releasePost;
+  const firstPostSeen = new Promise((resolve) => {
+    resolveFirstPost = resolve;
+  });
+  const postRelease = new Promise((resolve) => {
+    releasePost = resolve;
+  });
+  let postCount = 0;
+
+  await page.route("**/api/v1/transactions", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (request.method() !== "POST" || !url.pathname.endsWith("/api/v1/transactions")) {
+      await route.continue();
+      return;
+    }
+
+    postCount += 1;
+    resolveFirstPost();
+    await postRelease;
+    const response = await route.fetch();
+    await route.fulfill({ response });
+  });
+
+  const saveButton = editorRow.getByTestId("tx-inline-save");
+  await expect(saveButton).toBeEnabled();
+  await saveButton.evaluate((button) => {
+    button.click();
+    button.click();
+  });
+  await firstPostSeen;
+  await expect(saveButton, "inline insert save should lock while POST is pending").toBeDisabled();
+  expect(postCount, "same-tick repeated inline save clicks should start one transaction POST").toBe(1);
+
+  releasePost();
+  await expect(page.locator("tr.transaction-row", { hasText: insertMemo }).first()).toBeVisible({ timeout: 20_000 });
+  expect(postCount, "inline insert should not replay after the original save resolves").toBe(1);
+  await capture(page, "transactions-inline-insert-submit-lock");
 });
 
 test("issue 227: 1024px transaction row actions stay inside the viewport", async ({ page }) => {
@@ -5375,11 +5533,16 @@ test("mobile transaction expanded row keeps details readable with filter panel o
 
   const metrics = await mobileRow.evaluate((row) => {
     const rowBox = row.getBoundingClientRect();
+    const detailRow = row.nextElementSibling?.classList.contains("transaction-mobile-expanded-detail-row")
+      ? row.nextElementSibling
+      : null;
     const actionRow = row.nextElementSibling?.classList.contains("transaction-mobile-expanded-actions-row")
       ? row.nextElementSibling
       : null;
+    const detailRoot = detailRow || row;
+    const detailBox = detailRow?.getBoundingClientRect() || null;
     const actionBox = actionRow?.getBoundingClientRect() || null;
-    const detailCells = Array.from(row.querySelectorAll(".transaction-mobile-detail-cell")).map((cell) => {
+    const detailCells = Array.from(detailRoot.querySelectorAll(".transaction-mobile-detail-cell")).map((cell) => {
       const box = cell.getBoundingClientRect();
       return {
         className: cell.className,
@@ -5389,13 +5552,15 @@ test("mobile transaction expanded row keeps details readable with filter panel o
         hasVerticalOverflow: cell.scrollHeight > cell.clientHeight + 1,
       };
     });
-    const categoryValue = row.querySelector(".transaction-col-category .transaction-mobile-detail-value");
-    const categoryText = row.querySelector(".transaction-col-category .category-cell");
+    const categoryValue = detailRoot.querySelector(".transaction-expanded-detail-category .transaction-mobile-detail-value");
+    const categoryText = detailRoot.querySelector(".transaction-expanded-detail-category .category-cell");
     return {
-      rowWidth: rowBox.width,
+      rowWidth: detailBox?.width || rowBox.width,
       rowClientHeight: row.clientHeight,
       rowScrollHeight: row.scrollHeight,
       rowHasVerticalOverflow: row.scrollHeight > row.clientHeight + 1,
+      detailRowCount: detailRow ? 1 : 0,
+      detailStartsAfterRow: !detailBox || detailBox.top >= rowBox.bottom - 1,
       actionRowCount: actionRow ? 1 : 0,
       actionStartsAfterRow: !actionBox || actionBox.top >= rowBox.bottom - 1,
       detailCells,
@@ -5419,6 +5584,8 @@ test("mobile transaction expanded row keeps details readable with filter panel o
   });
 
   expect(metrics.rowHasVerticalOverflow, `expanded row should not clip details: ${JSON.stringify(metrics)}`).toBe(false);
+  expect(metrics.detailRowCount, `expanded details should render in a full-width sibling row: ${JSON.stringify(metrics)}`).toBe(1);
+  expect(metrics.detailStartsAfterRow, `expanded details should start after the ledger row: ${JSON.stringify(metrics)}`).toBe(true);
   expect(metrics.actionStartsAfterRow, `expanded details should not overlap removed row actions: ${JSON.stringify(metrics)}`).toBe(true);
   expect(metrics.actionRowCount, `expanded row actions should be moved to the toolbar: ${JSON.stringify(metrics)}`).toBe(0);
   expect(metrics.detailCells.length).toBeGreaterThanOrEqual(3);
@@ -6304,7 +6471,7 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   await expect(transactionScrollTop).toHaveAccessibleName("거래 목록 맨 위로 이동");
   const scrollBeforeSheet = await page.evaluate(() => window.scrollY);
   const fabScrolledBox = await transactionFab.boundingBox();
-  expect(fabScrolledBox, "transaction FAB should have a bounding box after scroll").not.toBeNull();
+  expect(fabScrolledBox, "transaction add action should have a bounding box after scroll").not.toBeNull();
   expect(fabScrolledBox?.y ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(844);
   const intersects = (left, right) =>
     Boolean(
@@ -6383,7 +6550,14 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
     await mobileRow.click({ position: { x: 88, y: 22 } });
   });
   await expect(mobileRow).toHaveClass(/mobile-row-expanded/);
-  const expandedMemoMetrics = await mobileRow.locator(".transaction-memo-text").first().evaluate((memoElement) => {
+  const expandedDetailRow = mobileRow.locator(
+    "xpath=following-sibling::tr[contains(@class,'transaction-mobile-expanded-detail-row')][1]",
+  );
+  await expect(expandedDetailRow).toHaveCount(1);
+  const expandedMemoMetrics = await expandedDetailRow
+    .locator(".transaction-expanded-detail-memo .transaction-mobile-detail-value")
+    .first()
+    .evaluate((memoElement) => {
     const style = getComputedStyle(memoElement);
     return {
       text: memoElement.textContent?.trim() || "",
@@ -6419,9 +6593,10 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   );
   const expandedActionRow = mobileRow.locator("xpath=following-sibling::tr[1][contains(@class,'transaction-mobile-expanded-actions-row')]");
   await expect(expandedActionRow).toHaveCount(0);
-  await expect(mobileRow.locator(".transaction-mobile-detail-label")).toHaveText([
+  await expect(expandedDetailRow.locator(".transaction-mobile-detail-label")).toHaveText([
     "거래자명",
     "카테고리",
+    "메모",
     "최종 수정일",
   ]);
   const expandedDetailMetrics = await mobileRow.evaluate((row) => {
@@ -6452,9 +6627,31 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
       detailCells,
     };
   });
+  const expandedDetailRowMetrics = await expandedDetailRow.evaluate((row) => {
+    const detailCells = Array.from(row.querySelectorAll(".transaction-expanded-detail-item")).map((cell) => {
+      const box = cell.getBoundingClientRect();
+      return {
+        className: cell.className,
+        clientHeight: cell.clientHeight,
+        scrollHeight: cell.scrollHeight,
+        renderedHeight: box.height,
+        hasVerticalOverflow: cell.scrollHeight > cell.clientHeight + 1,
+      };
+    });
+    return {
+      clientHeight: row.clientHeight,
+      scrollHeight: row.scrollHeight,
+      hasVerticalOverflow: row.scrollHeight > row.clientHeight + 1,
+      detailCells,
+    };
+  });
   expect(
     expandedDetailMetrics.hasVerticalOverflow,
-    `expanded transaction row should fit its detail content: ${JSON.stringify(expandedDetailMetrics)}`,
+    `expanded compact transaction row should stay within table height: ${JSON.stringify(expandedDetailMetrics)}`,
+  ).toBe(false);
+  expect(
+    expandedDetailRowMetrics.hasVerticalOverflow,
+    `expanded detail row should fit readable detail content: ${JSON.stringify(expandedDetailRowMetrics)}`,
   ).toBe(false);
   expect(
     expandedDetailMetrics.actionStartsAfterRow,
@@ -6463,6 +6660,9 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   expect(expandedDetailMetrics.actionRowCount, `expanded row actions should be moved to the toolbar: ${JSON.stringify(expandedDetailMetrics)}`).toBe(0);
   for (const cell of expandedDetailMetrics.detailCells) {
     expect(cell.hasVerticalOverflow, `${cell.className} should not clip detail text`).toBe(false);
+  }
+  for (const cell of expandedDetailRowMetrics.detailCells) {
+    expect(cell.hasVerticalOverflow, `${cell.className} should not clip expanded detail text`).toBe(false);
   }
   await expect(mobileRow.locator(".transaction-col-actions .row-delete-btn")).toHaveCount(0);
   if ((await mobileRow.getAttribute("data-row-selected")) !== "true") {

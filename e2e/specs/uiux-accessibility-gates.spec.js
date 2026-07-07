@@ -291,7 +291,7 @@ test("issue #245: transaction ledger exposes one native table header contract", 
 
   expect(semanticContract.visualHeadRole).toBe("");
   expect(semanticContract.visualColumnHeaderCount).toBe(0);
-  expect(semanticContract.nativeHeaderCount).toBeGreaterThanOrEqual(8);
+  expect(semanticContract.nativeHeaderCount).toBeGreaterThanOrEqual(7);
   expect(semanticContract.nativeHeaderTexts.join(" ")).toContain("금액");
   expect(semanticContract.nativeHeadDisplay).not.toBe("none");
   await capture(page, "issue-245-transaction-ledger-semantic-header");

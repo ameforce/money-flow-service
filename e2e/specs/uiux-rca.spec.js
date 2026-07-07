@@ -213,14 +213,16 @@ test("issue #257: transaction entry uses staged choices without recommendations 
   await expect(transactionSheet).toBeVisible();
   await expect(transactionSheet.getByTestId("transaction-quick-date")).toHaveValue(await browserLocalTodayIso(page));
   await expect(transactionSheet.getByTestId("transaction-category-search")).toHaveCount(0);
-  await expect(transactionSheet.getByTestId("transaction-category-search-toggle")).toHaveCount(0);
+  await expect(transactionSheet.getByTestId("transaction-category-search-toggle")).toBeVisible();
+  await expect(transactionSheet.getByText("미선택 저장 가능")).toBeVisible();
   await expect(transactionSheet.getByTestId("transaction-category-quick-picker")).toHaveCount(0);
   await expect(transactionSheet.locator("details.transaction-quick-details")).toHaveCount(0);
   await expect(transactionSheet).not.toContainText("추천 카테고리");
 
   const dateBox = await transactionSheet.getByTestId("transaction-quick-date").boundingBox();
   const amountBox = await transactionSheet.getByTestId("transaction-quick-amount").boundingBox();
-  expect(dateBox?.y ?? 0).toBeLessThan(amountBox?.y ?? 0);
+  expect(Math.abs((dateBox?.y ?? 0) - (amountBox?.y ?? 0))).toBeLessThanOrEqual(3);
+  expect(amountBox?.x ?? 0).toBeGreaterThanOrEqual((dateBox?.x ?? 0) + (dateBox?.width ?? 0) - 1);
 
   await expect(transactionSheet.getByTestId("transaction-flow-choice")).toHaveCount(4);
   await expect(transactionSheet.getByTestId("transaction-flow-choice").filter({ hasText: "지출" })).toHaveAttribute(
