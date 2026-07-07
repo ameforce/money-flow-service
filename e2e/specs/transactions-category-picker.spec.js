@@ -9,7 +9,7 @@ import {
   unique,
 } from "../support/helpers";
 
-test("issue #269: transaction entry exposes existing categories as staged buttons without search suggestions", async ({
+test("issue #269: transaction entry exposes existing categories as staged buttons with collapsed search", async ({
   page,
 }) => {
   test.setTimeout(120_000);
@@ -40,11 +40,13 @@ test("issue #269: transaction entry exposes existing categories as staged button
   await expect(transactionSheet).toBeVisible();
 
   await expect(transactionSheet.getByTestId("transaction-category-quick-picker")).toHaveCount(0);
-  await expect(transactionSheet.getByTestId("transaction-category-search-toggle")).toHaveCount(0);
   await expect(transactionSheet.getByTestId("transaction-category-search")).toHaveCount(0);
 
   const categoryStage = transactionSheet.getByTestId("transaction-staged-category");
   await expect(categoryStage).toBeVisible();
+  const searchToggle = categoryStage.getByTestId("transaction-category-search-toggle");
+  await expect(searchToggle).toBeVisible();
+  await expect(categoryStage.getByTestId("transaction-category-search-option")).toHaveCount(0);
   await expect(categoryStage.getByTestId("transaction-category-group-choice").filter({ hasText: categoryMajor })).toBeVisible();
   await categoryStage.getByTestId("transaction-category-group-choice").filter({ hasText: categoryMajor }).click();
 

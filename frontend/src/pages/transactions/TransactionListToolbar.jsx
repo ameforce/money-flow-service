@@ -57,7 +57,7 @@ export function TransactionListToolbar({
     removeSelectedTransactions,
     updateSelectedTransactionIds,
   } = selection;
-  const { openNormalTransactionEntrySheet, transactionDesktopAddActionRef } = entrySheet;
+  const { openNormalTransactionEntrySheet, transactionDesktopAddActionRef, transactionFabRef } = entrySheet;
   const { txInlineEdit } = inlineEdit;
   const { fmtKrw, toYearMonthKey } = formatters;
   const filterPanelRef = useRef(null);
@@ -89,6 +89,14 @@ export function TransactionListToolbar({
           <button ref={transactionDesktopAddActionRef} type="button" className="primary surface-heading-action transaction-desktop-add-action" data-testid="transactions-desktop-add-action" disabled={loading} onClick={() => openNormalTransactionEntrySheet("form")}>
             <span aria-hidden="true">＋</span>
             <span>거래 추가</span>
+          </button>
+        )}
+        {isCompactViewport && !txInlineEdit && (
+          <button
+            ref={transactionFabRef} type="button" className="primary surface-heading-action transactions-fab transactions-fab-inline transaction-add-fab" data-testid="transactions-fab" aria-label="거래 추가" disabled={loading}
+            onClick={() => openNormalTransactionEntrySheet("form")}
+          >
+            <span aria-hidden="true">＋</span>
           </button>
         )}
       </div>

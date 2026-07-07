@@ -25,7 +25,7 @@ export function TransactionListTablePanel({
   const { categoryById, householdSettings, normalizeTransactionRowColors, renderCategoryCell } = listLookups;
   const { clearTxListFilter, selectTransactionRows, scrollTransactionListToTop, toggleExpandedTransactionRow, toggleTxSortDirection, updateTransactionRowsExpanded, updateTransactionRowsSelected, updateTxListFilter } = listActions;
   const { areAllFilteredTransactionsSelected, selectedTransactionIds, toggleAllFilteredTransactionSelection, toggleTransactionSelection } = selection;
-  const { closeTxInlineEdit, createAndApplyTxInlineCategory, handleGroupedDecimalInput, handleTransactionAmountInput, handleTxInlineEditKeyDown, openTransactionInlineEditor, submitTxInlineEdit, txInlineEdit, updateTxInlineEdit } = inlineEdit;
+  const { closeTxInlineEdit, createAndApplyTxInlineCategory, handleGroupedDecimalInput, handleTransactionAmountInput, handleTxInlineEditKeyDown, openTransactionInlineEditor, submitTxInlineEdit, txInlineEdit, txInlineEditSubmitting, updateTxInlineEdit } = inlineEdit;
   const { renderLegacyOwnerRemapHelper, txInlineCategoryMajor, txInlineCategoryMajorOptions, txInlineCategoryMinorOptions, txInlineCategoryOptions, txInlineCategoryQuickChips } = categoryManager;
   const { ownerOptionsWithFallback, ownerSelectValue, ownerSelectionFromValue } = ownerHelpers;
   const { fmtDate, fmtKrw, toCategoryMajorLabel, toCategoryMinorLabel } = formatters;
@@ -46,6 +46,7 @@ export function TransactionListTablePanel({
         setTransactionRowsSelected={updateTransactionRowsSelected}
         setTransactionRowsExpanded={updateTransactionRowsExpanded}
         txInlineEdit={txInlineEdit}
+        txInlineEditSubmitting={txInlineEditSubmitting}
         ownerOptionsWithFallback={ownerOptionsWithFallback}
         ownerSelectValue={ownerSelectValue}
         txInlineCategoryMajor={txInlineCategoryMajor}

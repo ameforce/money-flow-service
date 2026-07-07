@@ -47,6 +47,7 @@ export function TransactionCategoryQuickPicker({
   optionsClassName = "transaction-category-picker-options",
   optionClassName = "transaction-category-option",
   optionTestId = "transaction-category-option",
+  rootTestId = "transaction-category-quick-picker",
   toCategoryMajorLabel = (value) => normalizeText(value),
   toCategoryMinorLabel = (value) => normalizeText(value),
 }) {
@@ -94,7 +95,7 @@ export function TransactionCategoryQuickPicker({
   const hasSearchText = Boolean(normalizedQuery);
   const hasVisibleOptions = visibleOptions.length > 0;
   const showNoResults = showSearchInput && hasSearchText && !hasVisibleOptions;
-  const showOptions = hasVisibleOptions || showNoResults;
+  const showOptions = showSearchInput && (hasVisibleOptions || showNoResults);
   const showCreateToggle =
     allowCreate &&
     createIsToggle &&
@@ -147,8 +148,10 @@ export function TransactionCategoryQuickPicker({
     void handleCreate();
   };
 
+  const rootTestProps = rootTestId ? { "data-testid": rootTestId } : {};
+
   return (
-    <section className={rootClass} data-testid="transaction-category-quick-picker" aria-label={title}>
+    <section className={rootClass} {...rootTestProps} aria-label={title}>
       <TransactionCategoryPickerTitle titleClassName={titleClassName} title={title} selectedText={selectedText} />
       {showExistingSelect && (
         <TransactionCategoryExistingSelect

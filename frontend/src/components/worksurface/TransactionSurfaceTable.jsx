@@ -17,6 +17,34 @@ function firstDefinedValue(values) {
   return values.find((value) => String(value || "").trim()) || "";
 }
 
+const ownerGraphemeSegmenter =
+  typeof Intl !== "undefined" && typeof Intl.Segmenter === "function"
+    ? new Intl.Segmenter("ko", { granularity: "grapheme" })
+    : null;
+
+function splitVisibleGraphemes(value) {
+  const text = String(value || "").trim();
+  if (!text) {
+    return [];
+  }
+  if (ownerGraphemeSegmenter) {
+    return Array.from(ownerGraphemeSegmenter.segment(text), ({ segment }) => segment);
+  }
+  return Array.from(text);
+}
+
+function firstVisibleChar(value) {
+  return splitVisibleGraphemes(value)[0] || "";
+}
+
+function ownerCueAfterCompactInitial(value) {
+  const chars = splitVisibleGraphemes(value);
+  if (chars.length <= 1) {
+    return "";
+  }
+  return chars.slice(1).join("").trim();
+}
+
 function normalizeCategoryText(value) {
   return String(value || "")
     .trim()
@@ -91,6 +119,7 @@ export function TransactionSurfaceTable({
   setTransactionRowsSelected,
   setTransactionRowsExpanded,
   txInlineEdit,
+  txInlineEditSubmitting = false,
   ownerOptionsWithFallback,
   ownerSelectValue,
   txInlineCategoryMajor,
@@ -138,6 +167,7 @@ export function TransactionSurfaceTable({
   const categoryColors = householdSettings?.holding_settings?.category_colors || {};
   const transactionMobilePriority = (fieldKey) => getWorkSurfaceMobilePriority("transactions", fieldKey);
   const allCategoryOptions = Array.from(categoryById?.values?.() || []);
+  const inlineEditorDisabled = !canEditRecords || txInlineEditSubmitting;
   const [mobileFilterKey, setMobileFilterKey] = useState("");
   const mobileLedgerHeadRef = useRef(null);
   const mobileFilterPanelRef = useRef(null);
@@ -1013,8 +1043,10 @@ export function TransactionSurfaceTable({
             const fullCategoryLabel = [categoryMajorLabel, categoryMinorLabel].filter(Boolean).join(" / ") || compactCategoryLabel;
             const flowLabel = FLOW_TYPE_LABELS[item.flow_type] || item.flow_type;
             const flowShortLabel = String(flowLabel || "").slice(0, 2) || "-";
-            const ownerCompactLabel = Array.from(String(item.owner_name || "").trim()).slice(0, 1).join("");
-            const ownerSummaryLabel = item.owner_name || "거래자 미입력";
+            const ownerNameLabel = String(item.owner_name || "").trim();
+            const ownerCompactLabel = firstVisibleChar(ownerNameLabel);
+            const ownerCueLabel = ownerCueAfterCompactInitial(ownerNameLabel);
+            const ownerSummaryLabel = ownerNameLabel || "거래자 미입력";
             const flowAccent = rowColors[item.flow_type] || DEFAULT_TRANSACTION_ROW_COLORS[item.flow_type];
             const ownerColor = resolveSemanticColor(
               item.owner_name || flowLabel,
@@ -1133,7 +1165,11 @@ export function TransactionSurfaceTable({
             );
             const inlineEditorRow =
               isEditing && editForm ? (
-                <tr className="transaction-inline-editor-row transactions-inline-editor" onKeyDown={handleTxInlineEditKeyDown}>
+                <tr
+                  className="transaction-inline-editor-row transactions-inline-editor"
+                  aria-busy={txInlineEditSubmitting ? "true" : undefined}
+                  onKeyDown={handleTxInlineEditKeyDown}
+                >
                   <td colSpan={columnSpan} className="transaction-inline-editor-cell">
                     <div className="transaction-inline-editor-grid">
                       <label className="tx-inline-date-field">
@@ -1141,8 +1177,10 @@ export function TransactionSurfaceTable({
                         <IsoDateInput
                           aria-label="일자"
                           value={editForm.occurred_on}
-                          onValueChange={(value) => setTxInlineEdit({ ...editForm, occurred_on: value })}
-                          disabled={!canEditRecords}
+                          onValueChange={(value) =>
+                            setTxInlineEdit((prev) => (prev ? { ...prev, occurred_on: value } : prev))
+                          }
+                          disabled={inlineEditorDisabled}
                           required
                         />
                       </label>
@@ -1151,7 +1189,7 @@ export function TransactionSurfaceTable({
                         <select
                           aria-label="유형"
                           value={editForm.flow_type}
-                          disabled={!canEditRecords}
+                          disabled={inlineEditorDisabled}
                           onChange={(e) => updateInlineFlowType(e.target.value)}
                         >
                           {FLOW_TYPE_OPTIONS.map((opt) => (
@@ -1166,9 +1204,9 @@ export function TransactionSurfaceTable({
                           categories={txInlineCategoryOptions}
                           quickOptions={txInlineCategoryQuickChips}
                           selectedCategoryId={editForm.category_id}
-                          disabled={!canEditRecords}
+                          disabled={inlineEditorDisabled}
                           allowCreate={canEditHouseholdData}
-                          createDisabled={!canEditHouseholdData || loading}
+                          createDisabled={inlineEditorDisabled || !canEditHouseholdData || loading}
                           onSelect={(categoryId, category) =>
                             setTxInlineEdit({
                               ...editForm,
@@ -1199,7 +1237,7 @@ export function TransactionSurfaceTable({
                               className="secondary"
                               data-testid="tx-inline-category-restore-button"
                               onClick={restoreInlineOriginalCategory}
-                              disabled={!canEditRecords}
+                              disabled={inlineEditorDisabled}
                             >
                               원래 카테고리로 되돌리기
                             </button>
@@ -1210,7 +1248,7 @@ export function TransactionSurfaceTable({
                           <select
                             aria-label="카테고리 그룹"
                             value={txInlineCategoryMajor}
-                            disabled={!canEditRecords}
+                            disabled={inlineEditorDisabled}
                             onChange={(event) =>
                               setTxInlineEdit({
                                 ...editForm,
@@ -1232,7 +1270,7 @@ export function TransactionSurfaceTable({
                           <select
                             aria-label="카테고리"
                             value={editForm.category_id}
-                            disabled={!canEditRecords || !txInlineCategoryMajor}
+                            disabled={inlineEditorDisabled || !txInlineCategoryMajor}
                             onChange={(e) => setTxInlineEdit({ ...editForm, category_id: e.target.value })}
                           >
                             <option value="">(선택 안함)</option>
@@ -1251,7 +1289,7 @@ export function TransactionSurfaceTable({
                           placeholder="메모"
                           value={editForm.memo}
                           onChange={(e) => setTxInlineEdit({ ...editForm, memo: e.target.value })}
-                          disabled={!canEditRecords}
+                          disabled={inlineEditorDisabled}
                         />
                       </label>
                       <label className="tx-inline-amount-field">
@@ -1265,7 +1303,7 @@ export function TransactionSurfaceTable({
                           onChange={(event) =>
                             (handleTransactionAmountInput || handleGroupedDecimalInput)(event, setTxInlineEdit, "amount")
                           }
-                          disabled={!canEditRecords}
+                          disabled={inlineEditorDisabled}
                           required
                         />
                       </label>
@@ -1274,7 +1312,7 @@ export function TransactionSurfaceTable({
                         <select
                           aria-label="거래자"
                           value={ownerSelectValue(editForm.owner_user_id, editForm.owner_name)}
-                          disabled={!canEditRecords}
+                          disabled={inlineEditorDisabled}
                           onChange={(event) =>
                             setTxInlineEdit({
                               ...editForm,
@@ -1297,7 +1335,7 @@ export function TransactionSurfaceTable({
                         renderLegacyOwnerRemapHelper({
                           ownerUserId: editForm.owner_user_id,
                           ownerName: editForm.owner_name,
-                          disabled: !canEditRecords,
+                          disabled: inlineEditorDisabled,
                           onApply: (target) =>
                             setTxInlineEdit({
                               ...editForm,
@@ -1306,13 +1344,14 @@ export function TransactionSurfaceTable({
                             }),
                         })}
                       <div className="inline tx-inline-editor-actions">
-                        <button type="button" className="secondary" disabled={!canEditRecords} onClick={() => closeTxInlineEdit()}>
+                        <button type="button" className="secondary" disabled={inlineEditorDisabled} onClick={() => closeTxInlineEdit()}>
                           취소
                         </button>
                         <button
                           type="button"
                           className="primary"
-                          disabled={!canEditRecords}
+                          data-testid="tx-inline-save"
+                          disabled={inlineEditorDisabled}
                           onClick={() => {
                             void submitTxInlineEdit();
                           }}
@@ -1384,8 +1423,13 @@ export function TransactionSurfaceTable({
                     >
                       {ownerCompactLabel || "-"}
                     </span>
+                    {ownerCueLabel && (
+                      <span className="transaction-owner-cue" title={ownerSummaryLabel}>
+                        {ownerCueLabel}
+                      </span>
+                    )}
                     <span className="transaction-mobile-detail-label">거래자명</span>
-                    <div className="transaction-mobile-detail-value transaction-owner-cue">{item.owner_name || "-"}</div>
+                    <div className="transaction-mobile-detail-value">{ownerNameLabel || "-"}</div>
                   </td>
                   <td data-label="카테고리" className="transaction-col-category transaction-mobile-detail-cell" data-field-key="category" data-mobile-priority={transactionMobilePriority("category")}>
                     <span className="transaction-desktop-category-cue" title={fullCategoryLabel} aria-label={`카테고리 ${fullCategoryLabel}`}>{compactCategoryLabel}</span>
@@ -1399,13 +1443,41 @@ export function TransactionSurfaceTable({
                     </span>
                   </td>
                   <td data-label="금액" className="transaction-col-amount" data-field-key="amount" data-mobile-priority={transactionMobilePriority("amount")}>
-                    <span className="transaction-amount-text">{amountLabel}</span>
+                    <span className={`transaction-amount-text${isWideAmount ? " transaction-amount-text-wide" : ""}`}>
+                      {amountLabel}
+                    </span>
                   </td>
                   <td data-label="최종 수정일" className="transaction-col-updated transaction-mobile-detail-cell" data-field-key="updated_at" data-mobile-priority={transactionMobilePriority("updated_at")}>
                     <span className="transaction-mobile-detail-label">최종 수정일</span>
                     <div className="transaction-mobile-detail-value">{fmtDate(item.updated_at)}</div>
                   </td>
                 </tr>
+                {isExpanded && isCompactViewport && (
+                  <tr className="transaction-mobile-expanded-detail-row" data-expanded-detail-for={item.id}>
+                    <td colSpan={columnSpan} className="transaction-mobile-expanded-detail-cell">
+                      <div className="transaction-expanded-detail-grid">
+                        <div className="transaction-expanded-detail-item transaction-expanded-detail-owner transaction-mobile-detail-cell">
+                          <span className="transaction-mobile-detail-label">거래자명</span>
+                          <div className="transaction-mobile-detail-value">{ownerNameLabel || "-"}</div>
+                        </div>
+                        <div className="transaction-expanded-detail-item transaction-expanded-detail-category transaction-mobile-detail-cell">
+                          <span className="transaction-mobile-detail-label">카테고리</span>
+                          <div className="transaction-mobile-detail-value">{renderCategoryCell(category)}</div>
+                        </div>
+                        <div className="transaction-expanded-detail-item transaction-expanded-detail-memo transaction-mobile-detail-cell">
+                          <span className="transaction-mobile-detail-label">메모</span>
+                          <div className="transaction-mobile-detail-value" title={item.memo || "-"} aria-label={`메모 ${item.memo || "-"}`}>
+                            {item.memo || "-"}
+                          </div>
+                        </div>
+                        <div className="transaction-expanded-detail-item transaction-expanded-detail-updated transaction-mobile-detail-cell">
+                          <span className="transaction-mobile-detail-label">최종 수정일</span>
+                          <div className="transaction-mobile-detail-value">{fmtDate(item.updated_at)}</div>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                )}
                 {!shouldRenderInlineEditorBeforeRow && inlineEditorRow}
               </Fragment>
             );
