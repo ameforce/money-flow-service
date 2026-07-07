@@ -9494,12 +9494,12 @@ tr.holding-row-imported {
     display: none;
   }
 
-  .transactions-surface-table tbody tr.transaction-row:not(.mobile-row-expanded) .transaction-col-date,
-  .transactions-surface-table tbody tr.transaction-row:not(.mobile-row-expanded) .transaction-col-type,
-  .transactions-surface-table tbody tr.transaction-row:not(.mobile-row-expanded) .transaction-col-owner,
-  .transactions-surface-table tbody tr.transaction-row:not(.mobile-row-expanded) .transaction-col-category,
-  .transactions-surface-table tbody tr.transaction-row:not(.mobile-row-expanded) .transaction-col-memo,
-  .transactions-surface-table tbody tr.transaction-row:not(.mobile-row-expanded) .transaction-col-amount {
+  .transactions-surface-table tbody tr.transaction-row .transaction-col-date,
+  .transactions-surface-table tbody tr.transaction-row .transaction-col-type,
+  .transactions-surface-table tbody tr.transaction-row .transaction-col-owner,
+  .transactions-surface-table tbody tr.transaction-row .transaction-col-category,
+  .transactions-surface-table tbody tr.transaction-row .transaction-col-memo,
+  .transactions-surface-table tbody tr.transaction-row .transaction-col-amount {
     display: table-cell !important;
     box-sizing: border-box;
     height: 44px;
@@ -9513,7 +9513,7 @@ tr.holding-row-imported {
     white-space: nowrap;
   }
 
-  .transactions-surface-table tbody tr.transaction-row:not(.mobile-row-expanded) .transaction-col-date {
+  .transactions-surface-table tbody tr.transaction-row .transaction-col-date {
     width: var(--transaction-mobile-date-column-width) !important;
     min-width: var(--transaction-mobile-date-column-width) !important;
     max-width: var(--transaction-mobile-date-column-width) !important;
@@ -9522,30 +9522,30 @@ tr.holding-row-imported {
     box-shadow: inset 0.18rem 0 0 var(--transaction-row-accent, transparent);
   }
 
-  .transactions-surface-table tbody tr.transaction-row:not(.mobile-row-expanded) .transaction-col-type {
+  .transactions-surface-table tbody tr.transaction-row .transaction-col-type {
     width: var(--transaction-mobile-cue-column-width) !important;
     min-width: var(--transaction-mobile-cue-column-width) !important;
     max-width: var(--transaction-mobile-cue-column-width) !important;
   }
 
-  .transactions-surface-table tbody tr.transaction-row:not(.mobile-row-expanded) .transaction-col-owner {
+  .transactions-surface-table tbody tr.transaction-row .transaction-col-owner {
     width: auto !important;
     min-width: 0 !important;
     max-width: none !important;
   }
 
-  .transactions-surface-table tbody tr.transaction-row:not(.mobile-row-expanded) .transaction-col-category {
+  .transactions-surface-table tbody tr.transaction-row .transaction-col-category {
     width: auto !important;
     min-width: 0 !important;
     max-width: none !important;
   }
 
-  .transactions-surface-table tbody tr.transaction-row:not(.mobile-row-expanded) .transaction-col-memo {
+  .transactions-surface-table tbody tr.transaction-row .transaction-col-memo {
     width: auto;
     text-align: left;
   }
 
-  .transactions-surface-table tbody tr.transaction-row:not(.mobile-row-expanded) .transaction-col-amount {
+  .transactions-surface-table tbody tr.transaction-row .transaction-col-amount {
     width: auto !important;
     min-width: 0 !important;
     max-width: none !important;
@@ -9591,66 +9591,6 @@ tr.holding-row-imported {
     padding: 0;
     border-bottom: 0;
     border-left: 0;
-  }
-
-  .transactions-surface-table tbody tr.transaction-row.mobile-row-expanded .transaction-col-date,
-  .transactions-surface-table tbody tr.transaction-row.mobile-row-expanded .transaction-col-type,
-  .transactions-surface-table tbody tr.transaction-row.mobile-row-expanded .transaction-col-owner,
-  .transactions-surface-table tbody tr.transaction-row.mobile-row-expanded .transaction-col-category,
-  .transactions-surface-table tbody tr.transaction-row.mobile-row-expanded .transaction-col-memo,
-  .transactions-surface-table tbody tr.transaction-row.mobile-row-expanded .transaction-col-amount {
-    display: table-cell !important;
-    box-sizing: border-box;
-    height: 44px;
-    max-width: 0;
-    padding: 0.18rem 0.16rem;
-    border-bottom: 1px solid #e8eef6;
-    vertical-align: middle;
-    overflow: hidden;
-    text-align: center;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .transactions-surface-table tbody tr.transaction-row.mobile-row-expanded .transaction-col-date {
-    width: var(--transaction-mobile-date-column-width) !important;
-    min-width: var(--transaction-mobile-date-column-width) !important;
-    max-width: var(--transaction-mobile-date-column-width) !important;
-    padding-left: 0.38rem;
-    text-align: left;
-    box-shadow: inset 0.18rem 0 0 var(--transaction-row-accent, transparent);
-  }
-
-  .transactions-surface-table tbody tr.transaction-row.mobile-row-expanded .transaction-col-type {
-    width: var(--transaction-mobile-cue-column-width) !important;
-    min-width: var(--transaction-mobile-cue-column-width) !important;
-    max-width: var(--transaction-mobile-cue-column-width) !important;
-  }
-
-  .transactions-surface-table tbody tr.transaction-row.mobile-row-expanded .transaction-col-owner {
-    width: auto !important;
-    min-width: 0 !important;
-    max-width: none !important;
-  }
-
-  .transactions-surface-table tbody tr.transaction-row.mobile-row-expanded .transaction-col-category {
-    width: auto !important;
-    min-width: 0 !important;
-    max-width: none !important;
-  }
-
-  .transactions-surface-table tbody tr.transaction-row.mobile-row-expanded .transaction-col-memo {
-    width: auto !important;
-    text-align: left;
-  }
-
-  .transactions-surface-table tbody tr.transaction-row.mobile-row-expanded .transaction-col-amount {
-    width: auto !important;
-    min-width: 0 !important;
-    max-width: none !important;
-    padding-right: 0.13rem;
-    padding-left: 0.04rem;
-    text-align: right;
   }
 
   .transactions-surface-table tbody tr.transaction-row.mobile-row-expanded .transaction-col-updated,
