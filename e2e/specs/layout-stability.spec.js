@@ -356,7 +356,7 @@ async function expectWorksurfaceRowsUseCorrectMode(page, tabLabel) {
         rowHeight: box.height,
         mobileDateDisplay: displayOf(".mobile-date-text"),
         flowShortDisplay: displayOf(".transaction-flow-short"),
-        ownerChipDisplay: displayOf(".transaction-owner-chip"),
+        ownerCompactDisplay: displayOf(".transaction-owner-compact"),
         toggleDisplay: displayOf(".mobile-toggle-btn"),
         dateText,
         dateOverflow: dateCell ? dateCell.scrollWidth - dateCell.clientWidth : 0,
@@ -367,15 +367,22 @@ async function expectWorksurfaceRowsUseCorrectMode(page, tabLabel) {
       expect(metrics.rowDisplay).toBe("table-row");
       expect(metrics.mobileDateDisplay).toBe("none");
       expect(metrics.flowShortDisplay).toBe("none");
-      expect(["none", "missing"]).toContain(metrics.ownerChipDisplay);
+      expect(metrics.ownerCompactDisplay).not.toBe("none");
+      expect(metrics.ownerCompactDisplay).not.toBe("missing");
       expect(["none", "missing"]).toContain(metrics.toggleDisplay);
       expect(metrics.dateText).toMatch(/^\d{4}-\d{2}-\d{2}$/);
       expect(metrics.dateOverflow).toBeLessThanOrEqual(2);
       expect(metrics.rowHeight).toBeLessThanOrEqual(48);
     } else {
-      expect(metrics.rowDisplay).toBe("grid");
+      expect(metrics.rowDisplay).toBe("table-row");
       expect(metrics.mobileDateDisplay).not.toBe("none");
+      expect(metrics.flowShortDisplay).not.toBe("none");
+      expect(metrics.ownerCompactDisplay).not.toBe("none");
+      expect(metrics.ownerCompactDisplay).not.toBe("missing");
       expect(metrics.toggleDisplay).toBe("missing");
+      expect(metrics.dateText).toMatch(/^\d{2}-\d{2}$/);
+      expect(metrics.dateOverflow).toBeLessThanOrEqual(2);
+      expect(metrics.rowHeight).toBeLessThanOrEqual(48);
     }
   }
 
@@ -807,16 +814,13 @@ test("mobile transaction sheet actions keep navigation reachable", async ({ page
       viewportHeight: window.innerHeight,
     };
   });
-  expect(fabMetrics.position, `transaction FAB should stay fixed: ${JSON.stringify(fabMetrics)}`).toBe("fixed");
-  expect(fabMetrics.inListHeading, `transaction FAB should not be an inline heading action: ${JSON.stringify(fabMetrics)}`).toBe(false);
-  expect(fabMetrics.left, `transaction FAB should sit in the right half: ${JSON.stringify(fabMetrics)}`).toBeGreaterThan(
+  expect(fabMetrics.position, `transaction add action should be inline, not an overlay: ${JSON.stringify(fabMetrics)}`).toBe("static");
+  expect(fabMetrics.inListHeading, `transaction add action should live in the list heading: ${JSON.stringify(fabMetrics)}`).toBe(true);
+  expect(fabMetrics.left, `transaction add action should sit in the right half: ${JSON.stringify(fabMetrics)}`).toBeGreaterThan(
     fabMetrics.viewportWidth * 0.5,
   );
-  expect(fabMetrics.right, `transaction FAB should be clear of the right edge: ${JSON.stringify(fabMetrics)}`).toBeLessThanOrEqual(
+  expect(fabMetrics.right, `transaction add action should be clear of the right edge: ${JSON.stringify(fabMetrics)}`).toBeLessThanOrEqual(
     fabMetrics.viewportWidth - 8,
-  );
-  expect(fabMetrics.bottom, `transaction FAB should be clear of the bottom edge: ${JSON.stringify(fabMetrics)}`).toBeLessThanOrEqual(
-    fabMetrics.viewportHeight - 8,
   );
   expect(fabMetrics.width).toBeGreaterThanOrEqual(48);
   expect(fabMetrics.height).toBeGreaterThanOrEqual(48);

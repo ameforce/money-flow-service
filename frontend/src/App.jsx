@@ -2351,6 +2351,7 @@ function App() {
 
   const [txForm, setTxForm] = useState(() => createTransactionForm());
   const [txFormErrors, setTxFormErrors] = useState(() => createTransactionFormErrors());
+  const [txFormSubmitting, setTxFormSubmitting] = useState(false);
   const [txCategoryMajor, setTxCategoryMajor] = useState("");
   const [txCategoryRestore, setTxCategoryRestore] = useState(null);
   const [txListFilter, setTxListFilter] = useState({
@@ -5345,6 +5346,7 @@ function App() {
     const isCurrentVerifyDeepLink = () =>
       activeDeepLinkFlowRef.current.type === "verify" && activeDeepLinkFlowRef.current.token === tokenText;
     autoVerifyTokenRef.current = tokenText;
+    setTxFormSubmitting(true);
     setLoading(true);
     setMessage("인증 링크를 확인하고 있습니다...");
     try {
@@ -5794,6 +5796,7 @@ function App() {
       }
       setMessage(formatAuthError(error, currentMode));
     } finally {
+      setTxFormSubmitting(false);
       setLoading(false);
     }
   }
@@ -6396,7 +6399,13 @@ function App() {
       try {
         await refreshData(false);
       } catch (refreshError) {
-        void refreshError;
+        setMessage(
+          uiGuideMessage(
+            "선택한 거래를 삭제했지만 목록 새로고침에 실패했습니다.",
+            formatApiError(refreshError, "transaction_delete")
+          )
+        );
+        return;
       }
       setMessage(uiGuideMessage("선택한 거래를 삭제했습니다.", `${deletedIds.size}건을 목록에서 제거했습니다.`));
     } catch (error) {
@@ -9053,7 +9062,7 @@ function App() {
   };
 
   const renderTransactionQuickEntryForm = () => {
-    const transactionFormDisabled = !canEditRecords || loading;
+    const transactionFormDisabled = !canEditRecords || txFormSubmitting;
     const selectedCategoryId = String(txForm.category_id || "").trim();
     const selectedCategory = categoryById.get(selectedCategoryId);
     const selectedCategoryLabel = selectedCategory ? toCategoryPairLabel(selectedCategory) : "미선택";
@@ -9100,68 +9109,70 @@ function App() {
         onPointerDownCapture={rememberActiveTransactionQuickField}
       >
         <div className="transaction-quick-primary-stack" data-testid="transaction-quick-primary-path">
-          <label className="date-field transaction-quick-date-field">
-            일자
-            <div className="date-input-wrap">
-              <IsoDateInput
-                ref={txDateInputRef}
-                data-testid="transaction-quick-date"
+          <div className="transaction-quick-primary-fields">
+            <label className="date-field transaction-quick-date-field">
+              일자
+              <div className="date-input-wrap">
+                <IsoDateInput
+                  ref={txDateInputRef}
+                  data-testid="transaction-quick-date"
+                  enterKeyHint="next"
+                  value={txForm.occurred_on}
+                  onValueChange={(value) => {
+                    clearTransactionFormError("occurred_on");
+                    setTxDraftTouched(true);
+                    setTxForm((prev) => ({ ...prev, occurred_on: value }));
+                  }}
+                  aria-invalid={txFormErrors.occurred_on ? "true" : undefined}
+                  aria-describedby={txFormErrors.occurred_on ? "transaction-quick-date-error" : undefined}
+                  disabled={transactionFormDisabled}
+                  required
+                />
+                <button
+                  type="button"
+                  className="secondary today-btn"
+                  onClick={() => {
+                    clearTransactionFormError("occurred_on");
+                    setTxDraftTouched(true);
+                    setTxForm((prev) => ({ ...prev, occurred_on: transactionEntryTodayDate() }));
+                  }}
+                  disabled={transactionFormDisabled}
+                >
+                  오늘
+                </button>
+              </div>
+              {txFormErrors.occurred_on && (
+                <p id="transaction-quick-date-error" className="field-helper field-error" role="alert">
+                  {txFormErrors.occurred_on}
+                </p>
+              )}
+            </label>
+
+            <label className="transaction-quick-amount-field">
+              <span>금액</span>
+              <input
+                ref={txAmountInputRef}
+                data-testid="transaction-quick-amount"
+                type="text"
+                inputMode="numeric"
                 enterKeyHint="next"
-                value={txForm.occurred_on}
-                onValueChange={(value) => {
-                  clearTransactionFormError("occurred_on");
-                  setTxDraftTouched(true);
-                  setTxForm((prev) => ({ ...prev, occurred_on: value }));
-                }}
-                aria-invalid={txFormErrors.occurred_on ? "true" : undefined}
-                aria-describedby={txFormErrors.occurred_on ? "transaction-quick-date-error" : undefined}
+                autoComplete="off"
+                placeholder="0"
+                value={txForm.amount}
+                onChange={handleTransactionEntryAmountInput}
+                onKeyDown={handleTransactionQuickAmountKeyDown}
+                aria-invalid={txFormErrors.amount ? "true" : undefined}
+                aria-describedby={txFormErrors.amount ? "transaction-quick-amount-error" : undefined}
                 disabled={transactionFormDisabled}
                 required
               />
-              <button
-                type="button"
-                className="secondary today-btn"
-                onClick={() => {
-                  clearTransactionFormError("occurred_on");
-                  setTxDraftTouched(true);
-                  setTxForm((prev) => ({ ...prev, occurred_on: transactionEntryTodayDate() }));
-                }}
-                disabled={transactionFormDisabled}
-              >
-                오늘
-              </button>
-            </div>
-            {txFormErrors.occurred_on && (
-              <p id="transaction-quick-date-error" className="field-helper field-error" role="alert">
-                {txFormErrors.occurred_on}
-              </p>
-            )}
-          </label>
-
-          <label className="transaction-quick-amount-field">
-            <span>금액</span>
-            <input
-              ref={txAmountInputRef}
-              data-testid="transaction-quick-amount"
-              type="text"
-              inputMode="numeric"
-              enterKeyHint="next"
-              autoComplete="off"
-              placeholder="0"
-              value={txForm.amount}
-              onChange={handleTransactionEntryAmountInput}
-              onKeyDown={handleTransactionQuickAmountKeyDown}
-              aria-invalid={txFormErrors.amount ? "true" : undefined}
-              aria-describedby={txFormErrors.amount ? "transaction-quick-amount-error" : undefined}
-              disabled={transactionFormDisabled}
-              required
-            />
-            {txFormErrors.amount && (
-              <p id="transaction-quick-amount-error" className="field-helper field-error" role="alert">
-                {txFormErrors.amount}
-              </p>
-            )}
-          </label>
+              {txFormErrors.amount && (
+                <p id="transaction-quick-amount-error" className="field-helper field-error" role="alert">
+                  {txFormErrors.amount}
+                </p>
+              )}
+            </label>
+          </div>
 
           <section className="transaction-choice-section transaction-staged-category" data-testid="transaction-staged-category">
             <div className="transaction-choice-section-title">
@@ -9188,6 +9199,30 @@ function App() {
               })}
             </div>
             {renderTransactionCategoryRestoreNotice()}
+
+            <TransactionCategoryQuickPicker
+              categories={categoryOptions}
+              quickOptions={[]}
+              selectedCategoryId={txForm.category_id}
+              disabled={transactionFormDisabled}
+              allowCreate={canEditHouseholdData}
+              createDisabled={!canEditHouseholdData}
+              onSelect={applyTransactionCategory}
+              onCreate={createAndApplyTransactionCategory}
+              title="카테고리 검색"
+              selectedEmptyText="미선택 저장 가능"
+              showExistingSelect={false}
+              searchMode="toggle"
+              searchToggleLabel="카테고리 선택"
+              createMode="toggle"
+              createToggleVisibility="on-query"
+              maxOptions={6}
+              rootClassName="transaction-category-picker-staged"
+              rootTestId=""
+              optionTestId="transaction-category-search-option"
+              toCategoryMajorLabel={toCategoryMajorLabel}
+              toCategoryMinorLabel={toCategoryMinorLabel}
+            />
 
             <div className="transaction-choice-section-title">
               <span>그룹</span>
@@ -9314,7 +9349,7 @@ function App() {
   };
 
   const renderTransactionFormFields = ({ sheetMode = false } = {}) => {
-    const transactionFormDisabled = !canEditRecords || loading;
+    const transactionFormDisabled = !canEditRecords || txFormSubmitting;
     if (sheetMode) {
       return renderTransactionQuickEntryForm();
     }
