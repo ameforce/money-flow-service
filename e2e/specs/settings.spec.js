@@ -473,22 +473,19 @@ test("settings flow: profile, household, colors, categories CRUD", async ({ page
   const { container: transactionEntry } = await openTransactionEntryForm(page);
   await transactionEntry.getByTestId("transaction-quick-amount").fill("77777");
   await labeledField(transactionEntry, "메모", "input").fill(usageMemo);
-  const quickCategoryPicker = transactionEntry.getByTestId("transaction-category-quick-picker");
-  await expect(quickCategoryPicker).toBeVisible();
-  let targetCategoryChip = quickCategoryPicker.getByTestId("transaction-quick-category-chip").filter({ hasText: minorSeed }).first();
-  if ((await targetCategoryChip.count()) === 0) {
-    const searchToggle = quickCategoryPicker.getByTestId("transaction-category-search-toggle");
-    if ((await searchToggle.count()) > 0 && (await searchToggle.isVisible().catch(() => false))) {
-      await searchToggle.click();
-    }
-    const categorySearch = quickCategoryPicker.getByTestId("transaction-category-search");
-    await expect(categorySearch).toBeVisible();
-    await categorySearch.fill(minorSeed);
-    targetCategoryChip = quickCategoryPicker.getByTestId("transaction-quick-category-chip").filter({ hasText: minorSeed }).first();
+  const stagedCategoryPicker = transactionEntry.getByTestId("transaction-staged-category");
+  await expect(stagedCategoryPicker).toBeVisible();
+  const searchToggle = stagedCategoryPicker.getByTestId("transaction-category-search-toggle");
+  if ((await searchToggle.count()) > 0 && (await searchToggle.isVisible().catch(() => false))) {
+    await searchToggle.click();
   }
+  const categorySearch = stagedCategoryPicker.getByTestId("transaction-category-search");
+  await expect(categorySearch).toBeVisible();
+  await categorySearch.fill(minorSeed);
+  const targetCategoryChip = stagedCategoryPicker.getByTestId("transaction-category-search-option").filter({ hasText: minorSeed }).first();
   await expect(targetCategoryChip).toBeVisible();
   await targetCategoryChip.click();
-  await expect(targetCategoryChip).toHaveAttribute("aria-pressed", "true");
+  await expect(stagedCategoryPicker).toContainText(minorSeed);
   await transactionEntry.getByRole("button", { name: "거래 등록" }).click();
   await expect(page.locator("tr.transaction-row", { hasText: usageMemo }).first()).toBeVisible();
   await openTab(page, "설정");
