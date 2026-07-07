@@ -1402,6 +1402,73 @@ test("mobile quick entry creates an expense through one-screen staged buttons", 
   await expect(createdRow).toBeVisible({ timeout: 20_000 });
 });
 
+test("mobile quick entry locks save while a transaction submit is pending", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const email = `${unique("tx-quick-submit-lock")}@example.com`;
+  const displayName = unique("tx-quick-submit-lock-name");
+  const seedMemo = unique("tx-quick-submit-seed");
+  const memo = unique("tx-quick-submit-created");
+
+  await registerAndVerify(page, { email, displayName });
+  const seedCategory = await createCategoryViaApi(page, {
+    major: unique("빠른저장잠금"),
+    minor: unique("최근카테고리"),
+  });
+  await createTransactionViaApi(page, {
+    memo: seedMemo,
+    amount: "13579",
+    categoryId: seedCategory.id,
+    ownerName: displayName,
+  });
+  await page.reload();
+
+  const transactionSheet = await openMobileTransactionQuickEntry(page);
+  const quickAmount = page.getByTestId("transaction-quick-amount");
+  const memoInput = labeledField(transactionSheet, "메모", "input");
+  await quickAmount.fill("24680");
+  await memoInput.fill(memo);
+  await selectTransactionFormCategory(transactionSheet, seedCategory);
+
+  let resolveFirstPost;
+  let releasePost;
+  const firstPostSeen = new Promise((resolve) => {
+    resolveFirstPost = resolve;
+  });
+  const postRelease = new Promise((resolve) => {
+    releasePost = resolve;
+  });
+  let postCount = 0;
+
+  await page.route("**/api/v1/transactions", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (request.method() !== "POST" || !url.pathname.endsWith("/api/v1/transactions")) {
+      await route.continue();
+      return;
+    }
+
+    postCount += 1;
+    resolveFirstPost();
+    await postRelease;
+    const response = await route.fetch();
+    await route.fulfill({ response });
+  });
+
+  const quickSave = page.getByTestId("transaction-quick-save");
+  await expect(quickSave).toBeEnabled();
+  await quickSave.click();
+  await firstPostSeen;
+  await expect(quickSave, "transaction save should lock while POST is pending").toBeDisabled();
+  expect(postCount, "only one transaction POST should be started before the pending save resolves").toBe(1);
+
+  releasePost();
+  const createdRow = page.locator("tr.transaction-row", { hasText: memo }).first();
+  await expect(createdRow).toBeVisible({ timeout: 20_000 });
+  expect(postCount, "unlock should happen after the original save resolves, not by issuing another POST").toBe(1);
+  await capture(page, "transactions-quick-submit-lock");
+});
+
 test("transaction entry primary path stays shallow across mobile tablet and desktop", async ({ page }) => {
   test.setTimeout(180_000);
 

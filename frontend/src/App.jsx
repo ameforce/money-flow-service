@@ -5346,7 +5346,6 @@ function App() {
     const isCurrentVerifyDeepLink = () =>
       activeDeepLinkFlowRef.current.type === "verify" && activeDeepLinkFlowRef.current.token === tokenText;
     autoVerifyTokenRef.current = tokenText;
-    setTxFormSubmitting(true);
     setLoading(true);
     setMessage("인증 링크를 확인하고 있습니다...");
     try {
@@ -5796,7 +5795,6 @@ function App() {
       }
       setMessage(formatAuthError(error, currentMode));
     } finally {
-      setTxFormSubmitting(false);
       setLoading(false);
     }
   }
@@ -6085,6 +6083,7 @@ function App() {
       focusFirstTransactionFormError(transactionErrors);
       return;
     }
+    setTxFormSubmitting(true);
     setLoading(true);
     setMessage("");
     try {
@@ -6122,6 +6121,7 @@ function App() {
     } catch (error) {
       setMessage(formatApiError(error, "transaction_submit"));
     } finally {
+      setTxFormSubmitting(false);
       setLoading(false);
     }
   }
