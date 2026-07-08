@@ -38,8 +38,14 @@ async function seedLedger(page) {
     amount: "123456",
     ownerName: displayName,
   });
+  const wideMemo = `${unique("ledger-layout-wide")}-큰금액`;
+  await createTransactionViaApi(page, {
+    memo: wideMemo,
+    amount: "1234567890",
+    ownerName: displayName,
+  });
   await page.reload();
-  return { memo };
+  return { memo, wideMemo };
 }
 
 async function openLedger(page, profile) {
@@ -87,7 +93,7 @@ function expectCloseCssPx(actual, expected, tolerance, label) {
 test("transaction ledger keeps dense columns, bottom mobile chrome, and quiet selection actions", async ({ page }) => {
   test.setTimeout(180_000);
 
-  const { memo } = await seedLedger(page);
+  const { memo, wideMemo } = await seedLedger(page);
   await openLedger(page, DESKTOP_PROFILE);
 
   const desktopMetrics = await page.evaluate(() => {
@@ -354,6 +360,34 @@ test("transaction ledger keeps dense columns, bottom mobile chrome, and quiet se
       mobileMetrics.amountText.scrollWidth,
       `${profile.name} amount text should fit within its cell: ${JSON.stringify(mobileMetrics.amountText)}`,
     ).toBeLessThanOrEqual(mobileMetrics.amountText.clientWidth + 1);
+    const wideAmountMetrics = await page.locator("tr.transaction-row", { hasText: wideMemo }).first().evaluate((row) => {
+      const amount = row.querySelector(".transaction-col-amount");
+      const amountText = amount?.querySelector(".transaction-amount-text");
+      const amountBox = amount?.getBoundingClientRect();
+      return {
+        viewportWidth: document.documentElement.clientWidth,
+        amountClass: amountText?.className || "",
+        text: amountText?.textContent?.trim() || "",
+        clientWidth: amountText?.clientWidth || 0,
+        scrollWidth: amountText?.scrollWidth || 0,
+        amountRight: amountBox?.right || 0,
+      };
+    });
+    expect(
+      wideAmountMetrics.amountClass,
+      `${profile.name} wide amount should use the compact wide-amount path: ${JSON.stringify(wideAmountMetrics)}`,
+    ).toContain("transaction-amount-text-wide");
+    expect(wideAmountMetrics.text, `${profile.name} wide amount text should render: ${JSON.stringify(wideAmountMetrics)}`).toContain(
+      "1,234,567,890원",
+    );
+    expect(
+      wideAmountMetrics.scrollWidth,
+      `${profile.name} wide amount text should fit inside its cell: ${JSON.stringify(wideAmountMetrics)}`,
+    ).toBeLessThanOrEqual(wideAmountMetrics.clientWidth + 1);
+    expect(
+      wideAmountMetrics.amountRight,
+      `${profile.name} wide amount cell should stay inside the viewport: ${JSON.stringify(wideAmountMetrics)}`,
+    ).toBeLessThanOrEqual(wideAmountMetrics.viewportWidth - 8);
     expect(
       mobileMetrics.documentOverflowX,
       `${profile.name} document should not overflow: ${JSON.stringify(mobileMetrics)}`,
@@ -423,6 +457,11 @@ test("transaction entry sheet keeps date and amount on one compact primary row",
   const email = `${unique("entry-primary-row")}@example.com`;
   const displayName = unique("entry-primary-row-user");
   await registerAndVerify(page, { email, displayName });
+  await createCategoryViaApi(page, {
+    major: "생활",
+    minor: "식비",
+  });
+  await page.reload();
 
   for (const profile of [DESKTOP_PROFILE, ...MOBILE_PROFILES]) {
     const sheet = await openTransactionEntrySheet(page, profile);
@@ -493,9 +532,44 @@ test("transaction entry sheet keeps date and amount on one compact primary row",
       metrics.dateField.width,
       `${profile.name || "desktop"} date field should not consume a full row: ${JSON.stringify(metrics)}`,
     ).toBeLessThan(metrics.primaryFields.width * 0.62);
+    if (profile.width <= 820) {
+      const groupChoice = sheet.getByTestId("transaction-category-group-choice").filter({ hasText: "생활" }).first();
+      await expect(groupChoice).toBeVisible();
+      await groupChoice.click();
+      await expect(groupChoice).toHaveAttribute("aria-pressed", "true");
+      const categoryChoice = sheet.getByTestId("transaction-category-choice").filter({ hasText: "식비" }).first();
+      await expect(categoryChoice).toBeVisible();
+      await categoryChoice.click();
+      await expect(categoryChoice).toHaveAttribute("aria-pressed", "true");
+      await sheet.getByTestId("transaction-quick-amount").fill("12345");
+      await expect(groupChoice).toHaveAttribute("aria-pressed", "true");
+      await expect(categoryChoice).toHaveAttribute("aria-pressed", "true");
+      const quickCategoryMetrics = await sheet.evaluate((root) => {
+        const read = (element) => ({
+          clientWidth: element?.clientWidth || 0,
+          scrollWidth: element?.scrollWidth || 0,
+          width: element?.getBoundingClientRect().width || 0,
+        });
+        return {
+          picker: read(root.querySelector(".transaction-category-picker-staged")),
+          groupGrid: read(root.querySelector(".transaction-category-group-grid")),
+          choiceGrid: read(root.querySelector(".transaction-category-choice-grid")),
+        };
+      });
+      for (const [label, item] of Object.entries(quickCategoryMetrics)) {
+        expect(
+          item.scrollWidth,
+          `${profile.name} quick category ${label} should not overflow after selection: ${JSON.stringify(quickCategoryMetrics)}`,
+        ).toBeLessThanOrEqual(item.clientWidth + 1);
+      }
+    }
     await expectNoHorizontalOverflow(page, 2);
     await capture(page, `transactions-entry-primary-row-${profile.name || "desktop"}`);
     await page.getByTestId("transaction-entry-sheet-close").click();
+    const closeDraftConfirm = page.getByRole("button", { name: "입력 닫기" });
+    if (await closeDraftConfirm.isVisible().catch(() => false)) {
+      await closeDraftConfirm.click();
+    }
     await expect(sheet).toBeHidden();
   }
 });
@@ -706,6 +780,9 @@ test("transaction ledger aligns desktop cells and keeps mobile rows compact", as
       const memo = row.querySelector(".transaction-col-memo");
       const memoText = row.querySelector(".transaction-memo-text");
       const amount = row.querySelector(".transaction-col-amount");
+      const amountText = amount?.querySelector(".transaction-amount-text");
+      const table = row.closest(".transactions-surface-table");
+      const listCard = row.closest(".transaction-list-card");
       const headerFit = (selector) => {
         const item = head?.querySelector(selector);
         return {
@@ -736,6 +813,8 @@ test("transaction ledger aligns desktop cells and keeps mobile rows compact", as
           : null;
       };
       const countSummary = toolbar?.querySelector(".surface-count-summary");
+      const listCardStyle = listCard ? getComputedStyle(listCard) : null;
+      const cellBox = (selector) => boxOf(row.querySelector(selector));
       return {
         viewportWidth: document.documentElement.clientWidth,
         rowHeight: rowBox.height,
@@ -746,6 +825,27 @@ test("transaction ledger aligns desktop cells and keeps mobile rows compact", as
         rowTopGap: memoText ? memoText.getBoundingClientRect().top - rowBox.top : 0,
         rowBottomGap: memoText ? rowBox.bottom - memoText.getBoundingClientRect().bottom : 0,
         memoWidth: memo?.getBoundingClientRect().width || 0,
+        tableWidth: table?.getBoundingClientRect().width || 0,
+        listCardBottomPadding: listCardStyle ? Number.parseFloat(listCardStyle.paddingBottom || "0") : 0,
+        amountWidth: amount?.getBoundingClientRect().width || 0,
+        amountTextWidth: amountText?.getBoundingClientRect().width || 0,
+        amountTextScrollWidth: amountText?.scrollWidth || 0,
+        columnWidths: {
+          date: cellBox(".transaction-col-date")?.width || 0,
+          type: cellBox(".transaction-col-type")?.width || 0,
+          owner: cellBox(".transaction-col-owner")?.width || 0,
+          category: cellBox(".transaction-col-category")?.width || 0,
+          memo: cellBox(".transaction-col-memo")?.width || 0,
+          amount: cellBox(".transaction-col-amount")?.width || 0,
+        },
+        headerBodyColumns: {
+          date: { head: boxOf(head?.querySelector(".ledger-head-date")), body: cellBox(".transaction-col-date") },
+          type: { head: boxOf(head?.querySelector(".ledger-head-cues")), body: cellBox(".transaction-col-type") },
+          owner: { head: boxOf(head?.querySelector(".ledger-head-owner")), body: cellBox(".transaction-col-owner") },
+          category: { head: boxOf(head?.querySelector(".ledger-head-category")), body: cellBox(".transaction-col-category") },
+          memo: { head: boxOf(head?.querySelector(".ledger-head-main")), body: cellBox(".transaction-col-memo") },
+          amount: { head: boxOf(head?.querySelector(".ledger-head-amount")), body: cellBox(".transaction-col-amount") },
+        },
         dateHeadText: head?.querySelector(".ledger-head-date")?.textContent?.replace(/\s+/g, " ").trim() || "",
         labelFits: {
           owner: headerFit(".ledger-head-owner"),
@@ -789,6 +889,12 @@ test("transaction ledger aligns desktop cells and keeps mobile rows compact", as
         `${profile.name} ${label} label should fit without horizontal clipping: ${JSON.stringify(metrics)}`,
       ).toBeLessThanOrEqual(metrics.clientWidth + 1);
     }
+    for (const [name, geometry] of Object.entries(mobileMetrics.headerBodyColumns)) {
+      expect(geometry.head, `${profile.name} ${name} header cell should exist: ${JSON.stringify(mobileMetrics.headerBodyColumns)}`).not.toBeNull();
+      expect(geometry.body, `${profile.name} ${name} body cell should exist: ${JSON.stringify(mobileMetrics.headerBodyColumns)}`).not.toBeNull();
+      expectClose(geometry.head.left, geometry.body.left, 2, `${profile.name} ${name} header/body left edge`);
+      expectClose(geometry.head.width, geometry.body.width, 2.5, `${profile.name} ${name} header/body width`);
+    }
     expect(
       mobileMetrics.gridLines.header.every((width) => width >= 1),
       `${profile.name} mobile header cells should use Excel-style vertical separators: ${JSON.stringify(mobileMetrics.gridLines)}`,
@@ -802,9 +908,17 @@ test("transaction ledger aligns desktop cells and keeps mobile rows compact", as
       `${profile.name} header labels should be vertically centered: ${JSON.stringify(mobileMetrics.headerCenterDeltas)}`,
     ).toBe(true);
     expect(
+      mobileMetrics.listCardBottomPadding,
+      `${profile.name} transaction card should not reserve obsolete floating-FAB whitespace below the table: ${JSON.stringify(mobileMetrics)}`,
+    ).toBeLessThanOrEqual(24);
+    expect(
       mobileMetrics.memoWidth,
       `${profile.name} memo text column should keep a visible table slot: ${JSON.stringify(mobileMetrics)}`,
     ).toBeGreaterThanOrEqual(profile.width <= 360 ? 44 : 56);
+    expect(
+      mobileMetrics.amountTextScrollWidth,
+      `${profile.name} amount text should fit without clipping: ${JSON.stringify(mobileMetrics)}`,
+    ).toBeLessThanOrEqual(mobileMetrics.amountTextWidth + 1);
     expect(
       mobileMetrics.rowHeight,
       `${profile.name} collapsed rows should stay dense: ${JSON.stringify(mobileMetrics)}`,
