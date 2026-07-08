@@ -110,6 +110,7 @@ export function TransactionsPage({
     handleTransactionAmountInput,
     handleTxInlineEditKeyDown,
     openTransactionInlineEditor,
+    notifyTransactionEditPermissionDenied,
     submitTxInlineEdit,
     txInlineEdit,
     txInlineEditSubmitting,
@@ -154,6 +155,24 @@ export function TransactionsPage({
 
   return (
     <section className="grid-1 transaction-page-section">
+      {isLedgerCompactViewport && !txInlineEdit && (
+        <button
+          ref={transactionFabRef}
+          type="button"
+          className="primary transactions-fab transaction-add-fab"
+          data-testid="transactions-fab"
+          aria-label="거래 추가"
+          disabled={!canEditRecords || loading}
+          onClick={() => {
+            if (!canEditRecords || loading) {
+              return;
+            }
+            openNormalTransactionEntrySheet("form");
+          }}
+        >
+          <span aria-hidden="true">＋</span>
+        </button>
+      )}
       <TransactionListCard
         constants={{ DEFAULT_TRANSACTION_ROW_COLORS, FLOW_TYPE_LABELS, FLOW_TYPE_OPTIONS }}
         permissions={{ canEditHouseholdData, canEditRecords, isCompactViewport, isLedgerCompactViewport, loading }}
@@ -164,7 +183,7 @@ export function TransactionsPage({
         listActions={{ clearTxListFilter, selectTransactionRows, scrollTransactionListToTop, toggleExpandedTransactionRow, toggleTxSortDirection, updateShowTransactionFilterPanel, updateTransactionFilterFocusTarget, updateTransactionRowsExpanded, updateTransactionRowsSelected, updateTxListFilter }}
         selection={{ areAllFilteredTransactionsSelected, openSelectedTransactionEdit, openSelectedTransactionInsert, removeSelectedTransactions, selectedTransactionIds, toggleAllFilteredTransactionSelection, toggleTransactionSelection, updateSelectedTransactionIds }}
         entrySheet={{ openNormalTransactionEntrySheet, transactionDesktopAddActionRef, transactionFabRef }}
-        inlineEdit={{ closeTxInlineEdit, createAndApplyTxInlineCategory, handleGroupedDecimalInput, handleTransactionAmountInput, handleTxInlineEditKeyDown, openTransactionInlineEditor, submitTxInlineEdit, txInlineEdit, txInlineEditSubmitting, updateTxInlineEdit }}
+        inlineEdit={{ closeTxInlineEdit, createAndApplyTxInlineCategory, handleGroupedDecimalInput, handleTransactionAmountInput, handleTxInlineEditKeyDown, notifyTransactionEditPermissionDenied, openTransactionInlineEditor, submitTxInlineEdit, txInlineEdit, txInlineEditSubmitting, updateTxInlineEdit }}
         categoryManager={{ renderLegacyOwnerRemapHelper, txInlineCategoryMajor, txInlineCategoryMajorOptions, txInlineCategoryMinorOptions, txInlineCategoryOptions, txInlineCategoryQuickChips }}
         ownerHelpers={{ ownerOptionsWithFallback, ownerSelectValue, ownerSelectionFromValue }}
         formatters={{ fmtDate, fmtKrw, toCategoryMajorLabel, toCategoryMinorLabel, toYearMonthKey }}

@@ -24,8 +24,8 @@ export function TransactionListTablePanel({
   const { expandedTransactionRows, recentImportTransactionIds, recentSavedTransactionIds, showTransactionFilterPanel, showTransactionScrollTop, sortedTransactions, transactionsMobileStickyActive, txListFilter, txSortDirection } = listState;
   const { categoryById, householdSettings, normalizeTransactionRowColors, renderCategoryCell } = listLookups;
   const { clearTxListFilter, selectTransactionRows, scrollTransactionListToTop, toggleExpandedTransactionRow, toggleTxSortDirection, updateTransactionRowsExpanded, updateTransactionRowsSelected, updateTxListFilter } = listActions;
-  const { areAllFilteredTransactionsSelected, selectedTransactionIds, toggleAllFilteredTransactionSelection, toggleTransactionSelection } = selection;
-  const { closeTxInlineEdit, createAndApplyTxInlineCategory, handleGroupedDecimalInput, handleTransactionAmountInput, handleTxInlineEditKeyDown, openTransactionInlineEditor, submitTxInlineEdit, txInlineEdit, txInlineEditSubmitting, updateTxInlineEdit } = inlineEdit;
+  const { selectedTransactionIds, toggleTransactionSelection } = selection;
+  const { closeTxInlineEdit, createAndApplyTxInlineCategory, handleGroupedDecimalInput, handleTransactionAmountInput, handleTxInlineEditKeyDown, notifyTransactionEditPermissionDenied, openTransactionInlineEditor, submitTxInlineEdit, txInlineEdit, txInlineEditSubmitting, updateTxInlineEdit } = inlineEdit;
   const { renderLegacyOwnerRemapHelper, txInlineCategoryMajor, txInlineCategoryMajorOptions, txInlineCategoryMinorOptions, txInlineCategoryOptions, txInlineCategoryQuickChips } = categoryManager;
   const { ownerOptionsWithFallback, ownerSelectValue, ownerSelectionFromValue } = ownerHelpers;
   const { fmtDate, fmtKrw, toCategoryMajorLabel, toCategoryMinorLabel } = formatters;
@@ -34,8 +34,6 @@ export function TransactionListTablePanel({
     <>
       <TransactionSurfaceTable
         sortedTransactions={sortedTransactions}
-        areAllFilteredTransactionsSelected={areAllFilteredTransactionsSelected}
-        toggleAllFilteredTransactionSelection={toggleAllFilteredTransactionSelection}
         txSortDirection={txSortDirection}
         toggleTxSortDirection={toggleTxSortDirection}
         selectedTransactionIds={selectedTransactionIds}
@@ -57,6 +55,7 @@ export function TransactionListTablePanel({
         setTxInlineEdit={updateTxInlineEdit}
         createTxInlineCategory={createAndApplyTxInlineCategory}
         openTransactionInlineEditor={openTransactionInlineEditor}
+        notifyTransactionEditPermissionDenied={notifyTransactionEditPermissionDenied}
         categoryById={categoryById}
         renderCategoryCell={renderCategoryCell}
         FLOW_TYPE_LABELS={FLOW_TYPE_LABELS}

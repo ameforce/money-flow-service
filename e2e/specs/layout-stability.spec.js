@@ -814,13 +814,16 @@ test("mobile transaction sheet actions keep navigation reachable", async ({ page
       viewportHeight: window.innerHeight,
     };
   });
-  expect(fabMetrics.position, `transaction add action should be inline, not an overlay: ${JSON.stringify(fabMetrics)}`).toBe("static");
-  expect(fabMetrics.inListHeading, `transaction add action should live in the list heading: ${JSON.stringify(fabMetrics)}`).toBe(true);
+  expect(fabMetrics.position, `transaction add action should stay fixed at the bottom-right: ${JSON.stringify(fabMetrics)}`).toBe("fixed");
+  expect(fabMetrics.inListHeading, `transaction add action should be outside the sticky heading containing block: ${JSON.stringify(fabMetrics)}`).toBe(false);
   expect(fabMetrics.left, `transaction add action should sit in the right half: ${JSON.stringify(fabMetrics)}`).toBeGreaterThan(
     fabMetrics.viewportWidth * 0.5,
   );
-  expect(fabMetrics.right, `transaction add action should be clear of the right edge: ${JSON.stringify(fabMetrics)}`).toBeLessThanOrEqual(
+  expect(fabMetrics.right, `transaction add action should stay inside the right edge: ${JSON.stringify(fabMetrics)}`).toBeLessThanOrEqual(
     fabMetrics.viewportWidth - 8,
+  );
+  expect(fabMetrics.top, `transaction add action should stay in the lower viewport: ${JSON.stringify(fabMetrics)}`).toBeGreaterThan(
+    fabMetrics.viewportHeight * 0.72,
   );
   expect(fabMetrics.width).toBeGreaterThanOrEqual(48);
   expect(fabMetrics.height).toBeGreaterThanOrEqual(48);

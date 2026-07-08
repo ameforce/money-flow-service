@@ -11,10 +11,13 @@ import {
 } from "../support/helpers";
 
 const DESKTOP_PROFILE = { width: 1366, height: 860, font: "Malgun Gothic" };
+const isProfileCompactTransactionUI = (profile) => profile.width <= 820 || profile.ledgerCompact;
 const MOBILE_PROFILES = [
-  { name: "mobile-standard", width: 390, height: 844, font: "Apple SD Gothic Neo" },
+  { name: "mobile-iphone-narrow", width: 320, height: 568, font: "Malgun Gothic" },
   { name: "mobile-narrow", width: 360, height: 740, font: "Malgun Gothic" },
+  { name: "mobile-standard", width: 390, height: 844, font: "Apple SD Gothic Neo" },
   { name: "mobile-android-tall", width: 412, height: 915, font: "Noto Sans KR" },
+  { name: "mobile-landscape-compact", width: 880, height: 500, font: "Malgun Gothic", ledgerCompact: true },
 ];
 
 async function applyFontProfile(page, fontFamily) {
@@ -56,13 +59,85 @@ async function openLedger(page, profile) {
   await expect(page.locator("tr.transaction-row[data-transaction-id]").first()).toBeVisible({ timeout: 20_000 });
 }
 
+async function expectCompactFabKeyboardOrder(page, profileName) {
+  const setup = await page.evaluate(() => {
+    const labelOf = (element) =>
+      element?.getAttribute("data-testid") ||
+      element?.getAttribute("aria-label") ||
+      element?.textContent?.replace(/\s+/g, " ").trim().slice(0, 80) ||
+      element?.tagName ||
+      "";
+    const isFocusable = (element) => {
+      if (!(element instanceof HTMLElement)) {
+        return false;
+      }
+      if (element.matches("[disabled],[aria-disabled='true']") || element.tabIndex < 0) {
+        return false;
+      }
+      const style = getComputedStyle(element);
+      const box = element.getBoundingClientRect();
+      return style.display !== "none" && style.visibility !== "hidden" && box.width > 0 && box.height > 0;
+    };
+    const focusables = Array.from(document.querySelectorAll("a[href],button,input,select,textarea,[tabindex]")).filter(isFocusable);
+    const fab = document.querySelector('[data-testid="transactions-fab"]');
+    const rows = Array.from(document.querySelectorAll("tr.transaction-row[data-transaction-id]")).filter(isFocusable);
+    const fabIndex = focusables.indexOf(fab);
+    const firstRow = rows[0] || null;
+    const firstRowIndex = focusables.indexOf(firstRow);
+    const previous = fabIndex > 0 ? focusables[fabIndex - 1] : null;
+    previous?.focus();
+    return {
+      activeBefore: labelOf(document.activeElement),
+      fabIndex,
+      firstRowId: firstRow?.getAttribute("data-transaction-id") || "",
+      firstRowIndex,
+      previous: labelOf(previous),
+      sample: focusables.slice(Math.max(0, fabIndex - 3), fabIndex + 8).map(labelOf),
+    };
+  });
+  expect(setup.fabIndex, `${profileName} FAB should be tabbable: ${JSON.stringify(setup)}`).toBeGreaterThan(0);
+  expect(setup.firstRowIndex, `${profileName} first row should be tabbable after FAB: ${JSON.stringify(setup)}`).toBeGreaterThan(
+    setup.fabIndex,
+  );
+  await page.keyboard.press("Tab");
+  await expect(page.getByTestId("transactions-fab"), `${profileName} keyboard Tab should reach FAB before ledger rows`).toBeFocused();
+
+  const visited = [];
+  let reachedFirstRow = false;
+  for (let attempt = 0; attempt < 24; attempt += 1) {
+    await page.keyboard.press("Tab");
+    const active = await page.evaluate(() => {
+      const element = document.activeElement;
+      const row = element?.closest?.("tr.transaction-row[data-transaction-id]");
+      return {
+        label:
+          element?.getAttribute("data-testid") ||
+          element?.getAttribute("aria-label") ||
+          element?.textContent?.replace(/\s+/g, " ").trim().slice(0, 80) ||
+          element?.tagName ||
+          "",
+        rowId: row?.getAttribute("data-transaction-id") || "",
+      };
+    });
+    visited.push(active);
+    if (active.rowId) {
+      reachedFirstRow = active.rowId === setup.firstRowId;
+      break;
+    }
+  }
+  expect(reachedFirstRow, `${profileName} first ledger row should be reachable only after FAB: ${JSON.stringify({ setup, visited })}`).toBe(
+    true,
+  );
+}
+
 async function openTransactionEntrySheet(page, profile) {
   await page.setViewportSize({ width: profile.width, height: profile.height });
   await applyFontProfile(page, profile.font);
   await openTab(page, "거래");
   await page.waitForLoadState("networkidle");
-  const addAction =
-    profile.width > 820 ? page.getByTestId("transactions-desktop-add-action") : page.getByTestId("transactions-fab");
+  const addAction = isProfileCompactTransactionUI(profile)
+    ? page.getByTestId("transactions-fab")
+    : page.getByTestId("transactions-desktop-add-action");
   await expect(addAction).toBeVisible();
   await expect(addAction).toBeEnabled();
   await addAction.click();
@@ -156,10 +231,12 @@ test("transaction ledger keeps dense columns, bottom mobile chrome, and quiet se
       columns: columnSpecs.map((spec) => {
         const head = header?.querySelector(spec.head);
         const body = row?.querySelector(spec.body);
+        const headAction = head?.querySelector(".sort-header, .ledger-head-action");
         const headBox = boxOf(head);
         const bodyBox = boxOf(body);
-        const labelBox = boxOf(head?.querySelector(".sort-header") || head);
+        const labelBox = boxOf(headAction || head);
         const style = head ? getComputedStyle(head) : null;
+        const actionStyle = headAction ? getComputedStyle(headAction) : null;
         return {
           key: spec.key,
           headBox,
@@ -167,6 +244,8 @@ test("transaction ledger keeps dense columns, bottom mobile chrome, and quiet se
           labelBox,
           justifyContent: style?.justifyContent || "",
           textAlign: style?.textAlign || "",
+          actionJustifyContent: actionStyle?.justifyContent || "",
+          actionTextAlign: actionStyle?.textAlign || "",
         };
       }),
     };
@@ -194,9 +273,23 @@ test("transaction ledger keeps dense columns, bottom mobile chrome, and quiet se
     expect(column.labelBox, `${column.key} label box should exist: ${JSON.stringify(desktopMetrics)}`).not.toBeNull();
     expectClose(column.headBox.left, column.bodyBox.left, 2, `${column.key} left edge`);
     expectClose(column.headBox.width, column.bodyBox.width, 2.5, `${column.key} width`);
-    expectClose(column.labelBox.centerX, column.headBox.centerX, 1.5, `${column.key} header label center`);
-    expect(column.justifyContent, `${column.key} header should center content: ${JSON.stringify(column)}`).toBe("center");
-    expect(column.textAlign, `${column.key} header should center text: ${JSON.stringify(column)}`).toBe("center");
+    if (column.key === "amount") {
+      expectClose(column.labelBox.right, column.headBox.right, 3, `${column.key} header label right edge`);
+      expect(column.justifyContent, `${column.key} header cell should right-align numeric content: ${JSON.stringify(column)}`).toBe("flex-end");
+      expect(column.textAlign, `${column.key} header cell should right-align numeric text: ${JSON.stringify(column)}`).toBe("right");
+      expect(
+        column.actionJustifyContent,
+        `${column.key} header button should right-align its visible label: ${JSON.stringify(column)}`,
+      ).toBe("flex-end");
+      expect(column.actionTextAlign, `${column.key} header button should right-align text: ${JSON.stringify(column)}`).toBe("right");
+    } else {
+      expectClose(column.labelBox.centerX, column.headBox.centerX, 1.5, `${column.key} header label center`);
+      expect(column.justifyContent, `${column.key} header should center content: ${JSON.stringify(column)}`).toBe("center");
+      expect(column.textAlign, `${column.key} header should center text: ${JSON.stringify(column)}`).toBe("center");
+      if (column.actionJustifyContent) {
+        expect(column.actionJustifyContent, `${column.key} header button should center its visible label: ${JSON.stringify(column)}`).toBe("center");
+      }
+    }
   }
 
   const hoverTarget = page.locator(".transactions-desktop-ledger-head .ledger-head-action").first();
@@ -226,6 +319,7 @@ test("transaction ledger keeps dense columns, bottom mobile chrome, and quiet se
       const row = document.querySelector("tr.transaction-row[data-transaction-id]");
       const amount = row?.querySelector(".transaction-col-amount");
       const action = row?.querySelector(".transaction-col-actions");
+      const cellLabels = Array.from(row?.querySelectorAll("td[data-label]") || []).map((cell) => cell.getAttribute("aria-label") || "");
       const navBox = nav?.getBoundingClientRect();
       const fabBox = fab?.getBoundingClientRect();
       const rowBox = row?.getBoundingClientRect();
@@ -267,8 +361,10 @@ test("transaction ledger keeps dense columns, bottom mobile chrome, and quiet se
               width: fabBox.width,
               height: fabBox.height,
               rightGap: window.innerWidth - fabBox.right,
+              bottomGap: window.innerHeight - fabBox.bottom,
             }
           : null,
+        cellLabels,
         rowHeight: rowBox?.height ?? 0,
         tableDisplay: row?.closest("table") ? getComputedStyle(row.closest("table")).display : "missing",
         tbodyDisplay: row?.parentElement ? getComputedStyle(row.parentElement).display : "missing",
@@ -296,6 +392,10 @@ test("transaction ledger keeps dense columns, bottom mobile chrome, and quiet se
     });
 
     expect(mobileMetrics.nav, `${profile.name} bottom nav should exist: ${JSON.stringify(mobileMetrics)}`).not.toBeNull();
+    expect(
+      mobileMetrics.cellLabels,
+      `${profile.name} mobile cells should expose column labels without relying on hidden table head layout: ${JSON.stringify(mobileMetrics.cellLabels)}`,
+    ).toEqual(expect.arrayContaining(["일자", "유형", "거래자명", "카테고리", "메모", "금액"].map((label) => expect.stringMatching(new RegExp(`^${label}\\s+`)))));
     expect(mobileMetrics.nav.position, `${profile.name} nav should be fixed to the bottom: ${JSON.stringify(mobileMetrics)}`).toBe("fixed");
     expect(
       mobileMetrics.nav.top,
@@ -314,8 +414,8 @@ test("transaction ledger keeps dense columns, bottom mobile chrome, and quiet se
       `${profile.name} nav should stay inside right edge: ${JSON.stringify(mobileMetrics)}`,
     ).toBeLessThanOrEqual(mobileMetrics.viewportWidth - 6);
     expect(mobileMetrics.fab, `${profile.name} FAB should exist: ${JSON.stringify(mobileMetrics)}`).not.toBeNull();
-    expect(mobileMetrics.fab.position, `${profile.name} add action should not overlay the ledger: ${JSON.stringify(mobileMetrics)}`).toBe("static");
-    expect(mobileMetrics.fab.inListHeading, `${profile.name} add action should live in the list heading: ${JSON.stringify(mobileMetrics)}`).toBe(true);
+    expect(mobileMetrics.fab.position, `${profile.name} add action should stay fixed at the bottom-right: ${JSON.stringify(mobileMetrics)}`).toBe("fixed");
+    expect(mobileMetrics.fab.inListHeading, `${profile.name} add action should be outside sticky/filtered heading containing blocks while remaining early in DOM order: ${JSON.stringify(mobileMetrics)}`).toBe(false);
     expect(
       mobileMetrics.fabOverlapsRow,
       `${profile.name} add action should not cover transaction rows: ${JSON.stringify(mobileMetrics)}`,
@@ -326,6 +426,13 @@ test("transaction ledger keeps dense columns, bottom mobile chrome, and quiet se
     ).toBe(false);
     expect(mobileMetrics.fab.width, `${profile.name} FAB touch width: ${JSON.stringify(mobileMetrics)}`).toBeGreaterThanOrEqual(44);
     expect(mobileMetrics.fab.height, `${profile.name} FAB touch height: ${JSON.stringify(mobileMetrics)}`).toBeGreaterThanOrEqual(44);
+    expect(mobileMetrics.fab.rightGap, `${profile.name} FAB should hug the right edge: ${JSON.stringify(mobileMetrics)}`).toBeLessThanOrEqual(20);
+    expect(mobileMetrics.fab.top, `${profile.name} FAB should live below the ledger body area: ${JSON.stringify(mobileMetrics)}`).toBeGreaterThan(
+      mobileMetrics.viewportHeight * (profile.ledgerCompact ? 0.7 : 0.72),
+    );
+    expect(mobileMetrics.fab.bottom, `${profile.name} FAB should stay above bottom navigation: ${JSON.stringify(mobileMetrics)}`).toBeLessThan(
+      mobileMetrics.nav.top - 4,
+    );
     expect(
       mobileMetrics.rowHeight,
       `${profile.name} transaction row should stay dense: ${JSON.stringify(mobileMetrics)}`,
@@ -532,7 +639,7 @@ test("transaction entry sheet keeps date and amount on one compact primary row",
       metrics.dateField.width,
       `${profile.name || "desktop"} date field should not consume a full row: ${JSON.stringify(metrics)}`,
     ).toBeLessThan(metrics.primaryFields.width * 0.62);
-    if (profile.width <= 820) {
+    if (isProfileCompactTransactionUI(profile)) {
       const groupChoice = sheet.getByTestId("transaction-category-group-choice").filter({ hasText: "생활" }).first();
       await expect(groupChoice).toBeVisible();
       await groupChoice.click();
@@ -775,12 +882,15 @@ test("transaction ledger aligns desktop cells and keeps mobile rows compact", as
     await openLedger(page, profile);
     const mobileMetrics = await page.locator("tr.transaction-row", { hasText: `${memoPrefix}-00` }).first().evaluate((row) => {
       const head = document.querySelector(".transactions-mobile-ledger-head");
+      const fab = document.querySelector('[data-testid="transactions-fab"]');
       const toolbar = document.querySelector("[data-testid='transaction-sticky-toolbar']");
       const rowBox = row.getBoundingClientRect();
       const memo = row.querySelector(".transaction-col-memo");
       const memoText = row.querySelector(".transaction-memo-text");
       const amount = row.querySelector(".transaction-col-amount");
       const amountText = amount?.querySelector(".transaction-amount-text");
+      const type = row.querySelector(".transaction-col-type");
+      const typeBadge = type?.querySelector(".transaction-flow-short");
       const table = row.closest(".transactions-surface-table");
       const listCard = row.closest(".transaction-list-card");
       const headerFit = (selector) => {
@@ -798,9 +908,8 @@ test("transaction ledger aligns desktop cells and keeps mobile rows compact", as
         return style.display !== "none" && style.visibility !== "hidden" && box.width > 0 && box.height > 0;
       });
       const headBox = head?.getBoundingClientRect();
-      const boxOf = (element) => {
-        const box = element?.getBoundingClientRect();
-        return box
+      const rectBox = (box) =>
+        box
           ? {
               top: box.top,
               bottom: box.bottom,
@@ -808,15 +917,28 @@ test("transaction ledger aligns desktop cells and keeps mobile rows compact", as
               right: box.right,
               width: box.width,
               height: box.height,
+              centerX: box.left + box.width / 2,
               centerY: box.top + box.height / 2,
             }
           : null;
+      const boxOf = (element) => rectBox(element?.getBoundingClientRect());
+      const textBoxOf = (element) => {
+        if (!element) {
+          return null;
+        }
+        const target = element.querySelector?.(":scope > span") || element;
+        const range = document.createRange();
+        range.selectNodeContents(target);
+        const box = rectBox(range.getBoundingClientRect());
+        range.detach?.();
+        return box;
       };
       const countSummary = toolbar?.querySelector(".surface-count-summary");
       const listCardStyle = listCard ? getComputedStyle(listCard) : null;
       const cellBox = (selector) => boxOf(row.querySelector(selector));
       return {
         viewportWidth: document.documentElement.clientWidth,
+        fabBeforeFirstRow: Boolean(fab && row && (fab.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING)),
         rowHeight: rowBox.height,
         rowDisplay: getComputedStyle(row).display,
         rowGridAreas: getComputedStyle(row).gridTemplateAreas,
@@ -830,6 +952,18 @@ test("transaction ledger aligns desktop cells and keeps mobile rows compact", as
         amountWidth: amount?.getBoundingClientRect().width || 0,
         amountTextWidth: amountText?.getBoundingClientRect().width || 0,
         amountTextScrollWidth: amountText?.scrollWidth || 0,
+        typeBadge: typeBadge
+          ? {
+              text: typeBadge.textContent?.replace(/\s+/g, " ").trim() || "",
+              width: typeBadge.getBoundingClientRect().width,
+              clientWidth: typeBadge.clientWidth,
+              scrollWidth: typeBadge.scrollWidth,
+              height: typeBadge.getBoundingClientRect().height,
+              fontSize: Number.parseFloat(getComputedStyle(typeBadge).fontSize || "0"),
+              lineHeight: Number.parseFloat(getComputedStyle(typeBadge).lineHeight || "0"),
+              cellWidth: type?.getBoundingClientRect().width || 0,
+            }
+          : null,
         columnWidths: {
           date: cellBox(".transaction-col-date")?.width || 0,
           type: cellBox(".transaction-col-type")?.width || 0,
@@ -846,6 +980,26 @@ test("transaction ledger aligns desktop cells and keeps mobile rows compact", as
           memo: { head: boxOf(head?.querySelector(".ledger-head-main")), body: cellBox(".transaction-col-memo") },
           amount: { head: boxOf(head?.querySelector(".ledger-head-amount")), body: cellBox(".transaction-col-amount") },
         },
+        headerHorizontalDeltas: Object.entries({
+          date: ".ledger-head-date",
+          type: ".ledger-head-cues",
+          owner: ".ledger-head-owner",
+          category: ".ledger-head-category",
+          memo: ".ledger-head-main",
+          amount: ".ledger-head-amount",
+        }).map(([key, selector]) => {
+          const item = head?.querySelector(selector);
+          const cell = boxOf(item);
+          const label = textBoxOf(item);
+          return {
+            key,
+            text: item?.textContent?.replace(/\s+/g, " ").trim() || "",
+            delta: cell && label ? Math.abs(label.centerX - cell.centerX) : Number.POSITIVE_INFINITY,
+            rightDelta: cell && label ? Math.abs(label.right - cell.right) : Number.POSITIVE_INFINITY,
+            cell,
+            label,
+          };
+        }),
         dateHeadText: head?.querySelector(".ledger-head-date")?.textContent?.replace(/\s+/g, " ").trim() || "",
         labelFits: {
           owner: headerFit(".ledger-head-owner"),
@@ -908,13 +1062,54 @@ test("transaction ledger aligns desktop cells and keeps mobile rows compact", as
       `${profile.name} header labels should be vertically centered: ${JSON.stringify(mobileMetrics.headerCenterDeltas)}`,
     ).toBe(true);
     expect(
+      mobileMetrics.headerHorizontalDeltas.filter((item) => item.key !== "amount").every((item) => item.delta <= 2.5),
+      `${profile.name} non-amount header labels should be horizontally centered: ${JSON.stringify(mobileMetrics.headerHorizontalDeltas)}`,
+    ).toBe(true);
+    expect(
+      mobileMetrics.headerHorizontalDeltas.find((item) => item.key === "amount")?.rightDelta,
+      `${profile.name} amount header should right-align with numeric values: ${JSON.stringify(mobileMetrics.headerHorizontalDeltas)}`,
+    ).toBeLessThanOrEqual(3);
+    expect(
       mobileMetrics.listCardBottomPadding,
       `${profile.name} transaction card should not reserve obsolete floating-FAB whitespace below the table: ${JSON.stringify(mobileMetrics)}`,
     ).toBeLessThanOrEqual(24);
+    expect(mobileMetrics.typeBadge, `${profile.name} type badge should exist: ${JSON.stringify(mobileMetrics)}`).not.toBeNull();
+    expect(
+      mobileMetrics.fabBeforeFirstRow,
+      `${profile.name} compact add action should stay before tabbable ledger rows in DOM order: ${JSON.stringify(mobileMetrics)}`,
+    ).toBe(true);
+    if (profile.name === "mobile-standard" || profile.name === "mobile-landscape-compact") {
+      await expectCompactFabKeyboardOrder(page, profile.name);
+    }
+    expect(mobileMetrics.typeBadge.text, `${profile.name} type badge should show the flow label: ${JSON.stringify(mobileMetrics.typeBadge)}`).toBe("지출");
+    expect(
+      mobileMetrics.typeBadge.scrollWidth,
+      `${profile.name} type badge should not clip: ${JSON.stringify(mobileMetrics.typeBadge)}`,
+    ).toBeLessThanOrEqual(mobileMetrics.typeBadge.clientWidth + 1);
+    expect(
+      mobileMetrics.typeBadge.width,
+      `${profile.name} type badge should visibly fill its allocated type column: ${JSON.stringify(mobileMetrics.typeBadge)}`,
+    ).toBeGreaterThanOrEqual(Math.min(38, mobileMetrics.typeBadge.cellWidth * 0.68));
+    expect(
+      mobileMetrics.typeBadge.fontSize,
+      `${profile.name} type badge font size should remain readable: ${JSON.stringify(mobileMetrics.typeBadge)}`,
+    ).toBeGreaterThanOrEqual(10);
+    expect(
+      mobileMetrics.typeBadge.height,
+      `${profile.name} type badge height should remain touch-readable: ${JSON.stringify(mobileMetrics.typeBadge)}`,
+    ).toBeGreaterThanOrEqual(20);
+    expect(
+      mobileMetrics.amountWidth,
+      `${profile.name} amount column should not over-reserve scarce mobile width: ${JSON.stringify(mobileMetrics.columnWidths)}`,
+    ).toBeLessThanOrEqual(profile.width <= 360 ? 66 : 70);
     expect(
       mobileMetrics.memoWidth,
-      `${profile.name} memo text column should keep a visible table slot: ${JSON.stringify(mobileMetrics)}`,
-    ).toBeGreaterThanOrEqual(profile.width <= 360 ? 44 : 56);
+      `${profile.name} memo text column should gain the reclaimed type/amount space: ${JSON.stringify(mobileMetrics)}`,
+    ).toBeGreaterThanOrEqual(profile.width <= 340 ? 40 : profile.width <= 360 ? 70 : 96);
+    expect(
+      mobileMetrics.memoWidth,
+      `${profile.name} memo should remain wider than the amount slot: ${JSON.stringify(mobileMetrics.columnWidths)}`,
+    ).toBeGreaterThan(mobileMetrics.amountWidth * (profile.width <= 340 ? 0.8 : 1.15));
     expect(
       mobileMetrics.amountTextScrollWidth,
       `${profile.name} amount text should fit without clipping: ${JSON.stringify(mobileMetrics)}`,
