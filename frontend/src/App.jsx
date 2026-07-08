@@ -4597,9 +4597,6 @@ function App() {
 
   useEffect(() => {
     if (!txForm.category_id) {
-      if (!categoryMajorOptions.includes(txCategoryMajor)) {
-        setTxCategoryMajor("");
-      }
       return;
     }
     const selected = categoryById.get(String(txForm.category_id || ""));
@@ -4607,7 +4604,7 @@ function App() {
     if (nextMajor !== txCategoryMajor) {
       setTxCategoryMajor(nextMajor);
     }
-  }, [categoryById, categoryMajorOptions, txCategoryMajor, txForm.category_id]);
+  }, [categoryById, txCategoryMajor, txForm.category_id]);
 
   useEffect(() => {
     setSavedTabId(tab);
