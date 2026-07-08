@@ -16,14 +16,14 @@ export function TransactionListCard({
   ownerHelpers,
   formatters,
 }) {
-  const { isCompactViewport } = permissions;
+  const { isCompactViewport, isLedgerCompactViewport = isCompactViewport } = permissions;
   const { transactionListCardRef } = listRefs;
   const {
     updateShowTransactionFilterPanel,
     updateTransactionFilterFocusTarget,
   } = listActions;
   const requestTransactionFilterPanel = (focusTarget) => {
-    if (isCompactViewport) {
+    if (isLedgerCompactViewport) {
       return;
     }
     updateTransactionFilterFocusTarget?.(focusTarget);

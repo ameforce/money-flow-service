@@ -3289,7 +3289,8 @@ function App() {
   }, [household?.id, householdRole, token]);
 
   useEffect(() => {
-    if (!user?.id || !household?.id) {
+    const canShowOnboardingGuide = householdRole === "owner" || householdRole === "co_owner" || householdRole === "editor";
+    if (!user?.id || !household?.id || !canShowOnboardingGuide) {
       setShowOnboardingGuide(false);
       return;
     }
@@ -3300,7 +3301,7 @@ function App() {
       return;
     }
     setShowOnboardingGuide(true);
-  }, [user?.id, household?.id, transactions.length, holdings.length]);
+  }, [user?.id, household?.id, householdRole, transactions.length, holdings.length]);
 
   useEffect(() => {
     if (transactions.length > 0) {
@@ -3706,7 +3707,7 @@ function App() {
   ]);
 
   useEffect(() => {
-    if (!isCompactViewport || tab !== "transactions") {
+    if (!isTransactionLedgerCompactViewport || tab !== "transactions") {
       setTransactionsMobileStickyActive(false);
       return undefined;
     }
@@ -3734,7 +3735,7 @@ function App() {
       window.removeEventListener("scroll", updateStickyState);
       window.removeEventListener("resize", updateStickyState);
     };
-  }, [isCompactViewport, tab, sortedTransactions.length]);
+  }, [isTransactionLedgerCompactViewport, tab, sortedTransactions.length]);
 
   useEffect(() => {
     if (typeof window === "undefined" || tab !== "transactions") {
@@ -6277,12 +6278,16 @@ function App() {
     );
   }
 
+  function notifyTransactionEditPermissionDenied() {
+    setMessage(uiGuideMessage("현재 권한으로는 거래를 수정할 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
+  }
+
   function openTransactionInlineEditor(item) {
     if (!item) {
       return;
     }
     if (!canEditRecords) {
-      setMessage(uiGuideMessage("현재 권한으로는 거래를 수정할 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
+      notifyTransactionEditPermissionDenied();
       return;
     }
     const category = categoryById.get(String(item.category_id || ""));
@@ -6336,7 +6341,7 @@ function App() {
       return;
     }
     const draft = createAnchoredTransactionDraft(singleSelectedTransaction, position);
-    if (isCompactViewport) {
+    if (isTransactionLedgerCompactViewport) {
       setTxForm(draft);
       setTxFormErrors(createTransactionFormErrors());
       setTxCategoryMajor(draft.category_major || "");
@@ -6989,6 +6994,12 @@ function App() {
   }
 
   function startOnboardingFlow() {
+    if (!canEditRecords) {
+      setShowOnboardingGuide(false);
+      setTab("transactions");
+      notifyTransactionEditPermissionDenied();
+      return;
+    }
     dismissOnboardingGuide();
     setShowTransactionEntryBanner(true);
     setTab("transactions");
@@ -10236,6 +10247,7 @@ function App() {
       handleTransactionAmountInput,
       handleTxInlineEditKeyDown,
       openTransactionInlineEditor,
+      notifyTransactionEditPermissionDenied,
       submitTxInlineEdit,
       txInlineEdit,
       txInlineEditSubmitting,

@@ -6,7 +6,6 @@ import {
   capture,
   expectNoHorizontalOverflow,
   labeledField,
-  openTransactionEntryForm,
   openTab,
   registerAndVerify,
   unique,
@@ -260,31 +259,32 @@ test("collaboration flow: invite, accept, switch household, responsive", async (
     await switchHouseholdButton.click();
     await expect(guestCollaborationCard.locator(".table-summary").first()).toContainText(ownerHouseholdName);
 
-    const { container: txEntry, close: closeTxEntry } = await openTransactionEntryForm(guestPage);
-    const txSubmitButton = txEntry.getByRole("button", { name: "거래 등록" });
-    const txSubmitDisabled = await txSubmitButton.isDisabled().catch(() => false);
-    if (txSubmitDisabled) {
-      await closeTxEntry();
-      await openTab(guestPage, "자산");
-      const holdingCard = guestPage.locator("article.card", {
-        has: guestPage.getByRole("heading", { name: "자산 입력" }),
-      });
-      const holdingToggleButton = holdingCard.getByRole("button", { name: /자산 추가|입력 닫기/ }).first();
-      const holdingToggleVisible = await holdingToggleButton.isVisible().catch(() => false);
-      if (holdingToggleVisible) {
-        const holdingToggleText = String((await holdingToggleButton.textContent()) || "");
-        if (holdingToggleText.includes("자산 추가")) {
-          await holdingToggleButton.click();
-        }
+    await openTab(guestPage, "거래");
+    const guestDesktopTransactionAddAction = guestPage.getByTestId("transactions-desktop-add-action");
+    await expect(guestDesktopTransactionAddAction).toBeVisible();
+    await expect(guestDesktopTransactionAddAction).toBeDisabled();
+    await expect(guestPage.locator(".onboarding-guide")).toHaveCount(0);
+    await expect(
+      guestPage.locator("article.card", { has: guestPage.getByRole("heading", { name: "거래 목록" }) }),
+      "viewer should see the transaction shell instead of a blank/onboarding-only state",
+    ).toBeVisible();
+    await expect(guestPage.getByTestId("transaction-entry-sheet")).toHaveCount(0);
+    await openTab(guestPage, "자산");
+    const holdingCard = guestPage.locator("article.card", {
+      has: guestPage.getByRole("heading", { name: "자산 입력" }),
+    });
+    const holdingToggleButton = holdingCard.getByRole("button", { name: /자산 추가|입력 닫기/ }).first();
+    const holdingToggleVisible = await holdingToggleButton.isVisible().catch(() => false);
+    if (holdingToggleVisible) {
+      const holdingToggleText = String((await holdingToggleButton.textContent()) || "");
+      if (holdingToggleText.includes("자산 추가")) {
+        await holdingToggleButton.click();
       }
-      await expect(holdingCard.getByRole("button", { name: "자산 등록" })).toBeDisabled();
-      await openTab(guestPage, "데이터 가져오기");
-      await expect(guestPage.getByRole("button", { name: "미리 검증", exact: true })).toBeDisabled();
-      await expect(guestPage.getByRole("button", { name: "적용", exact: true })).toBeDisabled();
-    } else {
-      await expect(txSubmitButton).toBeEnabled();
-      await closeTxEntry();
     }
+    await expect(holdingCard.getByRole("button", { name: "자산 등록" })).toBeDisabled();
+    await openTab(guestPage, "데이터 가져오기");
+    await expect(guestPage.getByRole("button", { name: "미리 검증", exact: true })).toBeDisabled();
+    await expect(guestPage.getByRole("button", { name: "적용", exact: true })).toBeDisabled();
 
     const ownerMembersCard = ownerPage.locator("article.card", {
       has: ownerPage.getByRole("heading", { name: "멤버 목록" }),
