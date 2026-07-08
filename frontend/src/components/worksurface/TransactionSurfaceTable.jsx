@@ -4,6 +4,13 @@ import { IsoDateInput } from "../IsoDateInput";
 import { TransactionCategoryQuickPicker } from "./TransactionCategoryQuickPicker";
 import { resolveSemanticColor, withAlpha } from "./colorSemantics";
 import { TRANSACTION_SURFACE_FIELDS, getWorkSurfaceMobilePriority } from "./fieldPriority";
+const MOBILE_FILTER_FOCUS_SELECTORS = {
+  amount: "[aria-label='최소 금액']",
+  date: "[aria-label='시작일']",
+  memo: "[aria-label='메모']",
+  type: "[aria-label='유형']",
+};
+
 
 function formatCompactDate(value) {
   const trimmed = String(value || "").trim();
@@ -130,6 +137,7 @@ export function TransactionSurfaceTable({
   setTxInlineEdit,
   createTxInlineCategory,
   openTransactionInlineEditor,
+  notifyTransactionEditPermissionDenied,
   categoryById,
   renderCategoryCell,
   FLOW_TYPE_LABELS,
@@ -167,10 +175,25 @@ export function TransactionSurfaceTable({
   const categoryColors = householdSettings?.holding_settings?.category_colors || {};
   const transactionMobilePriority = (fieldKey) => getWorkSurfaceMobilePriority("transactions", fieldKey);
   const allCategoryOptions = Array.from(categoryById?.values?.() || []);
+  const mobileLedgerMeasurementKey = sortedTransactions
+    .slice(0, 1)
+    .map((item) =>
+      [
+        item?.id,
+        item?.flow_type,
+        item?.owner_name,
+        item?.category_id,
+        item?.memo,
+        item?.amount,
+        item?.updated_at,
+      ].join("|")
+    )
+    .join("");
   const inlineEditorDisabled = !canEditRecords || txInlineEditSubmitting;
   const [mobileFilterKey, setMobileFilterKey] = useState("");
   const mobileLedgerHeadRef = useRef(null);
   const mobileFilterPanelRef = useRef(null);
+  const mobileFilterTriggerRef = useRef(null);
   const rowPointerGestureRef = useRef(null);
   const suppressNextRowClickRef = useRef(false);
   const rowClickSuppressTimerRef = useRef(null);
@@ -195,40 +218,59 @@ export function TransactionSurfaceTable({
       const height = Math.ceil(element?.getBoundingClientRect?.().height || 0);
       return Number.isFinite(height) && height > 0 ? height : 0;
     };
-    const applyMeasuredStickyHeights = () => {
+    const applyMeasuredMobileLedgerLayout = () => {
       const ledgerHeadHeight = measureElementHeight(ledgerHead);
       const filterPanelHeight = mobileFilterKey ? measureElementHeight(mobileFilterPanelRef.current) : 0;
+      const row = listCard.querySelector("tr.transaction-row[data-transaction-id]");
+      const measuredColumns = [
+        ".transaction-col-date",
+        ".transaction-col-type",
+        ".transaction-col-owner",
+        ".transaction-col-category",
+        ".transaction-col-memo",
+        ".transaction-col-amount",
+      ]
+        .map((selector) => row?.querySelector(selector)?.getBoundingClientRect?.().width || 0)
+        .filter((width) => Number.isFinite(width) && width > 0);
       listCard.style.setProperty("--surface-ledger-head-height", `${ledgerHeadHeight}px`);
       listCard.style.setProperty("--tx-ledger-filter-panel-height", `${filterPanelHeight}px`);
+      if (measuredColumns.length === 6) {
+        ledgerHead.style.setProperty(
+          "--transaction-mobile-ledger-columns",
+          measuredColumns.map((width) => `${width}px`).join(" ")
+        );
+      } else {
+        ledgerHead.style.removeProperty("--transaction-mobile-ledger-columns");
+      }
     };
-    const scheduleMeasuredStickyHeights = () => {
+    const scheduleMeasuredMobileLedgerLayout = () => {
       if (frameId) {
         window.cancelAnimationFrame(frameId);
       }
       frameId = window.requestAnimationFrame(() => {
         frameId = 0;
-        applyMeasuredStickyHeights();
+        applyMeasuredMobileLedgerLayout();
       });
     };
 
-    applyMeasuredStickyHeights();
+    applyMeasuredMobileLedgerLayout();
 
     const resizeObserver =
-      typeof window.ResizeObserver === "function" ? new window.ResizeObserver(scheduleMeasuredStickyHeights) : null;
+      typeof window.ResizeObserver === "function" ? new window.ResizeObserver(scheduleMeasuredMobileLedgerLayout) : null;
     resizeObserver?.observe(ledgerHead);
     if (mobileFilterPanelRef.current) {
       resizeObserver?.observe(mobileFilterPanelRef.current);
     }
-    window.addEventListener("resize", scheduleMeasuredStickyHeights);
+    window.addEventListener("resize", scheduleMeasuredMobileLedgerLayout);
 
     return () => {
       if (frameId) {
         window.cancelAnimationFrame(frameId);
       }
       resizeObserver?.disconnect();
-      window.removeEventListener("resize", scheduleMeasuredStickyHeights);
+      window.removeEventListener("resize", scheduleMeasuredMobileLedgerLayout);
     };
-  }, [mobileFilterKey, mobileStickyActive, sortedTransactions.length]);
+  }, [mobileFilterKey, mobileLedgerMeasurementKey, mobileStickyActive, sortedTransactions.length]);
 
   useEffect(() => {
     const stopAutoScroll = () => {
@@ -727,9 +769,37 @@ export function TransactionSurfaceTable({
     }
     updateTxListFilter({ [field]: event.target.value });
   };
-  const openMobileFilter = (key) => {
-    setMobileFilterKey((current) => (current === key ? "" : key));
+  const openMobileFilter = (key, triggerElement = null) => {
+    setMobileFilterKey((current) => {
+      const nextKey = current === key ? "" : key;
+      if (nextKey) {
+        mobileFilterTriggerRef.current = triggerElement;
+      }
+      return nextKey;
+    });
   };
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+    if (!mobileFilterKey) {
+      mobileFilterTriggerRef.current?.focus?.({ preventScroll: true });
+      mobileFilterTriggerRef.current = null;
+      return undefined;
+    }
+    const frameId = window.requestAnimationFrame(() => {
+      const panel = mobileFilterPanelRef.current;
+      const targetSelector = MOBILE_FILTER_FOCUS_SELECTORS[mobileFilterKey];
+      const firstControl = (
+        targetSelector ? panel?.querySelector(targetSelector) : null
+      ) || panel?.querySelector("input, select, button");
+      firstControl?.focus?.({ preventScroll: true });
+    });
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [mobileFilterKey]);
   const mobileFilterLabelByKey = {
     date: "일자",
     memo: "메모",
@@ -764,7 +834,7 @@ export function TransactionSurfaceTable({
         aria-label={`${label} 필터 ${isOpen ? "닫기" : "열기"}`}
         aria-expanded={isOpen ? "true" : "false"}
         aria-controls="tx-ledger-filter-panel"
-        onClick={() => openMobileFilter(keyName)}
+        onClick={(event) => openMobileFilter(keyName, event.currentTarget)}
       >
         <span>{label}</span>
         {active && <span className="ledger-head-filter-indicator" aria-hidden="true" />}
@@ -974,13 +1044,13 @@ export function TransactionSurfaceTable({
           aria-label="거래 작업 표"
         >
           <colgroup>
-            <col className="transaction-col-date" />
-            <col className="transaction-col-type" />
-            <col className="transaction-col-owner" />
-            <col className="transaction-col-category" />
+            <col className="transaction-col-date" style={{ width: "var(--tx-col-date)" }} />
+            <col className="transaction-col-type" style={{ width: "var(--tx-col-type)" }} />
+            <col className="transaction-col-owner" style={{ width: "var(--tx-col-owner)" }} />
+            <col className="transaction-col-category" style={{ width: "var(--tx-col-category)" }} />
             <col className="transaction-col-memo" />
-            <col className="transaction-col-amount" />
-            <col className="transaction-col-updated" />
+            <col className="transaction-col-amount" style={{ width: "var(--tx-col-amount)" }} />
+            <col className="transaction-col-updated" style={{ width: "var(--tx-col-updated)" }} />
           </colgroup>
           <thead>
             <tr>
@@ -1088,13 +1158,17 @@ export function TransactionSurfaceTable({
               });
             };
             const handleRowDoubleClick = (event) => {
-              if (isEditing || isInteractiveRowTarget(event.target) || typeof openTransactionInlineEditor !== "function") {
+              if (isEditing || loading || isInteractiveRowTarget(event.target) || typeof openTransactionInlineEditor !== "function") {
                 return;
               }
               event.preventDefault();
               event.stopPropagation();
               clearPendingRowClickAction({ preserveFiredRecord: true });
               restoreFiredRowClickAction(item.id);
+              if (!canEditRecords) {
+                notifyTransactionEditPermissionDenied?.();
+                return;
+              }
               openTransactionInlineEditor(item);
             };
             const handleRowKeyDown = (event) => {
@@ -1111,14 +1185,18 @@ export function TransactionSurfaceTable({
                 toggleExpandedTransactionRow(item.id);
                 return;
               }
-              if (typeof openTransactionInlineEditor !== "function") {
+              if (event.key !== "Enter" && event.key !== "F2") {
                 return;
               }
-              if (event.key !== "Enter" && event.key !== "F2") {
+              if (loading || typeof openTransactionInlineEditor !== "function") {
                 return;
               }
               event.preventDefault();
               clearPendingRowClickAction();
+              if (!canEditRecords) {
+                notifyTransactionEditPermissionDenied?.();
+                return;
+              }
               openTransactionInlineEditor(item);
             };
             const rowEditShortcutLabel = canEditRecords ? "Enter 또는 F2로 편집" : "편집 권한 없음";
@@ -1399,11 +1477,11 @@ export function TransactionSurfaceTable({
                     "--transaction-owner-chip-ring": withAlpha(ownerColor, 0.22),
                   }}
                 >
-                  <td data-label="일자" className="transaction-col-date" data-field-key="occurred_on" data-mobile-priority={transactionMobilePriority("occurred_on")}>
+                  <td data-label="일자" aria-label={`일자 ${item.occurred_on}`} className="transaction-col-date" data-field-key="occurred_on" data-mobile-priority={transactionMobilePriority("occurred_on")}>
                     <span className="desktop-date-text">{item.occurred_on}</span>
                     <span className="mobile-date-text">{formatCompactDate(item.occurred_on)}</span>
                   </td>
-                  <td data-label="유형" className="transaction-col-type" data-field-key="flow_type" data-mobile-priority={transactionMobilePriority("flow_type")}>
+                  <td data-label="유형" aria-label={`유형 ${flowLabel}`} className="transaction-col-type" data-field-key="flow_type" data-mobile-priority={transactionMobilePriority("flow_type")}>
                     <span className={`transaction-flow-badge transaction-flow-full transaction-flow-${item.flow_type}`}>
                       {flowLabel}
                     </span>
@@ -1415,7 +1493,7 @@ export function TransactionSurfaceTable({
                       {flowShortLabel}
                     </span>
                   </td>
-                  <td data-label="거래자명" className="transaction-col-owner transaction-mobile-detail-cell" data-field-key="owner_name" data-mobile-priority={transactionMobilePriority("owner_name")}>
+                  <td data-label="거래자명" aria-label={`거래자명 ${ownerSummaryLabel}`} className="transaction-col-owner transaction-mobile-detail-cell" data-field-key="owner_name" data-mobile-priority={transactionMobilePriority("owner_name")}>
                     <span
                       className={ownerCompactLabel ? "transaction-owner-compact" : "transaction-owner-compact transaction-owner-compact-empty"}
                       title={ownerSummaryLabel}
@@ -1431,23 +1509,23 @@ export function TransactionSurfaceTable({
                     <span className="transaction-mobile-detail-label">거래자명</span>
                     <div className="transaction-mobile-detail-value">{ownerNameLabel || "-"}</div>
                   </td>
-                  <td data-label="카테고리" className="transaction-col-category transaction-mobile-detail-cell" data-field-key="category" data-mobile-priority={transactionMobilePriority("category")}>
+                  <td data-label="카테고리" aria-label={`카테고리 ${fullCategoryLabel}`} className="transaction-col-category transaction-mobile-detail-cell" data-field-key="category" data-mobile-priority={transactionMobilePriority("category")}>
                     <span className="transaction-desktop-category-cue" title={fullCategoryLabel} aria-label={`카테고리 ${fullCategoryLabel}`}>{compactCategoryLabel}</span>
                     <span className="transaction-mobile-category-cue">{compactCategoryLabel}</span>
                     <span className="transaction-mobile-detail-label">카테고리</span>
                     <div className="transaction-mobile-detail-value">{renderCategoryCell(category)}</div>
                   </td>
-                  <td data-label="메모" className="transaction-col-memo" data-field-key="memo" data-mobile-priority={transactionMobilePriority("memo")}>
+                  <td data-label="메모" aria-label={`메모 ${item.memo || "-"}`} className="transaction-col-memo" data-field-key="memo" data-mobile-priority={transactionMobilePriority("memo")}>
                     <span className="transaction-memo-text" title={item.memo || "-"} aria-label={`메모 ${item.memo || "-"}`}>
                       {item.memo || "-"}
                     </span>
                   </td>
-                  <td data-label="금액" className="transaction-col-amount" data-field-key="amount" data-mobile-priority={transactionMobilePriority("amount")}>
+                  <td data-label="금액" aria-label={`금액 ${amountLabel}`} className="transaction-col-amount" data-field-key="amount" data-mobile-priority={transactionMobilePriority("amount")}>
                     <span className={`transaction-amount-text${isWideAmount ? " transaction-amount-text-wide" : ""}`}>
                       {amountLabel}
                     </span>
                   </td>
-                  <td data-label="최종 수정일" className="transaction-col-updated transaction-mobile-detail-cell" data-field-key="updated_at" data-mobile-priority={transactionMobilePriority("updated_at")}>
+                  <td data-label="최종 수정일" aria-label={`최종 수정일 ${fmtDate(item.updated_at)}`} className="transaction-col-updated transaction-mobile-detail-cell" data-field-key="updated_at" data-mobile-priority={transactionMobilePriority("updated_at")}>
                     <span className="transaction-mobile-detail-label">최종 수정일</span>
                     <div className="transaction-mobile-detail-value">{fmtDate(item.updated_at)}</div>
                   </td>

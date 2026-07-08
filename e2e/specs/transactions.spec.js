@@ -397,6 +397,8 @@ async function expectTransactionAddActionReachable(page, label = "transaction ad
         bottom: box.bottom,
         width: box.width,
         height: box.height,
+        bottomGap: window.innerHeight - box.bottom,
+        rightGap: window.innerWidth - box.right,
       },
       viewportWidth: window.innerWidth,
       viewportHeight: window.innerHeight,
@@ -407,19 +409,22 @@ async function expectTransactionAddActionReachable(page, label = "transaction ad
       scrollY: window.scrollY,
     };
   });
-  expect(metrics.position, `${label} should be inline, not a fixed overlay: ${JSON.stringify(metrics)}`).toBe("static");
-  expect(metrics.inListHeading, `${label} should live in the transaction list heading: ${JSON.stringify(metrics)}`).toBe(true);
+  expect(metrics.position, `${label} should stay fixed at the bottom-right: ${JSON.stringify(metrics)}`).toBe("fixed");
+  expect(metrics.inListHeading, `${label} should be outside the sticky heading containing block: ${JSON.stringify(metrics)}`).toBe(false);
   expect(metrics.box.width, `${label} width should remain touch-friendly: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(48);
   expect(metrics.box.height, `${label} height should remain touch-friendly: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(48);
   expect(metrics.box.right, `${label} should stay inside right viewport edge: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(
     metrics.viewportWidth - 8,
   );
-  expect(metrics.box.left, `${label} should stay in the right half: ${JSON.stringify(metrics)}`).toBeGreaterThan(
-    metrics.viewportWidth * 0.5,
+  expect(metrics.box.rightGap, `${label} should sit near the right edge: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(20);
+  expect(metrics.box.top, `${label} should live in the lower screen, not the sticky heading: ${JSON.stringify(metrics)}`).toBeGreaterThan(
+    metrics.viewportHeight * 0.72,
   );
-  expect(metrics.box.top, `${label} should remain reachable after scroll: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(0);
+  expect(metrics.box.bottom, `${label} should remain above the mobile bottom chrome: ${JSON.stringify(metrics)}`).toBeLessThan(
+    metrics.viewportHeight - 48,
+  );
   expect(metrics.hitTargetIsFab, `${label} should be topmost at its center: ${JSON.stringify(metrics)}`).toBe(true);
-  expect(metrics.overlapsToolbar, `${label} should belong to the sticky toolbar: ${JSON.stringify(metrics)}`).toBe(true);
+  expect(metrics.overlapsToolbar, `${label} should not belong to or cover the sticky toolbar: ${JSON.stringify(metrics)}`).toBe(false);
   expect(metrics.overlapsLedgerHead, `${label} should not cover the mobile ledger head: ${JSON.stringify(metrics)}`).toBe(false);
   expect(metrics.overlapsFirstRow, `${label} should not cover transaction rows: ${JSON.stringify(metrics)}`).toBe(false);
 }
@@ -620,7 +625,8 @@ async function selectTransactionRowForToolbar(page, row, { expectedCount = 1 } =
   await row.evaluate((element) => element.scrollIntoView({ block: "center", inline: "nearest" }));
   if ((await row.getAttribute("data-row-selected")) !== "true") {
     const viewport = page.viewportSize();
-    if ((viewport?.width ?? 0) <= 820) {
+    const isLedgerCompactViewport = (viewport?.width ?? 0) <= 820 || ((viewport?.width ?? 0) <= 900 && (viewport?.height ?? 0) <= 520);
+    if (isLedgerCompactViewport) {
       await longPressTransactionRow(page, row);
     }
     const selectionTargets = [
@@ -642,7 +648,7 @@ async function selectTransactionRowForToolbar(page, row, { expectedCount = 1 } =
     if ((await row.getAttribute("data-row-selected")) !== "true") {
       await row.focus();
       await expect(row).toBeFocused();
-      await page.keyboard.press((viewport?.width ?? 0) <= 820 ? "Shift+Space" : "Space");
+      await page.keyboard.press(isLedgerCompactViewport ? "Shift+Space" : "Space");
     }
   }
   await expect(row).toHaveAttribute("data-row-selected", "true");
@@ -2521,14 +2527,38 @@ test("transaction ledger stays readable in landscape compact width", async ({ pa
   ).toBeLessThanOrEqual(1);
   await expectNoHorizontalOverflow(page, 12);
 
-  await page.setViewportSize({ width: 812, height: 375 });
+  await page.setViewportSize({ width: 880, height: 500 });
   await openTab(page, "거래");
   await page.waitForTimeout(250);
-  await expectMobileTransactionFilterTriggersSeparated(page, "812px landscape transaction ledger");
+  await expectMobileTransactionFilterTriggersSeparated(page, "880px landscape transaction ledger");
+
+  const landscapeInsertRow = page.locator("tr.transaction-row", { hasText: memo }).first();
+  await selectTransactionRowForToolbar(page, landscapeInsertRow);
+  await page.getByTestId("transaction-selection-insert-below").click();
+  const landscapeInsertSheet = page.getByTestId("transaction-entry-sheet");
+  await expect(landscapeInsertSheet).toBeVisible();
+  await expect(page.locator("tr.transaction-inline-editor-row")).toHaveCount(0);
+  await page.getByTestId("transaction-entry-sheet-close").click();
+  await expect(landscapeInsertSheet).toBeHidden();
+  await page.getByRole("button", { name: "선택 해제" }).click();
 
   const landscapeLedgerHead = page.locator(".transactions-mobile-ledger-head").first();
-  await landscapeLedgerHead.getByRole("button", { name: "유형 필터 열기" }).click();
-  await expect(page.getByTestId("tx-ledger-filter-panel")).toBeVisible();
+  const openLandscapeFilter = async (buttonName, focusedLabel, closeAfter = true) => {
+    const trigger = landscapeLedgerHead.getByRole("button", { name: buttonName });
+    await trigger.click();
+    const panel = page.getByTestId("tx-ledger-filter-panel");
+    await expect(panel).toBeVisible();
+    await expect(panel.getByLabel(focusedLabel, { exact: true })).toBeFocused();
+    await expect(page.locator("#transaction-filter-panel")).toHaveCount(0);
+    if (closeAfter) {
+      await panel.getByRole("button", { name: "닫기" }).click();
+      await expect(panel).toBeHidden();
+      await expect(trigger).toBeFocused();
+    }
+  };
+  await openLandscapeFilter("메모 필터 열기", "메모");
+  await openLandscapeFilter("금액 필터 열기", "최소 금액");
+  await openLandscapeFilter("유형 필터 열기", "유형", false);
 
   const landscapeRow = page.locator("tr.transaction-row", { hasText: memo }).first();
   await expect(landscapeRow).toBeVisible();
@@ -2592,10 +2622,10 @@ test("transaction ledger stays readable in landscape compact width", async ({ pa
       rowActionButtonCount: row?.querySelectorAll(".transaction-col-actions button").length || 0,
     };
   });
-  expect(landscapeMetrics.pageOverflowX, `812px landscape should not overflow: ${JSON.stringify(landscapeMetrics)}`).toBeLessThanOrEqual(1);
+  expect(landscapeMetrics.pageOverflowX, `880px landscape should not overflow: ${JSON.stringify(landscapeMetrics)}`).toBeLessThanOrEqual(1);
   expect(
     landscapeMetrics.listCard.scrollWidth - landscapeMetrics.listCard.clientWidth,
-    `812px transaction list card content should not be clipped: ${JSON.stringify(landscapeMetrics)}`,
+    `880px transaction list card content should not be clipped: ${JSON.stringify(landscapeMetrics)}`,
   ).toBeLessThanOrEqual(1);
   expect(landscapeMetrics.filterPanelBelowHead, `filter panel should sit below ledger head: ${JSON.stringify(landscapeMetrics)}`).toBe(true);
   expect(landscapeMetrics.rowActionButtonCount, `transaction rows should not expose compact action buttons: ${JSON.stringify(landscapeMetrics)}`).toBe(0);
@@ -4419,8 +4449,14 @@ test("issue 222: mobile transaction add action does not cover ledger rows", asyn
   });
 
   expect(metrics.fab, `transaction add action should have geometry: ${JSON.stringify(metrics)}`).toBeTruthy();
-  expect(metrics.fab.position, `transaction add action should not be fixed over rows: ${JSON.stringify(metrics)}`).toBe("static");
-  expect(metrics.fab.inListHeading, `transaction add action should live in the list heading: ${JSON.stringify(metrics)}`).toBe(true);
+  expect(metrics.fab.position, `transaction add action should stay fixed at the bottom-right: ${JSON.stringify(metrics)}`).toBe("fixed");
+  expect(metrics.fab.inListHeading, `transaction add action should be outside the sticky heading containing block: ${JSON.stringify(metrics)}`).toBe(false);
+  expect(metrics.fab.right, `transaction add action should sit near the right edge: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(
+    metrics.viewport.width - 20,
+  );
+  expect(metrics.fab.top, `transaction add action should live in the lower viewport: ${JSON.stringify(metrics)}`).toBeGreaterThan(
+    metrics.viewport.height * 0.72,
+  );
   expect(metrics.visibleRowCount, `test should exercise visible ledger rows: ${JSON.stringify(metrics)}`).toBeGreaterThan(0);
   expect(metrics.intersectedRows, `transaction add action should not overlap ledger rows: ${JSON.stringify(metrics)}`).toEqual([]);
   expect(metrics.coveredRows, `transaction add action should not cover readable or tappable row content: ${JSON.stringify(metrics)}`).toEqual([]);
@@ -5114,16 +5150,21 @@ test("issue 228: mobile transaction filters use ledger headers without duplicate
   await expect(mobileLedgerHead.getByRole("button", { name: "유형 필터 열기" })).toBeVisible();
   await capture(page, "issue-228-mobile-header-filter-primary");
 
-  await memoFilterTrigger.click();
-  const mobileFilterPanel = page.getByTestId("tx-ledger-filter-panel");
-  await expect(mobileFilterPanel).toContainText("메모 필터");
-  await expect(mobileFilterPanel.getByPlaceholder("메모 검색")).toBeVisible();
-  await expect(toolbar.getByRole("button", { name: "필터 닫기", exact: true })).toHaveCount(0);
-  await expectNoHorizontalOverflow(page, 12);
-  await capture(page, "issue-228-mobile-memo-filter-direct");
-
-  await mobileFilterPanel.getByRole("button", { name: "닫기" }).click();
-  await expect(mobileFilterPanel).toBeHidden();
+  const openPortraitFilter = async (buttonName, focusedLabel, panelTitle) => {
+    const trigger = mobileLedgerHead.getByRole("button", { name: buttonName });
+    await trigger.click();
+    const mobileFilterPanel = page.getByTestId("tx-ledger-filter-panel");
+    await expect(mobileFilterPanel).toContainText(panelTitle);
+    await expect(mobileFilterPanel.getByLabel(focusedLabel, { exact: true })).toBeFocused();
+    await expect(toolbar.getByRole("button", { name: "필터 닫기", exact: true })).toHaveCount(0);
+    await expectNoHorizontalOverflow(page, 12);
+    await mobileFilterPanel.getByRole("button", { name: "닫기" }).click();
+    await expect(mobileFilterPanel).toBeHidden();
+    await expect(trigger).toBeFocused();
+  };
+  await openPortraitFilter("메모 필터 열기", "메모", "메모 필터");
+  await openPortraitFilter("금액 필터 열기", "최소 금액", "금액 필터");
+  await openPortraitFilter("유형 필터 열기", "유형", "유형 필터");
   await expectNoHorizontalOverflow(page, 12);
   await capture(page, "issue-228-mobile-filter-closed");
 });

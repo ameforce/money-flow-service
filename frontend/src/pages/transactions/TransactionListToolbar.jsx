@@ -26,7 +26,7 @@ export function TransactionListToolbar({
   formatters,
 }) {
   const { FLOW_TYPE_OPTIONS } = constants;
-  const { canEditRecords, isCompactViewport, loading } = permissions;
+  const { canEditRecords, isCompactViewport, isLedgerCompactViewport = isCompactViewport, loading } = permissions;
   const {
     handleMoveToCurrentMonth,
     handleShiftYearMonth,
@@ -57,13 +57,13 @@ export function TransactionListToolbar({
     removeSelectedTransactions,
     updateSelectedTransactionIds,
   } = selection;
-  const { openNormalTransactionEntrySheet, transactionDesktopAddActionRef, transactionFabRef } = entrySheet;
+  const { openNormalTransactionEntrySheet, transactionDesktopAddActionRef } = entrySheet;
   const { txInlineEdit } = inlineEdit;
   const { fmtKrw, toYearMonthKey } = formatters;
   const filterPanelRef = useRef(null);
 
   useEffect(() => {
-    if (isCompactViewport || !showTransactionFilterPanel) {
+    if (isLedgerCompactViewport || !showTransactionFilterPanel) {
       return undefined;
     }
     const targetSelector = TRANSACTION_FILTER_FOCUS_SELECTORS[transactionFilterFocusTarget];
@@ -72,7 +72,7 @@ export function TransactionListToolbar({
     ) || filterPanelRef.current?.querySelector("input, select, button");
     firstControl?.focus?.({ preventScroll: true });
     return undefined;
-  }, [isCompactViewport, showTransactionFilterPanel, transactionFilterFocusTarget]);
+  }, [isLedgerCompactViewport, showTransactionFilterPanel, transactionFilterFocusTarget]);
 
   return (
     <div ref={transactionStickyToolbarRef} className="transaction-sticky-toolbar" data-testid="transaction-sticky-toolbar">
@@ -85,18 +85,22 @@ export function TransactionListToolbar({
           <span>총 {transactionLedgerItems.length}건 중 {sortedTransactions.length}건 표시</span>
           <span className="surface-count-sort">, {transactionSortSummary}</span>
         </p>
-        {!isCompactViewport && !txInlineEdit && (
-          <button ref={transactionDesktopAddActionRef} type="button" className="primary surface-heading-action transaction-desktop-add-action" data-testid="transactions-desktop-add-action" disabled={loading} onClick={() => openNormalTransactionEntrySheet("form")}>
-            <span aria-hidden="true">＋</span>
-            <span>거래 추가</span>
-          </button>
-        )}
-        {isCompactViewport && !txInlineEdit && (
+        {!isLedgerCompactViewport && !txInlineEdit && (
           <button
-            ref={transactionFabRef} type="button" className="primary surface-heading-action transactions-fab transactions-fab-inline transaction-add-fab" data-testid="transactions-fab" aria-label="거래 추가" disabled={loading}
-            onClick={() => openNormalTransactionEntrySheet("form")}
+            ref={transactionDesktopAddActionRef}
+            type="button"
+            className="primary surface-heading-action transaction-desktop-add-action"
+            data-testid="transactions-desktop-add-action"
+            disabled={!canEditRecords || loading}
+            onClick={() => {
+              if (!canEditRecords || loading) {
+                return;
+              }
+              openNormalTransactionEntrySheet("form");
+            }}
           >
             <span aria-hidden="true">＋</span>
+            <span>거래 추가</span>
           </button>
         )}
       </div>
@@ -120,9 +124,9 @@ export function TransactionListToolbar({
         monthFilter={{ handleMoveToCurrentMonth, handleShiftYearMonth, handleYearMonthInputKeyDown, isMonthFilterPending, isNextMonthDisabled, isPrevMonthDisabled, maxMonth, minMonth, updateYearMonthInput, yearMonth }}
         formatters={{ toYearMonthKey }}
       />
-      {(!isCompactViewport || isTransactionFilterActive) && (
+      {(!isLedgerCompactViewport || isTransactionFilterActive) && (
         <div className="transaction-filter-actions" aria-label="거래 필터 빠른 조작">
-          {!isCompactViewport && (
+          {!isLedgerCompactViewport && (
             <button
               type="button"
               className="secondary"
@@ -141,10 +145,10 @@ export function TransactionListToolbar({
           {isTransactionFilterActive && (
             <button type="button" className="secondary tx-header-filter-reset" onClick={clearTxListFilter}>필터 초기화</button>
           )}
-          {!isCompactViewport && <span className="table-summary">현재 불러온 거래 목록 기준 필터입니다.</span>}
+          {!isLedgerCompactViewport && <span className="table-summary">현재 불러온 거래 목록 기준 필터입니다.</span>}
         </div>
       )}
-      {showTransactionFilterPanel && (
+      {!isLedgerCompactViewport && showTransactionFilterPanel && (
         <div ref={filterPanelRef} id="transaction-filter-panel" className="tx-header-filters" aria-label="거래 제목행 필터">
           <label className="tx-header-filter tx-header-filter-search">
             <span>메모</span>
