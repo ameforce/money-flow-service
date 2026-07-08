@@ -1513,7 +1513,6 @@
 }
 
 .transaction-list-card {
-  --transaction-fab-clearance: calc(5.4rem + env(safe-area-inset-bottom));
   --transaction-toolbar-sticky-top: max(0.75rem, env(safe-area-inset-top));
   --transaction-toolbar-sticky-height: 0px;
   --transaction-column-head-gap: 0.18rem;
@@ -1523,7 +1522,8 @@
   --tx-col-amount: 6.15rem;
   --tx-col-owner: 6.65rem;
   --tx-col-updated: 6rem;
-  --tx-ledger-columns: var(--tx-col-date) var(--tx-col-type) var(--tx-col-owner) var(--tx-col-category) minmax(0, 1fr) var(--tx-col-amount) var(--tx-col-updated);
+  --tx-col-memo-min: 0px;
+  --tx-ledger-columns: var(--tx-col-date) var(--tx-col-type) var(--tx-col-owner) var(--tx-col-category) minmax(var(--tx-col-memo-min), 1fr) var(--tx-col-amount) var(--tx-col-updated);
   --transaction-column-head-top: calc(
     var(--transaction-toolbar-sticky-top) + var(--transaction-toolbar-sticky-height) + var(--transaction-column-head-gap)
   );
@@ -1538,7 +1538,8 @@
 }
 
 .transaction-page-section {
-  padding-bottom: var(--transaction-fab-clearance, calc(5.4rem + env(safe-area-inset-bottom)));
+  --transaction-fab-clearance: calc(5.4rem + env(safe-area-inset-bottom));
+  padding-bottom: var(--transaction-fab-clearance);
 }
 
 .surface-list-heading {
@@ -4575,8 +4576,13 @@ table {
 }
 
 .transaction-list-card .surface-ledger-desktop-head .transaction-col-amount {
-  justify-content: center;
-  text-align: center;
+  justify-content: flex-end;
+  text-align: right;
+}
+.transaction-list-card .surface-ledger-desktop-head .transaction-col-amount .ledger-head-action {
+  justify-content: flex-end;
+  text-align: right;
+  padding-inline-end: 0.3rem;
 }
 
 .holdings-surface-table th,
@@ -4760,45 +4766,23 @@ table {
 }
 
 @media (min-width: 821px) and (max-width: 1100px) {
-  .transactions-surface-table {
-    min-width: 0;
+  .transaction-list-card {
+    --tx-col-date: 4.5rem;
+    --tx-col-type: 3.8rem;
+    --tx-col-owner: 4.55rem;
+    --tx-col-category: 4.2rem;
+    --tx-col-memo-min: 4.4rem;
+    --tx-col-amount: 5.2rem;
+    --tx-col-updated: 4.3rem;
   }
 
-  .transaction-list-card .surface-ledger-desktop-head {
-    grid-template-columns: 4.5rem 3.8rem 4.55rem 4.2rem minmax(4.4rem, 1fr) 5.2rem 4.3rem;
+  .transactions-surface-table {
+    min-width: 0;
   }
 
   .transaction-list-card .surface-ledger-desktop-head .desktop-ledger-head-cell {
     padding-inline: 0.26rem;
     font-size: 0.72rem;
-  }
-
-  .transactions-surface-table .transaction-col-date {
-    width: 4.5rem;
-  }
-
-  .transactions-surface-table .transaction-col-type {
-    width: 3.8rem;
-  }
-
-  .transactions-surface-table .transaction-col-category {
-    width: 4.2rem;
-  }
-
-  .transactions-surface-table .transaction-col-memo {
-    width: 4.4rem;
-  }
-
-  .transactions-surface-table .transaction-col-amount {
-    width: 5.2rem;
-  }
-
-  .transactions-surface-table .transaction-col-owner {
-    width: 4.55rem;
-  }
-
-  .transactions-surface-table .transaction-col-updated {
-    width: 4.3rem;
   }
 
   .transactions-surface-table th,
@@ -8484,7 +8468,7 @@ tr.holding-row-imported {
   .transactions-fab,
   .holdings-fab {
     display: inline-flex;
-    bottom: calc(var(--mobile-bottom-nav-clearance, 4.65rem) + 0.35rem);
+    bottom: calc(var(--mobile-bottom-nav-clearance, 4.65rem) + 1.1rem);
     z-index: 46;
   }
 
@@ -8612,12 +8596,15 @@ tr.holding-row-imported {
     overflow: visible;
   }
 
+  .transaction-page-section {
+    --transaction-fab-clearance: calc(var(--mobile-bottom-nav-clearance, 4.65rem) + 3.35rem);
+  }
+
   .transaction-list-card {
     --transaction-toolbar-sticky-top: var(--surface-section-sticky-top);
     --transaction-toolbar-sticky-height: 0px;
     --surface-heading-sticky-height: calc(var(--transaction-toolbar-sticky-height) + 0.25rem);
     --surface-filter-sticky-height: 0rem;
-    --transaction-fab-clearance: calc(var(--mobile-bottom-nav-clearance, 4.65rem) + 3.35rem);
     padding-bottom: 0.75rem;
   }
 
@@ -8817,18 +8804,16 @@ tr.holding-row-imported {
   .transactions-mobile-ledger-head,
   .transactions-surface-table {
     --transaction-mobile-date-column-width: 40px;
-    --transaction-mobile-cue-column-width: 76px;
-    --transaction-mobile-owner-column-width: 36px;
-    --transaction-mobile-category-column-width: 52px;
-    --transaction-mobile-amount-column-width: 76px;
+    --transaction-mobile-cue-column-width: 58px;
+    --transaction-mobile-owner-column-width: 34px;
+    --transaction-mobile-category-column-width: 50px;
+    --transaction-mobile-amount-column-width: 60px;
     --tx-col-date: var(--transaction-mobile-date-column-width);
     --tx-col-type: var(--transaction-mobile-cue-column-width);
     --tx-col-owner: var(--transaction-mobile-owner-column-width);
     --tx-col-category: var(--transaction-mobile-category-column-width);
     --tx-col-amount: var(--transaction-mobile-amount-column-width);
     --tx-col-updated: 0px;
-    --transaction-action-strip-width: 0rem;
-    --transaction-mobile-ledger-column-gap: 2px;
     --transaction-mobile-ledger-columns:
       var(--transaction-mobile-date-column-width)
       var(--transaction-mobile-cue-column-width)
@@ -8972,33 +8957,20 @@ tr.holding-row-imported {
     border-right: 0;
   }
 
-  .surface-ledger-mobile-head.transactions-mobile-ledger-head > .ledger-head-date {
-    justify-content: flex-start;
-    padding-left: 0.38rem;
-    text-align: left;
-  }
-
+  .surface-ledger-mobile-head.transactions-mobile-ledger-head > .ledger-head-date,
   .surface-ledger-mobile-head.transactions-mobile-ledger-head > .ledger-head-cues,
-  .surface-ledger-mobile-head.transactions-mobile-ledger-head > .ledger-head-owner {
+  .surface-ledger-mobile-head.transactions-mobile-ledger-head > .ledger-head-owner,
+  .surface-ledger-mobile-head.transactions-mobile-ledger-head > .ledger-head-category,
+  .surface-ledger-mobile-head.transactions-mobile-ledger-head > .ledger-head-main {
     justify-content: center;
     text-align: center;
   }
 
-  .surface-ledger-mobile-head.transactions-mobile-ledger-head > .ledger-head-owner {
-    width: var(--transaction-mobile-owner-column-width);
-    max-width: var(--transaction-mobile-owner-column-width);
-  }
-
-  .surface-ledger-mobile-head.transactions-mobile-ledger-head > .ledger-head-category,
-  .surface-ledger-mobile-head.transactions-mobile-ledger-head > .ledger-head-main {
-    justify-content: flex-start;
-    text-align: left;
-  }
-
-
   .surface-ledger-mobile-head.transactions-mobile-ledger-head > .ledger-head-amount {
     justify-content: flex-end;
     text-align: right;
+    padding-left: 0;
+    padding-right: 0;
   }
 
   .ledger-head-filter-indicator {
@@ -9091,7 +9063,7 @@ tr.holding-row-imported {
     display: table;
     width: 100%;
     min-width: 0;
-    table-layout: auto;
+    table-layout: fixed;
     border-collapse: separate;
     border-spacing: 0;
     border: 1px solid #dbe3ef;
@@ -9142,12 +9114,7 @@ tr.holding-row-imported {
   }
 
   .transactions-surface-table thead {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
+    display: none;
   }
 
   .holdings-surface-table tbody {
@@ -9157,18 +9124,6 @@ tr.holding-row-imported {
 
   .transactions-surface-table tbody {
     display: table-row-group;
-    padding-top: 0;
-  }
-
-  .transactions-surface-table tbody tr.transaction-inline-editor-row {
-    display: table-row;
-  }
-
-  .transactions-surface-table tbody tr.transaction-inline-editor-row .transaction-inline-editor-cell {
-    display: table-cell !important;
-    width: auto;
-    max-width: none;
-    text-align: left;
   }
 
   .transactions-surface-table.mobile-sticky-active tbody {
@@ -9182,6 +9137,18 @@ tr.holding-row-imported {
   .transaction-list-card:has(> .tx-ledger-filter-panel) .transactions-surface-table.mobile-sticky-active tbody {
     padding-top: calc(1.46rem + var(--tx-ledger-filter-panel-clearance));
   }
+
+  .transactions-surface-table tbody tr.transaction-inline-editor-row {
+    display: table-row;
+  }
+
+  .transactions-surface-table tbody tr.transaction-inline-editor-row .transaction-inline-editor-cell {
+    display: table-cell !important;
+    width: auto;
+    max-width: none;
+    text-align: left;
+  }
+
 
   .transactions-surface-table tbody tr.surface-empty-row,
   .holdings-surface-table tbody tr.surface-empty-row {
@@ -9282,8 +9249,7 @@ tr.holding-row-imported {
   .transactions-surface-table .transaction-col-category,
   .transactions-surface-table .transaction-col-memo,
   .transactions-surface-table .transaction-col-amount,
-  .transactions-surface-table .transaction-col-owner,
-  .transactions-surface-table .transaction-col-actions {
+  .transactions-surface-table .transaction-col-owner {
     width: 100%;
     min-width: 0;
   }
@@ -9320,9 +9286,6 @@ tr.holding-row-imported {
   }
 
   .transactions-surface-table .transaction-col-date {
-    grid-area: date;
-    align-self: center;
-    justify-self: start;
     font-size: 0.64rem;
     color: var(--mf-color-ink-500);
     white-space: nowrap;
@@ -9337,9 +9300,6 @@ tr.holding-row-imported {
   }
 
   .transactions-surface-table .transaction-col-amount {
-    grid-area: amount;
-    align-self: center;
-    justify-self: stretch;
     text-align: right;
     white-space: nowrap;
     max-width: 100%;
@@ -9351,21 +9311,20 @@ tr.holding-row-imported {
   .transactions-surface-table .transaction-amount-text {
     display: block;
     box-sizing: border-box;
-    width: 100%;
+    width: calc(100% - 2px);
+    margin-left: auto;
+    margin-right: 2px;
     max-width: 100%;
     overflow: visible;
     text-overflow: clip;
   }
 
   .transactions-surface-table tbody tr.transaction-row:not(.mobile-row-expanded) .transaction-amount-text-wide {
-    font-size: 0.5rem;
+    font-size: 0.44rem;
     line-height: 1;
   }
 
   .transactions-surface-table .transaction-col-type {
-    grid-area: meta;
-    align-self: center;
-    justify-self: start;
     text-align: left;
     display: inline-flex;
     align-items: center;
@@ -9379,7 +9338,6 @@ tr.holding-row-imported {
   }
 
   .transactions-surface-table .transaction-col-memo {
-    grid-area: memo;
     display: flex !important;
     align-items: center;
     flex-wrap: nowrap;
@@ -9391,7 +9349,6 @@ tr.holding-row-imported {
   }
 
   .transactions-surface-table .transaction-col-owner {
-    grid-area: owner;
     display: inline-flex !important;
     align-items: center;
     justify-content: center;
@@ -9478,23 +9435,22 @@ tr.holding-row-imported {
   .transactions-surface-table tbody tr.transaction-row .transaction-col-type .transaction-flow-full {
     display: none !important;
   }
-
   .transactions-surface-table tbody tr.transaction-row .transaction-col-type .transaction-flow-short {
     display: inline-flex !important;
-    width: auto;
+    box-sizing: border-box;
+    width: min(100%, 2.85rem);
     max-width: 100%;
-    min-width: 0 !important;
-    height: 1.14rem;
-    padding: 0 0.18rem;
+    min-width: min(100%, 2.1rem) !important;
+    height: 1.34rem;
+    padding: 0 0.3rem;
     align-items: center;
     justify-content: center;
-    font-size: 0.58rem;
+    font-size: 0.66rem;
     line-height: 1;
     letter-spacing: 0;
   }
 
   .transactions-surface-table .transaction-col-category {
-    grid-area: category;
     display: flex !important;
     align-items: center;
     min-width: 0;
@@ -9519,7 +9475,7 @@ tr.holding-row-imported {
     box-sizing: border-box;
     height: 44px;
     max-width: 0;
-    padding: 0.18rem 0.16rem;
+    padding: 0.18rem 0;
     border-bottom: 1px solid #e8eef6;
     vertical-align: middle;
     overflow: hidden;
@@ -9543,8 +9499,8 @@ tr.holding-row-imported {
     width: var(--transaction-mobile-date-column-width) !important;
     min-width: var(--transaction-mobile-date-column-width) !important;
     max-width: var(--transaction-mobile-date-column-width) !important;
-    padding-left: 0.38rem;
-    text-align: left;
+    padding-left: 0;
+    text-align: center;
     box-shadow: inset 0.18rem 0 0 var(--transaction-row-accent, transparent);
   }
 
@@ -9575,8 +9531,8 @@ tr.holding-row-imported {
     width: var(--transaction-mobile-amount-column-width) !important;
     min-width: var(--transaction-mobile-amount-column-width) !important;
     max-width: var(--transaction-mobile-amount-column-width) !important;
-    padding-right: 0.24rem;
-    padding-left: 0.08rem;
+    padding-right: 0;
+    padding-left: 0;
     text-align: right;
   }
 
@@ -9756,16 +9712,12 @@ tr.holding-row-imported {
     white-space: normal !important;
   }
 
-  .transactions-surface-table .transaction-col-actions {
-    display: none !important;
-  }
 
   .holdings-surface-table tbody tr.holding-row .holding-col-actions .inline {
     justify-content: flex-start;
     width: 2.75rem;
   }
 
-  .transactions-surface-table tbody tr.transaction-row:not(.mobile-row-expanded) .transaction-col-actions,
   .holdings-surface-table tbody tr.holding-row:not(.mobile-row-expanded) .holding-col-owner {
     display: none !important;
   }
@@ -9774,8 +9726,7 @@ tr.holding-row-imported {
     display: none;
   }
 
-  .transactions-surface-table .transaction-col-select,
-  .transactions-surface-table .transaction-col-actions {
+  .transactions-surface-table .transaction-col-select {
     border: 0;
   }
 
@@ -10163,9 +10114,10 @@ tr.holding-row-imported {
 @media (min-width: 341px) and (max-width: 360px) {
   .transactions-mobile-ledger-head,
   .transactions-surface-table {
+    --transaction-mobile-cue-column-width: 52px;
     --transaction-mobile-owner-column-width: 32px;
     --transaction-mobile-category-column-width: 48px;
-    --transaction-mobile-amount-column-width: 70px;
+    --transaction-mobile-amount-column-width: 60px;
   }
 }
 
@@ -10176,10 +10128,10 @@ tr.holding-row-imported {
 
   .transactions-mobile-ledger-head,
   .transactions-surface-table {
-    --transaction-mobile-cue-column-width: 40px;
-    --transaction-mobile-owner-column-width: 28px;
-    --transaction-mobile-category-column-width: 48px;
-    --transaction-mobile-amount-column-width: 70px;
+    --transaction-mobile-cue-column-width: 44px;
+    --transaction-mobile-owner-column-width: 32px;
+    --transaction-mobile-category-column-width: 44px;
+    --transaction-mobile-amount-column-width: 56px;
   }
 }
 
@@ -10356,7 +10308,7 @@ tr.holding-row-imported {
   .transactions-fab,
   .holdings-fab {
     right: calc(0.5rem + env(safe-area-inset-right));
-    bottom: calc(var(--mobile-bottom-nav-clearance, 3.15rem) + 0.35rem);
+    bottom: calc(var(--mobile-bottom-nav-clearance, 3.15rem) + 1.1rem);
     width: 2.75rem;
     height: 2.75rem;
   }
