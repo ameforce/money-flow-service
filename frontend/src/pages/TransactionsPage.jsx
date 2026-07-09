@@ -173,6 +173,27 @@ export function TransactionsPage({
           <span aria-hidden="true">＋</span>
         </button>
       )}
+      {showTransactionScrollTop && (
+        <button
+          type="button"
+          className="transactions-scroll-top"
+          data-testid="transactions-scroll-top"
+          aria-label="거래 목록 맨 위로 이동"
+          onClick={scrollTransactionListToTop}
+        >
+          <svg viewBox="0 0 16 16" focusable="false" aria-hidden="true">
+            <path
+              d="M8 3.25 3.75 7.5M8 3.25l4.25 4.25M8 3.25v9.5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+          <span>맨 위로</span>
+        </button>
+      )}
       <TransactionListCard
         constants={{ DEFAULT_TRANSACTION_ROW_COLORS, FLOW_TYPE_LABELS, FLOW_TYPE_OPTIONS }}
         permissions={{ canEditHouseholdData, canEditRecords, isCompactViewport, isLedgerCompactViewport, loading }}
