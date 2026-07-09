@@ -6505,11 +6505,57 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   await expectMobileRowSelectsWithoutExpanding({ width: 880, height: 500 }, "880px landscape transaction ledger");
   await expectMobileRowSelectsWithoutExpanding({ width: 390, height: 844 }, "390px transaction ledger");
   await capture(page, "transactions-mobile-summary");
+  const toastMessage = page.locator(".message").first();
+  if ((await toastMessage.count()) > 0) {
+    const toastClose = toastMessage.locator(".message-close");
+    if ((await toastClose.count()) > 0) {
+      await toastClose.click();
+    }
+  }
+  await expect(page.locator(".message")).toHaveCount(0);
   await page.evaluate(() => window.scrollTo(0, 380));
   await page.waitForTimeout(250);
   const transactionScrollTop = page.getByTestId("transactions-scroll-top");
   await expect(transactionScrollTop).toBeVisible();
   await expect(transactionScrollTop).toHaveAccessibleName("거래 목록 맨 위로 이동");
+  const scrollTopGeometry = await page.evaluate(() => {
+    const scrollTop = document.querySelector('[data-testid="transactions-scroll-top"]');
+    const fab = document.querySelector('[data-testid="transactions-fab"]');
+    const nav = document.querySelector("nav.tabs.topbar-tabs") || document.querySelector("nav.tabs");
+    if (!scrollTop || !fab || !nav) {
+      return { ok: false, reason: "missing-controls" };
+    }
+    const scrollRect = scrollTop.getBoundingClientRect();
+    const fabRect = fab.getBoundingClientRect();
+    const navRect = nav.getBoundingClientRect();
+    const intersects = (left, right) =>
+      left.left < right.right && left.right > right.left && left.top < right.bottom && left.bottom > right.top;
+    return {
+      ok: true,
+      bottomDelta: Math.abs(scrollRect.bottom - fabRect.bottom),
+      intersectsNav: intersects(scrollRect, navRect),
+      intersectsFab: intersects(scrollRect, fabRect),
+      documentOverflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    };
+  });
+  expect(scrollTopGeometry.ok, `scroll-top geometry controls should exist: ${JSON.stringify(scrollTopGeometry)}`).toBe(true);
+  expect(
+    scrollTopGeometry.bottomDelta,
+    `scroll-top and FAB bottoms should align: ${JSON.stringify(scrollTopGeometry)}`,
+  ).toBeLessThanOrEqual(4);
+  expect(scrollTopGeometry.intersectsNav, `scroll-top must not intersect bottom tabs: ${JSON.stringify(scrollTopGeometry)}`).toBe(
+    false,
+  );
+  expect(scrollTopGeometry.intersectsFab, `scroll-top must not intersect FAB: ${JSON.stringify(scrollTopGeometry)}`).toBe(false);
+  expect(scrollTopGeometry.documentOverflowX, "mobile transaction page should not overflow horizontally").toBeLessThanOrEqual(1);
+  const scrollBeforeTopClick = await page.evaluate(() => window.scrollY);
+  await transactionScrollTop.click();
+  await expect
+    .poll(async () => page.evaluate(() => window.scrollY), { timeout: 4000 })
+    .toBeLessThan(Math.max(80, scrollBeforeTopClick - 120));
+  await page.evaluate(() => window.scrollTo(0, 380));
+  await page.waitForTimeout(250);
+  await expect(transactionScrollTop).toBeVisible();
   const scrollBeforeSheet = await page.evaluate(() => window.scrollY);
   const fabScrolledBox = await transactionFab.boundingBox();
   expect(fabScrolledBox, "transaction add action should have a bounding box after scroll").not.toBeNull();

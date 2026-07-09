@@ -21,9 +21,9 @@ export function TransactionListTablePanel({
     isLedgerCompactViewport = isCompactViewport,
     loading,
   } = permissions;
-  const { expandedTransactionRows, recentImportTransactionIds, recentSavedTransactionIds, showTransactionFilterPanel, showTransactionScrollTop, sortedTransactions, transactionsMobileStickyActive, txListFilter, txSortDirection } = listState;
+  const { expandedTransactionRows, recentImportTransactionIds, recentSavedTransactionIds, showTransactionFilterPanel, sortedTransactions, transactionsMobileStickyActive, txListFilter, txSortDirection } = listState;
   const { categoryById, householdSettings, normalizeTransactionRowColors, renderCategoryCell } = listLookups;
-  const { clearTxListFilter, selectTransactionRows, scrollTransactionListToTop, toggleExpandedTransactionRow, toggleTxSortDirection, updateTransactionRowsExpanded, updateTransactionRowsSelected, updateTxListFilter } = listActions;
+  const { clearTxListFilter, selectTransactionRows, toggleExpandedTransactionRow, toggleTxSortDirection, updateTransactionRowsExpanded, updateTransactionRowsSelected, updateTxListFilter } = listActions;
   const { selectedTransactionIds, toggleTransactionSelection } = selection;
   const { closeTxInlineEdit, createAndApplyTxInlineCategory, handleGroupedDecimalInput, handleTransactionAmountInput, handleTxInlineEditKeyDown, notifyTransactionEditPermissionDenied, openTransactionInlineEditor, submitTxInlineEdit, txInlineEdit, txInlineEditSubmitting, updateTxInlineEdit } = inlineEdit;
   const { renderLegacyOwnerRemapHelper, txInlineCategoryMajor, txInlineCategoryMajorOptions, txInlineCategoryMinorOptions, txInlineCategoryOptions, txInlineCategoryQuickChips } = categoryManager;
@@ -87,14 +87,6 @@ export function TransactionListTablePanel({
         toCategoryMajorLabel={toCategoryMajorLabel}
         toCategoryMinorLabel={toCategoryMinorLabel}
       />
-      {showTransactionScrollTop && (
-        <button type="button" className="transactions-scroll-top" data-testid="transactions-scroll-top" aria-label="거래 목록 맨 위로 이동" onClick={scrollTransactionListToTop}>
-          <svg viewBox="0 0 16 16" focusable="false" aria-hidden="true">
-            <path d="M8 3.25 3.75 7.5M8 3.25l4.25 4.25M8 3.25v9.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-          <span>맨 위로</span>
-        </button>
-      )}
     </>
   );
 }

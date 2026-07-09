@@ -8474,7 +8474,7 @@ tr.holding-row-imported {
 
   .transactions-scroll-top {
     left: calc(0.5rem + env(safe-area-inset-left));
-    bottom: calc(var(--mobile-bottom-nav-clearance, 4.65rem) + 0.35rem);
+    bottom: calc(var(--mobile-bottom-nav-clearance, 4.65rem) + 1.1rem);
     min-width: 5.7rem;
     min-height: 2.75rem;
     padding: 0.58rem 0.76rem;
@@ -10335,7 +10335,7 @@ tr.holding-row-imported {
 
   .transactions-scroll-top {
     left: calc(0.5rem + env(safe-area-inset-left));
-    bottom: calc(var(--mobile-bottom-nav-clearance, 3.15rem) + 0.35rem);
+    bottom: calc(var(--mobile-bottom-nav-clearance, 3.15rem) + 1.1rem);
     min-width: 5.2rem;
     padding-inline: 0.64rem;
   }
