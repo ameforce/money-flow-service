@@ -8943,7 +8943,24 @@ tr.holding-row-imported {
     min-width: 0;
     max-width: 100%;
     min-height: 40px;
+    /* Match body: keep compact default; targeted outer/memo insets below. */
     padding: 0.18rem 0.16rem;
+  }
+  .surface-ledger-mobile-head.transactions-mobile-ledger-head > .ledger-head-date {
+    padding-inline-start: 0.28rem;
+  }
+  .surface-ledger-mobile-head.transactions-mobile-ledger-head > .ledger-head-cues,
+  .surface-ledger-mobile-head.transactions-mobile-ledger-head > .ledger-head-owner,
+  .surface-ledger-mobile-head.transactions-mobile-ledger-head > .ledger-head-category {
+    /* Narrow fixed columns — avoid extra inline padding that clips labels. */
+    padding-inline: 0.08rem;
+  }
+  .surface-ledger-mobile-head.transactions-mobile-ledger-head > .ledger-head-main {
+    padding-inline-start: 0.32rem;
+    padding-inline-end: 0.16rem;
+  }
+  .surface-ledger-mobile-head.transactions-mobile-ledger-head > .ledger-head-amount {
+    padding-inline-end: 0.28rem;
   }
   .surface-ledger-mobile-head.transactions-mobile-ledger-head > .ledger-head-date,
   .surface-ledger-mobile-head.transactions-mobile-ledger-head > .ledger-head-cues,
@@ -9473,6 +9490,7 @@ tr.holding-row-imported {
     box-sizing: border-box;
     height: 44px;
     max-width: 0;
+    /* Keep block padding; default inline 0 so narrow fixed cols stay unclipped. */
     padding: 0.18rem 0;
     border-bottom: 1px solid #e8eef6;
     vertical-align: middle;
@@ -9497,7 +9515,8 @@ tr.holding-row-imported {
     width: var(--transaction-mobile-date-column-width) !important;
     min-width: var(--transaction-mobile-date-column-width) !important;
     max-width: var(--transaction-mobile-date-column-width) !important;
-    padding-left: 0;
+    /* Outer left inset so date clears the table edge / accent bar. */
+    padding-inline-start: 0.28rem;
     text-align: center;
     box-shadow: inset 0.18rem 0 0 var(--transaction-row-accent, transparent);
   }
@@ -9523,14 +9542,17 @@ tr.holding-row-imported {
   .transactions-surface-table tbody tr.transaction-row .transaction-col-memo {
     width: auto;
     text-align: left;
+    /* Start inset so memo text clears the category→memo grid line. */
+    padding-inline-start: 0.32rem;
+    padding-inline-end: 0.16rem;
   }
 
   .transactions-surface-table tbody tr.transaction-row .transaction-col-amount {
     width: var(--transaction-mobile-amount-column-width) !important;
     min-width: var(--transaction-mobile-amount-column-width) !important;
     max-width: var(--transaction-mobile-amount-column-width) !important;
-    padding-right: 0;
-    padding-left: 0;
+    /* Outer-right breathing room only; keep start tight for wide amounts. */
+    padding-inline-end: 0.28rem;
     text-align: right;
   }
 
