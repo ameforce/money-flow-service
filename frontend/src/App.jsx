@@ -3738,7 +3738,12 @@ function App() {
   }, [isTransactionLedgerCompactViewport, tab, sortedTransactions.length]);
 
   useEffect(() => {
-    if (typeof window === "undefined" || tab !== "transactions") {
+    if (
+      typeof window === "undefined" ||
+      tab !== "transactions" ||
+      !isTransactionLedgerCompactViewport ||
+      Boolean(message)
+    ) {
       setShowTransactionScrollTop(false);
       return undefined;
     }
@@ -3765,7 +3770,7 @@ function App() {
       window.removeEventListener("scroll", updateScrollTopAffordance);
       window.removeEventListener("resize", updateScrollTopAffordance);
     };
-  }, [tab, sortedTransactions.length]);
+  }, [tab, sortedTransactions.length, isTransactionLedgerCompactViewport, message]);
 
   function scrollTransactionListToTop() {
     const target = transactionListCardRef.current || transactionStickyToolbarRef.current;
