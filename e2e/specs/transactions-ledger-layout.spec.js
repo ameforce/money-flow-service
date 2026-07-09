@@ -946,6 +946,38 @@ test("transaction ledger aligns desktop cells and keeps mobile rows compact", as
         amountDisplay: amount ? getComputedStyle(amount).display : "missing",
         rowTopGap: memoText ? memoText.getBoundingClientRect().top - rowBox.top : 0,
         rowBottomGap: memoText ? rowBox.bottom - memoText.getBoundingClientRect().bottom : 0,
+        horizontalInsets: (() => {
+          const dateCell = row.querySelector(".transaction-col-date");
+          const categoryCell = row.querySelector(".transaction-col-category");
+          const dateText = dateCell?.querySelector(".mobile-date-text") || dateCell;
+          const memoTextBox = memoText?.getBoundingClientRect();
+          const categoryBox = categoryCell?.getBoundingClientRect();
+          const dateTextBox = dateText?.getBoundingClientRect();
+          const amountTextBox = amountText?.getBoundingClientRect();
+          const amountCellBox = amount?.getBoundingClientRect();
+          const tableBox = table?.getBoundingClientRect();
+          const borderRightWidth = categoryCell
+            ? Number.parseFloat(getComputedStyle(categoryCell).borderRightWidth || "0")
+            : 0;
+          // Centered date glyphs can clear the cell edge without start padding;
+          // lock the actual padding-inline-start so the inset cannot regress.
+          const dateOuterInset = dateCell
+            ? Number.parseFloat(getComputedStyle(dateCell).paddingInlineStart || "0")
+            : 0;
+          return {
+            memoToLeftGrid:
+              memoTextBox && categoryBox
+                ? memoTextBox.left - (categoryBox.right - borderRightWidth)
+                : 0,
+            dateOuterInset,
+            amountOuterInset:
+              amountTextBox && amountCellBox ? amountCellBox.right - amountTextBox.right : 0,
+            tableLeftClearance:
+              dateTextBox && tableBox ? dateTextBox.left - tableBox.left : 0,
+            tableRightClearance:
+              amountTextBox && tableBox ? tableBox.right - amountTextBox.right : 0,
+          };
+        })(),
         memoWidth: memo?.getBoundingClientRect().width || 0,
         tableWidth: table?.getBoundingClientRect().width || 0,
         listCardBottomPadding: listCardStyle ? Number.parseFloat(listCardStyle.paddingBottom || "0") : 0,
@@ -1126,6 +1158,18 @@ test("transaction ledger aligns desktop cells and keeps mobile rows compact", as
       Math.min(mobileMetrics.rowTopGap, mobileMetrics.rowBottomGap),
       `${profile.name} row text should not sit against row borders: ${JSON.stringify(mobileMetrics)}`,
     ).toBeGreaterThanOrEqual(4);
+    expect(
+      mobileMetrics.horizontalInsets.memoToLeftGrid,
+      `${profile.name} memo text should clear the left grid line: ${JSON.stringify(mobileMetrics.horizontalInsets)}`,
+    ).toBeGreaterThanOrEqual(3);
+    expect(
+      mobileMetrics.horizontalInsets.dateOuterInset,
+      `${profile.name} date text should keep outer horizontal inset: ${JSON.stringify(mobileMetrics.horizontalInsets)}`,
+    ).toBeGreaterThanOrEqual(3);
+    expect(
+      mobileMetrics.horizontalInsets.amountOuterInset,
+      `${profile.name} amount text should keep outer horizontal inset: ${JSON.stringify(mobileMetrics.horizontalInsets)}`,
+    ).toBeGreaterThanOrEqual(3);
     expect(mobileMetrics.toolbar.summaryText).toContain("총 16건 중 16건 표시");
     expect(mobileMetrics.toolbar.summaryText).toContain("오래된순");
     expect(
