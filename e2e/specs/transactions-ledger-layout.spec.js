@@ -1062,13 +1062,9 @@ test("transaction ledger aligns desktop cells and keeps mobile rows compact", as
       `${profile.name} header labels should be vertically centered: ${JSON.stringify(mobileMetrics.headerCenterDeltas)}`,
     ).toBe(true);
     expect(
-      mobileMetrics.headerHorizontalDeltas.filter((item) => item.key !== "amount").every((item) => item.delta <= 2.5),
-      `${profile.name} non-amount header labels should be horizontally centered: ${JSON.stringify(mobileMetrics.headerHorizontalDeltas)}`,
+      mobileMetrics.headerHorizontalDeltas.every((item) => item.delta <= 2.5),
+      `${profile.name} header labels should be horizontally centered: ${JSON.stringify(mobileMetrics.headerHorizontalDeltas)}`,
     ).toBe(true);
-    expect(
-      mobileMetrics.headerHorizontalDeltas.find((item) => item.key === "amount")?.rightDelta,
-      `${profile.name} amount header should right-align with numeric values: ${JSON.stringify(mobileMetrics.headerHorizontalDeltas)}`,
-    ).toBeLessThanOrEqual(3);
     expect(
       mobileMetrics.listCardBottomPadding,
       `${profile.name} transaction card should not reserve obsolete floating-FAB whitespace below the table: ${JSON.stringify(mobileMetrics)}`,
