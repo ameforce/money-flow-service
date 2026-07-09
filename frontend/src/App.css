@@ -8839,7 +8839,7 @@ tr.holding-row-imported {
   }
 
   .transactions-mobile-ledger-head .ledger-head-amount {
-    justify-content: flex-end;
+    justify-content: center;
   }
 
   .holdings-mobile-ledger-head {
@@ -8853,7 +8853,7 @@ tr.holding-row-imported {
   .surface-ledger-mobile-head .ledger-head-select { display: none; }
   .surface-ledger-mobile-head .ledger-head-date { grid-area: date; }
   .surface-ledger-mobile-head .ledger-head-main { grid-area: main; min-width: 0; }
-  .surface-ledger-mobile-head .ledger-head-amount { grid-area: amount; text-align: right; }
+  .surface-ledger-mobile-head .ledger-head-amount { grid-area: amount; text-align: center; }
   .surface-ledger-mobile-head .ledger-head-cues { grid-area: cues; }
   .surface-ledger-mobile-head .ledger-head-owner { grid-area: owner; }
   .surface-ledger-mobile-head .ledger-head-category { grid-area: category; }
@@ -8967,10 +8967,8 @@ tr.holding-row-imported {
   }
 
   .surface-ledger-mobile-head.transactions-mobile-ledger-head > .ledger-head-amount {
-    justify-content: flex-end;
-    text-align: right;
-    padding-left: 0;
-    padding-right: 0;
+    justify-content: center;
+    text-align: center;
   }
 
   .ledger-head-filter-indicator {
