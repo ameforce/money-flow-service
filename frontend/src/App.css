@@ -4719,6 +4719,11 @@ table {
   white-space: nowrap;
 }
 
+.transaction-memo-text-compact,
+.transaction-amount-text-compact {
+  display: none;
+}
+
 .transactions-surface-table .transaction-col-owner {
   white-space: nowrap;
 }
@@ -9334,8 +9339,24 @@ tr.holding-row-imported {
     text-overflow: clip;
   }
 
+  .transactions-surface-table .transaction-amount-text-full,
+  .transactions-surface-table .transaction-memo-text-full {
+    display: none;
+  }
+
+  .transactions-surface-table .transaction-amount-text-compact,
+  .transactions-surface-table .transaction-memo-text-compact {
+    display: inline;
+  }
+
+  .transactions-surface-table .transaction-amount-text-compact {
+    font-size: 0.68rem;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+  }
+
   .transactions-surface-table tbody tr.transaction-row:not(.mobile-row-expanded) .transaction-amount-text-wide {
-    font-size: 0.44rem;
+    font-size: inherit;
     line-height: 1;
   }
 
@@ -10137,7 +10158,16 @@ tr.holding-row-imported {
     --transaction-mobile-cue-column-width: 52px;
     --transaction-mobile-owner-column-width: 32px;
     --transaction-mobile-category-column-width: 48px;
-    --transaction-mobile-amount-column-width: 68px;
+    --transaction-mobile-amount-column-width: 66px;
+  }
+}
+
+@media (max-width: 412px) {
+  .transactions-mobile-ledger-head,
+  .transactions-surface-table {
+    width: calc(100% + 1.375rem);
+    max-width: none;
+    margin-inline: -0.6875rem;
   }
 }
 
@@ -10150,13 +10180,13 @@ tr.holding-row-imported {
   .transactions-surface-table {
     --transaction-mobile-cue-column-width: 44px;
     --transaction-mobile-owner-column-width: 32px;
-    --transaction-mobile-category-column-width: 36px;
-    --transaction-mobile-amount-column-width: 64px;
+    --transaction-mobile-category-column-width: 43px;
+    --transaction-mobile-amount-column-width: 65px;
   }
 
   .surface-ledger-mobile-head.transactions-mobile-ledger-head > .ledger-head-amount,
   .transactions-surface-table tbody tr.transaction-row .transaction-col-amount {
-    padding-inline-end: 0.06rem;
+    padding-inline-end: 0.07rem;
   }
 }
 

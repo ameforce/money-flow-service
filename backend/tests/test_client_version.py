@@ -62,3 +62,4 @@ def test_hashed_assets_are_long_cache_immutable(tmp_path: Path) -> None:
 
     assert response.status_code == 200
     assert response.headers["cache-control"] == "public, max-age=31536000, immutable"
+    assert response.headers["content-type"].startswith(("application/javascript", "text/javascript"))

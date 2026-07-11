@@ -3,6 +3,7 @@ import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { IsoDateInput } from "../IsoDateInput";
 import { TransactionCategoryQuickPicker } from "./TransactionCategoryQuickPicker";
 import { resolveSemanticColor, withAlpha } from "./colorSemantics";
+import { formatCompactKrwAmount } from "./compactTransactionText";
 import { TRANSACTION_SURFACE_FIELDS, getWorkSurfaceMobilePriority } from "./fieldPriority";
 const MOBILE_FILTER_FOCUS_SELECTORS = {
   amount: "[aria-label='최소 금액']",
@@ -50,6 +51,14 @@ function ownerCueAfterCompactInitial(value) {
     return "";
   }
   return chars.slice(1).join("").trim();
+}
+
+function formatCompactMemo(value) {
+  const chars = splitVisibleGraphemes(value);
+  if (chars.length <= 8) {
+    return chars.join("") || "-";
+  }
+  return `${chars[0]}…${chars.slice(-3).join("")}`;
 }
 
 function normalizeCategoryText(value) {
@@ -1140,6 +1149,8 @@ export function TransactionSurfaceTable({
             const isRecentlySaved = recentSavedTransactionIds.has(item.id);
             const amountLabel = fmtKrw(item.amount);
             const isWideAmount = amountLabel.replace(/\s+/g, "").length >= 10;
+            const compactAmountLabel = isWideAmount ? formatCompactKrwAmount(item.amount, amountLabel) : amountLabel;
+            const compactMemoLabel = formatCompactMemo(item.memo);
             const handleRowClick = (event) => {
               if (isEditing) {
                 return;
@@ -1517,12 +1528,14 @@ export function TransactionSurfaceTable({
                   </td>
                   <td data-label="메모" aria-label={`메모 ${item.memo || "-"}`} className="transaction-col-memo" data-field-key="memo" data-mobile-priority={transactionMobilePriority("memo")}>
                     <span className="transaction-memo-text" title={item.memo || "-"} aria-label={`메모 ${item.memo || "-"}`}>
-                      {item.memo || "-"}
+                      <span className="transaction-memo-text-full">{item.memo || "-"}</span>
+                      <span className="transaction-memo-text-compact" aria-hidden="true">{compactMemoLabel}</span>
                     </span>
                   </td>
                   <td data-label="금액" aria-label={`금액 ${amountLabel}`} className="transaction-col-amount" data-field-key="amount" data-mobile-priority={transactionMobilePriority("amount")}>
-                    <span className={`transaction-amount-text${isWideAmount ? " transaction-amount-text-wide" : ""}`}>
-                      {amountLabel}
+                    <span className={`transaction-amount-text${isWideAmount ? " transaction-amount-text-wide" : ""}`} title={amountLabel}>
+                      <span className="transaction-amount-text-full">{amountLabel}</span>
+                      <span className="transaction-amount-text-compact" aria-hidden="true">{compactAmountLabel}</span>
                     </span>
                   </td>
                   <td data-label="최종 수정일" aria-label={`최종 수정일 ${fmtDate(item.updated_at)}`} className="transaction-col-updated transaction-mobile-detail-cell" data-field-key="updated_at" data-mobile-priority={transactionMobilePriority("updated_at")}>
@@ -1547,6 +1560,10 @@ export function TransactionSurfaceTable({
                           <div className="transaction-mobile-detail-value" title={item.memo || "-"} aria-label={`메모 ${item.memo || "-"}`}>
                             {item.memo || "-"}
                           </div>
+                        </div>
+                        <div className="transaction-expanded-detail-item transaction-expanded-detail-amount transaction-mobile-detail-cell">
+                          <span className="transaction-mobile-detail-label">금액</span>
+                          <div className="transaction-mobile-detail-value">{amountLabel}</div>
                         </div>
                         <div className="transaction-expanded-detail-item transaction-expanded-detail-updated transaction-mobile-detail-cell">
                           <span className="transaction-mobile-detail-label">최종 수정일</span>

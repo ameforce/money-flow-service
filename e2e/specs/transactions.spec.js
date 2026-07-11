@@ -3926,6 +3926,8 @@ test("issue 198: mobile collapsed transaction row keeps key details and actions 
       },
       category: visible(".transaction-mobile-category-cue"),
       memo: visible(".transaction-memo-text"),
+      memoFull: visible(".transaction-memo-text-full"),
+      memoCompact: visible(".transaction-memo-text-compact"),
       owner: visible(".transaction-col-owner .transaction-mobile-detail-value"),
       ownerCue: visible(".transaction-col-owner .transaction-owner-compact"),
       actions,
@@ -3940,7 +3942,14 @@ test("issue 198: mobile collapsed transaction row keeps key details and actions 
     "즉시수정",
   );
   expect(metrics.memo?.hidden, `collapsed memo should stay visible: ${JSON.stringify(metrics)}`).toBe(false);
-  expect(metrics.memo?.text || "", `collapsed memo should keep the memo text: ${JSON.stringify(metrics)}`).toBe(memo);
+  expect(metrics.memo?.ariaLabel || "", `collapsed memo should expose the full memo label: ${JSON.stringify(metrics)}`).toBe(
+    `메모 ${memo}`,
+  );
+  expect(metrics.memoFull?.hidden, `collapsed memo should hide the full visual text: ${JSON.stringify(metrics)}`).toBe(true);
+  expect(metrics.memoCompact?.hidden, `collapsed memo should show the compact visual text: ${JSON.stringify(metrics)}`).toBe(false);
+  expect(metrics.memoCompact?.text || "", `collapsed memo should remain identifiable: ${JSON.stringify(metrics)}`).toMatch(
+    /^.\u2026.{3}$/u,
+  );
   expect(metrics.owner?.hidden, `collapsed owner detail should not duplicate the compact owner cue: ${JSON.stringify(metrics)}`).toBe(true);
   expect(metrics.ownerCue?.hidden, `collapsed owner cue should stay visible: ${JSON.stringify(metrics)}`).toBe(false);
   expect(metrics.ownerCue?.ariaLabel || "", `collapsed owner cue should expose the full owner label: ${JSON.stringify(metrics)}`).toBe(
@@ -6458,7 +6467,9 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   await expect(mobileFilterPanel).toBeHidden();
   await expect(mobileRow).toBeVisible();
   await expect(mobileRow).not.toHaveClass(/mobile-row-expanded/);
-  await expect(mobileRow.getByText(memo, { exact: true })).toBeVisible();
+  await expect(mobileRow.locator(".transaction-memo-text").first()).toHaveAttribute("aria-label", `메모 ${memo}`);
+  await expect(mobileRow.locator(".transaction-memo-text-full").first()).toBeHidden();
+  await expect(mobileRow.locator(".transaction-memo-text-compact").first()).toBeVisible();
   await expectCompactLedgerRow(mobileRow, 96);
   await expectSingleLineText(mobileRow.locator(".transaction-memo-text").first());
   await expect(mobileRow.locator(".transaction-mobile-category-cue").first()).toBeVisible();
@@ -6684,6 +6695,7 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
     "거래자명",
     "카테고리",
     "메모",
+    "금액",
     "최종 수정일",
   ]);
   const expandedDetailMetrics = await mobileRow.evaluate((row) => {

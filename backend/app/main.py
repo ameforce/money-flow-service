@@ -275,12 +275,23 @@ async def household_ws(household_id: str, websocket: WebSocket) -> None:
 
 _SPA_NO_CACHE_HEADERS = {"Cache-Control": "no-cache, must-revalidate"}
 _ASSET_IMMUTABLE_HEADERS = {"Cache-Control": "public, max-age=31536000, immutable"}
+_ASSET_MEDIA_TYPES = {
+    ".css": "text/css",
+    ".js": "text/javascript",
+    ".json": "application/json",
+    ".mjs": "text/javascript",
+    ".svg": "image/svg+xml",
+    ".wasm": "application/wasm",
+}
 
 
 class CacheControlledStaticFiles(StaticFiles):
     def file_response(self, full_path: str, stat_result: Any, scope: dict[str, Any], status_code: int = 200):
         response = super().file_response(full_path, stat_result, scope, status_code)
         response.headers.update(_ASSET_IMMUTABLE_HEADERS)
+        media_type = _ASSET_MEDIA_TYPES.get(Path(full_path).suffix.lower())
+        if media_type:
+            response.headers["content-type"] = media_type
         return response
 
 
