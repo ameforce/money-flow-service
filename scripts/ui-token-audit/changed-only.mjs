@@ -2,13 +2,48 @@ import { execFileSync } from "node:child_process";
 import { diffHunkPattern, jsxDynamicStylePattern, jsxInlineStylePattern, jsxScanFiles, repoRoot, scanFiles } from "./config.mjs";
 import { extractLineRawValues } from "./scanner.mjs";
 
+export function selectBaseRef({
+  explicitBaseRef = "",
+  environmentBaseRef = "",
+  baseSha = "",
+  targetBranch = "",
+  targetSha = "",
+  hotfixBaseRef = "",
+} = {}) {
+  const targetRef = targetBranch ? (targetBranch.startsWith("origin/") ? targetBranch : `origin/${targetBranch}`) : "";
+  return explicitBaseRef || environmentBaseRef || baseSha || targetSha || targetRef || hotfixBaseRef;
+}
+
+function findAncestorHotfixBaseRef() {
+  const output = execFileSync(
+    "git",
+    ["for-each-ref", "--sort=-committerdate", "--format=%(refname:short)", "refs/remotes/origin/hotfix/*"],
+    { cwd: repoRoot, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+  );
+  for (const ref of output.split(/\r?\n/).filter(Boolean)) {
+    try {
+      execFileSync("git", ["merge-base", "--is-ancestor", ref, "HEAD"], {
+        cwd: repoRoot,
+        stdio: "ignore",
+      });
+      return ref;
+    } catch {
+      // Continue until the closest active hotfix ancestor is found.
+    }
+  }
+  return "";
+}
+
 function resolveBaseRef(explicitBaseRef) {
   const targetBranch = process.env.GITHUB_BASE_REF || process.env.CHANGE_TARGET || process.env.CI_MERGE_REQUEST_TARGET_BRANCH_NAME;
-  return explicitBaseRef
-    || process.env.UI_TOKEN_AUDIT_BASE_REF
-    || process.env.GITHUB_BASE_SHA
-    || process.env.CI_MERGE_REQUEST_TARGET_BRANCH_SHA
-    || (targetBranch ? `origin/${targetBranch}` : "");
+  return selectBaseRef({
+    explicitBaseRef,
+    environmentBaseRef: process.env.UI_TOKEN_AUDIT_BASE_REF,
+    baseSha: process.env.GITHUB_BASE_SHA,
+    targetBranch,
+    targetSha: process.env.CI_MERGE_REQUEST_TARGET_BRANCH_SHA,
+    hotfixBaseRef: findAncestorHotfixBaseRef(),
+  });
 }
 
 function diffRevisionArgs(baseRef) {
