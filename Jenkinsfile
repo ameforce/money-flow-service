@@ -9,8 +9,8 @@ pipeline {
   parameters {
     booleanParam(
       name: 'RUN_DEPLOY',
-      defaultValue: true,
-      description: '빌드 성공 시 배포 스테이지 실행 여부 (기본 true)'
+      defaultValue: false,
+      description: '명시적으로 true를 선택한 빌드에서만 배포 스테이지 실행 (기본 false)'
     )
     booleanParam(
       name: 'SKIP_QUALITY_GATE',
