@@ -293,7 +293,7 @@ if command -v npm >/dev/null 2>&1; then
   npm install
   npm install --prefix frontend
   if command -v npx >/dev/null 2>&1; then
-    npx playwright install --with-deps chromium || npx playwright install chromium
+    npx playwright install --with-deps chromium firefox webkit || npx playwright install chromium firefox webkit
   else
     echo "[skip] npx is not available; skipping playwright install."
   fi
@@ -305,7 +305,7 @@ fi
             bat 'uv sync --extra dev'
             bat 'npm install'
             bat 'npm install --prefix frontend'
-            bat 'npx playwright install chromium'
+            bat 'npx playwright install chromium firefox webkit'
           }
         }
       }

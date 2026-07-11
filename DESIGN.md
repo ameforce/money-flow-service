@@ -156,3 +156,24 @@ Use a mixed but restrained strategy: tonal shift for hierarchy, thin borders for
 - Do not nest decorative cards inside cards.
 - Keep operational surfaces dense but scannable.
 - Visual depth must clarify ownership and state, not add decoration.
+
+## 8. Accessibility, Evidence & Accepted Debt
+
+### Mobile accessibility constraints
+
+- User zoom must remain available; viewport metadata must not cap maximum scale or disable scaling.
+- Mobile form controls use a computed font size of at least 16px and frequently used interactive targets measure at least 44x44px.
+- Dialogs and sheets must provide initial focus, Tab containment, safe Escape behavior, background isolation, nested confirmation handling, and focus return to the invoking control.
+- Tab interfaces must expose selected state, controlled panel relationships, and expected keyboard movement; visual active classes alone are insufficient.
+- `prefers-reduced-motion: reduce` must suppress non-essential motion across the full application, not only selected components.
+
+### Evidence contract
+
+- `docs/uiux-rca-evidence-ledger.md` is the source of truth for P0/P1/P2/P3 findings and their exact status.
+- Runtime proof is stored under `.omo/evidence/mobile-uiux-v0.1.49/<finding-id>/` and must identify the tested commit SHA, browser, viewport, orientation, and scenario.
+- A finding is resolved only when its ledger status is exactly `Fixed and verified` with implementation, regression, and artifact evidence.
+- The release review gate requires P0/P1/P2/P3 unresolved counts to be zero on the latest reviewed SHA.
+
+### Accepted debt
+
+Accepted debt: none. Mobile UI/UX findings, including LOW/P3 consistency or polish issues, remain release blockers until fixed and verified; they cannot be removed from the ledger through documentation-only acceptance.

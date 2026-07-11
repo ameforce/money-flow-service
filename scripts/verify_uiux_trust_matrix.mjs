@@ -32,7 +32,7 @@ const REQUIRED_CODE_SNIPPETS = [
   { path: "frontend/src/components/AppShell.jsx", text: "aria-live=\"polite\"" },
   { path: "frontend/src/components/AppShell.jsx", text: "role=\"status\"" },
   { path: "frontend/src/App.jsx", text: "role=\"alert\"" },
-  { path: "frontend/src/App.jsx", text: "import-progress" },
+  { path: "frontend/src/pages/importing/WorkbookImportPanel.jsx", text: "className=\"import-progress\" role=\"status\" aria-live=\"polite\"" },
   { path: "frontend/src/components/worksurface/TransactionSurfaceTable.jsx", text: "transaction-row-imported" },
   { path: "e2e/specs/import.spec.js", text: "large report exposes full table filters and CSV export" },
   { path: "e2e/specs/uiux-accessibility-gates.spec.js", text: "issue #246" },
