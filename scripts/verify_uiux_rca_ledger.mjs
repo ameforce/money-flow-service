@@ -31,6 +31,22 @@ const REQUIRED_ASSERTIONS_BY_FINDING = {
   "MUI-012": ["token-audit"],
   "MUI-013": ["react-doctor-zero", "react-scan-stable", "state-preservation"],
 };
+const MODAL_ASSERTIONS = ["focus-trap", "background-inert", "escape", "return-focus"];
+const REQUIRED_SCENARIOS_BY_FINDING = {
+  "MUI-001": [
+    { label: "chromium zoom", browser: "chromium", assertions: ["zoom-enabled"] },
+    { label: "webkit zoom", browser: "webkit", assertions: ["zoom-enabled"] },
+  ],
+  "MUI-006": [
+    { label: "transaction sheet", scenario: "transaction-sheet", assertions: MODAL_ASSERTIONS },
+    { label: "holding sheet", scenario: "holding-sheet", assertions: MODAL_ASSERTIONS },
+    {
+      label: "confirmation dialog",
+      scenario: "confirmation-dialog",
+      assertions: [...MODAL_ASSERTIONS, "nested-confirmation"],
+    },
+  ],
+};
 const MUI_004_REQUIRED_BROWSERS = ["chromium", "firefox", "webkit"];
 const MUI_004_REQUIRED_VIEWPORTS = [
   "320x568", "568x320", "360x800", "800x360", "390x844", "844x390",
@@ -162,6 +178,17 @@ if (!existsSync(LEDGER_PATH)) {
       const assertionIds = new Set(validEvidence.flatMap((metadata) => metadata.assertions || []));
       for (const assertionId of REQUIRED_ASSERTIONS_BY_FINDING[findingId] || []) {
         if (!assertionIds.has(assertionId)) failures.push(`${findingId} evidence is missing assertion ${assertionId}`);
+      }
+      for (const requirement of REQUIRED_SCENARIOS_BY_FINDING[findingId] || []) {
+        const matchingEvidence = validEvidence.filter((metadata) => {
+          if (requirement.browser && metadata.browser !== requirement.browser) return false;
+          if (requirement.scenario && metadata.scenario !== requirement.scenario) return false;
+          const assertions = new Set(metadata.assertions || []);
+          return requirement.assertions.every((assertionId) => assertions.has(assertionId));
+        });
+        if (matchingEvidence.length === 0) {
+          failures.push(`${findingId} evidence is missing required scenario ${requirement.label}`);
+        }
       }
       if (findingId === "MUI-004") {
         const pairAssertions = ["engine-matrix", "zero-overflow"];

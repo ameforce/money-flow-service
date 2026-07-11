@@ -18,6 +18,17 @@ test("selectBaseRef uses the parent commit for clean ordinary branch CI", () => 
   assert.equal(baseRef, "HEAD^");
 });
 
+test("selectBaseRef rejects a hotfix ref that resolves to the current HEAD", () => {
+  const baseRef = selectBaseRef({
+    headSha: "abc123",
+    hotfixBaseRef: "origin/hotfix/v0.1.49",
+    hotfixBaseSha: "abc123",
+    parentBaseRef: "HEAD^",
+  });
+
+  assert.equal(baseRef, "HEAD^");
+});
+
 test("selectBaseRef leaves the baseline empty when no parent commit exists", () => {
   const baseRef = selectBaseRef({ parentBaseRef: "" });
 

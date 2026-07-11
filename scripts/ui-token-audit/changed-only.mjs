@@ -9,10 +9,15 @@ export function selectBaseRef({
   targetBranch = "",
   targetSha = "",
   hotfixBaseRef = "",
+  hotfixBaseSha = "",
+  headSha = "",
   parentBaseRef = "",
 } = {}) {
   const targetRef = targetBranch ? (targetBranch.startsWith("origin/") ? targetBranch : `origin/${targetBranch}`) : "";
-  return explicitBaseRef || environmentBaseRef || baseSha || targetSha || targetRef || hotfixBaseRef || parentBaseRef;
+  const eligibleHotfixBaseRef = hotfixBaseRef && (!headSha || !hotfixBaseSha || hotfixBaseSha !== headSha)
+    ? hotfixBaseRef
+    : "";
+  return explicitBaseRef || environmentBaseRef || baseSha || targetSha || targetRef || eligibleHotfixBaseRef || parentBaseRef;
 }
 
 function findAncestorHotfixBaseRef() {
@@ -27,12 +32,17 @@ function findAncestorHotfixBaseRef() {
         cwd: repoRoot,
         stdio: "ignore",
       });
-      return ref;
+      const sha = execFileSync("git", ["rev-parse", ref], {
+        cwd: repoRoot,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }).trim();
+      return { ref, sha };
     } catch {
       // Continue until the closest active hotfix ancestor is found.
     }
   }
-  return "";
+  return { ref: "", sha: "" };
 }
 
 function findParentBaseRef() {
@@ -49,13 +59,17 @@ function findParentBaseRef() {
 
 function resolveBaseRef(explicitBaseRef) {
   const targetBranch = process.env.GITHUB_BASE_REF || process.env.CHANGE_TARGET || process.env.CI_MERGE_REQUEST_TARGET_BRANCH_NAME;
+  const hotfixBase = findAncestorHotfixBaseRef();
+  const headSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repoRoot, encoding: "utf8" }).trim();
   return selectBaseRef({
     explicitBaseRef,
     environmentBaseRef: process.env.UI_TOKEN_AUDIT_BASE_REF,
     baseSha: process.env.GITHUB_BASE_SHA,
     targetBranch,
     targetSha: process.env.CI_MERGE_REQUEST_TARGET_BRANCH_SHA,
-    hotfixBaseRef: findAncestorHotfixBaseRef(),
+    hotfixBaseRef: hotfixBase.ref,
+    hotfixBaseSha: hotfixBase.sha,
+    headSha,
     parentBaseRef: findParentBaseRef(),
   });
 }

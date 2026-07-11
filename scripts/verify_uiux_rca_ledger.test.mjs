@@ -77,7 +77,7 @@ function writeEvidence(workspace, findingId, sha, browser, viewport, suffix, art
   writeFileSync(path.join(evidenceDirectory, `${suffix}.json`), JSON.stringify(metadata));
 }
 
-function createWorkspace({ invalidArtifact, completeMatrix }) {
+function createWorkspace({ invalidArtifact, completeMatrix, completeRequiredScenarios = false }) {
   const workspace = mkdtempSync(path.join(tmpdir(), "uiux-ledger-test-"));
   mkdirSync(path.join(workspace, "docs"));
   writeFileSync(path.join(workspace, "docs", "uiux-rca-evidence-ledger.md"), createLedger());
@@ -96,6 +96,12 @@ function createWorkspace({ invalidArtifact, completeMatrix }) {
         ? null
         : `${findingId}.png`;
     writeEvidence(workspace, findingId, sha, "chromium", [390, 844], findingId, artifact);
+  }
+  if (completeRequiredScenarios) {
+    writeEvidence(workspace, "MUI-001", sha, "webkit", [390, 844], "webkit-zoom");
+    writeEvidence(workspace, "MUI-006", sha, "chromium", [390, 844], "transaction-sheet");
+    writeEvidence(workspace, "MUI-006", sha, "chromium", [390, 844], "holding-sheet");
+    writeEvidence(workspace, "MUI-006", sha, "chromium", [390, 844], "confirmation-dialog");
   }
   if (completeMatrix) {
     for (const browser of REQUIRED_BROWSERS) {
@@ -225,8 +231,33 @@ test("MUI-004 requires a distinct artifact for every browser and viewport pair",
   }
 });
 
-test("final gate accepts complete browser and viewport evidence", () => {
+test("MUI-001 requires zoom evidence from Chromium and WebKit", () => {
   const workspace = createWorkspace({ completeMatrix: true });
+  try {
+    const result = runVerifier(workspace);
+
+    assert.equal(result.status, 1);
+    assert.ok(result.report.failures.includes("MUI-001 evidence is missing required scenario webkit zoom"));
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("MUI-006 requires each dialog surface to carry its own assertions", () => {
+  const workspace = createWorkspace({ completeMatrix: true });
+  try {
+    const result = runVerifier(workspace);
+
+    assert.equal(result.status, 1);
+    assert.ok(result.report.failures.includes("MUI-006 evidence is missing required scenario holding sheet"));
+    assert.ok(result.report.failures.includes("MUI-006 evidence is missing required scenario confirmation dialog"));
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("final gate accepts complete browser and viewport evidence", () => {
+  const workspace = createWorkspace({ completeMatrix: true, completeRequiredScenarios: true });
   try {
     const result = runVerifier(workspace);
     assert.equal(result.status, 0, JSON.stringify(result.report.failures));
