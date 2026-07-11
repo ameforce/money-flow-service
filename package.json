@@ -9,7 +9,7 @@
     "frontend:doctor": "node scripts/verify_react_doctor.mjs",
     "frontend:doctor:final": "node scripts/verify_react_doctor.mjs --require-clean",
     "frontend:lint": "npm run lint --prefix frontend",
-    "frontend:unit": "node --test ./frontend/src/*.test.mjs",
+    "frontend:unit": "node --test ./frontend/src/*.test.mjs ./scripts/playwright_project_matrix.test.mjs ./scripts/verify_react_doctor.test.mjs ./scripts/verify_uiux_rca_ledger.test.mjs",
     "pwa:verify": "node scripts/verify_pwa_installability.mjs",
     "uiux:app-extraction": "node scripts/verify_app_page_extraction.mjs",
     "uiux:perf-budget": "node scripts/uiux_performance_budget.mjs",

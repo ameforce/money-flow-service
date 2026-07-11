@@ -30,6 +30,16 @@ const projects = [
 if (runProjectMatrix) {
   projects.push(
     {
+      name: "tablet-chromium",
+      testIgnore: "**/mobile-browser-matrix.spec.js",
+      use: { ...devices["iPad Pro 11"], browserName: "chromium", ...chromiumRuntime },
+    },
+    {
+      name: "mobile-chromium",
+      testIgnore: "**/mobile-browser-matrix.spec.js",
+      use: { ...devices["Pixel 5"], ...chromiumRuntime },
+    },
+    {
       name: "matrix-chromium",
       testMatch: "**/mobile-browser-matrix.spec.js",
       use: { browserName: "chromium", ...chromiumRuntime },

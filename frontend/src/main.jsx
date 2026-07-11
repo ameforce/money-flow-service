@@ -1,9 +1,10 @@
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
+import { startReactScan } from './reactScan.js'
 
 if (import.meta.env.DEV && import.meta.env.VITE_ENABLE_REACT_SCAN === '1') {
-  void import('react-scan').catch(() => undefined)
+  void startReactScan(true, () => import('react-scan'))
 }
 
 createRoot(document.getElementById('root')).render(

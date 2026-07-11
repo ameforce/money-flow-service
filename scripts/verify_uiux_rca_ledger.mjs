@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 
@@ -131,6 +131,7 @@ if (!existsSync(LEDGER_PATH)) {
         failures.push(`${findingId} evidence metadata is missing`);
         continue;
       }
+      const metadataFileNames = new Set(metadataFiles);
       const validEvidence = metadataFiles.flatMap((file) => {
         try {
           const metadata = JSON.parse(readFileSync(path.join(evidenceDirectory, file), "utf8"));
@@ -145,8 +146,10 @@ if (!existsSync(LEDGER_PATH)) {
             && Boolean(metadata.viewport?.height)
             && Boolean(metadata.orientation)
             && Boolean(metadata.scenario)
+            && artifactName.length > 0
             && artifactName === path.basename(artifactName)
-            && existsSync(artifactPath);
+            && !metadataFileNames.has(artifactName)
+            && statSync(artifactPath).isFile();
           return valid ? [metadata] : [];
         } catch {
           return [];
@@ -161,13 +164,33 @@ if (!existsSync(LEDGER_PATH)) {
         if (!assertionIds.has(assertionId)) failures.push(`${findingId} evidence is missing assertion ${assertionId}`);
       }
       if (findingId === "MUI-004") {
-        const browsers = new Set(validEvidence.map((metadata) => metadata.browser));
-        const viewports = new Set(validEvidence.map((metadata) => `${metadata.viewport.width}x${metadata.viewport.height}`));
+        const pairAssertions = ["engine-matrix", "zero-overflow"];
+        const usedPairArtifacts = new Map();
         for (const browser of MUI_004_REQUIRED_BROWSERS) {
-          if (!browsers.has(browser)) failures.push(`${findingId} evidence is missing browser ${browser}`);
-        }
-        for (const viewport of MUI_004_REQUIRED_VIEWPORTS) {
-          if (!viewports.has(viewport)) failures.push(`${findingId} evidence is missing viewport ${viewport}`);
+          for (const viewport of MUI_004_REQUIRED_VIEWPORTS) {
+            const pair = `${browser}/${viewport}`;
+            const pairEvidence = validEvidence.filter(
+              (metadata) => `${metadata.browser}/${metadata.viewport.width}x${metadata.viewport.height}` === pair
+            );
+            if (pairEvidence.length === 0) {
+              failures.push(`${findingId} evidence is missing browser/viewport pair ${pair}`);
+              continue;
+            }
+            const assertedEvidence = pairEvidence.filter((metadata) => {
+              const assertions = new Set(metadata.assertions || []);
+              return pairAssertions.every((assertionId) => assertions.has(assertionId));
+            });
+            if (assertedEvidence.length === 0) {
+              failures.push(`${findingId} evidence is missing pair assertions for ${pair}`);
+              continue;
+            }
+            const distinctEvidence = assertedEvidence.find((metadata) => !usedPairArtifacts.has(metadata.artifact));
+            if (!distinctEvidence) {
+              failures.push(`${findingId} evidence reuses artifact ${assertedEvidence[0].artifact} across browser/viewport pairs`);
+              continue;
+            }
+            usedPairArtifacts.set(distinctEvidence.artifact, pair);
+          }
         }
       }
     }

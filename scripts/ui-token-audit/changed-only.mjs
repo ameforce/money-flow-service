@@ -9,9 +9,10 @@ export function selectBaseRef({
   targetBranch = "",
   targetSha = "",
   hotfixBaseRef = "",
+  parentBaseRef = "",
 } = {}) {
   const targetRef = targetBranch ? (targetBranch.startsWith("origin/") ? targetBranch : `origin/${targetBranch}`) : "";
-  return explicitBaseRef || environmentBaseRef || baseSha || targetSha || targetRef || hotfixBaseRef;
+  return explicitBaseRef || environmentBaseRef || baseSha || targetSha || targetRef || hotfixBaseRef || parentBaseRef;
 }
 
 function findAncestorHotfixBaseRef() {
@@ -34,6 +35,18 @@ function findAncestorHotfixBaseRef() {
   return "";
 }
 
+function findParentBaseRef() {
+  try {
+    execFileSync("git", ["rev-parse", "--verify", "--quiet", "HEAD^"], {
+      cwd: repoRoot,
+      stdio: "ignore",
+    });
+    return "HEAD^";
+  } catch {
+    return "";
+  }
+}
+
 function resolveBaseRef(explicitBaseRef) {
   const targetBranch = process.env.GITHUB_BASE_REF || process.env.CHANGE_TARGET || process.env.CI_MERGE_REQUEST_TARGET_BRANCH_NAME;
   return selectBaseRef({
@@ -43,6 +56,7 @@ function resolveBaseRef(explicitBaseRef) {
     targetBranch,
     targetSha: process.env.CI_MERGE_REQUEST_TARGET_BRANCH_SHA,
     hotfixBaseRef: findAncestorHotfixBaseRef(),
+    parentBaseRef: findParentBaseRef(),
   });
 }
 
@@ -101,14 +115,12 @@ export function gitAddedLines(baseRef = "") {
 }
 
 export function inspectChangedOnly(declaredValues, options = {}) {
-  let baseRef = resolveBaseRef(options.baseRef);
-  let changedFiles = gitChangedFiles(baseRef);
+  const baseRef = resolveBaseRef(options.baseRef);
+  const changedFiles = gitChangedFiles(baseRef);
   if (!baseRef && changedFiles.length === 0) {
     if (process.env.CI) {
-      throw new Error("changed-only token audit requires a PR base ref in clean CI (GITHUB_BASE_SHA, GITHUB_BASE_REF, CHANGE_TARGET, or UI_TOKEN_AUDIT_BASE_REF)");
+      throw new Error("changed-only token audit requires a resolvable PR, hotfix, or parent baseline in clean CI");
     }
-    baseRef = "HEAD^";
-    changedFiles = gitChangedFiles(baseRef);
   }
   const auditedFiles = changedFiles.filter((path) => scanFiles.includes(path));
   const checkedValues = [];
