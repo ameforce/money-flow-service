@@ -6363,6 +6363,17 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   const transactionEntryCard = page.locator(".transaction-entry-card").first();
   const transactionTopActionButton = page.locator(".transaction-entry-card").getByRole("button", { name: /거래 추가|카테고리 관리/ }).first();
   const transactionListCard = page.locator(".transaction-list-card").first();
+  await expect(transactionEntryCard).toBeHidden();
+  await expect(transactionTopActionButton).toBeHidden();
+  await expect(transactionFab).toBeVisible();
+  const fabInitialBox = await transactionFab.boundingBox();
+  const listCardBox = await transactionListCard.boundingBox();
+  expect(fabInitialBox, "transaction FAB should have a bounding box").not.toBeNull();
+  expect(listCardBox, "transaction list card should have a bounding box").not.toBeNull();
+  expect(fabInitialBox?.y ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(844);
+  const mobileHeaderFilters = page.locator(".tx-header-filters").first();
+  await expect(page.locator(".tx-filter-details")).toHaveCount(0);
+  await expect(mobileHeaderFilters).toBeHidden();
   await page.evaluate(() => {
     const activeElement = document.activeElement;
     if (activeElement instanceof HTMLElement && activeElement !== document.body) {
@@ -6379,17 +6390,6 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
     null,
     { timeout: 15_000 }
   );
-  await expect(transactionEntryCard).toBeHidden();
-  await expect(transactionTopActionButton).toBeHidden();
-  await expect(transactionFab).toBeVisible();
-  const fabInitialBox = await transactionFab.boundingBox();
-  const listCardBox = await transactionListCard.boundingBox();
-  expect(fabInitialBox, "transaction FAB should have a bounding box").not.toBeNull();
-  expect(listCardBox, "transaction list card should have a bounding box").not.toBeNull();
-  expect(fabInitialBox?.y ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(844);
-  const mobileHeaderFilters = page.locator(".tx-header-filters").first();
-  await expect(page.locator(".tx-filter-details")).toHaveCount(0);
-  await expect(mobileHeaderFilters).toBeHidden();
   await expect(page.locator(".transactions-mobile-ledger-head")).toHaveAttribute("data-sticky-active", "false");
   await expect(page.locator(".transactions-mobile-ledger-head")).toBeVisible();
   const mobileLedgerHead = page.locator(".transactions-mobile-ledger-head").first();
