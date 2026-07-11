@@ -171,6 +171,9 @@ Use a mixed but restrained strategy: tonal shift for hierarchy, thin borders for
 
 - `docs/uiux-rca-evidence-ledger.md` is the source of truth for P0/P1/P2/P3 findings and their exact status.
 - Runtime proof is stored under `.omo/evidence/mobile-uiux-v0.1.49/<finding-id>/` and must identify the tested commit SHA, browser, viewport, orientation, and scenario.
+- Every runtime screenshot has a JSON sidecar in the same finding directory. Final verification checks its finding ID, current HEAD SHA, passed result, command, browser, viewport, orientation, scenario, and referenced artifact.
+- Per-wave `quality:gate` uses a react-doctor baseline ratchet and the established desktop E2E suite so W0 can record known product defects without making its own test-infrastructure PR permanently red. Release `quality:gate:final` runs the zero-diagnostic doctor gate, strict Chromium/Firefox/WebKit matrix, and unresolved-zero ledger gate after evidence generation.
+- The W3/final PR MUST run Jenkins with both `RUN_ASYNC_QUALITY_GATE=true` and `RUN_FINAL_UIUX_GATE=true`; that path invokes `ci:quality:gate:final` and is the required same-SHA final check.
 - A finding is resolved only when its ledger status is exactly `Fixed and verified` with implementation, regression, and artifact evidence.
 - The release review gate requires P0/P1/P2/P3 unresolved counts to be zero on the latest reviewed SHA.
 

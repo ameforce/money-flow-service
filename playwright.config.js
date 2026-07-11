@@ -32,17 +32,17 @@ if (runProjectMatrix) {
     {
       name: "matrix-chromium",
       testMatch: "**/mobile-browser-matrix.spec.js",
-      use: { ...devices["Desktop Chrome"], ...chromiumRuntime },
+      use: { browserName: "chromium", ...chromiumRuntime },
     },
     {
       name: "matrix-firefox",
       testMatch: "**/mobile-browser-matrix.spec.js",
-      use: { ...devices["Desktop Firefox"] },
+      use: { browserName: "firefox" },
     },
     {
       name: "matrix-webkit",
       testMatch: "**/mobile-browser-matrix.spec.js",
-      use: { ...devices["Desktop Safari"] },
+      use: { browserName: "webkit" },
     }
   );
 }

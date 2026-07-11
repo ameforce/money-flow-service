@@ -23,6 +23,11 @@ pipeline {
       description: 'true면 full ci:quality:gate를 온디맨드로 실행하고 실패 시 .jenkins-async-deploy-block.json을 남김'
     )
     booleanParam(
+      name: 'RUN_FINAL_UIUX_GATE',
+      defaultValue: false,
+      description: 'RUN_ASYNC_QUALITY_GATE와 함께 true면 v0.1.49 최종 ci:quality:gate:final을 실행하며 P0-P3 open finding을 차단'
+    )
+    booleanParam(
       name: 'RUN_PRE_DEPLOY_E2E',
       defaultValue: false,
       description: 'true면 배포 전 live deep-link Playwright smoke를 온디맨드로 실행'
@@ -407,7 +412,8 @@ uv run --extra dev python -m pytest -q
                 "DEPLOY_SSH_OPTS=${params.DEPLOY_SSH_OPTS}",
                 "ASYNC_MARKER_FILE=${asyncMarkerPath}",
                 "ASYNC_EVIDENCE_FILE=deploy-evidence.json",
-                "BUILD_BRANCH=${deployBranch}"
+                "BUILD_BRANCH=${deployBranch}",
+                "RUN_FINAL_UIUX_GATE=${params.RUN_FINAL_UIUX_GATE}"
               ]) {
                 sh '''#!/usr/bin/env bash
 set -euo pipefail
@@ -488,7 +494,12 @@ if ! command -v npm >/dev/null 2>&1; then
   exit 1
 fi
 
-if ! npm run ci:async:quality; then
+quality_gate_script="ci:async:quality"
+if [ "${RUN_FINAL_UIUX_GATE:-false}" = "true" ]; then
+  quality_gate_script="ci:quality:gate:final"
+fi
+echo "[async-quality] running npm run ${quality_gate_script}"
+if ! npm run "$quality_gate_script"; then
   write_async_marker "ci_async_quality_failed"
   echo "[async-quality] failed; ASYNC_FAILURE_RCA_LINK is required before clearing marker state."
   exit 1
@@ -501,7 +512,7 @@ cleanup_async_key
               }
             }
           } finally {
-            archiveArtifacts artifacts: '.jenkins-async-deploy-block.json,deploy-evidence.json,playwright-report/**,test-results/**,output/playwright/e2e-flow/**', allowEmptyArchive: true, onlyIfSuccessful: false
+            archiveArtifacts artifacts: '.jenkins-async-deploy-block.json,deploy-evidence.json,playwright-report/**,test-results/**,output/playwright/e2e-flow/**,.omo/evidence/mobile-uiux-v0.1.49/**', allowEmptyArchive: true, onlyIfSuccessful: false
           }
         }
       }
@@ -599,7 +610,7 @@ done
               sh ". ./scripts/ci/ensure-node.sh\n${liveSmokeCommand}"
             }
           } finally {
-            archiveArtifacts artifacts: 'playwright-report/**,test-results/**,output/playwright/e2e-flow/**', allowEmptyArchive: true, onlyIfSuccessful: false
+            archiveArtifacts artifacts: 'playwright-report/**,test-results/**,output/playwright/e2e-flow/**,.omo/evidence/mobile-uiux-v0.1.49/**', allowEmptyArchive: true, onlyIfSuccessful: false
           }
         }
       }

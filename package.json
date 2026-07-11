@@ -6,7 +6,8 @@
     "dev:all": "cmd /c uv run python orchestrator.py",
     "frontend:dev": "npm run dev --prefix frontend",
     "frontend:build": "npm run build --prefix frontend",
-    "frontend:doctor": "npm run doctor --prefix frontend",
+    "frontend:doctor": "node scripts/verify_react_doctor.mjs",
+    "frontend:doctor:final": "node scripts/verify_react_doctor.mjs --require-clean",
     "frontend:lint": "npm run lint --prefix frontend",
     "frontend:unit": "node --test ./frontend/src/*.test.mjs",
     "pwa:verify": "node scripts/verify_pwa_installability.mjs",
@@ -33,11 +34,13 @@
     "ci:e2e:matrix": "uv run python scripts/run_e2e_with_orchestrator.py --project-matrix",
     "ci:async:quality": "npm run ci:quality:gate",
     "ci:pre-deploy:e2e": "npx playwright test --grep \"auth deep-link token policy: query token rejected\" e2e/specs/deeplink.spec.js --workers=1",
-    "ci:quality:gate": "npm run ci:test && npm run frontend:unit && npm run frontend:lint && npm run frontend:doctor && npm run frontend:build && npm run pwa:verify && npm run uiux:app-extraction && npm run uiux:perf-budget && npm run uiux:token-audit && npm run uiux:trust-matrix && npm run uiux:rca-ledger && npm run ci:e2e:matrix && uv run python scripts/verify_e2e_screenshots.py && uv run python scripts/check_mojibake.py",
+    "ci:quality:gate": "npm run ci:test && npm run frontend:unit && npm run frontend:lint && npm run frontend:doctor && npm run frontend:build && npm run pwa:verify && npm run uiux:app-extraction && npm run uiux:perf-budget && npm run uiux:token-audit && npm run uiux:trust-matrix && npm run uiux:rca-ledger && npm run ci:e2e && uv run python scripts/verify_e2e_screenshots.py && uv run python scripts/check_mojibake.py",
+    "ci:quality:gate:final": "npm run ci:test && npm run frontend:unit && npm run frontend:lint && npm run frontend:doctor:final && npm run frontend:build && npm run pwa:verify && npm run uiux:app-extraction && npm run uiux:perf-budget && npm run uiux:token-audit && npm run uiux:trust-matrix && npm run ci:e2e:matrix && uv run python scripts/verify_e2e_screenshots.py && uv run python scripts/check_mojibake.py && npm run uiux:rca-ledger:final",
     "e2e:raw": "uv run python scripts/run_playwright_tests.py",
     "e2e:headed": "uv run python scripts/run_playwright_tests.py --headed",
     "quality": "npm run quality:gate",
-    "quality:gate": "uv run --extra dev python -m pytest -q && npm run frontend:unit && npm run frontend:lint && npm run frontend:doctor && npm run frontend:build && npm run pwa:verify && npm run uiux:app-extraction && npm run uiux:perf-budget && npm run uiux:token-audit && npm run uiux:trust-matrix && npm run uiux:rca-ledger && npm run e2e:matrix && uv run python scripts/verify_e2e_screenshots.py && uv run python scripts/check_mojibake.py"
+    "quality:gate": "uv run --extra dev python -m pytest -q && npm run frontend:unit && npm run frontend:lint && npm run frontend:doctor && npm run frontend:build && npm run pwa:verify && npm run uiux:app-extraction && npm run uiux:perf-budget && npm run uiux:token-audit && npm run uiux:trust-matrix && npm run uiux:rca-ledger && npm run e2e && uv run python scripts/verify_e2e_screenshots.py && uv run python scripts/check_mojibake.py",
+    "quality:gate:final": "uv run --extra dev python -m pytest -q && npm run frontend:unit && npm run frontend:lint && npm run frontend:doctor:final && npm run frontend:build && npm run pwa:verify && npm run uiux:app-extraction && npm run uiux:perf-budget && npm run uiux:token-audit && npm run uiux:trust-matrix && npm run e2e:matrix && uv run python scripts/verify_e2e_screenshots.py && uv run python scripts/check_mojibake.py && npm run uiux:rca-ledger:final"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.12.1",

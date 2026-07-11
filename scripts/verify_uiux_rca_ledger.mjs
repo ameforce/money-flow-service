@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import path from "node:path";
 
 const LEDGER_PATH = "docs/uiux-rca-evidence-ledger.md";
 const REQUIRED_ISSUES = Array.from({ length: 20 }, (_, index) => `#${240 + index}`);
@@ -13,6 +15,27 @@ const REQUIRED_SEVERITIES = new Set(["P0", "P1", "P2", "P3"]);
 const ALLOWED_FINDING_STATUSES = new Set(["Open", "In progress", "Fixed, pending verification", "Fixed and verified"]);
 const VERIFIED_STATUS = "Fixed and verified";
 const requireClosed = process.argv.includes("--require-closed");
+const currentHeadSha = requireClosed ? execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim() : null;
+const REQUIRED_ASSERTIONS_BY_FINDING = {
+  "MUI-001": ["zoom-enabled"],
+  "MUI-002": ["keyboard-upload"],
+  "MUI-003": ["horizontal-pan"],
+  "MUI-004": ["engine-matrix", "matrix-complete", "orientation-state-preservation", "zero-overflow"],
+  "MUI-005": ["font-size-16"],
+  "MUI-006": ["focus-trap", "background-inert", "escape", "return-focus", "nested-confirmation"],
+  "MUI-007": ["target-size-44"],
+  "MUI-008": ["tab-semantics", "arrow-navigation"],
+  "MUI-009": ["assertive-error", "polite-status"],
+  "MUI-010": ["reduced-motion"],
+  "MUI-011": ["first-task-visible", "chart-readable"],
+  "MUI-012": ["token-audit"],
+  "MUI-013": ["react-doctor-zero", "react-scan-stable", "state-preservation"],
+};
+const MUI_004_REQUIRED_BROWSERS = ["chromium", "firefox", "webkit"];
+const MUI_004_REQUIRED_VIEWPORTS = [
+  "320x568", "568x320", "360x800", "800x360", "390x844", "844x390",
+  "412x915", "915x412", "768x1024", "1024x768", "1280x720", "1440x900",
+];
 const REQUIRED_CONTRACT_SNIPPETS = [
   "v0.1.48 baseline",
   "P0 / CRITICAL",
@@ -93,8 +116,60 @@ if (!existsSync(LEDGER_PATH)) {
     if (!ALLOWED_FINDING_STATUSES.has(status)) {
       failures.push(`${findingId} has invalid status ${status}`);
     }
-    if (status === VERIFIED_STATUS && !verification.includes(".omo/evidence/mobile-uiux-v0.1.49/")) {
-      failures.push(`${findingId} is verified without a mobile evidence artifact path`);
+    const evidenceRelativePath = `.omo/evidence/mobile-uiux-v0.1.49/${findingId}`;
+    if (status === VERIFIED_STATUS && !verification.includes(`${evidenceRelativePath}/`)) {
+      failures.push(`${findingId} is verified without its mobile evidence artifact path`);
+    }
+    if (requireClosed && status === VERIFIED_STATUS) {
+      const evidenceDirectory = path.resolve(evidenceRelativePath);
+      if (!existsSync(evidenceDirectory)) {
+        failures.push(`${findingId} evidence directory is missing: ${evidenceRelativePath}`);
+        continue;
+      }
+      const metadataFiles = readdirSync(evidenceDirectory).filter((file) => file.endsWith(".json"));
+      if (metadataFiles.length === 0) {
+        failures.push(`${findingId} evidence metadata is missing`);
+        continue;
+      }
+      const validEvidence = metadataFiles.flatMap((file) => {
+        try {
+          const metadata = JSON.parse(readFileSync(path.join(evidenceDirectory, file), "utf8"));
+          const artifactName = String(metadata.artifact || "");
+          const artifactPath = path.join(evidenceDirectory, artifactName);
+          const valid = metadata.findingId === findingId
+            && metadata.testedSha === currentHeadSha
+            && metadata.result === "passed"
+            && Boolean(metadata.command)
+            && Boolean(metadata.browser)
+            && Boolean(metadata.viewport?.width)
+            && Boolean(metadata.viewport?.height)
+            && Boolean(metadata.orientation)
+            && Boolean(metadata.scenario)
+            && artifactName === path.basename(artifactName)
+            && existsSync(artifactPath);
+          return valid ? [metadata] : [];
+        } catch {
+          return [];
+        }
+      });
+      if (validEvidence.length === 0) {
+        failures.push(`${findingId} has no valid passing evidence for HEAD ${currentHeadSha}`);
+        continue;
+      }
+      const assertionIds = new Set(validEvidence.flatMap((metadata) => metadata.assertions || []));
+      for (const assertionId of REQUIRED_ASSERTIONS_BY_FINDING[findingId] || []) {
+        if (!assertionIds.has(assertionId)) failures.push(`${findingId} evidence is missing assertion ${assertionId}`);
+      }
+      if (findingId === "MUI-004") {
+        const browsers = new Set(validEvidence.map((metadata) => metadata.browser));
+        const viewports = new Set(validEvidence.map((metadata) => `${metadata.viewport.width}x${metadata.viewport.height}`));
+        for (const browser of MUI_004_REQUIRED_BROWSERS) {
+          if (!browsers.has(browser)) failures.push(`${findingId} evidence is missing browser ${browser}`);
+        }
+        for (const viewport of MUI_004_REQUIRED_VIEWPORTS) {
+          if (!viewports.has(viewport)) failures.push(`${findingId} evidence is missing viewport ${viewport}`);
+        }
+      }
     }
   }
 

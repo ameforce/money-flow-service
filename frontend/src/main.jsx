@@ -2,11 +2,8 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
 
-if (import.meta.env.DEV && import.meta.env.VITE_DISABLE_REACT_DEVTOOLS !== '1') {
-  await Promise.all([
-    import('react-grab'),
-    import('react-scan'),
-  ])
+if (import.meta.env.DEV && import.meta.env.VITE_ENABLE_REACT_SCAN === '1') {
+  void import('react-scan').catch(() => undefined)
 }
 
 createRoot(document.getElementById('root')).render(
