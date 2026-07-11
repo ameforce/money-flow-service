@@ -42,6 +42,7 @@ test("selectBaseRef ignores a stale hotfix ancestor on an unrelated branch", () 
 
 test("selectBaseRef rejects a hotfix ref that resolves to the current HEAD", () => {
   const baseRef = selectBaseRef({
+    headBranch: "fix/mobile-uiux-rca-v0.1.49",
     headSha: "abc123",
     hotfixBaseRef: "origin/hotfix/v0.1.49",
     hotfixBaseSha: "abc123",
@@ -49,6 +50,18 @@ test("selectBaseRef rejects a hotfix ref that resolves to the current HEAD", () 
   });
 
   assert.equal(baseRef, "HEAD^");
+});
+
+test("selectBaseRef uses an exact hotfix branch when its base is older than HEAD", () => {
+  const baseRef = selectBaseRef({
+    headBranch: "hotfix/v0.1.49",
+    headSha: "def456",
+    hotfixBaseRef: "origin/hotfix/v0.1.49",
+    hotfixBaseSha: "abc123",
+    parentBaseRef: "HEAD^",
+  });
+
+  assert.equal(baseRef, "origin/hotfix/v0.1.49");
 });
 
 test("selectBaseRef leaves the baseline empty when no parent commit exists", () => {
