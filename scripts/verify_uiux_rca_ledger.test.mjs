@@ -244,6 +244,20 @@ test("MUI-004 requires a distinct artifact for every browser and viewport pair",
   }
 });
 
+test("MUI-004 requires matrix and orientation evidence from every browser engine", () => {
+  const workspace = createWorkspace({ completeMatrix: true });
+  try {
+    const result = runVerifier(workspace);
+
+    assert.equal(result.status, 1);
+    for (const browser of REQUIRED_BROWSERS) {
+      assert.ok(result.report.failures.includes(`MUI-004 evidence is missing required scenario ${browser} orientation state`));
+    }
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
 test("MUI-001 requires zoom evidence from Chromium and WebKit", () => {
   const workspace = createWorkspace({ completeMatrix: true });
   try {
@@ -270,14 +284,35 @@ test("MUI-006 requires each dialog surface to carry its own assertions", () => {
   }
 });
 
+test("required scenarios cannot reuse one artifact across evidence contexts", () => {
+  const workspace = createWorkspace({ completeMatrix: true, completeRequiredScenarios: true });
+  try {
+    const evidenceDirectory = path.join(workspace, ".omo", "evidence", "mobile-uiux-v0.1.49", "MUI-005");
+    const metadataNames = readdirSync(evidenceDirectory).filter((file) => file.endsWith(".json"));
+    const sharedArtifact = JSON.parse(readFileSync(path.join(evidenceDirectory, metadataNames[0]), "utf8")).artifact;
+    for (const metadataName of metadataNames) {
+      const metadataPath = path.join(evidenceDirectory, metadataName);
+      const metadata = JSON.parse(readFileSync(metadataPath, "utf8"));
+      writeFileSync(metadataPath, JSON.stringify({ ...metadata, artifact: sharedArtifact }));
+    }
+
+    const result = runVerifier(workspace);
+
+    assert.equal(result.status, 1);
+    assert.ok(result.report.failures.some((failure) => failure.startsWith("MUI-005 evidence reuses artifact")));
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
 for (const [findingId, requiredScenarios] of [
   ["MUI-002", ["workbook upload", "toss upload", "migration upload"]],
   ["MUI-003", ["320x568 touch access", "320x568 keyboard access", "390x844 touch access", "390x844 keyboard access"]],
-  ["MUI-005", ["915x412 WebKit text", "844x390 WebKit text"]],
+  ["MUI-005", ["auth 915x412 WebKit text", "dashboard filters 915x412 WebKit text", "settings 915x412 WebKit text", "collaboration 915x412 WebKit text", "import 915x412 WebKit text", "auth 844x390 WebKit text", "dashboard filters 844x390 WebKit text", "settings 844x390 WebKit text", "collaboration 844x390 WebKit text", "import 844x390 WebKit text"]],
   ["MUI-007", ["transaction targets", "holding targets", "settings targets", "landscape navigation targets"]],
   ["MUI-008", ["collaboration tabs", "import tabs"]],
   ["MUI-009", ["blocking error", "non-blocking status"]],
-  ["MUI-010", ["computed styles", "interaction states"]],
+  ["MUI-010", ["auth computed styles", "auth interaction states", "dashboard computed styles", "dashboard interaction states", "transactions computed styles", "transactions interaction states", "holdings computed styles", "holdings interaction states", "import computed styles", "import interaction states", "settings computed styles", "settings interaction states", "collaboration computed styles", "collaboration interaction states"]],
   ["MUI-011", ["800x360 dashboard", "844x390 dashboard", "915x412 dashboard"]],
   ["MUI-012", ["token audit"]],
   ["MUI-013", ["react doctor", "react scan", "frontend build", "state preservation"]],

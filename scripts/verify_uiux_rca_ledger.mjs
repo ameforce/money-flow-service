@@ -150,6 +150,7 @@ if (!existsSync(LEDGER_PATH)) {
       for (const assertionId of REQUIRED_ASSERTIONS_BY_FINDING[findingId] || []) {
         if (!assertionIds.has(assertionId)) failures.push(`${findingId} evidence is missing assertion ${assertionId}`);
       }
+      const usedScenarioArtifacts = new Map();
       for (const requirement of REQUIRED_SCENARIOS_BY_FINDING[findingId] || []) {
         const matchingEvidence = validEvidence.filter((metadata) => {
           if (requirement.browser && metadata.browser !== requirement.browser) return false;
@@ -160,7 +161,14 @@ if (!existsSync(LEDGER_PATH)) {
         });
         if (matchingEvidence.length === 0) {
           failures.push(`${findingId} evidence is missing required scenario ${requirement.label}`);
+          continue;
         }
+        const distinctEvidence = matchingEvidence.find((metadata) => !usedScenarioArtifacts.has(metadata.artifact));
+        if (!distinctEvidence) {
+          failures.push(`${findingId} evidence reuses artifact ${matchingEvidence[0].artifact} across required scenarios`);
+          continue;
+        }
+        usedScenarioArtifacts.set(distinctEvidence.artifact, requirement.label);
       }
       if (findingId === "MUI-004") {
         const pairAssertions = ["engine-matrix", "zero-overflow"];

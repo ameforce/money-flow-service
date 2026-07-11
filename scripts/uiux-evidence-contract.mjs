@@ -1,4 +1,13 @@
 const MODAL_ASSERTIONS = ["focus-trap", "background-inert", "escape", "return-focus"];
+const FORM_SURFACES = ["auth", "dashboard filters", "settings", "collaboration", "import"];
+const FORM_VIEWPORTS = ["915x412", "844x390"];
+const MOTION_SURFACES = ["auth", "dashboard", "transactions", "holdings", "import", "settings", "collaboration"];
+
+export const MUI_004_REQUIRED_BROWSERS = ["chromium", "firefox", "webkit"];
+export const MUI_004_REQUIRED_VIEWPORTS = [
+  "320x568", "568x320", "360x800", "800x360", "390x844", "844x390",
+  "412x915", "915x412", "768x1024", "1024x768", "1280x720", "1440x900",
+];
 
 export const REQUIRED_ASSERTIONS_BY_FINDING = {
   "MUI-001": ["zoom-enabled"],
@@ -32,10 +41,19 @@ export const REQUIRED_SCENARIOS_BY_FINDING = {
     { label: "390x844 touch access", browser: "chromium", viewport: "390x844", scenario: "touch-access", assertions: ["horizontal-pan", "editable-columns-reachable"] },
     { label: "390x844 keyboard access", browser: "chromium", viewport: "390x844", scenario: "keyboard-access", assertions: ["horizontal-pan", "editable-columns-reachable"] },
   ],
-  "MUI-005": [
-    { label: "915x412 WebKit text", browser: "webkit", viewport: "915x412", scenario: "form-text", assertions: ["font-size-16"] },
-    { label: "844x390 WebKit text", browser: "webkit", viewport: "844x390", scenario: "form-text", assertions: ["font-size-16"] },
-  ],
+  "MUI-004": MUI_004_REQUIRED_BROWSERS.map((browser) => ({
+    label: `${browser} orientation state`,
+    browser,
+    scenario: "orientation-state-preservation",
+    assertions: ["matrix-complete", "orientation-state-preservation"],
+  })),
+  "MUI-005": FORM_VIEWPORTS.flatMap((viewport) => FORM_SURFACES.map((surface) => ({
+    label: `${surface} ${viewport} WebKit text`,
+    browser: "webkit",
+    viewport,
+    scenario: `${surface.replaceAll(" ", "-")}-form-text`,
+    assertions: ["font-size-16"],
+  }))),
   "MUI-006": [
     { label: "transaction sheet", scenario: "transaction-sheet", assertions: MODAL_ASSERTIONS },
     { label: "holding sheet", scenario: "holding-sheet", assertions: MODAL_ASSERTIONS },
@@ -55,10 +73,18 @@ export const REQUIRED_SCENARIOS_BY_FINDING = {
     { label: "blocking error", scenario: "blocking-error", assertions: ["assertive-error"] },
     { label: "non-blocking status", scenario: "non-blocking-status", assertions: ["polite-status"] },
   ],
-  "MUI-010": [
-    { label: "computed styles", scenario: "computed-styles", assertions: ["reduced-motion"] },
-    { label: "interaction states", scenario: "interaction-states", assertions: ["reduced-motion"] },
-  ],
+  "MUI-010": MOTION_SURFACES.flatMap((surface) => [
+    {
+      label: `${surface} computed styles`,
+      scenario: `${surface}-computed-styles`,
+      assertions: ["reduced-motion", "computed-styles"],
+    },
+    {
+      label: `${surface} interaction states`,
+      scenario: `${surface}-interaction-states`,
+      assertions: ["reduced-motion", "interaction-states"],
+    },
+  ]),
   "MUI-011": [
     { label: "800x360 dashboard", viewport: "800x360", scenario: "dashboard-landscape", assertions: ["first-task-visible", "chart-readable"] },
     { label: "844x390 dashboard", viewport: "844x390", scenario: "dashboard-landscape", assertions: ["first-task-visible", "chart-readable"] },
@@ -74,9 +100,3 @@ export const REQUIRED_SCENARIOS_BY_FINDING = {
     { label: "state preservation", scenario: "state-preservation", assertions: ["state-preservation"] },
   ],
 };
-
-export const MUI_004_REQUIRED_BROWSERS = ["chromium", "firefox", "webkit"];
-export const MUI_004_REQUIRED_VIEWPORTS = [
-  "320x568", "568x320", "360x800", "800x360", "390x844", "844x390",
-  "412x915", "915x412", "768x1024", "1024x768", "1280x720", "1440x900",
-];
