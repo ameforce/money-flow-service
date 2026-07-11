@@ -8473,13 +8473,13 @@ tr.holding-row-imported {
   .transactions-fab,
   .holdings-fab {
     display: inline-flex;
-    bottom: calc(var(--mobile-bottom-nav-clearance, 4.65rem) + 1.1rem);
+    bottom: calc(var(--mobile-bottom-nav-clearance, 4.65rem) + 1.15rem);
     z-index: 46;
   }
 
   .transactions-scroll-top {
     left: calc(0.5rem + env(safe-area-inset-left));
-    bottom: calc(var(--mobile-bottom-nav-clearance, 4.65rem) + 1.1rem);
+    bottom: calc(var(--mobile-bottom-nav-clearance, 4.65rem) + 1.15rem);
     min-width: 5.7rem;
     min-height: 2.75rem;
     padding: 0.58rem 0.76rem;
@@ -10363,14 +10363,14 @@ tr.holding-row-imported {
   .transactions-fab,
   .holdings-fab {
     right: calc(0.5rem + env(safe-area-inset-right));
-    bottom: calc(var(--mobile-bottom-nav-clearance, 3.15rem) + 1.1rem);
+    bottom: calc(var(--mobile-bottom-nav-clearance, 3.15rem) + 1.15rem);
     width: 2.75rem;
     height: 2.75rem;
   }
 
   .transactions-scroll-top {
     left: calc(0.5rem + env(safe-area-inset-left));
-    bottom: calc(var(--mobile-bottom-nav-clearance, 3.15rem) + 1.1rem);
+    bottom: calc(var(--mobile-bottom-nav-clearance, 3.15rem) + 1.15rem);
     min-width: 5.2rem;
     padding-inline: 0.64rem;
   }
