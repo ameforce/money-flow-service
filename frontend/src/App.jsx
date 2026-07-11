@@ -3711,6 +3711,7 @@ function App() {
       setTransactionsMobileStickyActive(false);
       return undefined;
     }
+    let frameId = 0;
     const updateStickyState = () => {
       const listCard = transactionListCardRef.current;
       const ledgerHead = listCard?.querySelector(".transactions-mobile-ledger-head");
@@ -3728,12 +3729,35 @@ function App() {
         listCardRect.bottom >= threshold + 180;
       setTransactionsMobileStickyActive(nextActive);
     };
+    const scheduleStickyStateUpdate = () => {
+      if (frameId) {
+        return;
+      }
+      frameId = window.requestAnimationFrame(() => {
+        frameId = 0;
+        updateStickyState();
+      });
+    };
+    const listCard = transactionListCardRef.current;
+    const ledgerHead = listCard?.querySelector(".transactions-mobile-ledger-head");
+    const resizeObserver =
+      typeof window.ResizeObserver === "function" ? new window.ResizeObserver(scheduleStickyStateUpdate) : null;
+    if (listCard) {
+      resizeObserver?.observe(listCard);
+    }
+    if (ledgerHead) {
+      resizeObserver?.observe(ledgerHead);
+    }
     updateStickyState();
-    window.addEventListener("scroll", updateStickyState, { passive: true });
-    window.addEventListener("resize", updateStickyState);
+    window.addEventListener("scroll", scheduleStickyStateUpdate, { passive: true });
+    window.addEventListener("resize", scheduleStickyStateUpdate);
     return () => {
-      window.removeEventListener("scroll", updateStickyState);
-      window.removeEventListener("resize", updateStickyState);
+      if (frameId) {
+        window.cancelAnimationFrame(frameId);
+      }
+      resizeObserver?.disconnect();
+      window.removeEventListener("scroll", scheduleStickyStateUpdate);
+      window.removeEventListener("resize", scheduleStickyStateUpdate);
     };
   }, [isTransactionLedgerCompactViewport, tab, sortedTransactions.length]);
 
