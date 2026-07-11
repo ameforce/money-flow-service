@@ -12,6 +12,7 @@ import {
 } from "./uiux-evidence-contract.mjs";
 
 const VERIFIER_PATH = fileURLToPath(new URL("./verify_uiux_rca_ledger.mjs", import.meta.url));
+const MATRIX_PRODUCER_PATH = fileURLToPath(new URL("../e2e/specs/mobile-browser-matrix.spec.js", import.meta.url));
 const FINDING_IDS = Array.from({ length: 13 }, (_, index) => `MUI-${String(index + 1).padStart(3, "0")}`);
 const REQUIRED_BROWSERS = ["chromium", "firefox", "webkit"];
 const REQUIRED_VIEWPORTS = [
@@ -251,10 +252,29 @@ test("MUI-004 requires matrix and orientation evidence from every browser engine
 
     assert.equal(result.status, 1);
     for (const browser of REQUIRED_BROWSERS) {
-      assert.ok(result.report.failures.includes(`MUI-004 evidence is missing required scenario ${browser} orientation state`));
+      for (const scenario of ["matrix complete", "orientation portrait before", "orientation landscape", "orientation portrait after"]) {
+        assert.ok(result.report.failures.includes(`MUI-004 evidence is missing required scenario ${browser} ${scenario}`));
+      }
     }
   } finally {
     rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("MUI-004 evidence contract matches the Playwright producer scenarios", () => {
+  const source = readFileSync(MATRIX_PRODUCER_PATH, "utf8");
+  const captures = [...source.matchAll(/captureFinding\(page, testInfo, "MUI-004", "([^"]+)", \[([^\]]+)\]\)/gu)]
+    .map((match) => ({
+      assertions: [...match[2].matchAll(/"([^"]+)"/gu)].map((assertionMatch) => assertionMatch[1]),
+      scenario: match[1],
+    }));
+
+  for (const requirement of REQUIRED_SCENARIOS_BY_FINDING["MUI-004"]) {
+    const produced = captures.find((capture) => capture.scenario === requirement.scenario);
+    assert.ok(produced, requirement.scenario);
+    for (const assertionId of requirement.assertions) {
+      assert.ok(produced.assertions.includes(assertionId), `${requirement.scenario}/${assertionId}`);
+    }
   }
 });
 

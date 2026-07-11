@@ -41,12 +41,12 @@ export const REQUIRED_SCENARIOS_BY_FINDING = {
     { label: "390x844 touch access", browser: "chromium", viewport: "390x844", scenario: "touch-access", assertions: ["horizontal-pan", "editable-columns-reachable"] },
     { label: "390x844 keyboard access", browser: "chromium", viewport: "390x844", scenario: "keyboard-access", assertions: ["horizontal-pan", "editable-columns-reachable"] },
   ],
-  "MUI-004": MUI_004_REQUIRED_BROWSERS.map((browser) => ({
-    label: `${browser} orientation state`,
-    browser,
-    scenario: "orientation-state-preservation",
-    assertions: ["matrix-complete", "orientation-state-preservation"],
-  })),
+  "MUI-004": MUI_004_REQUIRED_BROWSERS.flatMap((browser) => [
+    { label: `${browser} matrix complete`, browser, scenario: "matrix-complete", assertions: ["matrix-complete"] },
+    { label: `${browser} orientation portrait before`, browser, scenario: "orientation-portrait-before", assertions: ["engine-matrix", "orientation-state-preservation"] },
+    { label: `${browser} orientation landscape`, browser, scenario: "orientation-landscape", assertions: ["engine-matrix", "orientation-state-preservation"] },
+    { label: `${browser} orientation portrait after`, browser, scenario: "orientation-portrait-after", assertions: ["engine-matrix", "orientation-state-preservation"] },
+  ]),
   "MUI-005": FORM_VIEWPORTS.flatMap((viewport) => FORM_SURFACES.map((surface) => ({
     label: `${surface} ${viewport} WebKit text`,
     browser: "webkit",
