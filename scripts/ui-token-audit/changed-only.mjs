@@ -8,13 +8,24 @@ export function selectBaseRef({
   baseSha = "",
   targetBranch = "",
   targetSha = "",
+  headBranch = "",
   hotfixBaseRef = "",
   hotfixBaseSha = "",
   headSha = "",
   parentBaseRef = "",
 } = {}) {
   const targetRef = targetBranch ? (targetBranch.startsWith("origin/") ? targetBranch : `origin/${targetBranch}`) : "";
-  const eligibleHotfixBaseRef = hotfixBaseRef && (!headSha || !hotfixBaseSha || hotfixBaseSha !== headSha)
+  const normalizedHeadBranch = headBranch.replace(/^origin\//, "");
+  const normalizedHotfixBranch = hotfixBaseRef.replace(/^origin\//, "");
+  const hotfixIdentifier = normalizedHotfixBranch.replace(/^hotfix\//, "");
+  const escapedHotfixIdentifier = hotfixIdentifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const hotfixTaskPattern = escapedHotfixIdentifier
+    ? new RegExp(`(?:^|[/_-])${escapedHotfixIdentifier}(?:$|[/_-])`)
+    : null;
+  const isHotfixTaskContext =
+    normalizedHeadBranch === normalizedHotfixBranch ||
+    Boolean(hotfixTaskPattern?.test(normalizedHeadBranch));
+  const eligibleHotfixBaseRef = hotfixBaseRef && isHotfixTaskContext && (!headSha || !hotfixBaseSha || hotfixBaseSha !== headSha)
     ? hotfixBaseRef
     : "";
   return explicitBaseRef || environmentBaseRef || baseSha || targetSha || targetRef || eligibleHotfixBaseRef || parentBaseRef;
@@ -59,6 +70,13 @@ function findParentBaseRef() {
 
 function resolveBaseRef(explicitBaseRef) {
   const targetBranch = process.env.GITHUB_BASE_REF || process.env.CHANGE_TARGET || process.env.CI_MERGE_REQUEST_TARGET_BRANCH_NAME;
+  const headBranch =
+    process.env.GITHUB_HEAD_REF ||
+    process.env.CHANGE_BRANCH ||
+    process.env.CI_COMMIT_REF_NAME ||
+    process.env.BRANCH_NAME ||
+    process.env.GIT_BRANCH ||
+    execFileSync("git", ["branch", "--show-current"], { cwd: repoRoot, encoding: "utf8" }).trim();
   const hotfixBase = findAncestorHotfixBaseRef();
   const headSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repoRoot, encoding: "utf8" }).trim();
   return selectBaseRef({
@@ -67,6 +85,7 @@ function resolveBaseRef(explicitBaseRef) {
     baseSha: process.env.GITHUB_BASE_SHA,
     targetBranch,
     targetSha: process.env.CI_MERGE_REQUEST_TARGET_BRANCH_SHA,
+    headBranch,
     hotfixBaseRef: hotfixBase.ref,
     hotfixBaseSha: hotfixBase.sha,
     headSha,

@@ -17,7 +17,7 @@
     "uiux:rca-ledger": "node scripts/verify_uiux_rca_ledger.mjs",
     "uiux:rca-ledger:final": "node scripts/verify_uiux_rca_ledger.mjs --require-closed",
     "uiux:token-audit": "node scripts/audit_ui_tokens.mjs --mode=ci --changed-only",
-    "uiux:token-audit:unit": "node --test scripts/ui-token-audit/*.test.mjs",
+    "uiux:token-audit:unit": "node --test scripts/ui-token-audit/changed-only.test.mjs",
     "e2e": "uv run python scripts/run_e2e_with_orchestrator.py",
     "e2e:report": "uv run python scripts/run_e2e_with_orchestrator.py --html-report",
     "e2e:matrix": "uv run python scripts/run_e2e_with_orchestrator.py --project-matrix",

@@ -296,7 +296,8 @@ class CacheControlledStaticFiles(StaticFiles):
 
 
 def _spa_file_response(path: Path) -> FileResponse:
-    return FileResponse(path, headers=_SPA_NO_CACHE_HEADERS)
+    media_type = _ASSET_MEDIA_TYPES.get(path.suffix.lower())
+    return FileResponse(path, headers=_SPA_NO_CACHE_HEADERS, media_type=media_type)
 
 
 frontend_dist = Path(__file__).resolve().parents[2] / "frontend" / "dist"

@@ -8,6 +8,7 @@ import tempfile
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+import starlette.responses
 
 _TEST_DB_DIR = Path(tempfile.mkdtemp(prefix="money-flow-client-version-"))
 atexit.register(lambda: shutil.rmtree(_TEST_DB_DIR, ignore_errors=True))
@@ -63,3 +64,18 @@ def test_hashed_assets_are_long_cache_immutable(tmp_path: Path) -> None:
     assert response.status_code == 200
     assert response.headers["cache-control"] == "public, max-age=31536000, immutable"
     assert response.headers["content-type"].startswith(("application/javascript", "text/javascript"))
+
+
+def test_root_service_worker_uses_explicit_javascript_media_type(monkeypatch, tmp_path: Path) -> None:
+    dist_dir = tmp_path / "dist"
+    dist_dir.mkdir(parents=True)
+    (dist_dir / "sw.js").write_text("self.addEventListener('install', () => {})\n", encoding="utf-8")
+    monkeypatch.setattr(app_main, "frontend_dist", dist_dir)
+    monkeypatch.setattr(starlette.responses, "guess_type", lambda _path: ("text/plain", None))
+
+    with TestClient(app) as client:
+        response = client.get("/sw.js")
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-cache, must-revalidate"
+    assert response.headers["content-type"].startswith("text/javascript")
