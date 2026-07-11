@@ -6,23 +6,13 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
+import {
+  REQUIRED_ASSERTIONS_BY_FINDING as REQUIRED_ASSERTIONS,
+  REQUIRED_SCENARIOS_BY_FINDING,
+} from "./uiux-evidence-contract.mjs";
+
 const VERIFIER_PATH = fileURLToPath(new URL("./verify_uiux_rca_ledger.mjs", import.meta.url));
 const FINDING_IDS = Array.from({ length: 13 }, (_, index) => `MUI-${String(index + 1).padStart(3, "0")}`);
-const REQUIRED_ASSERTIONS = {
-  "MUI-001": ["zoom-enabled"],
-  "MUI-002": ["keyboard-upload"],
-  "MUI-003": ["horizontal-pan"],
-  "MUI-004": ["engine-matrix", "matrix-complete", "orientation-state-preservation", "zero-overflow"],
-  "MUI-005": ["font-size-16"],
-  "MUI-006": ["focus-trap", "background-inert", "escape", "return-focus", "nested-confirmation"],
-  "MUI-007": ["target-size-44"],
-  "MUI-008": ["tab-semantics", "arrow-navigation"],
-  "MUI-009": ["assertive-error", "polite-status"],
-  "MUI-010": ["reduced-motion"],
-  "MUI-011": ["first-task-visible", "chart-readable"],
-  "MUI-012": ["token-audit"],
-  "MUI-013": ["react-doctor-zero", "react-scan-stable", "state-preservation"],
-};
 const REQUIRED_BROWSERS = ["chromium", "firefox", "webkit"];
 const REQUIRED_VIEWPORTS = [
   [320, 568], [568, 320], [360, 800], [800, 360], [390, 844], [844, 390],
@@ -58,18 +48,28 @@ function createLedger() {
   ].join("\n");
 }
 
-function writeEvidence(workspace, findingId, sha, browser, viewport, suffix, artifact = `${suffix}.png`) {
+function writeEvidence(
+  workspace,
+  findingId,
+  sha,
+  browser,
+  viewport,
+  suffix,
+  artifact = `${suffix}.png`,
+  assertions = REQUIRED_ASSERTIONS[findingId],
+  scenario = suffix,
+) {
   const evidenceDirectory = path.join(workspace, ".omo", "evidence", "mobile-uiux-v0.1.49", findingId);
   mkdirSync(evidenceDirectory, { recursive: true });
   if (artifact) writeFileSync(path.join(evidenceDirectory, artifact), "evidence");
   const metadata = {
-    assertions: REQUIRED_ASSERTIONS[findingId],
+    assertions,
     browser,
     command: "npm run e2e:matrix",
     findingId,
     orientation: viewport[0] > viewport[1] ? "landscape" : "portrait",
     result: "passed",
-    scenario: suffix,
+    scenario,
     testedSha: sha,
     viewport: { width: viewport[0], height: viewport[1] },
   };
@@ -98,10 +98,23 @@ function createWorkspace({ invalidArtifact, completeMatrix, completeRequiredScen
     writeEvidence(workspace, findingId, sha, "chromium", [390, 844], findingId, artifact);
   }
   if (completeRequiredScenarios) {
-    writeEvidence(workspace, "MUI-001", sha, "webkit", [390, 844], "webkit-zoom");
-    writeEvidence(workspace, "MUI-006", sha, "chromium", [390, 844], "transaction-sheet");
-    writeEvidence(workspace, "MUI-006", sha, "chromium", [390, 844], "holding-sheet");
-    writeEvidence(workspace, "MUI-006", sha, "chromium", [390, 844], "confirmation-dialog");
+    for (const [findingId, requirements] of Object.entries(REQUIRED_SCENARIOS_BY_FINDING)) {
+      for (const requirement of requirements) {
+        const viewport = requirement.viewport?.split("x").map(Number) || [390, 844];
+        const suffix = `${findingId}-${requirement.label.replaceAll(" ", "-").toLowerCase()}`;
+        writeEvidence(
+          workspace,
+          findingId,
+          sha,
+          requirement.browser || "chromium",
+          viewport,
+          suffix,
+          `${suffix}.png`,
+          requirement.assertions,
+          requirement.scenario || suffix,
+        );
+      }
+    }
   }
   if (completeMatrix) {
     for (const browser of REQUIRED_BROWSERS) {
@@ -249,12 +262,40 @@ test("MUI-006 requires each dialog surface to carry its own assertions", () => {
     const result = runVerifier(workspace);
 
     assert.equal(result.status, 1);
+    assert.ok(result.report.failures.includes("MUI-006 evidence is missing required scenario transaction sheet"));
     assert.ok(result.report.failures.includes("MUI-006 evidence is missing required scenario holding sheet"));
     assert.ok(result.report.failures.includes("MUI-006 evidence is missing required scenario confirmation dialog"));
   } finally {
     rmSync(workspace, { recursive: true, force: true });
   }
 });
+
+for (const [findingId, requiredScenarios] of [
+  ["MUI-002", ["workbook upload", "toss upload", "migration upload"]],
+  ["MUI-003", ["320x568 touch access", "320x568 keyboard access", "390x844 touch access", "390x844 keyboard access"]],
+  ["MUI-005", ["915x412 WebKit text", "844x390 WebKit text"]],
+  ["MUI-007", ["transaction targets", "holding targets", "settings targets", "landscape navigation targets"]],
+  ["MUI-008", ["collaboration tabs", "import tabs"]],
+  ["MUI-009", ["blocking error", "non-blocking status"]],
+  ["MUI-010", ["computed styles", "interaction states"]],
+  ["MUI-011", ["800x360 dashboard", "844x390 dashboard", "915x412 dashboard"]],
+  ["MUI-012", ["token audit"]],
+  ["MUI-013", ["react doctor", "react scan", "frontend build", "state preservation"]],
+]) {
+  test(`${findingId} rejects generic evidence without every required scenario`, () => {
+    const workspace = createWorkspace({ completeMatrix: true });
+    try {
+      const result = runVerifier(workspace);
+
+      assert.equal(result.status, 1);
+      for (const requiredScenario of requiredScenarios) {
+        assert.ok(result.report.failures.includes(`${findingId} evidence is missing required scenario ${requiredScenario}`));
+      }
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+}
 
 test("final gate accepts complete browser and viewport evidence", () => {
   const workspace = createWorkspace({ completeMatrix: true, completeRequiredScenarios: true });

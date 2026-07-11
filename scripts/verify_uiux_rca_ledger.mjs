@@ -4,6 +4,13 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 
+import {
+  MUI_004_REQUIRED_BROWSERS,
+  MUI_004_REQUIRED_VIEWPORTS,
+  REQUIRED_ASSERTIONS_BY_FINDING,
+  REQUIRED_SCENARIOS_BY_FINDING,
+} from "./uiux-evidence-contract.mjs";
+
 const LEDGER_PATH = "docs/uiux-rca-evidence-ledger.md";
 const REQUIRED_ISSUES = Array.from({ length: 20 }, (_, index) => `#${240 + index}`);
 const REQUIRED_COLUMNS = ["RCA", "Code surface", "Wave", "Status and proof", "Remaining risk"];
@@ -16,42 +23,6 @@ const ALLOWED_FINDING_STATUSES = new Set(["Open", "In progress", "Fixed, pending
 const VERIFIED_STATUS = "Fixed and verified";
 const requireClosed = process.argv.includes("--require-closed");
 const currentHeadSha = requireClosed ? execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim() : null;
-const REQUIRED_ASSERTIONS_BY_FINDING = {
-  "MUI-001": ["zoom-enabled"],
-  "MUI-002": ["keyboard-upload"],
-  "MUI-003": ["horizontal-pan"],
-  "MUI-004": ["engine-matrix", "matrix-complete", "orientation-state-preservation", "zero-overflow"],
-  "MUI-005": ["font-size-16"],
-  "MUI-006": ["focus-trap", "background-inert", "escape", "return-focus", "nested-confirmation"],
-  "MUI-007": ["target-size-44"],
-  "MUI-008": ["tab-semantics", "arrow-navigation"],
-  "MUI-009": ["assertive-error", "polite-status"],
-  "MUI-010": ["reduced-motion"],
-  "MUI-011": ["first-task-visible", "chart-readable"],
-  "MUI-012": ["token-audit"],
-  "MUI-013": ["react-doctor-zero", "react-scan-stable", "state-preservation"],
-};
-const MODAL_ASSERTIONS = ["focus-trap", "background-inert", "escape", "return-focus"];
-const REQUIRED_SCENARIOS_BY_FINDING = {
-  "MUI-001": [
-    { label: "chromium zoom", browser: "chromium", assertions: ["zoom-enabled"] },
-    { label: "webkit zoom", browser: "webkit", assertions: ["zoom-enabled"] },
-  ],
-  "MUI-006": [
-    { label: "transaction sheet", scenario: "transaction-sheet", assertions: MODAL_ASSERTIONS },
-    { label: "holding sheet", scenario: "holding-sheet", assertions: MODAL_ASSERTIONS },
-    {
-      label: "confirmation dialog",
-      scenario: "confirmation-dialog",
-      assertions: [...MODAL_ASSERTIONS, "nested-confirmation"],
-    },
-  ],
-};
-const MUI_004_REQUIRED_BROWSERS = ["chromium", "firefox", "webkit"];
-const MUI_004_REQUIRED_VIEWPORTS = [
-  "320x568", "568x320", "360x800", "800x360", "390x844", "844x390",
-  "412x915", "915x412", "768x1024", "1024x768", "1280x720", "1440x900",
-];
 const REQUIRED_CONTRACT_SNIPPETS = [
   "v0.1.48 baseline",
   "P0 / CRITICAL",
@@ -183,6 +154,7 @@ if (!existsSync(LEDGER_PATH)) {
         const matchingEvidence = validEvidence.filter((metadata) => {
           if (requirement.browser && metadata.browser !== requirement.browser) return false;
           if (requirement.scenario && metadata.scenario !== requirement.scenario) return false;
+          if (requirement.viewport && `${metadata.viewport.width}x${metadata.viewport.height}` !== requirement.viewport) return false;
           const assertions = new Set(metadata.assertions || []);
           return requirement.assertions.every((assertionId) => assertions.has(assertionId));
         });
