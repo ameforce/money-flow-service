@@ -192,6 +192,99 @@ async function scrollTransactionLedgerIntoStickyRange(page) {
   await page.waitForTimeout(400);
 }
 
+async function stabilizeTransactionLedgerAtPageTop(page) {
+  const metrics = await page.evaluate(async () => {
+    const listCard = document.querySelector(".transaction-list-card");
+    const toolbar = document.querySelector('[data-testid="transaction-sticky-toolbar"]');
+    const ledgerHead = document.querySelector(".transactions-mobile-ledger-head");
+    if (!listCard || !toolbar || !ledgerHead) {
+      return {
+        stable: false,
+        reason: "transaction sticky elements are missing",
+      };
+    }
+
+    const activeElement = document.activeElement;
+    if (activeElement instanceof HTMLElement && activeElement !== document.body) {
+      activeElement.blur();
+    }
+    await document.fonts?.ready;
+
+    const nextFrame = () => new Promise((resolve) => window.requestAnimationFrame(resolve));
+    const readMetrics = () => {
+      const listStyle = getComputedStyle(listCard);
+      const toolbarHeight = Math.ceil(toolbar.getBoundingClientRect().height);
+      const ledgerHeight = Math.ceil(ledgerHead.getBoundingClientRect().height);
+      const toolbarHeightVar = Number.parseFloat(
+        listStyle.getPropertyValue("--transaction-toolbar-sticky-height"),
+      );
+      const ledgerHeightVar = Number.parseFloat(
+        listStyle.getPropertyValue("--surface-ledger-head-height"),
+      );
+      return {
+        scrollY: window.scrollY || window.pageYOffset || 0,
+        stickyActive: ledgerHead.getAttribute("data-sticky-active"),
+        toolbarHeight,
+        toolbarHeightVar,
+        ledgerHeight,
+        ledgerHeightVar,
+      };
+    };
+    const geometrySignature = (current) =>
+      [
+        current.toolbarHeight,
+        current.toolbarHeightVar,
+        current.ledgerHeight,
+        current.ledgerHeightVar,
+      ].join(":");
+    const geometryMatches = (current) =>
+      Number.isFinite(current.toolbarHeightVar) &&
+      Number.isFinite(current.ledgerHeightVar) &&
+      Math.abs(current.toolbarHeightVar - current.toolbarHeight) <= 1 &&
+      Math.abs(current.ledgerHeightVar - current.ledgerHeight) <= 1;
+    const isTopState = (current) =>
+      current.scrollY <= 1 && current.stickyActive === "false";
+
+    let stableFrames = 0;
+    let previousGeometry = "";
+    let current = readMetrics();
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+
+    for (let frame = 0; frame < 60; frame += 1) {
+      await nextFrame();
+      current = readMetrics();
+      const nextGeometry = geometrySignature(current);
+      if (geometryMatches(current) && isTopState(current) && nextGeometry === previousGeometry) {
+        stableFrames += 1;
+      } else {
+        stableFrames = 0;
+      }
+      if (!isTopState(current)) {
+        window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+      }
+      previousGeometry = nextGeometry;
+      if (stableFrames >= 4) {
+        return {
+          stable: true,
+          stableFrames,
+          ...current,
+        };
+      }
+    }
+
+    return {
+      stable: false,
+      stableFrames,
+      ...current,
+    };
+  });
+
+  expect(
+    metrics.stable,
+    `transaction sticky geometry and top state should settle together: ${JSON.stringify(metrics)}`,
+  ).toBe(true);
+}
+
 async function expectTransactionMonthControls(page, isoDate, label = "transaction month controls") {
   const { year, month } = yearMonthFromIso(isoDate);
   const listCard = page.locator(".transaction-list-card").first();
@@ -6374,22 +6467,7 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   const mobileHeaderFilters = page.locator(".tx-header-filters").first();
   await expect(page.locator(".tx-filter-details")).toHaveCount(0);
   await expect(mobileHeaderFilters).toBeHidden();
-  await page.evaluate(() => {
-    const activeElement = document.activeElement;
-    if (activeElement instanceof HTMLElement && activeElement !== document.body) {
-      activeElement.blur();
-    }
-  });
-  await page.waitForFunction(
-    () => {
-      window.scrollTo({ top: 0, left: 0, behavior: "auto" });
-      const ledgerHead = document.querySelector(".transactions-mobile-ledger-head");
-      const scrollY = window.scrollY || window.pageYOffset || 0;
-      return scrollY <= 16 && ledgerHead?.getAttribute("data-sticky-active") === "false";
-    },
-    null,
-    { timeout: 15_000 }
-  );
+  await stabilizeTransactionLedgerAtPageTop(page);
   await expect(page.locator(".transactions-mobile-ledger-head")).toHaveAttribute("data-sticky-active", "false");
   await expect(page.locator(".transactions-mobile-ledger-head")).toBeVisible();
   const mobileLedgerHead = page.locator(".transactions-mobile-ledger-head").first();
