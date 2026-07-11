@@ -1,12 +1,12 @@
 #!/usr/bin/env sh
 # Ensure CI uses a Node.js runtime compatible with the frontend toolchain.
-# Vite 7 requires Node.js ^20.19.0 or >=22.12.0. Older Jenkins agents may
+# Vite 7 and react-doctor require Node.js ^20.19.0 or >=22.13.0. Older Jenkins agents may
 # still expose Node 18, so this script installs a pinned, user-local runtime
 # without requiring sudo and prepends it to PATH for the current shell.
 
 set -eu
 
-CI_NODE_VERSION="${CI_NODE_VERSION:-22.12.0}"
+CI_NODE_VERSION="${CI_NODE_VERSION:-22.13.0}"
 CI_NODE_PLATFORM="${CI_NODE_PLATFORM:-linux-x64}"
 CI_NODE_CACHE_DIR="${CI_NODE_CACHE_DIR:-$HOME/.cache/money-flow-node}"
 CI_NODE_DIST="node-v${CI_NODE_VERSION}-${CI_NODE_PLATFORM}"
@@ -16,7 +16,7 @@ node_satisfies_vite7() {
   command -v node >/dev/null 2>&1 || return 1
   node -e '
 const [major, minor] = process.versions.node.split(".").map(Number);
-const ok = (major === 20 && minor >= 19) || (major === 22 && minor >= 12) || major > 22;
+const ok = (major === 20 && minor >= 19) || (major === 22 && minor >= 13) || major > 22;
 process.exit(ok ? 0 : 1);
 ' >/dev/null 2>&1
 }

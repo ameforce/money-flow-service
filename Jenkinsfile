@@ -163,7 +163,7 @@ pipeline {
     PYTHONUNBUFFERED = '1'
     DOCKER_BUILDKIT = '1'
     IMAGE_NAME = 'money-flow-service'
-    CI_NODE_VERSION = '22.12.0'
+    CI_NODE_VERSION = '22.13.0'
   }
 
   stages {

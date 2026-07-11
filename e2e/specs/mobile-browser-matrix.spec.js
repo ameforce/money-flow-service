@@ -120,8 +120,7 @@ async function expectZeroHorizontalOverflow(page, label) {
 
 async function expectCriticalTargets(page, tabLabel, profile) {
   if (!profile.touch) return;
-  const selector = `nav.topbar-tabs button, header.topbar .topbar-actions button, ${CRITICAL_SELECTORS[tabLabel]}`;
-  const targets = await page.locator(selector).evaluateAll((elements) =>
+  const collectRenderedTargets = (elements) =>
     elements
       .map((element) => {
         const box = element.getBoundingClientRect();
@@ -133,9 +132,11 @@ async function expectCriticalTargets(page, tabLabel, profile) {
           width: box.width,
         };
       })
-      .filter((target) => target.rendered)
-  );
-  expect(targets.length, `${tabLabel}/${profile.name} should expose critical controls`).toBeGreaterThan(0);
+      .filter((target) => target.rendered);
+  const surfaceTargets = await page.locator(CRITICAL_SELECTORS[tabLabel]).evaluateAll(collectRenderedTargets);
+  const chromeTargets = await page.locator("nav.topbar-tabs button, header.topbar .topbar-actions button").evaluateAll(collectRenderedTargets);
+  expect(surfaceTargets.length, `${tabLabel}/${profile.name} should expose tab-specific critical controls`).toBeGreaterThan(0);
+  const targets = [...chromeTargets, ...surfaceTargets];
   expect(
     targets.filter((target) => target.width < 44 || target.height < 44),
     `${tabLabel}/${profile.name} critical targets must be at least 44x44px: ${JSON.stringify(targets)}`

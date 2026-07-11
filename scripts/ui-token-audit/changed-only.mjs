@@ -2,9 +2,22 @@ import { execFileSync } from "node:child_process";
 import { diffHunkPattern, jsxDynamicStylePattern, jsxInlineStylePattern, jsxScanFiles, repoRoot, scanFiles } from "./config.mjs";
 import { extractLineRawValues } from "./scanner.mjs";
 
-export function gitChangedFiles() {
+function resolveBaseRef(explicitBaseRef) {
+  const targetBranch = process.env.GITHUB_BASE_REF || process.env.CHANGE_TARGET || process.env.CI_MERGE_REQUEST_TARGET_BRANCH_NAME;
+  return explicitBaseRef
+    || process.env.UI_TOKEN_AUDIT_BASE_REF
+    || process.env.GITHUB_BASE_SHA
+    || process.env.CI_MERGE_REQUEST_TARGET_BRANCH_SHA
+    || (targetBranch ? `origin/${targetBranch}` : "");
+}
+
+function diffRevisionArgs(baseRef) {
+  return baseRef ? [`${baseRef}...HEAD`] : [];
+}
+
+export function gitChangedFiles(baseRef = "") {
   try {
-    const output = execFileSync("git", ["diff", "--name-only", "--", ...scanFiles], {
+    const output = execFileSync("git", ["diff", ...diffRevisionArgs(baseRef), "--name-only", "--", ...scanFiles], {
       cwd: repoRoot,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
@@ -15,8 +28,8 @@ export function gitChangedFiles() {
   }
 }
 
-export function gitAddedLines() {
-  const output = execFileSync("git", ["diff", "--unified=0", "--", ...scanFiles], {
+export function gitAddedLines(baseRef = "") {
+  const output = execFileSync("git", ["diff", ...diffRevisionArgs(baseRef), "--unified=0", "--", ...scanFiles], {
     cwd: repoRoot,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "ignore"],
@@ -52,14 +65,22 @@ export function gitAddedLines() {
   return addedLines;
 }
 
-export function inspectChangedOnly(declaredValues) {
-  const changedFiles = gitChangedFiles();
+export function inspectChangedOnly(declaredValues, options = {}) {
+  let baseRef = resolveBaseRef(options.baseRef);
+  let changedFiles = gitChangedFiles(baseRef);
+  if (!baseRef && changedFiles.length === 0) {
+    if (process.env.CI) {
+      throw new Error("changed-only token audit requires a PR base ref in clean CI (GITHUB_BASE_SHA, GITHUB_BASE_REF, CHANGE_TARGET, or UI_TOKEN_AUDIT_BASE_REF)");
+    }
+    baseRef = "HEAD^";
+    changedFiles = gitChangedFiles(baseRef);
+  }
   const auditedFiles = changedFiles.filter((path) => scanFiles.includes(path));
   const checkedValues = [];
   const jsxInlineStyleChecks = [];
   const violations = [];
 
-  for (const addedLine of gitAddedLines()) {
+  for (const addedLine of gitAddedLines(baseRef)) {
     for (const rawValue of extractLineRawValues(addedLine.text)) {
       const checkedValue = {
         file: addedLine.path,
@@ -101,6 +122,7 @@ export function inspectChangedOnly(declaredValues) {
   return {
     mode: "ci",
     changedOnly: true,
+    comparisonBase: baseRef || "working-tree",
     changedFiles,
     auditedFiles,
     checkedValues,
