@@ -472,8 +472,8 @@ test("W1 MUI-005 keeps short-landscape form text at 16px in WebKit", async ({ br
   }
 });
 
-test("W1 MUI-005 keeps 1024px touch form text at 16px in WebKit", async ({ browser, browserName }, testInfo) => {
-  test.setTimeout(120_000);
+test("W1 MUI-005 keeps 1024px touch form text readable without flattening hierarchy in WebKit", async ({ browser, browserName }, testInfo) => {
+  test.setTimeout(180_000);
   test.skip(browserName !== "webkit", "The tablet touch typography regression is verified in WebKit.");
   const profile = { width: 1024, height: 768, touch: true };
   const { context, page } = await newMatrixPage(browser, browserName, profile);
@@ -494,17 +494,93 @@ test("W1 MUI-005 keeps 1024px touch form text at 16px in WebKit", async ({ brows
       email: `${unique("w1-tablet-form-1024")}@example.com`,
       displayName: unique("w1-tablet-form-1024-name"),
     });
-    for (const surface of [
-      { label: "dashboard filters", tab: "대시보드", selector: ".dashboard-filter-card :is(input, select, textarea)" },
-      { label: "settings", tab: "설정", selector: ".settings-profile-card :is(input, select, textarea), #settings-household-select" },
-      { label: "collaboration", tab: "협업", selector: ".collaboration-command-card :is(input, select, textarea)" },
-    ]) {
-      await openTab(page, surface.tab);
-      await expectMinimumControlFontSize(page.locator(surface.selector), `${surface.label} 1024x768`);
-    }
+
+    await openTab(page, "대시보드");
+    await expectMinimumControlFontSize(
+      page.locator(".dashboard-filter-card :is(input, select, textarea)"),
+      "dashboard filters 1024x768"
+    );
+    await expectZeroHorizontalOverflow(page, "dashboard filters 1024x768");
+    await captureFinding(page, testInfo, "MUI-005", "tablet-1024x768-dashboard-form-text", ["font-size-16", "no-overflow"]);
+
+    await openTab(page, "거래");
+    await page.getByTestId("transactions-desktop-add-action").click();
+    const transactionSheet = page.getByTestId("transaction-entry-sheet");
+    await expect(transactionSheet).toBeVisible();
+    await expectMinimumControlFontSize(transactionSheet.locator(":is(input, select, textarea)"), "transaction entry 1024x768");
+    const quickAmountFontSize = await transactionSheet.getByTestId("transaction-quick-amount").evaluate((input) =>
+      Number.parseFloat(getComputedStyle(input).fontSize)
+    );
+    expect(quickAmountFontSize, "transaction amount must preserve its emphasized type hierarchy").toBeGreaterThanOrEqual(20);
+    await expectZeroHorizontalOverflow(page, "transaction entry 1024x768");
+    await captureFinding(page, testInfo, "MUI-005", "tablet-1024x768-transaction-entry-form-text", [
+      "font-size-16",
+      "amount-hierarchy",
+      "no-overflow",
+    ]);
+    await page.getByTestId("transaction-entry-sheet-close").click();
+
+    const transactionMemo = unique("w1-tablet-inline-editor");
+    await createTransactionViaApi(page, { memo: transactionMemo });
+    await page.reload();
+    await openTab(page, "거래");
+    const transactionRow = page.locator("tr.transaction-row", { hasText: transactionMemo }).first();
+    await expect(transactionRow).toBeVisible();
+    await transactionRow.locator(".transaction-col-memo").dblclick();
+    const inlineEditor = page.locator("tr.transaction-inline-editor-row").first();
+    await expect(inlineEditor).toBeVisible();
+    await expectMinimumControlFontSize(inlineEditor.locator(":is(input, select, textarea)"), "transaction inline editor 1024x768");
+    await expectZeroHorizontalOverflow(page, "transaction inline editor 1024x768");
+    await captureFinding(page, testInfo, "MUI-005", "tablet-1024x768-transaction-inline-form-text", ["font-size-16", "no-overflow"]);
+    await inlineEditor.getByRole("button", { name: "취소" }).click();
+
+    await openTab(page, "자산");
+    await page.locator(".holding-entry-card").getByRole("button", { name: "자산 추가" }).click();
+    const holdingForm = page.locator(".holding-entry-card .holdings-form-grid");
+    await expect(holdingForm).toBeVisible();
+    await expectMinimumControlFontSize(holdingForm.locator(":is(input, select, textarea)"), "holding entry 1024x768");
+    await expectZeroHorizontalOverflow(page, "holding entry 1024x768");
+    await captureFinding(page, testInfo, "MUI-005", "tablet-1024x768-holding-entry-form-text", ["font-size-16", "no-overflow"]);
+
+    await openTab(page, "설정");
+    await expectMinimumControlFontSize(
+      page.locator(".settings-profile-card :is(input, select, textarea), #settings-household-select"),
+      "settings primary controls 1024x768"
+    );
+    const assetRules = page.locator("details.settings-asset-rules-card");
+    await assetRules.locator("summary").click();
+    await expect(assetRules).toHaveAttribute("open", "");
+    await expectMinimumControlFontSize(assetRules.locator(":is(input, select, textarea)"), "settings asset rules 1024x768");
+    await expectMinimumControlFontSize(
+      page.locator(".category-manager-card :is(input, select, textarea)"),
+      "settings category controls 1024x768"
+    );
+    await expectZeroHorizontalOverflow(page, "settings advanced controls 1024x768");
+    await captureFinding(page, testInfo, "MUI-005", "tablet-1024x768-settings-form-text", ["font-size-16", "no-overflow"]);
+
+    await openTab(page, "협업");
+    await expectMinimumControlFontSize(
+      page.locator(".collaboration-command-card :is(input, select, textarea)"),
+      "collaboration 1024x768"
+    );
+    await expectZeroHorizontalOverflow(page, "collaboration 1024x768");
+    await captureFinding(page, testInfo, "MUI-005", "tablet-1024x768-collaboration-form-text", ["font-size-16", "no-overflow"]);
+
+    await openTab(page, "데이터 가져오기");
+    await expectMinimumControlFontSize(
+      page.locator(".import-mode-panel :is(input, select, textarea)"),
+      "import controls 1024x768",
+      { renderedOnly: false }
+    );
+    await expectZeroHorizontalOverflow(page, "import controls 1024x768");
+    await captureFinding(page, testInfo, "MUI-005", "tablet-1024x768-import-form-text", ["font-size-16", "no-overflow"]);
+
     await captureFinding(page, testInfo, "MUI-005", "tablet-1024x768-form-text", [
       "touch-capability",
       "font-size-16",
+      "amount-hierarchy",
+      "all-core-form-surfaces",
+      "no-overflow",
     ]);
   } finally {
     await context.close();

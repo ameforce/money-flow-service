@@ -2581,7 +2581,7 @@ textarea {
 input,
 select,
 textarea {
-  font-size: var(--mf-form-control-font-size);
+  font-size: max(var(--mf-form-control-min-font-size), var(--mf-form-control-preferred-font-size));
 }
 
 button {
@@ -2950,9 +2950,10 @@ button.transaction-selection-clear {
 }
 
 .transaction-quick-amount-field input {
+  --mf-form-control-preferred-font-size: 1.26rem;
   min-height: 2.56rem;
   border-radius: var(--mf-radius-sm);
-  font-size: 1.26rem;
+  font-size: var(--mf-form-control-preferred-font-size);
   font-weight: 900;
   letter-spacing: 0;
   text-align: right;
@@ -3743,8 +3744,9 @@ button.transaction-selection-clear {
   }
 
   .transaction-quick-amount-field input {
+    --mf-form-control-preferred-font-size: 1.14rem;
     min-height: 2.22rem;
-    font-size: 1.14rem;
+    font-size: var(--mf-form-control-preferred-font-size);
   }
 
   .transaction-entry-sheet .transaction-quick-date-field input,
@@ -10491,11 +10493,11 @@ tr.holding-row-imported {
 
 @media (hover: none), (pointer: coarse), (any-pointer: coarse) {
   :root {
-    --mf-form-control-font-size: max(16px, 1rem);
+    --mf-form-control-min-font-size: 16px;
   }
 
   :is(input, select, textarea) {
-    font-size: var(--mf-form-control-font-size) !important;
+    font-size: max(var(--mf-form-control-min-font-size), var(--mf-form-control-preferred-font-size)) !important;
   }
 }
 
