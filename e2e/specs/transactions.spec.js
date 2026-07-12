@@ -3544,6 +3544,31 @@ test("transaction add action and sticky toolbar stay reachable after ledger scro
   expect(Math.abs(mobileScrollAfterSheet - mobileScrollBeforeSheet)).toBeLessThanOrEqual(16);
 });
 
+test("transaction sheet return focus does not override a newer ledger focus", async ({ page }) => {
+  const email = `${unique("tx-sheet-focus-race")}@example.com`;
+  const displayName = unique("tx-sheet-focus-race-owner");
+  const memo = unique("tx-sheet-focus-race-row");
+
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 1366, height: 900 });
+  const row = await createBasicTransaction(page, { memo, amount: "12000" });
+  await expect(row).toBeVisible();
+
+  await page.getByTestId("transactions-desktop-add-action").click();
+  const transactionSheet = page.getByTestId("transaction-entry-sheet");
+  await expect(transactionSheet).toBeVisible();
+
+  await row.evaluate((element) => {
+    document.querySelector('[data-testid="transaction-entry-sheet-close"]')?.click();
+    element.focus({ preventScroll: true });
+  });
+  await expect(transactionSheet).toBeHidden();
+  await page.evaluate(() => new Promise((resolve) => window.setTimeout(resolve, 0)));
+
+  await expect(row, "deferred sheet cleanup must not steal a newer explicit ledger focus").toBeFocused();
+  await capture(page, "transaction-sheet-newer-ledger-focus");
+});
+
 test("issue 211: transaction add opens a visible sheet from a scrolled list", async ({ page }) => {
   test.setTimeout(180_000);
 

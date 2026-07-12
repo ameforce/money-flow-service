@@ -3875,6 +3875,7 @@ function App() {
       }
     }
     const restoreScrollY = transactionSheetScrollYRef.current;
+    const focusedElementAtClose = document.activeElement;
     clearTransactionEntryValidationFeedback();
     setShowTransactionForm(false);
     setTxEntrySheetStep("form");
@@ -3883,7 +3884,16 @@ function App() {
     window.setTimeout(() => {
       window.scrollTo({ top: restoreScrollY, behavior: "auto" });
       const trigger = isCompactViewport ? transactionFabRef.current : transactionDesktopAddActionRef.current ?? transactionFabRef.current;
-      trigger?.focus?.({ preventScroll: true });
+      const activeElement = document.activeElement;
+      const shouldRestoreTriggerFocus =
+        !activeElement ||
+        activeElement === focusedElementAtClose ||
+        activeElement === document.body ||
+        activeElement === document.documentElement ||
+        !activeElement.isConnected;
+      if (shouldRestoreTriggerFocus) {
+        trigger?.focus?.({ preventScroll: true });
+      }
     }, 0);
     return true;
   }, [
