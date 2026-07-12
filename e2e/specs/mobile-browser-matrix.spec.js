@@ -740,7 +740,6 @@ test("W1 MUI-007 exposes 44px core targets across mobile work surfaces", async (
 });
 
 test("W1 MUI-011 keeps the first dashboard task visible and charts readable in landscape", async ({ browser, browserName }, testInfo) => {
-  test.skip(browserName !== "chromium", "Landscape dashboard layout evidence runs once in Chromium.");
   const profiles = [
     { width: 800, height: 360 },
     { width: 844, height: 390 },
@@ -781,9 +780,10 @@ test("W1 MUI-011 keeps the first dashboard task visible and charts readable in l
         const navBox = nav?.getBoundingClientRect();
         const lineBox = lineChart?.getBoundingClientRect();
         const donutBox = donutChart?.getBoundingClientRect();
-        const sliceLabels = Array.from(document.querySelectorAll(".portfolio-donut-slice-label small")).map((label) => ({
-          fontSize: Number.parseFloat(getComputedStyle(label).fontSize),
-          text: label.textContent?.trim() || "",
+        const sliceLabels = Array.from(document.querySelectorAll(".portfolio-donut-slice-label")).map((label) => ({
+          fontSize: Number.parseFloat(getComputedStyle(label.querySelector("small") || label).fontSize),
+          share: Number(label.dataset.donutShare),
+          text: label.textContent?.replace(/\s+/g, " ").trim() || "",
         }));
         return {
           donutHeight: donutBox?.height ?? 0,
@@ -798,7 +798,11 @@ test("W1 MUI-011 keeps the first dashboard task visible and charts readable in l
       expect(metrics.taskBottom, `${profile.width}x${profile.height} dashboard task must clear fixed navigation`).toBeLessThanOrEqual(metrics.navTop);
       expect(metrics.lineHeight, `${profile.width}x${profile.height} line chart must use a short-landscape budget`).toBeLessThanOrEqual(160);
       expect(metrics.donutHeight, `${profile.width}x${profile.height} donut chart must use a short-landscape budget`).toBeLessThanOrEqual(190);
-      expect(metrics.sliceLabels.length, `${profile.width}x${profile.height} should expose portfolio slice labels`).toBeGreaterThan(0);
+      expect(metrics.sliceLabels.length, `${profile.width}x${profile.height} should exercise the equal-value two-slice geometry`).toBe(2);
+      expect(
+        metrics.sliceLabels.filter((label) => Math.abs(label.share - 50) > 0.01),
+        `${profile.width}x${profile.height} should keep both clipping probes at 50%: ${JSON.stringify(metrics.sliceLabels)}`
+      ).toEqual([]);
       expect(
         metrics.sliceLabels.filter((label) => label.fontSize < 11),
         `${profile.width}x${profile.height} slice labels must remain readable: ${JSON.stringify(metrics.sliceLabels)}`
