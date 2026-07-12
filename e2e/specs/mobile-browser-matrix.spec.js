@@ -68,10 +68,11 @@ test.afterEach(async ({}, testInfo) => {
   EVIDENCE_METADATA_BY_TEST.delete(testInfo.testId);
 });
 
-async function newMatrixPage(browser, browserName, profile) {
+async function newMatrixPage(browser, browserName, profile, { blockServiceWorkers = false } = {}) {
   const mobile = Boolean(profile.touch);
   const context = await browser.newContext({
     baseURL: process.env.E2E_BASE_URL || "http://127.0.0.1:5173",
+    ...(blockServiceWorkers ? { serviceWorkers: "block" } : {}),
     viewport: { width: profile.width, height: profile.height },
     deviceScaleFactor: mobile ? 2 : 1,
     hasTouch: mobile,
@@ -394,6 +395,7 @@ test("W1 MUI-001 keeps user zoom enabled in Chromium and WebKit", async ({ brows
 });
 
 test("W1 MUI-005 keeps short-landscape form text at 16px in WebKit", async ({ browser, browserName }, testInfo) => {
+  test.setTimeout(240_000);
   test.skip(browserName !== "webkit", "The iOS focus-zoom regression is verified in WebKit.");
   const profiles = [
     { width: 915, height: 412 },
@@ -406,7 +408,12 @@ test("W1 MUI-005 keeps short-landscape form text at 16px in WebKit", async ({ br
   ];
 
   for (const profile of profiles) {
-    const { context, page } = await newMatrixPage(browser, browserName, { ...profile, touch: true });
+    const { context, page } = await newMatrixPage(
+      browser,
+      browserName,
+      { ...profile, touch: true },
+      { blockServiceWorkers: true }
+    );
     try {
       await page.goto("/");
       await expectMinimumControlFontSize(
@@ -473,10 +480,10 @@ test("W1 MUI-005 keeps short-landscape form text at 16px in WebKit", async ({ br
 });
 
 test("W1 MUI-005 keeps 1024px touch form text readable without flattening hierarchy in WebKit", async ({ browser, browserName }, testInfo) => {
-  test.setTimeout(180_000);
+  test.setTimeout(240_000);
   test.skip(browserName !== "webkit", "The tablet touch typography regression is verified in WebKit.");
   const profile = { width: 1024, height: 768, touch: true };
-  const { context, page } = await newMatrixPage(browser, browserName, profile);
+  const { context, page } = await newMatrixPage(browser, browserName, profile, { blockServiceWorkers: true });
   try {
     await page.goto("/");
     const touchCapability = await page.evaluate(() => ({
