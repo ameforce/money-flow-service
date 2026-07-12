@@ -758,6 +758,14 @@ test("W1 MUI-011 keeps the first dashboard task visible and charts readable in l
       flowType: "income",
     });
     await createHoldingViaApi(page, { name: unique("w1-dashboard-asset") });
+    await createHoldingViaApi(page, {
+      name: unique("w1-dashboard-investment"),
+      category: "투자",
+      assetType: "stock",
+      typeKey: "stock",
+      symbol: "W1LANDSCAPE",
+      marketSymbol: "W1LANDSCAPE",
+    });
     await page.reload();
 
     for (const profile of profiles) {

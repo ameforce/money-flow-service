@@ -592,6 +592,8 @@ export async function expectDonutLabelsInsideChart(card, label) {
       return {
         text: node.textContent?.replace(/\s+/g, " ").trim(),
         missingChart: !chart,
+        leftGap: chart ? box.left - chart.left : 0,
+        rightGap: chart ? chart.right - box.right : 0,
         topGap: chart ? box.top - chart.top : 0,
         bottomGap: chart ? chart.bottom - box.bottom : 0,
       };
@@ -600,6 +602,8 @@ export async function expectDonutLabelsInsideChart(card, label) {
   expect(metrics.length, `${label} should expose visible slice labels`).toBeGreaterThan(0);
   for (const item of metrics) {
     expect(item.missingChart, `${label} ${item.text} should be measured against a chart`).toBeFalsy();
+    expect(item.leftGap, `${label} ${item.text} should stay clear of chart left edge`).toBeGreaterThanOrEqual(12);
+    expect(item.rightGap, `${label} ${item.text} should stay clear of chart right edge`).toBeGreaterThanOrEqual(12);
     expect(item.topGap, `${label} ${item.text} should stay clear of chart top chrome`).toBeGreaterThanOrEqual(12);
     expect(item.bottomGap, `${label} ${item.text} should stay clear of chart bottom edge`).toBeGreaterThanOrEqual(12);
   }
