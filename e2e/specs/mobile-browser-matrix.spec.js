@@ -566,14 +566,42 @@ test("W1 MUI-005 keeps 1024px touch form text readable without flattening hierar
     await expectZeroHorizontalOverflow(page, "collaboration 1024x768");
     await captureFinding(page, testInfo, "MUI-005", "tablet-1024x768-collaboration-form-text", ["font-size-16", "no-overflow"]);
 
+    await page.route("**/api/v1/imports/workbook/upload?mode=dry_run", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          workbook_path: "w1-tablet-visible-controls.xlsx",
+          sheets: 1,
+          transaction_rows: 1,
+          holding_rows: 0,
+          applied_transactions: 0,
+          applied_holdings_added: 0,
+          applied_holdings_updated: 0,
+          monthly_formula_mismatch_count: 0,
+          detected_mismatch_cells: [],
+          issues: [{ code: "MISSING_REQUIRED_VALUE", severity: "error", sheet: "거래내역", row: 1, message: "메모 확인 필요" }],
+        }),
+      });
+    });
     await openTab(page, "데이터 가져오기");
+    await page.getByLabel("엑셀 파일 업로드").setInputFiles({
+      name: "w1-tablet-visible-controls.xlsx",
+      mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      buffer: Buffer.from("w1-tablet-visible-controls"),
+    });
+    await page.getByRole("button", { name: "미리 검증", exact: true }).click();
+    const importToolbarControls = page.locator(".import-report-toolbar :is(input, select, textarea)");
     await expectMinimumControlFontSize(
-      page.locator(".import-mode-panel :is(input, select, textarea)"),
-      "import controls 1024x768",
-      { renderedOnly: false }
+      importToolbarControls,
+      "import report toolbar 1024x768"
     );
-    await expectZeroHorizontalOverflow(page, "import controls 1024x768");
-    await captureFinding(page, testInfo, "MUI-005", "tablet-1024x768-import-form-text", ["font-size-16", "no-overflow"]);
+    await expectZeroHorizontalOverflow(page, "import report controls 1024x768");
+    await captureFinding(page, testInfo, "MUI-005", "tablet-1024x768-import-form-text", [
+      "font-size-16",
+      "visible-report-controls",
+      "no-overflow",
+    ]);
 
     await captureFinding(page, testInfo, "MUI-005", "tablet-1024x768-form-text", [
       "touch-capability",
