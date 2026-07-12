@@ -800,7 +800,7 @@ test("W1 MUI-011 keeps the first dashboard task visible and charts readable in l
       expect(metrics.donutHeight, `${profile.width}x${profile.height} donut chart must use a short-landscape budget`).toBeLessThanOrEqual(190);
       expect(metrics.sliceLabels.length, `${profile.width}x${profile.height} should exercise the equal-value two-slice geometry`).toBe(2);
       expect(
-        metrics.sliceLabels.filter((label) => Math.abs(label.share - 50) > 0.01),
+        metrics.sliceLabels.filter((label) => !Number.isFinite(label.share) || Math.abs(label.share - 50) > 0.01),
         `${profile.width}x${profile.height} should keep both clipping probes at 50%: ${JSON.stringify(metrics.sliceLabels)}`
       ).toEqual([]);
       expect(
