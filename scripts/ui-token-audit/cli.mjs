@@ -7,6 +7,8 @@ export function parseArgs(argv) {
     else if (arg === "--out") parsed.out = argv[++index];
     else if (arg.startsWith("--out=")) parsed.out = arg.slice("--out=".length);
     else if (arg === "--changed-only") parsed.changedOnly = true;
+    else if (arg === "--base-ref") parsed.baseRef = argv[++index];
+    else if (arg.startsWith("--base-ref=")) parsed.baseRef = arg.slice("--base-ref=".length);
     else if (arg === "--probe") parsed.probe = argv[++index];
     else if (arg.startsWith("--probe=")) parsed.probe = arg.slice("--probe=".length);
     else throw new Error(`unknown argument: ${arg}`);

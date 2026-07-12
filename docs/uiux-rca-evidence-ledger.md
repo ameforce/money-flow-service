@@ -6,6 +6,51 @@ GitHub linkage source: `.omo/evidence/uiux-github-issues-240-259-current.json`
 records 20 live issues from `ameforce/money-flow-service` via GitHub REST API,
 generated at `2026-06-28T16:44:42.0383793Z`.
 
+## v0.1.48 baseline mobile audit contract
+
+- Requested develop baseline: `ee835f2c4633ba9ac796410e6ceb837455eedd86`.
+- Matching tagged main baseline: `8f8481c18a878753eb04bfbe77bcdeab236e5708` (`v0.1.48`).
+- Both commits resolve to tree `bd9eba86fe89edfa3aa7036d924291ccf358e696`; findings below therefore apply to the same v0.1.48 source tree.
+- Runtime screenshots, traces, DOM geometry, accessibility results, and browser logs belong under `.omo/evidence/mobile-uiux-v0.1.49/<finding-id>/`.
+- Static evidence may point to a repository path and line. A finding cannot become verified from static evidence alone when its acceptance condition requires a browser, orientation, assistive-technology, or real-device result.
+
+### Severity and status schema
+
+| Severity | Review level | Definition |
+| --- | --- | --- |
+| P0 / CRITICAL | Release stop | App entry, data integrity, or the complete primary task is unavailable. |
+| P1 / HIGH | Release stop | A common mobile or accessibility path is blocked, or required browser coverage cannot prove the path. |
+| P2 / MEDIUM | Release stop | A workaround exists, but usability, accessibility, feedback, layout, or performance is materially degraded. |
+| P3 / LOW | Release stop | Consistency, visual finish, browser variance, or maintainability remains below the declared design contract. |
+
+Allowed status values are exactly `Open`, `In progress`, `Fixed, pending verification`, and `Fixed and verified`. Only `Fixed and verified` is resolved. That state requires implementation evidence, a regression check, and the applicable artifact path in the Verification column.
+
+### Unresolved-zero gate
+
+- Merge-ready requires every mobile finding row to be exactly `Fixed and verified`; P0/P1/P2/P3 unresolved counts must all be zero.
+- Explaining, deferring, resolving a review thread, or accepting visual debt does not change a finding status.
+- Accepted debt: none. No P0-P3 finding may be moved outside this ledger to make the gate pass.
+- Current W0 count: P0 0, P1 4, P2 7, P3 2; unresolved total 13.
+- `quality:gate` is the per-wave regression gate and permits explicitly Open product findings while preventing new regressions. `quality:gate:final` is the release gate; it runs the strict browser matrix, zero-diagnostic react-doctor mode, and `uiux:rca-ledger:final` after runtime evidence has been generated.
+
+### Confirmed mobile findings
+
+| ID | Severity | Surface | RCA | Evidence | Wave | Status | Verification |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| MUI-001 | P1 | Auth and all mobile pages | The viewport contract caps zoom at 1.0, preventing user-controlled pinch zoom despite the separate synthetic 200% font test. | `frontend/index.html:8`, `e2e/specs/uiux-accessibility-gates.spec.js:16-20` | W1 shell/layout | Open | Pending: `.omo/evidence/mobile-uiux-v0.1.49/MUI-001/` must contain WebKit and Chromium zoom evidence. |
+| MUI-002 | P1 | Import | Workbook, Toss, and migration upload triggers are pointer-only divs while their file inputs use `display:none`, so keyboard and switch users cannot start the task. | `frontend/src/pages/importing/WorkbookImportPanel.jsx:31-38`, `frontend/src/pages/importing/TossImportPanel.jsx:11-18`, `frontend/src/pages/importing/MigrationPackagePanel.jsx:37-38`, `frontend/src/App.css:6287-6289` | W2 task/accessibility | Open | Pending: `.omo/evidence/mobile-uiux-v0.1.49/MUI-002/` must prove keyboard activation and focus order for all upload modes. |
+| MUI-003 | P1 | Toss import review | A 1080px review table depends on horizontal scrolling while the root touch contract allows only vertical pan; mobile Toss review is not covered by its current desktop-only scenario. | `frontend/src/App.css:519-524`, `frontend/src/index.css:58-66`, `e2e/specs/import.spec.js:492-518` | W2 task/accessibility | Open | Pending: `.omo/evidence/mobile-uiux-v0.1.49/MUI-003/` must prove every editable column is reachable at 320/390px by touch and keyboard. |
+| MUI-004 | P1 | Test and release gate | The named project matrix contains desktop, tablet, and mobile Chromium only, so Firefox and WebKit behavior cannot be closed as verified. | `playwright.config.js:22-40`, `package.json:16`, `package.json:36` | W0 evidence | Open | Pending: `.omo/evidence/mobile-uiux-v0.1.49/MUI-004/` must contain passing Chromium, Firefox, and WebKit matrices for the same SHA. |
+| MUI-005 | P2 | Short landscape on auth, dashboard filters, settings, collaboration, and import | Shared inputs default to 0.9rem. The 16px compact override covers widths through 820px and short landscapes through 900px, but 915x412 falls outside both conditions and remains susceptible to iOS focus zoom/reflow. | `frontend/src/App.css:2543-2554`, `frontend/src/App.css:6583-6586`, `frontend/src/App.css:8007-8011` | W1 shell/layout | Open | Pending: `.omo/evidence/mobile-uiux-v0.1.49/MUI-005/` must prove 16px-or-greater form text at 915x412 WebKit and retain 844x390 as a regression control. |
+| MUI-006 | P2 | Transaction sheet, holding sheet, confirmation dialog | Modal surfaces implement labels and Escape handling but no shared focus trap, background inert contract, or complete initial/return focus contract. | `frontend/src/App.jsx:3838-3883`, `frontend/src/App.jsx:4223-4263`, `frontend/src/App.jsx:10747-10770` | W2 task/accessibility | Open | Pending: `.omo/evidence/mobile-uiux-v0.1.49/MUI-006/` must prove Tab containment, Escape, dirty-confirm nesting, and trigger focus return. |
+| MUI-007 | P2 | Transactions, holdings, settings, landscape navigation | Several frequent compact controls are below 44px, including 36px transaction selection actions and 40px settings controls; the touch test samples only a transaction row and holding toggle. | `frontend/src/App.css:1640-1659`, `frontend/src/App.css:6362-6367`, `frontend/src/App.css:6456-6462`, `frontend/src/App.css:10232-10237`, `e2e/specs/mobile-touch-targets.spec.js:57-111` | W1 shell/layout | Open | Pending: `.omo/evidence/mobile-uiux-v0.1.49/MUI-007/` must contain a full interactive-target inventory with zero sub-44px core targets. |
+| MUI-008 | P2 | Collaboration and import mode navigation | Tab-like controls have incomplete tab semantics and keyboard behavior: collaboration omits selected/panel relationships and import exposes a tablist containing ordinary buttons. | `frontend/src/pages/collaboration/CollaborationInviteTables.jsx:57-67`, `frontend/src/pages/collaboration/CollaborationInviteTables.jsx:141-151`, `frontend/src/pages/importing/WorkbookImportPanel.jsx:21-27` | W2 task/accessibility | Open | Pending: `.omo/evidence/mobile-uiux-v0.1.49/MUI-008/` must prove roles, selected state, relationships, and arrow-key behavior. |
+| MUI-009 | P2 | Auth and global recovery feedback | Success, guidance, and failure strings share one untyped message channel rendered as polite status, so blocking auth/API errors are not exposed as assertive, severity-specific feedback. | `frontend/src/App.jsx:10071-10077`, `frontend/src/App.jsx:10710-10716` | W2 task/accessibility | Open | Pending: `.omo/evidence/mobile-uiux-v0.1.49/MUI-009/` must prove error alert announcement and non-blocking status behavior separately. |
+| MUI-010 | P2 | Motion across all pages | Reduced-motion disables two invite animations only; global transition-all rules, socket pulse, spinner rotation, and other transitions remain active. | `frontend/src/App.css:760`, `frontend/src/App.css:1958`, `frontend/src/App.css:2561`, `frontend/src/App.css:10454-10458` | W3 polish/architecture | Open | Pending: `.omo/evidence/mobile-uiux-v0.1.49/MUI-010/` must record reduced-motion computed styles and interaction states. |
+| MUI-011 | P2 | Dashboard in landscape | Compact charts keep fixed 204px and 296px heights, and slice labels shrink to 0.54rem without a landscape override, consuming most short-screen workspace. | `frontend/src/App.css:7186-7194`, `frontend/src/App.css:7232-7235`, `frontend/src/App.css:10184-10348` | W1 shell/layout | Open | Pending: `.omo/evidence/mobile-uiux-v0.1.49/MUI-011/` must prove first-task visibility and readable chart context at 800x360, 844x390, and 915x412. |
+| MUI-012 | P3 | Design system | The canonical token contract is not enforced over legacy raw colors and the current quality gate does not run the token audit, permitting cross-browser and cross-surface drift. | `DESIGN.md:13-38`, `frontend/src/App.css`, `scripts/audit_ui_tokens.mjs`, `package.json:36` | W3 polish/architecture | Open | Pending: `.omo/evidence/mobile-uiux-v0.1.49/MUI-012/` must contain the zero-orphan token audit result. |
+| MUI-013 | P3 | React state and responsive architecture | App-level ownership remains concentrated in a 10k-line component with page prop bundles, coupling viewport changes, realtime refresh, forms, dialogs, and tab state. | `frontend/src/App.jsx:2178-2415`, `frontend/src/App.jsx:10088-10571`, `docs/uiux-rca-evidence-ledger.md` issue #248 | W3 polish/architecture | Open | Pending: `.omo/evidence/mobile-uiux-v0.1.49/MUI-013/` must include react-doctor, react-scan, build, and state-preservation evidence. |
+
 This ledger maps each reviewed UI/UX issue to root cause, current code surface,
 dependency wave, applied status, verification evidence, and remaining risk.
 

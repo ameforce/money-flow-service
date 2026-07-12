@@ -1639,7 +1639,7 @@
 
 .transaction-selection-action,
 .transaction-selection-clear {
-  --transaction-selection-action-min-width: 2.68rem;
+  --transaction-selection-action-min-width: 44px;
   --transaction-selection-action-min-height: 36px;
   --transaction-selection-action-font-size: 11.84px;
   --transaction-selection-action-padding: 0.28rem 0.62rem;
@@ -2898,7 +2898,7 @@ button.transaction-selection-clear {
 
 .transaction-quick-primary-fields {
   display: grid;
-  grid-template-columns: minmax(9.4rem, 0.88fr) minmax(0, 1.12fr);
+  grid-template-columns: minmax(9.75rem, 0.88fr) minmax(0, 1.12fr);
   align-items: start;
   gap: 0.42rem;
   min-width: 0;
@@ -4717,6 +4717,11 @@ table {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.transaction-memo-text-compact,
+.transaction-amount-text-compact {
+  display: none;
 }
 
 .transactions-surface-table .transaction-col-owner {
@@ -8468,13 +8473,13 @@ tr.holding-row-imported {
   .transactions-fab,
   .holdings-fab {
     display: inline-flex;
-    bottom: calc(var(--mobile-bottom-nav-clearance, 4.65rem) + 1.1rem);
+    bottom: calc(var(--mobile-bottom-nav-clearance, 4.65rem) + 1.15rem);
     z-index: 46;
   }
 
   .transactions-scroll-top {
     left: calc(0.5rem + env(safe-area-inset-left));
-    bottom: calc(var(--mobile-bottom-nav-clearance, 4.65rem) + 1.1rem);
+    bottom: calc(var(--mobile-bottom-nav-clearance, 4.65rem) + 1.15rem);
     min-width: 5.7rem;
     min-height: 2.75rem;
     padding: 0.58rem 0.76rem;
@@ -8807,7 +8812,7 @@ tr.holding-row-imported {
     --transaction-mobile-cue-column-width: 58px;
     --transaction-mobile-owner-column-width: 34px;
     --transaction-mobile-category-column-width: 50px;
-    --transaction-mobile-amount-column-width: 60px;
+    --transaction-mobile-amount-column-width: 68px;
     --tx-col-date: var(--transaction-mobile-date-column-width);
     --tx-col-type: var(--transaction-mobile-cue-column-width);
     --tx-col-owner: var(--transaction-mobile-owner-column-width);
@@ -9334,8 +9339,24 @@ tr.holding-row-imported {
     text-overflow: clip;
   }
 
+  .transactions-surface-table .transaction-amount-text-full,
+  .transactions-surface-table .transaction-memo-text-full {
+    display: none;
+  }
+
+  .transactions-surface-table .transaction-amount-text-compact,
+  .transactions-surface-table .transaction-memo-text-compact {
+    display: inline;
+  }
+
+  .transactions-surface-table .transaction-amount-text-compact {
+    font-size: 0.68rem;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+  }
+
   .transactions-surface-table tbody tr.transaction-row:not(.mobile-row-expanded) .transaction-amount-text-wide {
-    font-size: 0.44rem;
+    font-size: inherit;
     line-height: 1;
   }
 
@@ -10137,7 +10158,16 @@ tr.holding-row-imported {
     --transaction-mobile-cue-column-width: 52px;
     --transaction-mobile-owner-column-width: 32px;
     --transaction-mobile-category-column-width: 48px;
-    --transaction-mobile-amount-column-width: 60px;
+    --transaction-mobile-amount-column-width: 66px;
+  }
+}
+
+@media (max-width: 412px) {
+  .transactions-mobile-ledger-head,
+  .transactions-surface-table {
+    width: calc(100% + 1.375rem);
+    max-width: none;
+    margin-inline: -0.6875rem;
   }
 }
 
@@ -10150,8 +10180,13 @@ tr.holding-row-imported {
   .transactions-surface-table {
     --transaction-mobile-cue-column-width: 44px;
     --transaction-mobile-owner-column-width: 32px;
-    --transaction-mobile-category-column-width: 44px;
-    --transaction-mobile-amount-column-width: 56px;
+    --transaction-mobile-category-column-width: 43px;
+    --transaction-mobile-amount-column-width: 65px;
+  }
+
+  .surface-ledger-mobile-head.transactions-mobile-ledger-head > .ledger-head-amount,
+  .transactions-surface-table tbody tr.transaction-row .transaction-col-amount {
+    padding-inline-end: 0.07rem;
   }
 }
 
@@ -10328,14 +10363,14 @@ tr.holding-row-imported {
   .transactions-fab,
   .holdings-fab {
     right: calc(0.5rem + env(safe-area-inset-right));
-    bottom: calc(var(--mobile-bottom-nav-clearance, 3.15rem) + 1.1rem);
+    bottom: calc(var(--mobile-bottom-nav-clearance, 3.15rem) + 1.15rem);
     width: 2.75rem;
     height: 2.75rem;
   }
 
   .transactions-scroll-top {
     left: calc(0.5rem + env(safe-area-inset-left));
-    bottom: calc(var(--mobile-bottom-nav-clearance, 3.15rem) + 1.1rem);
+    bottom: calc(var(--mobile-bottom-nav-clearance, 3.15rem) + 1.15rem);
     min-width: 5.2rem;
     padding-inline: 0.64rem;
   }
