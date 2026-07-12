@@ -5289,6 +5289,7 @@ test("issue #249: mobile transaction sticky stack uses measured heights", async 
     amount: "49000",
     occurredOn: isoDaysAgo(0),
   });
+  await page.reload();
   await page.setViewportSize({ width: 390, height: 844 });
   await openTab(page, "거래");
   await waitForTransactionAppShell(page);
