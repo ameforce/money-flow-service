@@ -40,7 +40,7 @@ export function HoldingListPanel({ permissions, listState, listActions, entryAct
         )}
         <p className="table-summary surface-count-summary">총 {holdingItems.length}건 중 {filteredHoldingItems.length}건 표시</p>
       </div>
-      <div className="surface-control-strip" role="group" aria-label="자산 목록 상태" tabIndex={0}>
+      <div className="surface-control-strip" role="group" aria-label="자산 목록 상태">
         <span className="surface-chip surface-chip-strong">{activeHoldingTabLabel}</span>
         {holdingTypeFilter !== "all" && <span className="surface-chip surface-chip-strong">유형 {activeHoldingTypeFilterLabel}</span>}
         <span className="surface-chip">{holdingSortSummary}</span>

@@ -369,6 +369,11 @@ test("W1 MUI-001 keeps user zoom enabled in Chromium and WebKit", async ({ brows
       Number.isNaN(maximumScale) || maximumScale >= 5,
       `viewport maximum-scale must be absent or at least 5: ${viewportContract}`
     ).toBe(true);
+    const touchAction = await page.locator("html").evaluate((element) => getComputedStyle(element).touchAction);
+    expect(
+      touchAction === "auto" || touchAction === "manipulation" || touchAction.split(/\s+/u).includes("pinch-zoom"),
+      `root touch-action must preserve pinch zoom: ${touchAction}`
+    ).toBe(true);
     await captureFinding(page, testInfo, "MUI-001", `${browserName}-zoom`, ["zoom-enabled"]);
   } finally {
     await context.close();
@@ -383,9 +388,8 @@ test("W1 MUI-005 keeps short-landscape form text at 16px in WebKit", async ({ br
   ];
   const authenticatedSurfaces = [
     { label: "dashboard filters", tab: "대시보드", selector: ".dashboard-filter-card :is(input, select, textarea)" },
-    { label: "settings", tab: "설정", selector: ".settings-profile-card :is(input, select, textarea)" },
+    { label: "settings", tab: "설정", selector: ".settings-profile-card :is(input, select, textarea), #settings-household-select" },
     { label: "collaboration", tab: "협업", selector: ".collaboration-command-card :is(input, select, textarea)" },
-    { label: "import", tab: "데이터 가져오기", selector: ".import-mode-panel :is(input, select, textarea)", renderedOnly: false },
   ];
 
   for (const profile of profiles) {
@@ -417,9 +421,65 @@ test("W1 MUI-005 keeps short-landscape form text at 16px in WebKit", async ({ br
           ["font-size-16"]
         );
       }
+
+      await page.route("**/api/v1/imports/workbook/upload?mode=dry_run", async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            workbook_path: "w1-visible-controls.xlsx",
+            sheets: 1,
+            transaction_rows: 1,
+            holding_rows: 0,
+            applied_transactions: 0,
+            applied_holdings_added: 0,
+            applied_holdings_updated: 0,
+            monthly_formula_mismatch_count: 0,
+            detected_mismatch_cells: [],
+            issues: [{ code: "MISSING_REQUIRED_VALUE", severity: "error", sheet: "거래내역", row: 1, message: "메모 확인 필요" }],
+          }),
+        });
+      });
+      await openTab(page, "데이터 가져오기");
+      await page.getByLabel("엑셀 파일 업로드").setInputFiles({
+        name: "w1-visible-controls.xlsx",
+        mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        buffer: Buffer.from("w1-visible-controls"),
+      });
+      await page.getByRole("button", { name: "미리 검증", exact: true }).click();
+      const importToolbarControls = page.locator(".import-report-toolbar :is(input, select, textarea)");
+      await expectMinimumControlFontSize(
+        importToolbarControls,
+        `import report toolbar ${profile.width}x${profile.height}`
+      );
+      await captureFinding(page, testInfo, "MUI-005", "import-form-text", ["font-size-16", "visible-controls"]);
     } finally {
       await context.close();
     }
+  }
+});
+
+test("W1 status groups do not add inert keyboard stops", async ({ browser, browserName }) => {
+  test.skip(browserName !== "chromium", "Static status-group focus inventory runs once in Chromium.");
+  const { context, page } = await newMatrixPage(browser, browserName, {
+    width: 390,
+    height: 844,
+    touch: true,
+  });
+  try {
+    await registerAndVerify(page, {
+      email: `${unique("w1-status-groups")}@example.com`,
+      displayName: unique("w1-status-groups-name"),
+    });
+    for (const tab of ["거래", "자산", "설정", "협업", "데이터 가져오기"]) {
+      await openTab(page, tab);
+      await expect(
+        page.locator(".surface-control-strip[tabindex]"),
+        `${tab} static status groups must not create inert tab stops`
+      ).toHaveCount(0);
+    }
+  } finally {
+    await context.close();
   }
 });
 
@@ -462,14 +522,19 @@ test("W1 MUI-007 exposes 44px core targets across mobile work surfaces", async (
     if (!(await assetRules.evaluate((element) => element.hasAttribute("open")))) {
       await assetRules.locator("summary").click();
     }
+    const assetRuleFields = assetRules.locator(".settings-form-grid :is(input:not([type='checkbox']), select)");
+    await expectMinimumTargetSize(assetRuleFields, "settings asset rule fields");
     await expectMinimumTargetSize(assetRules.locator(".settings-type-order-btn"), "settings type order");
     await captureFinding(page, testInfo, "MUI-007", "settings-targets", ["target-size-44"]);
 
     await page.setViewportSize({ width: 844, height: 390 });
+    await expectMinimumTargetSize(assetRuleFields, "short-landscape settings asset rule fields");
     await expectMinimumTargetSize(page.locator("nav.topbar-tabs button"), "landscape navigation");
     await captureFinding(page, testInfo, "MUI-007", "landscape-navigation-targets", ["target-size-44"]);
 
     await page.setViewportSize({ width: 915, height: 412 });
+    await openTab(page, "설정");
+    await expectMinimumTargetSize(assetRuleFields, "wide short-landscape settings asset rule fields");
     await openTab(page, "자산");
     const holdingSummaryCard = page.locator("details.holding-summary-card").first();
     const holdingSummary = holdingSummaryCard.locator("summary").first();

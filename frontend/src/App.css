@@ -1722,7 +1722,6 @@
   flex-wrap: wrap;
 }
 
-.surface-control-strip:focus-visible,
 .transactions-surface-scroll:focus-visible,
 .holdings-surface-scroll:focus-visible {
   outline: none;
@@ -8015,7 +8014,7 @@ tr.holding-row-imported {
 
   .settings-asset-rules-card .settings-form-grid input:not([type="checkbox"]),
   .settings-asset-rules-card .settings-form-grid select {
-    min-height: 2.38rem;
+    min-height: 2.75rem;
     padding: 0.4rem 0.58rem;
   }
 
@@ -10426,7 +10425,7 @@ tr.holding-row-imported {
   .household-select {
     min-height: 2.75rem;
     padding: 0.32rem 0.45rem;
-    font-size: 0.82rem;
+    font-size: max(16px, 1rem);
   }
 
   .transactions-fab,

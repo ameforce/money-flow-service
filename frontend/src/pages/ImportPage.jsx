@@ -128,7 +128,7 @@ export function ImportPage({
             <span className="surface-eyebrow">엑셀 파이프라인</span>
             <h2>데이터 파일 가져오기</h2>
           </div>
-          <div className="surface-control-strip secondary-control-strip" role="group" aria-label="데이터 가져오기 상태" tabIndex={0}>
+          <div className="surface-control-strip secondary-control-strip" role="group" aria-label="데이터 가져오기 상태">
             <span className={`surface-chip${importLoadingMode || importReport ? " surface-chip-strong" : ""}`}>{importStateLabel}</span>
             <span className="surface-chip">{importFile ? "파일 선택됨" : "파일 미선택"}</span>
             <span className={`surface-chip${canEditRecords ? " surface-chip-strong" : " surface-chip-muted"}`}>{canEditRecords ? "편집 가능" : "읽기 전용"}</span>

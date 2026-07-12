@@ -647,7 +647,7 @@ export async function expectPortfolioLabelsClearOfBottomNav(page, card, label) {
       const nav = document.querySelector("nav.topbar-tabs");
       const navBox = nav?.getBoundingClientRect();
       const navStyle = nav ? getComputedStyle(nav) : null;
-      const chart = nodes[0]?.closest(".compact-chart-wrap");
+      const chart = nodes[0]?.closest(".chart-wrap");
       const chartBox = chart?.getBoundingClientRect();
       const fixedBottomNav = Boolean(
         navBox &&
@@ -661,6 +661,7 @@ export async function expectPortfolioLabelsClearOfBottomNav(page, card, label) {
           text: node.textContent?.replace(/\s+/g, " ").trim(),
           bottom: box.bottom,
           chartBottom: chartBox?.bottom ?? null,
+          missingChart: !chartBox,
           fixedBottomNav,
           navTop: fixedBottomNav ? navBox.top : window.innerHeight,
           viewportBottom: window.innerHeight,
@@ -674,6 +675,7 @@ export async function expectPortfolioLabelsClearOfBottomNav(page, card, label) {
         metrics = await readMetrics();
         return (
           metrics.length > 0 &&
+          metrics.every((item) => !item.missingChart) &&
           metrics.every(
             (item) => item.bottom <= item.viewportBottom && (!item.fixedBottomNav || item.bottom <= item.navTop - 4),
           ) &&
@@ -691,6 +693,7 @@ export async function expectPortfolioLabelsClearOfBottomNav(page, card, label) {
   metrics = await readMetrics();
   expect(metrics.length, `${label} should expose visible slice labels`).toBeGreaterThan(0);
   for (const item of metrics) {
+    expect(item.missingChart, `${label} should be measured against its chart wrapper`).toBeFalsy();
     expect(item.bottom, `${label} ${item.text} should stay within the viewport`).toBeLessThanOrEqual(
       item.viewportBottom,
     );

@@ -17,7 +17,7 @@ export function CategoryManagerCard({ constants, permissions, categoryDrafts, ca
           <span className="surface-eyebrow">분류 체계</span>
           <h2>카테고리 관리</h2>
         </div>
-        <div className="surface-control-strip secondary-control-strip" role="group" aria-label="카테고리 관리 상태" tabIndex={0}>
+        <div className="surface-control-strip secondary-control-strip" role="group" aria-label="카테고리 관리 상태">
           <span className="surface-chip surface-chip-strong">{categories.length}개 중분류</span>
           <span className="surface-chip">{categoryMajorCount}개 대분류</span>
           <span className={`surface-chip${canEditHouseholdData ? " surface-chip-strong" : " surface-chip-muted"}`}>{canEditHouseholdData ? "편집 가능" : "읽기 전용"}</span>
