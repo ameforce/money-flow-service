@@ -10,7 +10,7 @@ export function HouseholdSwitchCard({ constants, householdAdmin, categoryActions
           <span className="surface-eyebrow">작업 컨텍스트</span>
           <h2>작업 가계 전환</h2>
         </div>
-        <div className="surface-control-strip secondary-control-strip" aria-label="작업 가계 전환 상태">
+        <div className="surface-control-strip secondary-control-strip" role="group" aria-label="작업 가계 전환 상태" tabIndex={0}>
           <span className="surface-chip surface-chip-strong">{householdList.length}개 가계</span>
           <span className="surface-chip">현재 {household?.name || "-"}</span>
         </div>

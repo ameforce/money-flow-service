@@ -274,12 +274,10 @@ test("collaboration flow: invite, accept, switch household, responsive", async (
       has: guestPage.getByRole("heading", { name: "자산 입력" }),
     });
     const holdingToggleButton = holdingCard.getByRole("button", { name: /자산 추가|입력 닫기/ }).first();
-    const holdingToggleVisible = await holdingToggleButton.isVisible().catch(() => false);
-    if (holdingToggleVisible) {
-      const holdingToggleText = String((await holdingToggleButton.textContent()) || "");
-      if (holdingToggleText.includes("자산 추가")) {
-        await holdingToggleButton.click();
-      }
+    await expect(holdingToggleButton).toBeVisible();
+    const holdingToggleText = String((await holdingToggleButton.textContent()) || "");
+    if (holdingToggleText.includes("자산 추가")) {
+      await holdingToggleButton.click();
     }
     await expect(holdingCard.getByRole("button", { name: "자산 등록" })).toBeDisabled();
     await openTab(guestPage, "데이터 가져오기");

@@ -20,7 +20,7 @@ export function HoldingEntryPanel({ constants, permissions, entryState, entryAct
           </button>
         </div>
         <p className="table-summary">필요할 때만 입력창을 엽니다.</p>
-        <div className="surface-control-strip" aria-label="자산 입력 상태">
+        <div className="surface-control-strip" role="group" aria-label="자산 입력 상태" tabIndex={0}>
           <span className="surface-chip surface-chip-strong">{canEditRecords ? "편집 가능" : "읽기 전용"}</span>
           <span className="surface-chip">유형·보유자·계좌 정리</span>
           <span className="surface-chip surface-chip-muted">평가금액 자동 정렬</span>

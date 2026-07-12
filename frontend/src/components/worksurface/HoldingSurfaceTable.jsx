@@ -23,7 +23,7 @@ export function HoldingSurfaceTable({
         <span className="ledger-head-amount">평가</span>
         <span className="ledger-head-actions">⋯</span>
       </div>
-      <div className="holdings-surface-scroll">
+      <div className="holdings-surface-scroll" role="region" aria-label="자산 표 가로 스크롤 영역" tabIndex={0}>
         <table
           className="holdings-surface-table"
           aria-label="자산 작업 표"

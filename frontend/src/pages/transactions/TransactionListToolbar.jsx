@@ -104,7 +104,7 @@ export function TransactionListToolbar({
           </button>
         )}
       </div>
-      <div className="surface-control-strip" aria-label="거래 목록 상태">
+      <div className="surface-control-strip" role="group" aria-label="거래 목록 상태" tabIndex={0}>
         <span className="surface-chip surface-chip-strong transaction-sort-status-chip">{transactionSortSummary}</span>
         <span className={`surface-chip${isTransactionFilterActive ? " surface-chip-strong" : " surface-chip-muted"}`}>
           필터 {isTransactionFilterActive ? "적용됨" : "기본"}

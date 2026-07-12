@@ -1047,7 +1047,7 @@ export function TransactionSurfaceTable({
       <div className="surface-ledger-desktop-head transactions-desktop-ledger-head">
         {TRANSACTION_SURFACE_FIELDS.map(renderDesktopColumnHead)}
       </div>
-      <div className="transactions-surface-scroll">
+      <div className="transactions-surface-scroll" role="region" aria-label="거래 표 가로 스크롤 영역" tabIndex={0}>
         <table
           className={`transactions-surface-table${mobileStickyActive ? " mobile-sticky-active" : " mobile-sticky-inactive"}`}
           aria-label="거래 작업 표"

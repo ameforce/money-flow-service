@@ -6,7 +6,12 @@ import path from "node:path";
 
 import {
   capture,
+  createHoldingViaApi,
   createTransactionViaApi,
+  expectDonutLabelsCenteredOnRing,
+  expectDonutLabelsInsideChart,
+  expectDonutTextNotClipped,
+  expectPortfolioLabelsClearOfBottomNav,
   labeledField,
   openTab,
   registerAndVerify,
@@ -14,6 +19,7 @@ import {
 } from "../support/helpers";
 
 const WCAG_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22a", "wcag22aa"];
+const TARGET_SIZE_EPSILON_PX = 0.001;
 const NAV_TABS = ["대시보드", "거래", "자산", "설정", "협업", "데이터 가져오기"];
 const MOBILE_PROFILES = [
   { name: "mobile-320x568", width: 320, height: 568, font: "Malgun Gothic", touch: true },
@@ -39,7 +45,7 @@ const ORIENTATION_PAIRS = {
 const CRITICAL_SELECTORS = {
   대시보드: ".dashboard-filter-card button, .dashboard-filter-card input",
   거래: "[data-testid='transactions-fab'], [data-testid='transactions-desktop-add-action'], .month-stepper button, .month-stepper input",
-  자산: "[data-testid='holdings-fab']",
+  자산: "[data-testid='holdings-fab'], .holding-entry-card .work-surface-header button",
   설정: ".settings-profile-card input, .settings-profile-card button",
   협업: "#collaboration-household-select, .collaboration-command-card input, .collaboration-command-card button",
   "데이터 가져오기": ".import-excel-panel button, .import-mode-panel button",
@@ -138,8 +144,58 @@ async function expectCriticalTargets(page, tabLabel, profile) {
   expect(surfaceTargets.length, `${tabLabel}/${profile.name} should expose tab-specific critical controls`).toBeGreaterThan(0);
   const targets = [...chromeTargets, ...surfaceTargets];
   expect(
-    targets.filter((target) => target.width < 44 || target.height < 44),
+    targets.filter((target) => target.width + TARGET_SIZE_EPSILON_PX < 44 || target.height + TARGET_SIZE_EPSILON_PX < 44),
     `${tabLabel}/${profile.name} critical targets must be at least 44x44px: ${JSON.stringify(targets)}`
+  ).toEqual([]);
+}
+
+async function expectMinimumTargetSize(locator, label) {
+  const metrics = await locator.evaluateAll((elements) =>
+    elements
+      .map((element) => {
+        const box = element.getBoundingClientRect();
+        const style = getComputedStyle(element);
+        return {
+          height: box.height,
+          label: element.getAttribute("aria-label") || element.textContent?.replace(/\s+/g, " ").trim() || "",
+          rendered: style.display !== "none" && style.visibility !== "hidden" && box.width > 0 && box.height > 0,
+          width: box.width,
+        };
+      })
+      .filter((target) => target.rendered)
+  );
+  expect(metrics.length, `${label} should expose rendered targets`).toBeGreaterThan(0);
+  expect(
+    metrics.filter((target) => target.width + TARGET_SIZE_EPSILON_PX < 44 || target.height + TARGET_SIZE_EPSILON_PX < 44),
+    `${label} targets must be at least 44x44px: ${JSON.stringify(metrics)}`
+  ).toEqual([]);
+}
+
+async function expectMinimumControlFontSize(locator, label, { renderedOnly = true } = {}) {
+  if (renderedOnly) {
+    await locator.first().scrollIntoViewIfNeeded();
+    await expect(locator.first(), `${label} should render its first form control`).toBeVisible();
+  } else {
+    await expect(locator.first(), `${label} should expose its first form control`).toBeAttached();
+  }
+  const metrics = await locator.evaluateAll((elements, shouldFilterRendered) =>
+    elements
+      .map((element) => {
+        const box = element.getBoundingClientRect();
+        const style = getComputedStyle(element);
+        return {
+          fontSize: Number.parseFloat(style.fontSize),
+          label: element.getAttribute("aria-label") || element.textContent?.replace(/\s+/g, " ").trim() || element.id,
+          rendered: style.display !== "none" && style.visibility !== "hidden" && box.width > 0 && box.height > 0,
+        };
+      })
+      .filter((control) => !shouldFilterRendered || control.rendered),
+    renderedOnly
+  );
+  expect(metrics.length, `${label} should expose applicable form controls`).toBeGreaterThan(0);
+  expect(
+    metrics.filter((control) => control.fontSize < 16),
+    `${label} form control text must be at least 16px: ${JSON.stringify(metrics)}`
   ).toEqual([]);
 }
 
@@ -286,6 +342,261 @@ test("portrait-landscape transition preserves transaction task state", async ({ 
   await expectOrientation(page, "portrait");
   await assertOrientationState(page, { ...expected, label: `${browserName}/portrait-after` });
     await captureFinding(page, testInfo, "MUI-004", "orientation-portrait-after", ["engine-matrix", "orientation-state-preservation"]);
+  } finally {
+    await context.close();
+  }
+});
+
+test("W1 MUI-001 keeps user zoom enabled in Chromium and WebKit", async ({ browser, browserName }, testInfo) => {
+  test.skip(!["chromium", "webkit"].includes(browserName), "Zoom evidence is required for Chromium and WebKit.");
+  const { context, page } = await newMatrixPage(browser, browserName, {
+    width: 390,
+    height: 844,
+    touch: true,
+  });
+  try {
+    await page.goto("/");
+    const viewportContract = await page.locator('meta[name="viewport"]').getAttribute("content");
+    const directives = new Map(
+      String(viewportContract || "")
+        .split(",")
+        .map((entry) => entry.trim().split("=").map((part) => part.trim().toLowerCase()))
+        .filter(([key]) => key)
+    );
+    expect(directives.get("user-scalable"), "viewport must not disable user scaling").not.toBe("no");
+    const maximumScale = Number.parseFloat(directives.get("maximum-scale") || "");
+    expect(
+      Number.isNaN(maximumScale) || maximumScale >= 5,
+      `viewport maximum-scale must be absent or at least 5: ${viewportContract}`
+    ).toBe(true);
+    await captureFinding(page, testInfo, "MUI-001", `${browserName}-zoom`, ["zoom-enabled"]);
+  } finally {
+    await context.close();
+  }
+});
+
+test("W1 MUI-005 keeps short-landscape form text at 16px in WebKit", async ({ browser, browserName }, testInfo) => {
+  test.skip(browserName !== "webkit", "The iOS focus-zoom regression is verified in WebKit.");
+  const profiles = [
+    { width: 915, height: 412 },
+    { width: 844, height: 390 },
+  ];
+  const authenticatedSurfaces = [
+    { label: "dashboard filters", tab: "대시보드", selector: ".dashboard-filter-card :is(input, select, textarea)" },
+    { label: "settings", tab: "설정", selector: ".settings-profile-card :is(input, select, textarea)" },
+    { label: "collaboration", tab: "협업", selector: ".collaboration-command-card :is(input, select, textarea)" },
+    { label: "import", tab: "데이터 가져오기", selector: ".import-mode-panel :is(input, select, textarea)", renderedOnly: false },
+  ];
+
+  for (const profile of profiles) {
+    const { context, page } = await newMatrixPage(browser, browserName, { ...profile, touch: true });
+    try {
+      await page.goto("/");
+      await expectMinimumControlFontSize(
+        page.locator("form.auth-card :is(input, select, textarea)"),
+        `auth ${profile.width}x${profile.height}`
+      );
+      await captureFinding(page, testInfo, "MUI-005", "auth-form-text", ["font-size-16"]);
+
+      await registerAndVerify(page, {
+        email: `${unique(`w1-form-${profile.width}`)}@example.com`,
+        displayName: unique(`w1-form-${profile.width}-name`),
+      });
+      for (const surface of authenticatedSurfaces) {
+        await openTab(page, surface.tab);
+        await expectMinimumControlFontSize(
+          page.locator(surface.selector),
+          `${surface.label} ${profile.width}x${profile.height}`,
+          { renderedOnly: surface.renderedOnly !== false }
+        );
+        await captureFinding(
+          page,
+          testInfo,
+          "MUI-005",
+          `${surface.label.replaceAll(" ", "-")}-form-text`,
+          ["font-size-16"]
+        );
+      }
+    } finally {
+      await context.close();
+    }
+  }
+});
+
+test("W1 MUI-007 exposes 44px core targets across mobile work surfaces", async ({ browser, browserName }, testInfo) => {
+  test.skip(browserName !== "chromium", "The target inventory runs once in the Chromium mobile lane.");
+  const { context, page } = await newMatrixPage(browser, browserName, {
+    width: 390,
+    height: 844,
+    touch: true,
+  });
+  const transactionMemo = unique("w1-target-transaction");
+  const holdingName = unique("w1-target-holding");
+  try {
+    await registerAndVerify(page, {
+      email: `${unique("w1-targets")}@example.com`,
+      displayName: unique("w1-targets-name"),
+    });
+    await createTransactionViaApi(page, { memo: transactionMemo, amount: "44000" });
+    await createHoldingViaApi(page, { name: holdingName });
+    await page.reload();
+
+    await openTab(page, "거래");
+    const transactionRow = page.locator("tr.transaction-row", { hasText: transactionMemo }).first();
+    await expect(transactionRow).toBeVisible();
+    await transactionRow.focus();
+    await page.keyboard.press("Shift+Space");
+    await expect(transactionRow).toHaveAttribute("data-row-selected", "true");
+    await expectMinimumTargetSize(page.locator(".transaction-selection-summary .transaction-selection-action"), "transaction selection");
+    await captureFinding(page, testInfo, "MUI-007", "transaction-targets", ["target-size-44"]);
+
+    await openTab(page, "자산");
+    const holdingRow = page.locator("tr.holding-row", { hasText: holdingName }).first();
+    await expect(holdingRow).toBeVisible();
+    await expectMinimumTargetSize(holdingRow.locator(".mobile-toggle-btn"), "holding detail");
+    await captureFinding(page, testInfo, "MUI-007", "holding-targets", ["target-size-44"]);
+
+    await openTab(page, "설정");
+    const assetRules = page.locator("details.settings-asset-rules-card").first();
+    await assetRules.scrollIntoViewIfNeeded();
+    if (!(await assetRules.evaluate((element) => element.hasAttribute("open")))) {
+      await assetRules.locator("summary").click();
+    }
+    await expectMinimumTargetSize(assetRules.locator(".settings-type-order-btn"), "settings type order");
+    await captureFinding(page, testInfo, "MUI-007", "settings-targets", ["target-size-44"]);
+
+    await page.setViewportSize({ width: 844, height: 390 });
+    await expectMinimumTargetSize(page.locator("nav.topbar-tabs button"), "landscape navigation");
+    await captureFinding(page, testInfo, "MUI-007", "landscape-navigation-targets", ["target-size-44"]);
+
+    await page.setViewportSize({ width: 915, height: 412 });
+    await openTab(page, "자산");
+    const holdingSummaryCard = page.locator("details.holding-summary-card").first();
+    const holdingSummary = holdingSummaryCard.locator("summary").first();
+    await expect(holdingSummaryCard).toBeVisible();
+    if (!(await holdingSummaryCard.evaluate((element) => element.hasAttribute("open")))) {
+      await holdingSummary.click();
+    }
+    await holdingSummaryCard.getByLabel("자산 요약 보기 기준").selectOption("type");
+    await expect(holdingSummaryCard.getByTestId("portfolio-donut-slice-label")).toHaveCount(1);
+    await holdingSummary.click();
+    await expect(holdingSummaryCard).not.toHaveAttribute("open", "");
+    await holdingSummary.evaluate((summary) => {
+      const summaryTop = window.scrollY + summary.getBoundingClientRect().top;
+      window.scrollTo({ top: Math.max(0, summaryTop - window.innerHeight + 68), behavior: "auto" });
+    });
+    await holdingSummary.click();
+    await expect(holdingSummaryCard).toHaveAttribute("open", "");
+    await expectPortfolioLabelsClearOfBottomNav(
+      page,
+      holdingSummaryCard,
+      "915x412 reopened holding portfolio chart"
+    );
+    await captureFinding(page, testInfo, "MUI-007", "holding-summary-landscape-clearance", [
+      "short-landscape-compact",
+      "bottom-nav-clearance",
+    ]);
+
+    await page.setViewportSize({ width: 1024, height: 768 });
+    const navigationLineMetrics = await page.locator("nav.topbar-tabs .tab-label").evaluateAll((labels) =>
+      labels.map((label) => {
+        const style = getComputedStyle(label);
+        const lineHeight = Number.parseFloat(style.lineHeight);
+        return {
+          label: label.textContent?.replace(/\s+/g, " ").trim(),
+          lines: label.getBoundingClientRect().height / lineHeight,
+        };
+      })
+    );
+    expect(
+      navigationLineMetrics.filter((metric) => metric.lines > 2.01),
+      `tablet navigation labels must use at most two lines: ${JSON.stringify(navigationLineMetrics)}`
+    ).toEqual([]);
+    await captureFinding(page, testInfo, "MUI-007", "tablet-navigation-labels", ["maximum-two-lines"]);
+  } finally {
+    await context.close();
+  }
+});
+
+test("W1 MUI-011 keeps the first dashboard task visible and charts readable in landscape", async ({ browser, browserName }, testInfo) => {
+  test.skip(browserName !== "chromium", "Landscape dashboard layout evidence runs once in Chromium.");
+  const profiles = [
+    { width: 800, height: 360 },
+    { width: 844, height: 390 },
+    { width: 915, height: 412 },
+  ];
+  const { context, page } = await newMatrixPage(browser, browserName, { ...profiles[0], touch: true });
+  try {
+    await registerAndVerify(page, {
+      email: `${unique("w1-dashboard-landscape")}@example.com`,
+      displayName: unique("w1-dashboard-landscape-name"),
+    });
+    await createTransactionViaApi(page, {
+      memo: unique("w1-dashboard-income"),
+      amount: "44000",
+      flowType: "income",
+    });
+    await createHoldingViaApi(page, { name: unique("w1-dashboard-asset") });
+    await page.reload();
+
+    for (const profile of profiles) {
+      await page.setViewportSize(profile);
+      await openTab(page, "대시보드");
+      await page.evaluate(() => window.scrollTo({ top: 0, left: 0, behavior: "auto" }));
+      const metrics = await page.evaluate(() => {
+        const task = document.querySelector(".dashboard-filter-card");
+        const lineChart = document.querySelector(".dashboard-line-chart-wrap");
+        const donutChart = document.querySelector(".dashboard-donut-wrap");
+        const nav = document.querySelector("nav.topbar-tabs");
+        const taskBox = task?.getBoundingClientRect();
+        const navBox = nav?.getBoundingClientRect();
+        const lineBox = lineChart?.getBoundingClientRect();
+        const donutBox = donutChart?.getBoundingClientRect();
+        const sliceLabels = Array.from(document.querySelectorAll(".portfolio-donut-slice-label small")).map((label) => ({
+          fontSize: Number.parseFloat(getComputedStyle(label).fontSize),
+          text: label.textContent?.trim() || "",
+        }));
+        return {
+          donutHeight: donutBox?.height ?? 0,
+          lineHeight: lineBox?.height ?? 0,
+          navTop: navBox?.top ?? window.innerHeight,
+          sliceLabels,
+          taskBottom: taskBox?.bottom ?? Number.POSITIVE_INFINITY,
+          taskTop: taskBox?.top ?? Number.NEGATIVE_INFINITY,
+        };
+      });
+      expect(metrics.taskTop, `${profile.width}x${profile.height} dashboard task must start in the viewport`).toBeGreaterThanOrEqual(0);
+      expect(metrics.taskBottom, `${profile.width}x${profile.height} dashboard task must clear fixed navigation`).toBeLessThanOrEqual(metrics.navTop);
+      expect(metrics.lineHeight, `${profile.width}x${profile.height} line chart must use a short-landscape budget`).toBeLessThanOrEqual(160);
+      expect(metrics.donutHeight, `${profile.width}x${profile.height} donut chart must use a short-landscape budget`).toBeLessThanOrEqual(190);
+      expect(metrics.sliceLabels.length, `${profile.width}x${profile.height} should expose portfolio slice labels`).toBeGreaterThan(0);
+      expect(
+        metrics.sliceLabels.filter((label) => label.fontSize < 11),
+        `${profile.width}x${profile.height} slice labels must remain readable: ${JSON.stringify(metrics.sliceLabels)}`
+      ).toEqual([]);
+      const lineCard = page.locator(".dashboard-flow-card");
+      const donutCard = page.locator(".dashboard-portfolio-card");
+      await expect(lineCard.locator("canvas")).toBeVisible();
+      await expect(donutCard.locator("canvas")).toBeVisible();
+      await lineCard.evaluate((element) => element.scrollIntoView({ block: "start", behavior: "instant" }));
+      await capture(page, `${testInfo.project.name}-dashboard-landscape-${profile.width}x${profile.height}-line-chart`);
+      await donutCard.locator(".dashboard-donut-wrap").evaluate((element) =>
+        element.scrollIntoView({ block: "center", behavior: "instant" })
+      );
+      const donutLabel = `${profile.width}x${profile.height} short-landscape dashboard donut`;
+      await expectDonutTextNotClipped(donutCard.getByTestId("portfolio-donut-center-label"));
+      await expectDonutTextNotClipped(donutCard.getByTestId("portfolio-donut-slice-label"));
+      await expectDonutLabelsInsideChart(donutCard, donutLabel);
+      await expectDonutLabelsCenteredOnRing(donutCard, donutLabel);
+      await expectPortfolioLabelsClearOfBottomNav(page, donutCard, donutLabel);
+      await captureFinding(page, testInfo, "MUI-011", "dashboard-landscape", [
+        "first-task-visible",
+        "chart-readable",
+        "donut-text-not-clipped",
+        "donut-ring-midpoint",
+      ]);
+      await capture(page, `${testInfo.project.name}-dashboard-landscape-${profile.width}x${profile.height}-donut-chart`);
+    }
   } finally {
     await context.close();
   }

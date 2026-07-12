@@ -718,31 +718,11 @@ async function selectTransactionRowForToolbar(page, row, { expectedCount = 1 } =
   await row.evaluate((element) => element.scrollIntoView({ block: "center", inline: "nearest" }));
   if ((await row.getAttribute("data-row-selected")) !== "true") {
     const viewport = page.viewportSize();
-    const isLedgerCompactViewport = (viewport?.width ?? 0) <= 820 || ((viewport?.width ?? 0) <= 900 && (viewport?.height ?? 0) <= 520);
-    if (isLedgerCompactViewport) {
-      await longPressTransactionRow(page, row);
-    }
-    const selectionTargets = [
-      row.locator(".transaction-col-memo").first(),
-      row.locator(".transaction-col-date").first(),
-      row.locator(".transaction-col-type").first(),
-    ];
-    if ((await row.getAttribute("data-row-selected")) !== "true") {
-      for (const target of selectionTargets) {
-        if (!(await target.isVisible().catch(() => false))) {
-          continue;
-        }
-        await target.click();
-        if ((await row.getAttribute("data-row-selected")) === "true") {
-          break;
-        }
-      }
-    }
-    if ((await row.getAttribute("data-row-selected")) !== "true") {
-      await row.focus();
-      await expect(row).toBeFocused();
-      await page.keyboard.press(isLedgerCompactViewport ? "Shift+Space" : "Space");
-    }
+    const isLedgerCompactViewport =
+      (viewport?.width ?? 0) <= 820 || ((viewport?.width ?? 0) <= 920 && (viewport?.height ?? 0) <= 520);
+    await row.focus();
+    await expect(row).toBeFocused();
+    await page.keyboard.press(isLedgerCompactViewport ? "Shift+Space" : "Space");
   }
   await expect(row).toHaveAttribute("data-row-selected", "true");
   await expectTransactionSelectionSummary(page, expectedCount);

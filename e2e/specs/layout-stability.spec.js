@@ -538,6 +538,10 @@ async function expectSignupLayoutStable(page, profile) {
       const box = checkbox.getBoundingClientRect();
       return { width: box.width, height: box.height };
     });
+    const checkboxLabelBoxes = Array.from(document.querySelectorAll(".auth-options .check-row")).map((label) => {
+      const box = label.getBoundingClientRect();
+      return { width: box.width, height: box.height };
+    });
     return {
       viewport: { width: window.innerWidth, height: window.innerHeight },
       card: boxOf("form.auth-card-register"),
@@ -552,6 +556,7 @@ async function expectSignupLayoutStable(page, profile) {
       visibleText: document.body.textContent || "",
       minLabelRowGap: Math.min(...labelRowGaps),
       checkboxBoxes,
+      checkboxLabelBoxes,
       authSwitchButton: authSwitchButtonBox
         ? {
             background: authSwitchButtonStyle.backgroundColor,
@@ -581,8 +586,14 @@ async function expectSignupLayoutStable(page, profile) {
   expect(metrics.minLabelRowGap).toBeGreaterThanOrEqual(5);
   expect(metrics.checkboxBoxes).toHaveLength(2);
   for (const checkbox of metrics.checkboxBoxes) {
-    expect(checkbox.width).toBeLessThanOrEqual(20);
-    expect(checkbox.height).toBeLessThanOrEqual(20);
+    expect(checkbox.width).toBeGreaterThanOrEqual(20);
+    expect(checkbox.width).toBeLessThanOrEqual(24);
+    expect(checkbox.height).toBeGreaterThanOrEqual(20);
+    expect(checkbox.height).toBeLessThanOrEqual(24);
+  }
+  expect(metrics.checkboxLabelBoxes).toHaveLength(2);
+  for (const label of metrics.checkboxLabelBoxes) {
+    expect(label.height).toBeGreaterThanOrEqual(44);
   }
   expect(metrics.authSwitchButton).not.toBeNull();
   expect(metrics.authSwitchButton.background).toBe("rgba(0, 0, 0, 0)");

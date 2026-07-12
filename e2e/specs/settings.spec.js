@@ -462,7 +462,7 @@ test("settings flow: profile, household, colors, categories CRUD", async ({ page
   );
   expect(typeOrderButtonMetrics.length, "asset type order buttons should be present").toBeGreaterThanOrEqual(4);
   expect(
-    typeOrderButtonMetrics.every(({ width, height }) => width >= 40 && height >= 40),
+    typeOrderButtonMetrics.every(({ width, height }) => width >= 44 && height >= 44),
     `asset type order buttons should keep mobile hit targets: ${JSON.stringify(typeOrderButtonMetrics)}`,
   ).toBe(true);
   await capture(page, "settings-asset-type-order-buttons-mobile");
