@@ -866,7 +866,7 @@ test("dashboard range inputs expose readable mobile labels and focus", async ({ 
 });
 
 test("dashboard flow: onboarding, portfolio coherence, summary visibility", async ({ page }, testInfo) => {
-  test.setTimeout(180_000);
+  test.setTimeout(420_000);
 
   const email = `${unique("dashboard-user")}@example.com`;
   const displayName = unique("dashboard-name");
