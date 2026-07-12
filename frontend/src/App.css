@@ -2578,6 +2578,12 @@ textarea {
   box-sizing: border-box;
 }
 
+input,
+select,
+textarea {
+  font-size: var(--mf-form-control-font-size);
+}
+
 button {
   border-color: transparent;
   background: linear-gradient(135deg, var(--mf-color-blue-700), var(--mf-color-blue-600));
@@ -10480,6 +10486,16 @@ tr.holding-row-imported {
   .transaction-list-card .month-stepper .date-inputs input {
     height: 2.75rem;
     min-height: 2.75rem;
+  }
+}
+
+@media (hover: none), (pointer: coarse), (any-pointer: coarse) {
+  :root {
+    --mf-form-control-font-size: max(16px, 1rem);
+  }
+
+  :is(input, select, textarea) {
+    font-size: var(--mf-form-control-font-size) !important;
   }
 }
 

@@ -126,6 +126,19 @@ async function expectZeroHorizontalOverflow(page, label) {
 
 async function expectCriticalTargets(page, tabLabel, profile) {
   if (!profile.touch) return;
+  if (tabLabel === "거래") {
+    const transactionScroller = page.locator(".transactions-surface-scroll").first();
+    const metrics = await transactionScroller.evaluate((element) => ({
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+      tabIndex: element.getAttribute("tabindex"),
+    }));
+    expect(
+      metrics.scrollWidth,
+      `${profile.name} transaction ledger must preserve its overflow-free layout contract: ${JSON.stringify(metrics)}`
+    ).toBeLessThanOrEqual(metrics.clientWidth + 1);
+    expect(metrics.tabIndex, `${profile.name} overflow-free transaction ledger must not add an inert keyboard stop`).toBeNull();
+  }
   const collectRenderedTargets = (elements) =>
     elements
       .map((element) => {
@@ -456,6 +469,45 @@ test("W1 MUI-005 keeps short-landscape form text at 16px in WebKit", async ({ br
     } finally {
       await context.close();
     }
+  }
+});
+
+test("W1 MUI-005 keeps 1024px touch form text at 16px in WebKit", async ({ browser, browserName }, testInfo) => {
+  test.setTimeout(120_000);
+  test.skip(browserName !== "webkit", "The tablet touch typography regression is verified in WebKit.");
+  const profile = { width: 1024, height: 768, touch: true };
+  const { context, page } = await newMatrixPage(browser, browserName, profile);
+  try {
+    await page.goto("/");
+    const touchCapability = await page.evaluate(() => ({
+      anyPointerCoarse: window.matchMedia("(any-pointer: coarse)").matches,
+      hoverNone: window.matchMedia("(hover: none)").matches,
+      pointerCoarse: window.matchMedia("(pointer: coarse)").matches,
+    }));
+    expect(
+      touchCapability.anyPointerCoarse || touchCapability.pointerCoarse || touchCapability.hoverNone,
+      `WebKit touch profile 1024x768 must activate a touch-capability media query: ${JSON.stringify(touchCapability)}`
+    ).toBe(true);
+    await expectMinimumControlFontSize(page.locator("form.auth-card :is(input, select, textarea)"), "auth 1024x768");
+
+    await registerAndVerify(page, {
+      email: `${unique("w1-tablet-form-1024")}@example.com`,
+      displayName: unique("w1-tablet-form-1024-name"),
+    });
+    for (const surface of [
+      { label: "dashboard filters", tab: "대시보드", selector: ".dashboard-filter-card :is(input, select, textarea)" },
+      { label: "settings", tab: "설정", selector: ".settings-profile-card :is(input, select, textarea), #settings-household-select" },
+      { label: "collaboration", tab: "협업", selector: ".collaboration-command-card :is(input, select, textarea)" },
+    ]) {
+      await openTab(page, surface.tab);
+      await expectMinimumControlFontSize(page.locator(surface.selector), `${surface.label} 1024x768`);
+    }
+    await captureFinding(page, testInfo, "MUI-005", "tablet-1024x768-form-text", [
+      "touch-capability",
+      "font-size-16",
+    ]);
+  } finally {
+    await context.close();
   }
 });
 

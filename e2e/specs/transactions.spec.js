@@ -4977,9 +4977,14 @@ test("issue 227: 1024px transaction row actions stay inside the viewport", async
   await expect(targetRow).toBeVisible({ timeout: 20_000 });
   await page.locator(".transaction-list-card").first().evaluate((element) => element.scrollIntoView({ block: "start" }));
   await targetRow.evaluate((element) => element.scrollIntoView({ block: "center", inline: "nearest" }));
-  await page.locator(".transactions-surface-scroll").first().evaluate((element) => {
+  const transactionScroller = page.locator(".transactions-surface-scroll").first();
+  await transactionScroller.evaluate((element) => {
     element.scrollLeft = 0;
   });
+  await expect(
+    transactionScroller,
+    "a transaction ledger that fits its container must not add an inert keyboard stop"
+  ).not.toHaveAttribute("tabindex");
   await page.waitForTimeout(150);
 
   const metrics = await page.evaluate((rowMemoPrefix) => {
