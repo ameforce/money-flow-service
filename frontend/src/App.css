@@ -10215,7 +10215,7 @@ tr.holding-row-imported {
 
 @media (max-width: 412px) {
   .transactions-mobile-ledger-head,
-  .transactions-surface-table {
+  .transactions-surface-scroll {
     width: calc(100% + 1.375rem);
     max-width: none;
     margin-inline: -0.6875rem;
