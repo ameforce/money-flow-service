@@ -52,6 +52,24 @@ function expectColorInputsKeepTouchTargets(metrics, label) {
   }
 }
 
+async function expectPassiveStatusStripsDoNotScroll(page, label) {
+  const metrics = await page.locator(".secondary-control-strip[role='group']").evaluateAll((strips) =>
+    strips.map((strip) => ({
+      label: strip.getAttribute("aria-label") || "",
+      clientWidth: strip.clientWidth,
+      scrollWidth: strip.scrollWidth,
+      overflowX: getComputedStyle(strip).overflowX,
+    })),
+  );
+  expect(metrics.length, `${label} should expose passive status strips`).toBeGreaterThan(0);
+  for (const metric of metrics) {
+    expect(metric.scrollWidth, `${label}/${metric.label} should wrap without horizontal scrolling: ${JSON.stringify(metric)}`).toBeLessThanOrEqual(
+      metric.clientWidth + 1,
+    );
+    expect(metric.overflowX, `${label}/${metric.label} should not be a scroll container`).not.toBe("auto");
+  }
+}
+
 async function expectCategoryUsageSummariesKeepHitTargets(page, group, label) {
   await scrollLocatorIntoView(group);
   const summaryMetrics = await group.locator(".settings-category-usage-detail .category-usage-month summary").evaluateAll((summaries) =>
@@ -116,6 +134,20 @@ test("settings color inputs keep mobile and tablet hit targets", async ({ page }
   }
 
   await capture(page, "settings-color-input-hit-targets");
+});
+
+test("settings passive status strips wrap instead of creating keyboard-inaccessible scroll regions", async ({ page }) => {
+  const email = `${unique("settings-status-strip")}@example.com`;
+  const displayName = unique("settings-status-strip-name-with-a-long-mobile-label");
+
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 320, height: 568 });
+  await assertResponsiveShell(page);
+  await openTab(page, "설정");
+
+  await expectPassiveStatusStripsDoNotScroll(page, "320x568 settings");
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "settings-passive-status-strips-mobile");
 });
 
 test("issue 236: mobile asset type rule checkboxes keep touch targets", async ({ page }) => {

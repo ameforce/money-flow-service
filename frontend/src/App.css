@@ -7440,6 +7440,16 @@ tr.holding-row-imported {
   .secondary-control-strip {
     justify-content: flex-start;
     flex-wrap: wrap;
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: visible;
+  }
+
+  .secondary-control-strip .surface-chip {
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    white-space: normal;
   }
 
   .import-action-row {
