@@ -1,14 +1,41 @@
+import { useRef } from "react";
+
 import { ImportReportPanel } from "./ImportReportPanel";
 import { FilePickerDropzone } from "./FilePickerDropzone";
 import { TossImportPanel } from "./TossImportPanel";
 
 export function WorkbookImportPanel({ constants, permissions, workbook, reportState, reportActions, toss, helpers, dragDrop }) {
+  const modeButtonRefs = useRef([]);
   const { IMPORT_MODE_LABELS, IMPORT_SOURCE_MODES } = constants;
   const { canEditRecords } = permissions;
   const { doImport, importFile, importFileInputRef, importLoadingMode, importMode, workbookActionsDisabled, workbookMissingFile, workbookUploadPlaceholder, updateImportFile, updateImportMode } = workbook;
   const { importBusy, importReport } = reportState;
   const { displayImportFileName, fmt } = helpers;
   const { isDragOver, updateIsDragOver } = dragDrop;
+
+  const activateImportMode = (mode, index) => {
+    updateImportMode(mode.value);
+    updateIsDragOver(false);
+    modeButtonRefs.current[index]?.focus();
+  };
+
+  const handleImportModeKeyDown = (event, index) => {
+    let nextIndex = null;
+    if (event.key === "ArrowRight") {
+      nextIndex = (index + 1) % IMPORT_SOURCE_MODES.length;
+    } else if (event.key === "ArrowLeft") {
+      nextIndex = (index - 1 + IMPORT_SOURCE_MODES.length) % IMPORT_SOURCE_MODES.length;
+    } else if (event.key === "Home") {
+      nextIndex = 0;
+    } else if (event.key === "End") {
+      nextIndex = IMPORT_SOURCE_MODES.length - 1;
+    }
+    if (nextIndex === null) {
+      return;
+    }
+    event.preventDefault();
+    activateImportMode(IMPORT_SOURCE_MODES[nextIndex], nextIndex);
+  };
 
   return (
     <section className="import-mode-panel import-excel-panel">
@@ -20,8 +47,18 @@ export function WorkbookImportPanel({ constants, permissions, workbook, reportSt
         <p className="table-summary">{importMode === "toss" ? (toss.tossFiles.length > 0 ? `이미지 ${fmt(toss.tossFiles.length)}개 선택됨` : "이미지 대기") : (importFile ? "파일 선택됨" : "파일 대기")}</p>
       </div>
       <div className="import-mode-switch" role="group" aria-label="가져오기 형식">
-        {IMPORT_SOURCE_MODES.map((mode) => (
-          <button key={mode.value} type="button" className={importMode === mode.value ? "active" : "secondary"} aria-pressed={importMode === mode.value} onClick={() => { updateImportMode(mode.value); updateIsDragOver(false); }} disabled={importBusy}>
+        {IMPORT_SOURCE_MODES.map((mode, index) => (
+          <button
+            key={mode.value}
+            ref={(element) => { modeButtonRefs.current[index] = element; }}
+            type="button"
+            className={importMode === mode.value ? "active" : "secondary"}
+            aria-pressed={importMode === mode.value}
+            tabIndex={importMode === mode.value ? 0 : -1}
+            onClick={() => activateImportMode(mode, index)}
+            onKeyDown={(event) => handleImportModeKeyDown(event, index)}
+            disabled={importBusy}
+          >
             {mode.label}
           </button>
         ))}

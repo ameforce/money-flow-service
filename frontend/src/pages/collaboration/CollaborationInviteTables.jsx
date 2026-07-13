@@ -1,3 +1,84 @@
+import { useRef } from "react";
+
+const INVITE_TABS = [
+  { value: "new", label: "신규" },
+  { value: "history", label: "이전" },
+];
+
+function InviteTabs({ idPrefix, label, activeTab, counts, onChange }) {
+  const tabRefs = useRef([]);
+
+  const activateTab = (index) => {
+    const tab = INVITE_TABS[index];
+    onChange(tab.value);
+    tabRefs.current[index]?.focus();
+  };
+
+  const handleKeyDown = (event, index) => {
+    let nextIndex = null;
+    if (event.key === "ArrowRight") {
+      nextIndex = (index + 1) % INVITE_TABS.length;
+    } else if (event.key === "ArrowLeft") {
+      nextIndex = (index - 1 + INVITE_TABS.length) % INVITE_TABS.length;
+    } else if (event.key === "Home") {
+      nextIndex = 0;
+    } else if (event.key === "End") {
+      nextIndex = INVITE_TABS.length - 1;
+    }
+    if (nextIndex === null) {
+      return;
+    }
+    event.preventDefault();
+    activateTab(nextIndex);
+  };
+
+  return (
+    <div className="tabs sub-tabs" role="tablist" aria-label={label} aria-orientation="horizontal">
+      {INVITE_TABS.map((tab, index) => {
+        const selected = activeTab === tab.value;
+        const count = counts[tab.value] || 0;
+        return (
+          <button
+            key={tab.value}
+            ref={(element) => { tabRefs.current[index] = element; }}
+            id={`${idPrefix}-${tab.value}-tab`}
+            type="button"
+            role="tab"
+            className={selected ? "active" : ""}
+            aria-controls={`${idPrefix}-${tab.value}-panel`}
+            aria-selected={selected}
+            tabIndex={selected ? 0 : -1}
+            onClick={() => onChange(tab.value)}
+            onKeyDown={(event) => handleKeyDown(event, index)}
+          >
+            <span>{tab.label}</span>
+            {count > 0 && <span className="sub-tab-badge" aria-hidden="true">{count}</span>}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function InviteTabPanels({ idPrefix, activeTab, children }) {
+  return INVITE_TABS.map((tab) => {
+    const selected = activeTab === tab.value;
+    return (
+      <div
+        key={tab.value}
+        id={`${idPrefix}-${tab.value}-panel`}
+        className="invite-tab-panel"
+        role="tabpanel"
+        aria-labelledby={`${idPrefix}-${tab.value}-tab`}
+        hidden={!selected}
+        tabIndex={selected ? 0 : -1}
+      >
+        {selected ? children : null}
+      </div>
+    );
+  });
+}
+
 export function CollaborationInviteTables({
   constants,
   permissions,
@@ -54,17 +135,15 @@ function ReceivedInvitesTable({ constants, permissions, householdContext, invite
         </div>
         <p className="table-summary">전체 {receivedHouseholdInvites.length}건 · 신규 {receivedNewInvites.length}건</p>
       </div>
-      <div className="tabs sub-tabs" role="tablist" aria-label="받은 초대 분류">
-        <button type="button" role="tab" className={receivedInviteTab === "new" ? "active" : ""} onClick={() => updateReceivedInviteTab("new")}>
-          <span>신규</span>
-          {receivedNewInvites.length > 0 && <span className="sub-tab-badge" aria-hidden="true">{receivedNewInvites.length}</span>}
-        </button>
-        <button type="button" role="tab" className={receivedInviteTab === "history" ? "active" : ""} onClick={() => updateReceivedInviteTab("history")}>
-          <span>이전</span>
-          {receivedPastInvites.length > 0 && <span className="sub-tab-badge" aria-hidden="true">{receivedPastInvites.length}</span>}
-        </button>
-      </div>
-      <table>
+      <InviteTabs
+        idPrefix="received-invites"
+        label="받은 초대 분류"
+        activeTab={receivedInviteTab}
+        counts={{ new: receivedNewInvites.length, history: receivedPastInvites.length }}
+        onChange={updateReceivedInviteTab}
+      />
+      <InviteTabPanels idPrefix="received-invites" activeTab={receivedInviteTab}>
+        <table>
         <thead>
           <tr><th>가계</th><th>초대한 사람</th><th>권한</th><th>상태</th><th>시각</th><th>동작</th></tr>
         </thead>
@@ -110,7 +189,8 @@ function ReceivedInvitesTable({ constants, permissions, householdContext, invite
             );
           })}
         </tbody>
-      </table>
+        </table>
+      </InviteTabPanels>
     </article>
   );
 }
@@ -138,17 +218,15 @@ function SentInvitesTable({ constants, permissions, sentInvites, formatters }) {
         </div>
         <p className="table-summary">전체 {mySentInvites.length}건 · 신규 {sentNewInvites.length}건</p>
       </div>
-      <div className="tabs sub-tabs" role="tablist" aria-label="보낸 초대 분류">
-        <button type="button" role="tab" className={sentInviteTab === "new" ? "active" : ""} onClick={() => updateSentInviteTab("new")}>
-          <span>신규</span>
-          {sentNewInvites.length > 0 && <span className="sub-tab-badge" aria-hidden="true">{sentNewInvites.length}</span>}
-        </button>
-        <button type="button" role="tab" className={sentInviteTab === "history" ? "active" : ""} onClick={() => updateSentInviteTab("history")}>
-          <span>이전</span>
-          {sentPastInvites.length > 0 && <span className="sub-tab-badge" aria-hidden="true">{sentPastInvites.length}</span>}
-        </button>
-      </div>
-      <table>
+      <InviteTabs
+        idPrefix="sent-invites"
+        label="보낸 초대 분류"
+        activeTab={sentInviteTab}
+        counts={{ new: sentNewInvites.length, history: sentPastInvites.length }}
+        onChange={updateSentInviteTab}
+      />
+      <InviteTabPanels idPrefix="sent-invites" activeTab={sentInviteTab}>
+        <table>
         <thead>
           <tr><th>이메일</th><th>권한</th><th>상태</th><th>초대한 사람</th><th>만료일</th><th>동작</th></tr>
         </thead>
@@ -182,7 +260,8 @@ function SentInvitesTable({ constants, permissions, sentInvites, formatters }) {
             );
           })}
         </tbody>
-      </table>
+        </table>
+      </InviteTabPanels>
     </article>
   );
 }

@@ -17,7 +17,7 @@ export const REQUIRED_ASSERTIONS_BY_FINDING = {
   "MUI-005": ["font-size-16"],
   "MUI-006": [...MODAL_ASSERTIONS, "nested-confirmation"],
   "MUI-007": ["target-size-44"],
-  "MUI-008": ["tab-semantics", "arrow-navigation"],
+  "MUI-008": ["tab-semantics", "exclusive-button-group", "arrow-navigation"],
   "MUI-009": ["assertive-error", "polite-status"],
   "MUI-010": ["reduced-motion"],
   "MUI-011": ["first-task-visible", "chart-readable"],
@@ -67,7 +67,7 @@ export const REQUIRED_SCENARIOS_BY_FINDING = {
   ],
   "MUI-008": [
     { label: "collaboration tabs", scenario: "collaboration-tabs", assertions: ["tab-semantics", "arrow-navigation"] },
-    { label: "import tabs", scenario: "import-tabs", assertions: ["tab-semantics", "arrow-navigation"] },
+    { label: "import mode group", scenario: "import-mode-group", assertions: ["exclusive-button-group", "arrow-navigation"] },
   ],
   "MUI-009": [
     { label: "blocking error", scenario: "blocking-error", assertions: ["assertive-error"] },

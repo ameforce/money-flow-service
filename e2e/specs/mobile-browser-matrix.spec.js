@@ -848,6 +848,87 @@ test("MUI-003 Toss review keeps every editable column reachable by touch and key
   }
 });
 
+test("MUI-008 collaboration tabs and import mode group expose truthful keyboard semantics", async ({ browser, browserName }, testInfo) => {
+  test.setTimeout(120_000);
+  const profile = MOBILE_PROFILES.find((candidate) => candidate.width === 390 && candidate.height === 844);
+  const { context, page } = await newMatrixPage(browser, browserName, profile);
+  try {
+    await registerAndVerify(page, {
+      email: `${unique(`mui-008-navigation-${browserName}`)}@example.com`,
+      displayName: unique(`mui-008-navigation-${browserName}-name`),
+    });
+    await openTab(page, "협업");
+
+    const receivedArticle = page.locator("article").filter({
+      has: page.getByRole("heading", { name: "받은 초대", exact: true }),
+    });
+    const receivedTabList = receivedArticle.getByRole("tablist", { name: "받은 초대 분류" });
+    const receivedNewTab = receivedTabList.getByRole("tab", { name: "신규", exact: true });
+    const receivedHistoryTab = receivedTabList.getByRole("tab", { name: "이전", exact: true });
+    await expect(receivedNewTab).toHaveAttribute("aria-selected", "true");
+    await expect(receivedNewTab).toHaveAttribute("tabindex", "0");
+    await expect(receivedHistoryTab).toHaveAttribute("aria-selected", "false");
+    await expect(receivedHistoryTab).toHaveAttribute("tabindex", "-1");
+    await expect(receivedNewTab).toHaveAttribute("aria-controls", "received-invites-new-panel");
+    await expect(receivedHistoryTab).toHaveAttribute("aria-controls", "received-invites-history-panel");
+    await expect(receivedArticle.locator("#received-invites-new-panel")).toHaveAttribute("role", "tabpanel");
+    await expect(receivedArticle.locator("#received-invites-new-panel")).toHaveAttribute(
+      "aria-labelledby",
+      "received-invites-new-tab"
+    );
+    await expect(receivedArticle.locator("#received-invites-new-panel")).toBeVisible();
+    await expect(receivedArticle.locator("#received-invites-history-panel")).toBeHidden();
+
+    await receivedNewTab.focus();
+    await page.keyboard.press("ArrowRight");
+    await expect(receivedHistoryTab).toBeFocused();
+    await expect(receivedHistoryTab).toHaveAttribute("aria-selected", "true");
+    await expect(receivedArticle.locator("#received-invites-history-panel")).toBeVisible();
+    await page.keyboard.press("Home");
+    await expect(receivedNewTab).toBeFocused();
+    await expect(receivedNewTab).toHaveAttribute("aria-selected", "true");
+
+    const sentArticle = page.locator("article").filter({
+      has: page.getByRole("heading", { name: "보낸 초대 현황(내 액션)", exact: true }),
+    });
+    const sentTabList = sentArticle.getByRole("tablist", { name: "보낸 초대 분류" });
+    const sentNewTab = sentTabList.getByRole("tab", { name: "신규", exact: true });
+    const sentHistoryTab = sentTabList.getByRole("tab", { name: "이전", exact: true });
+    await expect(sentNewTab).toHaveAttribute("aria-selected", "true");
+    await expect(sentNewTab).toHaveAttribute("aria-controls", "sent-invites-new-panel");
+    await sentNewTab.focus();
+    await page.keyboard.press("End");
+    await expect(sentHistoryTab).toBeFocused();
+    await expect(sentHistoryTab).toHaveAttribute("aria-selected", "true");
+    await expect(sentArticle.locator("#sent-invites-history-panel")).toBeVisible();
+    await captureFinding(page, testInfo, "MUI-008", "collaboration-tabs", ["tab-semantics", "arrow-navigation"]);
+
+    await openTab(page, "데이터 가져오기");
+    const importModeGroup = page.getByRole("group", { name: "가져오기 형식" });
+    await expect(importModeGroup.getByRole("tab")).toHaveCount(0);
+    const workbookMode = importModeGroup.getByRole("button", { name: "XLSX", exact: true });
+    const tossMode = importModeGroup.getByRole("button", { name: "토스 이미지", exact: true });
+    await expect(workbookMode).toHaveAttribute("aria-pressed", "true");
+    await expect(workbookMode).toHaveAttribute("tabindex", "0");
+    await expect(tossMode).toHaveAttribute("aria-pressed", "false");
+    await expect(tossMode).toHaveAttribute("tabindex", "-1");
+    await workbookMode.focus();
+    await page.keyboard.press("ArrowRight");
+    await expect(tossMode).toBeFocused();
+    await expect(tossMode).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByRole("button", { name: "토스 이미지 선택", exact: true })).toBeVisible();
+    await page.keyboard.press("Home");
+    await expect(workbookMode).toBeFocused();
+    await expect(workbookMode).toHaveAttribute("aria-pressed", "true");
+    await page.keyboard.press("End");
+    await expect(tossMode).toBeFocused();
+    await expect(tossMode).toHaveAttribute("aria-pressed", "true");
+    await captureFinding(page, testInfo, "MUI-008", "import-mode-group", ["exclusive-button-group", "arrow-navigation"]);
+  } finally {
+    await context.close();
+  }
+});
+
 test("portrait-landscape transition preserves transaction task state", async ({ browser, browserName }, testInfo) => {
   test.setTimeout(240_000);
   const [portrait, landscape] = ORIENTATION_PAIRS[browserName];
