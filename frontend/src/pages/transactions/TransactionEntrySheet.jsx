@@ -5,6 +5,8 @@ export function TransactionEntrySheet({ permissions, entrySheet, categoryManager
     renderTransactionFormFields,
     showTransactionForm,
     transactionEntryBanner,
+    transactionEntrySheetBackdropRef,
+    transactionEntrySheetRef,
     txEntrySheetStep,
     updateTxEntrySheetStep,
   } = entrySheet;
@@ -15,8 +17,9 @@ export function TransactionEntrySheet({ permissions, entrySheet, categoryManager
   }
 
   return (
-    <div className={`transaction-entry-sheet-backdrop${isCompactViewport ? " transaction-entry-sheet-backdrop-compact" : " transaction-entry-sheet-backdrop-desktop"}`} role="presentation" onClick={closeTransactionEntrySheet}>
+    <div ref={transactionEntrySheetBackdropRef} className={`transaction-entry-sheet-backdrop${isCompactViewport ? " transaction-entry-sheet-backdrop-compact" : " transaction-entry-sheet-backdrop-desktop"}`} role="presentation" onClick={closeTransactionEntrySheet}>
       <section
+        ref={transactionEntrySheetRef}
         className={`transaction-entry-sheet${isCompactViewport ? " transaction-entry-sheet-compact" : " transaction-entry-sheet-desktop"}`}
         data-testid="transaction-entry-sheet"
         aria-modal="true"

@@ -55,6 +55,14 @@ const MOBILE_USER_AGENTS = {
   firefox: "Mozilla/5.0 (Android 14; Mobile; rv:127.0) Gecko/127.0 Firefox/127.0",
   webkit: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1",
 };
+const MODAL_FOCUSABLE_SELECTOR = [
+  "a[href]:visible",
+  "button:not([disabled]):visible",
+  "input:not([disabled]):visible",
+  "select:not([disabled]):visible",
+  "textarea:not([disabled]):visible",
+  "[tabindex]:not([tabindex='-1']):visible",
+].join(", ");
 const TESTED_SHA = process.env.GITHUB_SHA || process.env.GIT_COMMIT || execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
 const EVIDENCE_METADATA_BY_TEST = new Map();
 
@@ -248,6 +256,50 @@ async function expectNoAxeViolations(page, label) {
   expect(violations, `${label} axe violations: ${JSON.stringify(violations, null, 2)}`).toEqual([]);
 }
 
+async function expectModalFocusWrap(page, modal, label) {
+  const focusables = modal.locator(MODAL_FOCUSABLE_SELECTOR);
+  const count = await focusables.count();
+  expect(count, `${label} should expose at least two focusable controls`).toBeGreaterThanOrEqual(2);
+  const first = focusables.first();
+  const last = focusables.last();
+
+  await last.focus();
+  await expect(last, `${label} should allow focusing its last control`).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(first, `${label} Tab should wrap from the last control to the first`).toBeFocused();
+
+  await first.focus();
+  await expect(first, `${label} should allow focusing its first control`).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(last, `${label} Shift+Tab should wrap from the first control to the last`).toBeFocused();
+}
+
+async function expectElementInert(locator, label) {
+  const inertState = await locator.evaluate((element) => {
+    let current = element;
+    while (current) {
+      if (current.hasAttribute("inert")) {
+        return { inert: true, tagName: current.tagName, testId: current.getAttribute("data-testid") || "" };
+      }
+      current = current.parentElement;
+    }
+    return { inert: false, tagName: "", testId: "" };
+  });
+  expect(inertState.inert, `${label} should be isolated behind an inert ancestor: ${JSON.stringify(inertState)}`).toBe(true);
+}
+
+async function expectBackgroundInert(page, modal, label) {
+  await expectElementInert(page.locator("header.topbar"), `${label} topbar`);
+  await expectElementInert(page.locator("nav.topbar-tabs"), `${label} primary navigation`);
+  await page.locator("header.topbar .topbar-actions button").first().evaluate((element) => element.focus());
+  const activeElementState = await modal.evaluate((element) => ({
+    activeTestId: document.activeElement?.getAttribute("data-testid") || "",
+    activeTagName: document.activeElement?.tagName || "",
+    modalOwnsFocus: element.contains(document.activeElement),
+  }));
+  expect(activeElementState.modalOwnsFocus, `${label} background focus attempt must stay inside the modal: ${JSON.stringify(activeElementState)}`).toBe(true);
+}
+
 async function expectOrientation(page, orientation) {
   await expect.poll(() => page.evaluate((value) => matchMedia(`(orientation: ${value})`).matches, orientation)).toBe(true);
 }
@@ -334,6 +386,135 @@ test("cross-browser mobile matrix traverses core screens without layout or acces
     await expectNoAxeViolations(page, `${browserName}/holding-entry-sheet`);
     await captureFinding(page, testInfo, "MUI-004", "holding-sheet-final", ["engine-matrix", "dialog-axe"]);
     await captureFinding(page, testInfo, "MUI-004", "matrix-complete", ["matrix-complete"]);
+  } finally {
+    await context.close();
+  }
+});
+
+test("MUI-006 transaction sheet owns keyboard focus and restores its trigger", async ({ browser, browserName }, testInfo) => {
+  test.setTimeout(120_000);
+  const profile = MOBILE_PROFILES.find((candidate) => candidate.width === 390 && candidate.height === 844);
+  const { context, page } = await newMatrixPage(browser, browserName, profile);
+  try {
+    await registerAndVerify(page, {
+      email: `${unique(`mui-006-transaction-${browserName}`)}@example.com`,
+      displayName: unique(`mui-006-transaction-${browserName}-name`),
+    });
+    await openTab(page, "거래");
+    const trigger = page.getByTestId("transactions-fab");
+    await trigger.click();
+
+    const sheet = page.getByTestId("transaction-entry-sheet");
+    const amountInput = sheet.getByTestId("transaction-quick-amount");
+    await expect(sheet).toBeVisible();
+    await expect(amountInput, `${browserName} transaction amount should receive initial focus`).toBeFocused();
+    await captureFinding(page, testInfo, "MUI-006", "transaction-modal-initial-focus", [
+      "initial-focus",
+      "background-inert",
+      "focus-trap",
+      "return-focus",
+    ]);
+
+    await expectBackgroundInert(page, sheet, `${browserName} transaction sheet`);
+    await expectModalFocusWrap(page, sheet, `${browserName} transaction sheet`);
+    await captureFinding(page, testInfo, "MUI-006", "transaction-modal-focus-wrap", ["tab-wrap", "shift-tab-wrap"]);
+
+    await page.keyboard.press("Escape");
+    await expect(sheet).toBeHidden();
+    await expect(trigger, `${browserName} transaction sheet should restore its FAB trigger`).toBeFocused();
+    await captureFinding(page, testInfo, "MUI-006", "transaction-modal-return-focus", ["escape-close", "trigger-focus-restored"]);
+  } finally {
+    await context.close();
+  }
+});
+
+test("MUI-006 holding sheet owns keyboard focus and restores its trigger", async ({ browser, browserName }, testInfo) => {
+  test.setTimeout(120_000);
+  const profile = MOBILE_PROFILES.find((candidate) => candidate.width === 390 && candidate.height === 844);
+  const { context, page } = await newMatrixPage(browser, browserName, profile);
+  try {
+    await registerAndVerify(page, {
+      email: `${unique(`mui-006-holding-${browserName}`)}@example.com`,
+      displayName: unique(`mui-006-holding-${browserName}-name`),
+    });
+    await openTab(page, "자산");
+    const trigger = page.getByTestId("holdings-fab");
+    await trigger.click();
+
+    const sheet = page.getByTestId("holding-entry-sheet");
+    const nameInput = labeledField(sheet, "자산명", "textarea");
+    await expect(sheet).toBeVisible();
+    await expect(nameInput, `${browserName} holding name should receive initial focus`).toBeFocused();
+    await captureFinding(page, testInfo, "MUI-006", "holding-modal-initial-focus", [
+      "initial-focus",
+      "background-inert",
+      "focus-trap",
+      "return-focus",
+    ]);
+
+    await expectBackgroundInert(page, sheet, `${browserName} holding sheet`);
+    await expectModalFocusWrap(page, sheet, `${browserName} holding sheet`);
+    await captureFinding(page, testInfo, "MUI-006", "holding-modal-focus-wrap", ["tab-wrap", "shift-tab-wrap"]);
+
+    await page.keyboard.press("Escape");
+    await expect(sheet).toHaveCount(0);
+    await expect(trigger, `${browserName} holding sheet should restore its FAB trigger`).toBeFocused();
+    await captureFinding(page, testInfo, "MUI-006", "holding-modal-return-focus", ["escape-close", "trigger-focus-restored"]);
+  } finally {
+    await context.close();
+  }
+});
+
+test("MUI-006 dirty sheet keeps the nested alertdialog topmost", async ({ browser, browserName }, testInfo) => {
+  test.setTimeout(120_000);
+  const profile = MOBILE_PROFILES.find((candidate) => candidate.width === 390 && candidate.height === 844);
+  const { context, page } = await newMatrixPage(browser, browserName, profile);
+  try {
+    await registerAndVerify(page, {
+      email: `${unique(`mui-006-nested-${browserName}`)}@example.com`,
+      displayName: unique(`mui-006-nested-${browserName}-name`),
+    });
+    await openTab(page, "거래");
+    const trigger = page.getByTestId("transactions-fab");
+    await trigger.click();
+
+    const sheet = page.getByTestId("transaction-entry-sheet");
+    const closeButton = sheet.getByTestId("transaction-entry-sheet-close");
+    const amountInput = sheet.getByTestId("transaction-quick-amount");
+    await amountInput.fill("12345");
+    await closeButton.click();
+
+    const dialog = page.getByRole("alertdialog");
+    const cancelButton = dialog.getByRole("button", { name: "취소" });
+    await expect(dialog.getByRole("heading", { name: "거래 입력을 닫을까요?" })).toBeVisible();
+    await expect(cancelButton, `${browserName} nested confirm should focus the non-destructive action`).toBeFocused();
+    await expectElementInert(sheet, `${browserName} parent transaction sheet`);
+    await amountInput.evaluate((element) => element.focus());
+    await expect(cancelButton, `${browserName} parent focus attempt must remain in the nested confirm`).toBeFocused();
+    await expectModalFocusWrap(page, dialog, `${browserName} nested confirm`);
+    await captureFinding(page, testInfo, "MUI-006", "nested-confirm-topmost", [
+      "non-destructive-initial-focus",
+      "parent-inert",
+      "topmost-focus-trap",
+    ]);
+
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+    await expect(sheet).toBeVisible();
+    await expect(amountInput).toHaveValue("12,345");
+    await expect(closeButton, `${browserName} nested confirm should restore its invoking close button`).toBeFocused();
+    await captureFinding(page, testInfo, "MUI-006", "nested-confirm-escape-return", [
+      "escape-closes-topmost-only",
+      "draft-preserved",
+      "invoker-focus-restored",
+    ]);
+
+    await closeButton.click();
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: "입력 닫기" }).click();
+    await expect(sheet).toBeHidden();
+    await expect(trigger, `${browserName} confirmed sheet close should restore the transaction FAB`).toBeFocused();
+    await captureFinding(page, testInfo, "MUI-006", "nested-confirm-final-return", ["confirmed-close", "parent-trigger-focus-restored"]);
   } finally {
     await context.close();
   }

@@ -1,15 +1,15 @@
 export function HoldingEntryPanel({ constants, permissions, entryState, entryActions, entryLookups, renderers }) {
   const { DEFAULT_HOLDING_TYPES } = constants;
   const { canEditRecords, isCompactViewport } = permissions;
-  const { holdingEntryActionRef, holdingForm, holdingFormOwnerOptions, holdingFormShowAverageCost, holdingFormTracked, holdingFormType, holdingNameInputRef, showHoldingForm } = entryState;
+  const { holdingEntryActionRef, holdingEntrySheetBackdropRef, holdingEntrySheetRef, holdingForm, holdingFormOwnerOptions, holdingFormShowAverageCost, holdingFormTracked, holdingFormType, holdingNameInputRef, showHoldingForm } = entryState;
   const { closeHoldingEntrySheet, openHoldingEntrySheet, submitHolding } = entryActions;
 
   return (
     <>
       {isCompactViewport && showHoldingForm && (
-        <div className="holding-entry-sheet-backdrop" data-testid="holding-entry-sheet-backdrop" aria-hidden="true" onClick={closeHoldingEntrySheet} />
+        <div ref={holdingEntrySheetBackdropRef} className="holding-entry-sheet-backdrop" data-testid="holding-entry-sheet-backdrop" aria-hidden="true" onClick={closeHoldingEntrySheet} />
       )}
-      <article className={`card surface-entry-card holding-entry-card${isCompactViewport && showHoldingForm ? " holding-entry-sheet" : ""}`} data-testid={isCompactViewport && showHoldingForm ? "holding-entry-sheet" : undefined} role={isCompactViewport && showHoldingForm ? "dialog" : undefined} aria-modal={isCompactViewport && showHoldingForm ? "true" : undefined} aria-label={isCompactViewport && showHoldingForm ? "자산 추가 레이어" : undefined}>
+      <article ref={holdingEntrySheetRef} className={`card surface-entry-card holding-entry-card${isCompactViewport && showHoldingForm ? " holding-entry-sheet" : ""}`} data-testid={isCompactViewport && showHoldingForm ? "holding-entry-sheet" : undefined} role={isCompactViewport && showHoldingForm ? "dialog" : undefined} aria-modal={isCompactViewport && showHoldingForm ? "true" : undefined} aria-label={isCompactViewport && showHoldingForm ? "자산 추가 레이어" : undefined}>
         <div className="work-surface-header">
           <div className="work-surface-title">
             <span className="surface-eyebrow">자산 입력 흐름</span>

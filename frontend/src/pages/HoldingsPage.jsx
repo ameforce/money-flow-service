@@ -24,6 +24,8 @@ export function HoldingsPage({
   } = permissions;
   const {
     holdingEntryActionRef,
+    holdingEntrySheetBackdropRef,
+    holdingEntrySheetRef,
     holdingForm,
     holdingFormOwnerOptions,
     holdingFormShowAverageCost,
@@ -122,7 +124,7 @@ export function HoldingsPage({
       <HoldingEntryPanel
         constants={{ DEFAULT_HOLDING_TYPES }}
         permissions={{ canEditRecords, isCompactViewport }}
-        entryState={{ holdingEntryActionRef, holdingForm, holdingFormOwnerOptions, holdingFormShowAverageCost, holdingFormTracked, holdingFormType, holdingNameInputRef, showHoldingForm }}
+        entryState={{ holdingEntryActionRef, holdingEntrySheetBackdropRef, holdingEntrySheetRef, holdingForm, holdingFormOwnerOptions, holdingFormShowAverageCost, holdingFormTracked, holdingFormType, holdingNameInputRef, showHoldingForm }}
         entryActions={{ applyHoldingOwnerOption, closeHoldingEntrySheet, createHoldingForm, handleHoldingEntryDecimalInput, nextAverageCostForHoldingTypeChange, openHoldingEntrySheet, ownerSelectionFromValue, resolveHoldingCategoryOnTypeChange, shouldExplainHoldingValueReset, submitHolding, uiGuideMessage, updateHoldingDraftTouched, updateHoldingForm, updateHoldingOwnerTouched, notifyMessage }}
         entryLookups={{ holdingTypeByKey, holdingTypeOptions, holdingValuationInputMode, normalizeHoldingTypeKey, ownerSelectValue }}
         renderers={{ renderLegacyOwnerRemapHelper, renderOwnerQuickSelect }}

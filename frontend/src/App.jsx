@@ -14,6 +14,7 @@ import {
 import { AppShell, TAB_IDS } from "./components/AppShell";
 import { IsoDateInput } from "./components/IsoDateInput";
 import { useCompactViewport } from "./hooks/useCompactViewport";
+import { useModalFocus } from "./hooks/useModalFocus";
 import { CollaborationPage } from "./pages/CollaborationPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { HoldingsPage } from "./pages/HoldingsPage";
@@ -2415,6 +2416,13 @@ function App() {
   const holdingSheetScrollYRef = useRef(0);
   const holdingEntryActionRef = useRef(null);
   const holdingEntryReturnFocusRef = useRef(null);
+  const holdingEntrySheetBackdropRef = useRef(null);
+  const holdingEntrySheetRef = useRef(null);
+  const transactionEntrySheetBackdropRef = useRef(null);
+  const transactionEntrySheetRef = useRef(null);
+  const confirmBackdropRef = useRef(null);
+  const confirmDialogRef = useRef(null);
+  const confirmCancelButtonRef = useRef(null);
   const holdingSummaryCardRef = useRef(null);
   const topbarTabsRef = useRef(null);
   const receivedInviteSectionRef = useRef(null);
@@ -3445,37 +3453,6 @@ function App() {
     setHoldingColumnWidths(normalizedHoldingSettings.column_widths || {});
   }, [JSON.stringify(normalizedHoldingSettings.column_widths || {})]);
 
-  useLayoutEffect(() => {
-    if (!showTransactionForm) {
-      return undefined;
-    }
-    let cancelled = false;
-    let frameId = 0;
-    let timeoutId = 0;
-    const focusEntryTarget = () => {
-      if (cancelled) {
-        return;
-      }
-      const focusTarget = txEntrySheetStep === "form" ? txAmountInputRef.current : txDateInputRef.current;
-      if (!focusTarget || focusTarget.disabled) {
-        return;
-      }
-      txQuickLastFocusedFieldRef.current = focusTarget;
-      focusTarget?.focus?.({ preventScroll: true });
-      if (focusTarget === txAmountInputRef.current) {
-        setShowTransactionQuickResume(false);
-      }
-    };
-    focusEntryTarget();
-    frameId = requestAnimationFrame(focusEntryTarget);
-    timeoutId = window.setTimeout(focusEntryTarget, 0);
-    return () => {
-      cancelled = true;
-      cancelAnimationFrame(frameId);
-      window.clearTimeout(timeoutId);
-    };
-  }, [showTransactionForm, txEntrySheetStep]);
-
   useEffect(() => {
     if (!txRepeatFocusRequest || loading || !showTransactionForm || txEntrySheetStep !== "form") {
       return undefined;
@@ -3619,15 +3596,6 @@ function App() {
     holdingOwnerTouched,
     showHoldingForm,
   ]);
-
-  useEffect(() => {
-    if (!showHoldingForm) {
-      return;
-    }
-    requestAnimationFrame(() => {
-      holdingNameInputRef.current?.focus?.();
-    });
-  }, [showHoldingForm]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -3875,7 +3843,6 @@ function App() {
       }
     }
     const restoreScrollY = transactionSheetScrollYRef.current;
-    const focusedElementAtClose = document.activeElement;
     clearTransactionEntryValidationFeedback();
     setShowTransactionForm(false);
     setTxEntrySheetStep("form");
@@ -3883,42 +3850,15 @@ function App() {
     clearTransactionQuickFocusScrollTimers();
     window.setTimeout(() => {
       window.scrollTo({ top: restoreScrollY, behavior: "auto" });
-      const trigger = isCompactViewport ? transactionFabRef.current : transactionDesktopAddActionRef.current ?? transactionFabRef.current;
-      const activeElement = document.activeElement;
-      const shouldRestoreTriggerFocus =
-        !activeElement ||
-        activeElement === focusedElementAtClose ||
-        activeElement === document.body ||
-        activeElement === document.documentElement ||
-        !activeElement.isConnected;
-      if (shouldRestoreTriggerFocus) {
-        trigger?.focus?.({ preventScroll: true });
-      }
     }, 0);
     return true;
   }, [
     clearTransactionEntryValidationFeedback,
     clearTransactionQuickFocusScrollTimers,
-    isCompactViewport,
     isTransactionEntryDraftDirty,
     requestConfirmDialog,
     txEntrySheetStep,
   ]);
-
-  useEffect(() => {
-    if (!showTransactionForm) {
-      return undefined;
-    }
-    const handleTransactionEntryEscape = (event) => {
-      if (event.key !== "Escape") {
-        return;
-      }
-      event.preventDefault();
-      closeTransactionEntrySheet();
-    };
-    document.addEventListener("keydown", handleTransactionEntryEscape);
-    return () => document.removeEventListener("keydown", handleTransactionEntryEscape);
-  }, [showTransactionForm, closeTransactionEntrySheet]);
 
   function resetTransactionDraft() {
     setTxForm(createTransactionForm(transactionEntryTodayDate()));
@@ -4278,27 +4218,10 @@ function App() {
       if (isCompactViewport) {
         window.scrollTo({ top: restoreScrollY, behavior: "auto" });
       }
-      const returnFocusTarget = holdingEntryReturnFocusRef.current || holdingEntryActionRef.current;
-      returnFocusTarget?.focus?.({ preventScroll: true });
       holdingEntryReturnFocusRef.current = null;
     }, 0);
     return true;
   }, [isCompactViewport, isHoldingEntryDraftDirty, requestConfirmDialog]);
-
-  useEffect(() => {
-    if (!showHoldingForm || !isCompactViewport) {
-      return undefined;
-    }
-    const handleHoldingEntryEscape = (event) => {
-      if (event.key !== "Escape") {
-        return;
-      }
-      event.preventDefault();
-      closeHoldingEntrySheet();
-    };
-    document.addEventListener("keydown", handleHoldingEntryEscape);
-    return () => document.removeEventListener("keydown", handleHoldingEntryEscape);
-  }, [showHoldingForm, isCompactViewport, closeHoldingEntrySheet]);
 
   function scrollToHoldingSummary() {
     const summaryCard = holdingSummaryCardRef.current;
@@ -4601,6 +4524,45 @@ function App() {
       resolve(confirmed);
     }
   }
+
+  useModalFocus({
+    dialogRef: transactionEntrySheetRef,
+    focusKey: txEntrySheetStep,
+    getInitialFocus: () => {
+      const focusTarget = txEntrySheetStep === "form" ? txAmountInputRef.current : txDateInputRef.current;
+      if (focusTarget) {
+        txQuickLastFocusedFieldRef.current = focusTarget;
+        if (focusTarget === txAmountInputRef.current) {
+          setShowTransactionQuickResume(false);
+        }
+      }
+      return focusTarget;
+    },
+    getReturnFocus: () =>
+      isCompactViewport
+        ? transactionFabRef.current
+        : transactionDesktopAddActionRef.current ?? transactionFabRef.current,
+    isolationRef: transactionEntrySheetBackdropRef,
+    onEscape: () => closeTransactionEntrySheet(),
+    open: showTransactionForm,
+  });
+
+  useModalFocus({
+    activeOutsideRefs: [holdingEntrySheetBackdropRef],
+    dialogRef: holdingEntrySheetRef,
+    getInitialFocus: () => holdingNameInputRef.current,
+    getReturnFocus: () => holdingEntryReturnFocusRef.current || holdingEntryActionRef.current,
+    onEscape: () => closeHoldingEntrySheet(),
+    open: showHoldingForm && isCompactViewport,
+  });
+
+  useModalFocus({
+    dialogRef: confirmDialogRef,
+    getInitialFocus: () => confirmCancelButtonRef.current,
+    isolationRef: confirmBackdropRef,
+    onEscape: () => closeConfirmDialog(false),
+    open: confirmDialog.open,
+  });
 
   async function handleHouseholdInviteAccepted(acceptedPayload, nextToken = token) {
     const nextHouseholdId = String(acceptedPayload?.household_id || "").trim();
@@ -10278,6 +10240,8 @@ function App() {
       renderTransactionFormFields,
       showTransactionForm,
       transactionDesktopAddActionRef,
+      transactionEntrySheetBackdropRef,
+      transactionEntrySheetRef,
       transactionEntryBanner,
       transactionFabRef,
       txEntrySheetStep,
@@ -10345,6 +10309,8 @@ function App() {
     },
     entryState: {
       holdingEntryActionRef,
+      holdingEntrySheetBackdropRef,
+      holdingEntrySheetRef,
       holdingForm,
       holdingFormOwnerOptions,
       holdingFormShowAverageCost,
@@ -10785,11 +10751,13 @@ function App() {
       {confirmDialog.open && (
         <div
           className="confirm-backdrop"
+          ref={confirmBackdropRef}
           role="presentation"
           onClick={() => closeConfirmDialog(false)}
         >
           <section
             className="confirm-dialog"
+            ref={confirmDialogRef}
             role="alertdialog"
             aria-modal="true"
             aria-labelledby="confirm-title"
@@ -10798,7 +10766,7 @@ function App() {
             <h2 id="confirm-title">{confirmDialog.title}</h2>
             <p>{confirmDialog.action}</p>
             <div className="confirm-actions">
-              <button type="button" className="secondary" onClick={() => closeConfirmDialog(false)}>
+              <button ref={confirmCancelButtonRef} type="button" className="secondary" onClick={() => closeConfirmDialog(false)}>
                 취소
               </button>
               <button type="button" className="danger" onClick={() => closeConfirmDialog(true)}>
