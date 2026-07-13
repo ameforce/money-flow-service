@@ -1,4 +1,5 @@
 import { ImportReportPanel } from "./ImportReportPanel";
+import { FilePickerDropzone } from "./FilePickerDropzone";
 import { TossImportPanel } from "./TossImportPanel";
 
 export function WorkbookImportPanel({ constants, permissions, workbook, reportState, reportActions, toss, helpers, dragDrop }) {
@@ -28,16 +29,19 @@ export function WorkbookImportPanel({ constants, permissions, workbook, reportSt
 
       {importMode === "workbook" && (
         <>
-          <div
-            className={`file-drop-area ${isDragOver ? "drag-over" : ""}`}
-            onDragOver={(e) => { e.preventDefault(); if (!importBusy && canEditRecords) updateIsDragOver(true); }}
-            onDragLeave={(e) => { e.preventDefault(); updateIsDragOver(false); }}
-            onDrop={(e) => { e.preventDefault(); updateIsDragOver(false); if (!importBusy && canEditRecords && e.dataTransfer.files?.[0]) updateImportFile(e.dataTransfer.files[0]); }}
-            onClick={() => { if (!importBusy && canEditRecords) importFileInputRef.current?.click(); }}
+          <FilePickerDropzone
+            accept=".xlsx"
+            buttonLabel="엑셀 파일 선택"
+            disabled={importBusy || !canEditRecords}
+            inputLabel="엑셀 파일 업로드"
+            inputRef={importFileInputRef}
+            isDragOver={isDragOver}
+            onChange={updateImportFile}
+            onDragActiveChange={updateIsDragOver}
+            onDrop={(files) => updateImportFile(files[0])}
           >
-            <input ref={importFileInputRef} type="file" accept=".xlsx" onChange={(e) => updateImportFile(e.target.files?.[0] || null)} className="visually-hidden-file-input" aria-label="엑셀 파일 업로드" disabled={importBusy || !canEditRecords} />
             {importFile ? <div className="upload-file-name">선택된 파일: {importFile.name}</div> : <div className="upload-placeholder">{workbookUploadPlaceholder}</div>}
-          </div>
+          </FilePickerDropzone>
           {workbookMissingFile && <p id="excel-import-file-required" className="table-summary import-action-help">엑셀 파일을 선택하면 미리 검증과 적용을 사용할 수 있습니다.</p>}
           <div className="inline import-action-row">
             <button type="button" disabled={workbookActionsDisabled} aria-describedby={workbookMissingFile ? "excel-import-file-required" : undefined} onClick={() => doImport("dry_run")}>

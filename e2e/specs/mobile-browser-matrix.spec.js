@@ -300,6 +300,128 @@ async function expectBackgroundInert(page, modal, label) {
   expect(activeElementState.modalOwnsFocus, `${label} background focus attempt must stay inside the modal: ${JSON.stringify(activeElementState)}`).toBe(true);
 }
 
+async function chooseFileWithKeyboard(page, previousControl, button, file, label, key = "Enter") {
+  await button.scrollIntoViewIfNeeded();
+  await expect(button, `${label} picker should be visible`).toBeVisible();
+  await expect(button, `${label} picker should be enabled`).toBeEnabled();
+  await previousControl.focus();
+  await expect(previousControl, `${label} preceding control should receive focus`).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(button, `${label} picker should be next in the real Tab order`).toBeFocused();
+  const chooserPromise = page.waitForEvent("filechooser");
+  await page.keyboard.press(key);
+  const chooser = await chooserPromise;
+  await chooser.setFiles(file);
+  return chooser;
+}
+
+async function isControlInsideRegion(region, control) {
+  const [regionBox, controlBox] = await Promise.all([region.boundingBox(), control.boundingBox()]);
+  return Boolean(
+    regionBox
+      && controlBox
+      && controlBox.x >= regionBox.x - 1
+      && controlBox.x + controlBox.width <= regionBox.x + regionBox.width + 1
+  );
+}
+
+async function swipeOverflowRegion(context, page, region, targetControl, label) {
+  await region.scrollIntoViewIfNeeded();
+  const box = await region.boundingBox();
+  expect(box, `${label} should expose a touchable bounding box`).not.toBeNull();
+  const viewport = page.viewportSize();
+  expect(viewport, `${label} should expose a viewport`).not.toBeNull();
+  const session = await context.newCDPSession(page);
+  try {
+    const visibleLeft = Math.max(box.x, 0);
+    const visibleRight = Math.min(box.x + box.width, viewport.width);
+    const visibleTop = Math.max(box.y, 0);
+    const visibleBottom = Math.min(box.y + box.height, viewport.height);
+    expect(visibleRight - visibleLeft, `${label} should have a horizontally visible gesture surface`).toBeGreaterThan(48);
+    expect(visibleBottom - visibleTop, `${label} should have a vertically visible gesture surface`).toBeGreaterThan(24);
+    const startX = visibleLeft + (visibleRight - visibleLeft) / 2;
+    const y = visibleTop + Math.min((visibleBottom - visibleTop) / 2, 32);
+    for (let gesture = 0; gesture < 12; gesture += 1) {
+      if (await isControlInsideRegion(region, targetControl)) {
+        break;
+      }
+      const before = await region.evaluate((element) => element.scrollLeft);
+      const maximum = await region.evaluate((element) => element.scrollWidth - element.clientWidth);
+      if (before >= maximum - 24) {
+        break;
+      }
+      const gestureDistance = Math.min((visibleRight - visibleLeft) * 0.45, maximum - before);
+      let moved = false;
+      await session.send("Input.dispatchTouchEvent", {
+        type: "touchStart",
+        touchPoints: [{ x: startX, y, radiusX: 5, radiusY: 5, force: 0.8, id: 1 }],
+      });
+      for (let step = 1; step <= 8; step += 1) {
+        await session.send("Input.dispatchTouchEvent", {
+          type: "touchMove",
+          touchPoints: [{
+            x: startX - (gestureDistance * step) / 8,
+            y,
+            radiusX: 5,
+            radiusY: 5,
+            force: 0.8,
+            id: 1,
+          }],
+        });
+        await page.waitForTimeout(16);
+      }
+      await session.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+      try {
+        await expect
+          .poll(() => region.evaluate((element) => element.scrollLeft), {
+            message: `${label} trusted touch drag should advance the local scroller`,
+            timeout: 2_000,
+          })
+          .toBeGreaterThan(before);
+        moved = true;
+      } catch {
+        // Some Chromium revisions do not apply dispatchTouchEvent to native scrolling; use the trusted gesture API below.
+      }
+      for (const xDistance of moved ? [] : [-gestureDistance, gestureDistance]) {
+        await session.send("Input.synthesizeScrollGesture", {
+          x: startX,
+          y,
+          xDistance,
+          yDistance: 0,
+          speed: 800,
+          gestureSourceType: "touch",
+        });
+        try {
+          await expect
+            .poll(() => region.evaluate((element) => element.scrollLeft), {
+              message: `${label} trusted touch gesture should advance the local scroller`,
+              timeout: 2_000,
+            })
+            .toBeGreaterThan(before);
+          moved = true;
+          break;
+        } catch {
+          // Chromium's gesture distance sign has differed across CDP revisions; try the inverse direction.
+        }
+      }
+      expect(moved, `${label} trusted touch gesture should advance the local scroller`).toBe(true);
+    }
+  } finally {
+    await session.detach().catch(() => undefined);
+  }
+  await expect.poll(() => region.evaluate((element) => element.scrollLeft), `${label} should move after a horizontal touch gesture`).toBeGreaterThan(0);
+}
+
+async function expectControlInsideRegion(region, control, label) {
+  const [regionBox, controlBox] = await Promise.all([region.boundingBox(), control.boundingBox()]);
+  expect(regionBox, `${label} region should have geometry`).not.toBeNull();
+  expect(controlBox, `${label} control should have geometry`).not.toBeNull();
+  expect(controlBox.x, `${label} left edge should be inside the scroll viewport`).toBeGreaterThanOrEqual(regionBox.x - 1);
+  expect(controlBox.x + controlBox.width, `${label} right edge should be inside the scroll viewport`).toBeLessThanOrEqual(
+    regionBox.x + regionBox.width + 1
+  );
+}
+
 async function expectOrientation(page, orientation) {
   await expect.poll(() => page.evaluate((value) => matchMedia(`(orientation: ${value})`).matches, orientation)).toBe(true);
 }
@@ -422,7 +544,7 @@ test("MUI-006 transaction sheet owns keyboard focus and restores its trigger", a
     await page.keyboard.press("Escape");
     await expect(sheet).toBeHidden();
     await expect(trigger, `${browserName} transaction sheet should restore its FAB trigger`).toBeFocused();
-    await captureFinding(page, testInfo, "MUI-006", "transaction-modal-return-focus", ["escape-close", "trigger-focus-restored"]);
+    await captureFinding(page, testInfo, "MUI-006", "transaction-sheet", ["focus-trap", "background-inert", "escape", "return-focus"]);
   } finally {
     await context.close();
   }
@@ -459,7 +581,7 @@ test("MUI-006 holding sheet owns keyboard focus and restores its trigger", async
     await page.keyboard.press("Escape");
     await expect(sheet).toHaveCount(0);
     await expect(trigger, `${browserName} holding sheet should restore its FAB trigger`).toBeFocused();
-    await captureFinding(page, testInfo, "MUI-006", "holding-modal-return-focus", ["escape-close", "trigger-focus-restored"]);
+    await captureFinding(page, testInfo, "MUI-006", "holding-sheet", ["focus-trap", "background-inert", "escape", "return-focus"]);
   } finally {
     await context.close();
   }
@@ -514,9 +636,215 @@ test("MUI-006 dirty sheet keeps the nested alertdialog topmost", async ({ browse
     await dialog.getByRole("button", { name: "입력 닫기" }).click();
     await expect(sheet).toBeHidden();
     await expect(trigger, `${browserName} confirmed sheet close should restore the transaction FAB`).toBeFocused();
-    await captureFinding(page, testInfo, "MUI-006", "nested-confirm-final-return", ["confirmed-close", "parent-trigger-focus-restored"]);
+    await captureFinding(page, testInfo, "MUI-006", "confirmation-dialog", [
+      "focus-trap",
+      "background-inert",
+      "escape",
+      "return-focus",
+      "nested-confirmation",
+    ]);
   } finally {
     await context.close();
+  }
+});
+
+test("MUI-002 import file pickers expose keyboard and switch controls", async ({ browser, browserName }, testInfo) => {
+  test.setTimeout(120_000);
+  const profile = MOBILE_PROFILES.find((candidate) => candidate.width === 390 && candidate.height === 844);
+  const { context, page } = await newMatrixPage(browser, browserName, profile);
+  try {
+    await registerAndVerify(page, {
+      email: `${unique(`mui-002-import-${browserName}`)}@example.com`,
+      displayName: unique(`mui-002-import-${browserName}-name`),
+    });
+    await openTab(page, "데이터 가져오기");
+
+    const workbookPicker = page.getByRole("button", { name: "엑셀 파일 선택", exact: true });
+    await expectMinimumTargetSize(workbookPicker, `${browserName} workbook picker`);
+    const workbookChooser = await chooseFileWithKeyboard(
+      page,
+      page.getByRole("button", { name: "토스 이미지", exact: true }),
+      workbookPicker,
+      {
+        name: "mui-002-workbook.xlsx",
+        mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        buffer: Buffer.from("mui-002-workbook"),
+      },
+      `${browserName} workbook`,
+    );
+    expect(workbookChooser.isMultiple(), `${browserName} workbook picker should accept one file`).toBe(false);
+    await expect(page.getByText("mui-002-workbook.xlsx", { exact: false })).toBeVisible();
+    await page.keyboard.press("Tab");
+    await expect(page.getByRole("button", { name: "미리 검증", exact: true }), `${browserName} workbook action should follow the picker`).toBeFocused();
+    await captureFinding(page, testInfo, "MUI-002", "workbook-upload", ["keyboard-upload", "focus-order"]);
+
+    const packagePicker = page.getByRole("button", { name: "이식 패키지 선택", exact: true });
+    await expectMinimumTargetSize(packagePicker, `${browserName} migration package picker`);
+    const packageChooser = await chooseFileWithKeyboard(
+      page,
+      page.getByRole("button", { name: "적용", exact: true }),
+      packagePicker,
+      { name: "mui-002-package.zip", mimeType: "application/zip", buffer: Buffer.from("mui-002-package") },
+      `${browserName} migration package`,
+    );
+    expect(packageChooser.isMultiple(), `${browserName} migration package picker should accept one file`).toBe(false);
+    await expect(page.getByText("mui-002-package.zip", { exact: false })).toBeVisible();
+    await page.keyboard.press("Tab");
+    await expect(page.getByRole("button", { name: "패키지 미리 검증", exact: true }), `${browserName} migration action should follow the picker`).toBeFocused();
+    await captureFinding(page, testInfo, "MUI-002", "migration-upload", ["keyboard-upload", "focus-order"]);
+
+    await page.getByRole("button", { name: "토스 이미지", exact: true }).click();
+    const tossPicker = page.getByRole("button", { name: "토스 이미지 선택", exact: true });
+    await expectMinimumTargetSize(tossPicker, `${browserName} Toss image picker`);
+    const tossChooser = await chooseFileWithKeyboard(
+      page,
+      page.getByRole("button", { name: "토스 이미지", exact: true }),
+      tossPicker,
+      { name: "mui-002-toss.png", mimeType: "image/png", buffer: Buffer.from("mui-002-toss") },
+      `${browserName} Toss image`,
+      "Space",
+    );
+    expect(tossChooser.isMultiple(), `${browserName} Toss picker should accept multiple images`).toBe(true);
+    await expect(page.getByText("mui-002-toss.png", { exact: true })).toBeVisible();
+    await page.keyboard.press("Tab");
+    await expect(page.getByRole("button", { name: "검토 표 만들기", exact: true }), `${browserName} Toss preview action should follow the picker`).toBeFocused();
+    await captureFinding(page, testInfo, "MUI-002", "toss-upload", ["keyboard-upload", "focus-order"]);
+    await expectZeroHorizontalOverflow(page, `${browserName}/MUI-002/import-pickers`);
+    await captureFinding(page, testInfo, "MUI-002", "import-keyboard-file-pickers", [
+      "visible-file-picker-buttons",
+      "enter-and-space-activation",
+      "single-and-multiple-file-contracts",
+      "target-size-44",
+      "zero-overflow",
+    ]);
+  } finally {
+    await context.close();
+  }
+});
+
+test("MUI-003 Toss review keeps every editable column reachable by touch and keyboard", async ({ browser, browserName }, testInfo) => {
+  test.skip(browserName !== "chromium", "The evidence contract requires Chromium touch and keyboard access at 320px and 390px.");
+  test.setTimeout(180_000);
+  for (const profile of MOBILE_PROFILES.filter((candidate) =>
+    (candidate.width === 320 && candidate.height === 568) || (candidate.width === 390 && candidate.height === 844)
+  )) {
+    const { context, page } = await newMatrixPage(browser, browserName, profile, { blockServiceWorkers: true });
+    try {
+      await page.route("**/api/v1/imports/toss-screenshots/preview", async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            rows: [{
+              row_id: `mui-003-row-${profile.width}`,
+              source_ref: `mui-003:${profile.width}`,
+              source_ref_signature: "matrix-signature",
+              source_image_name: "mui-003-toss.png",
+              source_image_index: 0,
+              occurred_on: "2026-07-13",
+              time: "12:07",
+              item_name: "모바일 검토 접근성",
+              detail: "가로 표",
+              amount: "12345",
+              signed_amount: "-12345",
+              balance: "987654",
+              flow_type: "expense",
+              category_id: null,
+              category_recommendation: null,
+              included: true,
+              duplicate_group_id: null,
+              exclusion_reason: null,
+            }],
+            excluded_candidates: [],
+            summary: { image_count: 1, parsed_rows: 1, excluded_candidates: 0, duplicate_candidates: 0 },
+            issues: [],
+          }),
+        });
+      });
+      await registerAndVerify(page, {
+        email: `${unique(`mui-003-toss-${profile.width}`)}@example.com`,
+        displayName: unique(`mui-003-toss-${profile.width}-name`),
+      });
+      await openTab(page, "데이터 가져오기");
+      await page.getByRole("button", { name: "토스 이미지", exact: true }).click();
+      await page.getByLabel("토스 스크린샷 업로드").setInputFiles({
+        name: "mui-003-toss.png",
+        mimeType: "image/png",
+        buffer: Buffer.from("mui-003-toss"),
+      });
+      await page.getByRole("button", { name: "검토 표 만들기", exact: true }).click();
+
+      const region = page.getByRole("region", { name: "토스 거래 검토 표" });
+      await expect(region).toBeVisible();
+      await expect(region).toHaveAttribute("tabindex", "0");
+      const overflowContract = await region.evaluate((element) => ({
+        clientWidth: element.clientWidth,
+        scrollWidth: element.scrollWidth,
+        touchAction: getComputedStyle(element).touchAction,
+      }));
+      expect(overflowContract.scrollWidth, `${profile.name} Toss review should require local horizontal navigation`).toBeGreaterThan(
+        overflowContract.clientWidth
+      );
+      expect(
+        overflowContract.touchAction === "manipulation" || overflowContract.touchAction.split(/\s+/u).includes("pan-x"),
+        `${profile.name} Toss review should permit horizontal touch panning: ${overflowContract.touchAction}`
+      ).toBe(true);
+
+      const categorySelect = region.locator(".toss-category-cell select").first();
+      await expect(categorySelect).toBeVisible();
+      await swipeOverflowRegion(context, page, region, categorySelect, profile.name);
+      const touchScrollLeft = await region.evaluate((element) => element.scrollLeft);
+      expect(touchScrollLeft, `${profile.name} touch should move the local table scroller`).toBeGreaterThan(0);
+      await expectControlInsideRegion(region, categorySelect, `${profile.name} touch category editor`);
+      await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      await page.waitForTimeout(50);
+      await captureFinding(page, testInfo, "MUI-003", "touch-access", ["horizontal-pan", "editable-columns-reachable"]);
+
+      await region.evaluate((element) => { element.scrollLeft = 0; });
+      await region.focus();
+      await expect(region).toBeFocused();
+      const row = region.locator("tbody tr").first();
+      const expectedControlOrder = [
+        { control: row.locator('td[data-label="포함"] input[type="checkbox"]'), label: "include checkbox" },
+        { control: row.getByLabel("일자", { exact: true }), label: "date editor" },
+        { control: row.getByLabel("시간", { exact: true }), label: "time editor" },
+        { control: row.getByLabel("항목명", { exact: true }), label: "item editor" },
+        { control: row.getByLabel("항목 상세", { exact: true }), label: "detail editor" },
+        { control: row.getByLabel("금액", { exact: true }), label: "amount editor" },
+        { control: row.getByLabel("잔액", { exact: true }), label: "balance editor" },
+        { control: row.getByLabel("유형", { exact: true }), label: "flow type editor" },
+        { control: categorySelect, label: "category editor" },
+      ];
+      let previousControl = null;
+      for (const { control, label } of expectedControlOrder) {
+        const maxTabs = label === "time editor" ? 5 : 1;
+        let reached = false;
+        for (let attempt = 0; attempt < maxTabs; attempt += 1) {
+          await page.keyboard.press("Tab");
+          reached = await control.evaluate((element) => element === document.activeElement);
+          if (reached) {
+            break;
+          }
+          const nativeDateSubfocus = previousControl
+            ? await previousControl.evaluate((element) => element === document.activeElement && element.type === "date")
+            : false;
+          expect(nativeDateSubfocus, `${profile.name} Tab order should not enter an unrelated control before ${label}`).toBe(true);
+        }
+        expect(reached, `${profile.name} ${label} should follow the documented Tab order`).toBe(true);
+        await expectControlInsideRegion(region, control, `${profile.name} keyboard ${label}`);
+        previousControl = control;
+      }
+      const keyboardScrollLeft = await region.evaluate((element) => element.scrollLeft);
+      expect(keyboardScrollLeft, `${profile.name} keyboard focus should reveal the category editor`).toBeGreaterThan(0);
+      await expectZeroHorizontalOverflow(page, `${profile.name}/MUI-003/Toss-review`);
+      await region.focus();
+      await expect(region, `${profile.name} keyboard capture should retain a visible table-region focus indicator`).toBeFocused();
+      await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      await page.waitForTimeout(50);
+      await captureFinding(page, testInfo, "MUI-003", "keyboard-access", ["horizontal-pan", "editable-columns-reachable"]);
+    } finally {
+      await context.close();
+    }
   }
 });
 
