@@ -940,6 +940,214 @@ test("MUI-008 collaboration tabs and import mode group expose truthful keyboard 
   }
 });
 
+test("MUI-009 blocking errors and non-blocking statuses expose distinct live-region contracts", async ({ browser, browserName }, testInfo) => {
+  test.setTimeout(120_000);
+  const profile = MOBILE_PROFILES.find((candidate) => candidate.width === 390 && candidate.height === 844);
+
+  const errorSession = await newMatrixPage(browser, browserName, profile, { blockServiceWorkers: true });
+  try {
+    await errorSession.page.route("**/api/v1/auth/login", async (route) => {
+      await route.fulfill({
+        status: 401,
+        contentType: "application/json",
+        body: JSON.stringify({
+          error: {
+            code: "AUTH_INVALID_CREDENTIALS",
+            message: "이메일 또는 비밀번호가 올바르지 않습니다.",
+          },
+        }),
+      });
+    });
+    await errorSession.page.goto("/");
+    await errorSession.page.getByLabel("이메일", { exact: true }).fill(`${unique(`mui-009-error-${browserName}`)}@example.com`);
+    await errorSession.page.getByLabel("비밀번호", { exact: true }).fill("WrongPassword1234");
+    await errorSession.page.getByRole("button", { name: "로그인하기" }).click();
+
+    const blockingError = errorSession.page.locator("form.auth-card-login .message");
+    await expect(blockingError).toHaveAttribute("role", "alert");
+    await expect(blockingError).toHaveAttribute("aria-live", "assertive");
+    await expect(blockingError).toHaveAttribute("aria-atomic", "true");
+    await expect(blockingError).toHaveAttribute("data-feedback-kind", "error");
+    const firstErrorId = await blockingError.getAttribute("data-feedback-id");
+    await errorSession.page.waitForTimeout(4_100);
+    await expect(blockingError).toBeVisible();
+    await errorSession.page.getByRole("button", { name: "로그인하기" }).click();
+    await expect(blockingError).not.toHaveAttribute("data-feedback-id", firstErrorId || "");
+    await captureFinding(errorSession.page, testInfo, "MUI-009", "blocking-error", ["assertive-error"]);
+  } finally {
+    await errorSession.context.close();
+  }
+
+  const statusSession = await newMatrixPage(browser, browserName, profile, { blockServiceWorkers: true });
+  try {
+    await statusSession.page.route("**/api/v1/household/ws-ticket", async (route) => {
+      await route.fulfill({
+        status: 403,
+        contentType: "application/json",
+        body: JSON.stringify({
+          error: {
+            code: "HOUSEHOLD_PERMISSION_DENIED",
+            message: "가계 접근 권한이 없습니다.",
+          },
+        }),
+      });
+    });
+    await registerAndVerify(statusSession.page, {
+      email: `${unique(`mui-009-status-${browserName}`)}@example.com`,
+      displayName: unique(`mui-009-status-${browserName}-name`),
+    });
+    const persistentRecoveryStatus = statusSession.page.locator(".app-content > .message-status.message-persistent");
+    const expectPersistentRecoveryGeometry = async (stateLabel) => {
+      await expect(persistentRecoveryStatus, `${stateLabel}: recovery status`).toBeVisible();
+      await expect(persistentRecoveryStatus.locator(".feedback-detail"), `${stateLabel}: recovery detail`).toBeVisible();
+      await expect(persistentRecoveryStatus.locator(".feedback-detail")).toContainText("가계 목록을 새로고침하거나 다시 선택해 주세요.");
+      const geometry = await persistentRecoveryStatus.evaluate((messageElement) => {
+        const box = messageElement.getBoundingClientRect();
+        const viewportTop = window.visualViewport?.offsetTop || 0;
+        const viewportBottom = viewportTop + (window.visualViewport?.height || window.innerHeight);
+        const obscuredTargets = Array.from(document.querySelectorAll("button, a[href], input, select, textarea, [role='button'], [role='tab']"))
+          .filter((element) => element instanceof HTMLElement && !messageElement.contains(element))
+          .map((element) => {
+            const targetBox = element.getBoundingClientRect();
+            const style = getComputedStyle(element);
+            const rendered =
+              style.display !== "none" &&
+              style.visibility !== "hidden" &&
+              targetBox.width > 0 &&
+              targetBox.height > 0 &&
+              targetBox.bottom > viewportTop &&
+              targetBox.top < viewportBottom;
+            return {
+              label: element.getAttribute("aria-label") || element.textContent?.replace(/\s+/g, " ").trim() || "",
+              overlap: rendered && !(
+                targetBox.right <= box.left ||
+                targetBox.left >= box.right ||
+                targetBox.bottom <= box.top ||
+                targetBox.top >= box.bottom
+              ),
+            };
+          })
+          .filter((target) => target.overlap);
+        return {
+          bottom: box.bottom,
+          obscuredTargets,
+          placement: messageElement.dataset.feedbackPlacement || "default",
+          top: box.top,
+          viewportBottom,
+          viewportTop,
+        };
+      });
+      expect(geometry.top, `${stateLabel}: feedback top ${JSON.stringify(geometry)}`).toBeGreaterThanOrEqual(geometry.viewportTop - 1);
+      expect(geometry.bottom, `${stateLabel}: feedback bottom ${JSON.stringify(geometry)}`).toBeLessThanOrEqual(geometry.viewportBottom + 1);
+      expect(geometry.obscuredTargets, `${stateLabel}: feedback overlap ${JSON.stringify(geometry)}`).toEqual([]);
+    };
+    await expectPersistentRecoveryGeometry("portrait before dense fallback");
+
+    await statusSession.page.evaluate(() => {
+      const viewportTop = window.visualViewport?.offsetTop || 0;
+      const viewportHeight = window.visualViewport?.height || window.innerHeight;
+      for (let top = viewportTop; top < viewportTop + viewportHeight; top += 48) {
+        const blocker = document.createElement("button");
+        blocker.type = "button";
+        blocker.tabIndex = -1;
+        blocker.setAttribute("aria-hidden", "true");
+        blocker.dataset.mui009DenseBlocker = "true";
+        Object.assign(blocker.style, {
+          height: "64px",
+          left: "0",
+          opacity: "0",
+          pointerEvents: "none",
+          position: "fixed",
+          right: "0",
+          top: `${top}px`,
+        });
+        document.body.appendChild(blocker);
+      }
+      window.dispatchEvent(new Event("resize"));
+    });
+    await expect(persistentRecoveryStatus).toHaveAttribute("data-feedback-placement", "inline");
+    await statusSession.page.evaluate(() => {
+      document.querySelectorAll("[data-mui009-dense-blocker]").forEach((element) => element.remove());
+      window.dispatchEvent(new Event("resize"));
+    });
+    await expectPersistentRecoveryGeometry("portrait after dense fallback");
+
+    await statusSession.page.setViewportSize({ width: 844, height: 390 });
+    await expectPersistentRecoveryGeometry("landscape");
+    await statusSession.page.setViewportSize({ width: profile.width, height: profile.height });
+    await expectPersistentRecoveryGeometry("portrait restored");
+    await openTab(statusSession.page, "설정");
+    const profileCard = statusSession.page.locator("article.card", {
+      has: statusSession.page.getByRole("heading", { name: "내 프로필", exact: true }),
+    });
+    await labeledField(profileCard, "닉네임", "input").fill(unique(`mui-009-nickname-${browserName}`));
+    await labeledField(profileCard, "표시명 방식", "select").selectOption("nickname");
+    const profileSaveButton = profileCard.getByRole("button", { name: "프로필 저장", exact: true });
+    await profileSaveButton.scrollIntoViewIfNeeded();
+    const scrollYBeforeStatus = await statusSession.page.evaluate(() => window.scrollY);
+    await profileSaveButton.click();
+
+    const nonBlockingStatus = statusSession.page.locator(".app-content > .message");
+    await expect(nonBlockingStatus).toBeVisible();
+    await expect(nonBlockingStatus).toHaveAttribute("role", "status");
+    await expect(nonBlockingStatus).toHaveAttribute("aria-live", "polite");
+    await expect(nonBlockingStatus).toHaveAttribute("aria-atomic", "true");
+    await expect(nonBlockingStatus).toHaveAttribute("data-feedback-kind", "status");
+    await expect(profileSaveButton).toBeFocused();
+    const scrollYAfterStatus = await statusSession.page.evaluate(() => window.scrollY);
+    expect(Math.abs(scrollYAfterStatus - scrollYBeforeStatus), "non-blocking feedback must not move document scroll").toBeLessThanOrEqual(1);
+    const statusOverlap = await nonBlockingStatus.evaluate((messageElement) => {
+      const focusedElement = document.activeElement;
+      if (!(focusedElement instanceof HTMLElement)) {
+        return { overlap: false };
+      }
+      const messageBox = messageElement.getBoundingClientRect();
+      const focusBox = focusedElement.getBoundingClientRect();
+      return {
+        focusLabel: focusedElement.textContent?.trim() || focusedElement.getAttribute("aria-label") || "",
+        overlap: !(
+          focusBox.right <= messageBox.left ||
+          focusBox.left >= messageBox.right ||
+          focusBox.bottom <= messageBox.top ||
+          focusBox.top >= messageBox.bottom
+        ),
+      };
+    });
+    expect(statusOverlap.overlap, `feedback must not obscure its focused trigger: ${JSON.stringify(statusOverlap)}`).toBe(false);
+    const obscuredTargets = await nonBlockingStatus.evaluate((messageElement) => {
+      const messageBox = messageElement.getBoundingClientRect();
+      return Array.from(document.querySelectorAll("button, a[href], input, select, textarea, [role='button'], [role='tab']"))
+        .filter((element) => element instanceof HTMLElement && !messageElement.contains(element))
+        .map((element) => {
+          const box = element.getBoundingClientRect();
+          const style = getComputedStyle(element);
+          const rendered =
+            style.display !== "none" &&
+            style.visibility !== "hidden" &&
+            box.width > 0 &&
+            box.height > 0 &&
+            box.bottom > 0 &&
+            box.top < window.innerHeight;
+          return {
+            label: element.getAttribute("aria-label") || element.textContent?.replace(/\s+/g, " ").trim() || "",
+            overlap: rendered && !(
+              box.right <= messageBox.left ||
+              box.left >= messageBox.right ||
+              box.bottom <= messageBox.top ||
+              box.top >= messageBox.bottom
+            ),
+          };
+        })
+        .filter((target) => target.overlap);
+    });
+    expect(obscuredTargets, `feedback must not obscure visible actions: ${JSON.stringify(obscuredTargets)}`).toEqual([]);
+    await captureFinding(statusSession.page, testInfo, "MUI-009", "non-blocking-status", ["polite-status"]);
+    await expect(nonBlockingStatus).toHaveCount(0, { timeout: 5_000 });
+  } finally {
+    await statusSession.context.close();
+  }
+});
+
 test("portrait-landscape transition preserves transaction task state", async ({ browser, browserName }, testInfo) => {
   test.setTimeout(240_000);
   const [portrait, landscape] = ORIENTATION_PAIRS[browserName];

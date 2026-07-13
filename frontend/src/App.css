@@ -554,7 +554,7 @@
 }
 
 .toss-review-table-wrap:focus-visible {
-  outline: 3px solid rgba(15, 124, 255, 0.38);
+  outline: 3px solid var(--mf-color-blue-500);
   outline-offset: 3px;
 }
 
@@ -2717,10 +2717,21 @@ button.transaction-selection-clear {
   gap: 0.75rem;
 }
 
+.message-error {
+  border-color: var(--mf-color-red-500);
+  background: color-mix(in srgb, var(--mf-color-red-500) 10%, var(--mf-surface-panel-solid));
+  color: var(--mf-color-ink-900);
+}
+
 .message span {
   min-width: 0;
   white-space: pre-line;
   overflow-wrap: anywhere;
+}
+
+.feedback-summary,
+.feedback-detail {
+  display: block;
 }
 
 .message-close {
@@ -7705,6 +7716,14 @@ tr.holding-row-imported {
     transform: translate3d(0, 0, 0);
   }
 
+  .app-shell > .message[data-feedback-placement="inline"],
+  .app-content > .message[data-feedback-placement="inline"] {
+    position: relative !important;
+    inset: auto !important;
+    margin-bottom: 0.65rem;
+    transform: none;
+  }
+
   .app-shell > .message span,
   .app-content > .message span {
     display: block;
@@ -7907,6 +7926,10 @@ tr.holding-row-imported {
   td[colspan]::before {
     display: none;
   }
+
+  .app-content > .message-status:not(.message-persistent) .feedback-detail {
+    display: none;
+  }
   .toss-review-table {
     display: table;
     width: 1080px;
@@ -7928,7 +7951,7 @@ tr.holding-row-imported {
     margin: 0;
     padding: 0;
     border: 0;
-    border-radius: 0;
+    border-radius: initial;
     background: inherit;
   }
   .toss-review-table th,
@@ -7936,7 +7959,7 @@ tr.holding-row-imported {
     display: table-cell;
     width: auto;
     padding: 0.6rem 0.5rem;
-    border-bottom: 1px solid #e5edf7;
+    border-bottom: 1px solid var(--mf-border-subtle);
     text-align: left;
     white-space: normal;
     word-break: normal;
