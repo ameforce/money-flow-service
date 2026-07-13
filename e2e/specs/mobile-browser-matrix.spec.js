@@ -55,6 +55,14 @@ const MOBILE_USER_AGENTS = {
   firefox: "Mozilla/5.0 (Android 14; Mobile; rv:127.0) Gecko/127.0 Firefox/127.0",
   webkit: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1",
 };
+const MODAL_FOCUSABLE_SELECTOR = [
+  "a[href]:visible",
+  "button:not([disabled]):visible",
+  "input:not([disabled]):visible",
+  "select:not([disabled]):visible",
+  "textarea:not([disabled]):visible",
+  "[tabindex]:not([tabindex='-1']):visible",
+].join(", ");
 const TESTED_SHA = process.env.GITHUB_SHA || process.env.GIT_COMMIT || execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
 const EVIDENCE_METADATA_BY_TEST = new Map();
 
@@ -248,6 +256,201 @@ async function expectNoAxeViolations(page, label) {
   expect(violations, `${label} axe violations: ${JSON.stringify(violations, null, 2)}`).toEqual([]);
 }
 
+async function expectModalFocusWrap(page, modal, label) {
+  const focusables = modal.locator(MODAL_FOCUSABLE_SELECTOR);
+  const count = await focusables.count();
+  expect(count, `${label} should expose at least two focusable controls`).toBeGreaterThanOrEqual(2);
+  const first = focusables.first();
+  const last = focusables.last();
+
+  await last.focus();
+  await expect(last, `${label} should allow focusing its last control`).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(first, `${label} Tab should wrap from the last control to the first`).toBeFocused();
+
+  await first.focus();
+  await expect(first, `${label} should allow focusing its first control`).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(last, `${label} Shift+Tab should wrap from the first control to the last`).toBeFocused();
+}
+
+async function expectElementInert(locator, label) {
+  const inertState = await locator.evaluate((element) => {
+    let current = element;
+    while (current) {
+      if (current.hasAttribute("inert")) {
+        return { inert: true, tagName: current.tagName, testId: current.getAttribute("data-testid") || "" };
+      }
+      current = current.parentElement;
+    }
+    return { inert: false, tagName: "", testId: "" };
+  });
+  expect(inertState.inert, `${label} should be isolated behind an inert ancestor: ${JSON.stringify(inertState)}`).toBe(true);
+}
+
+async function expectBackgroundInert(page, modal, label) {
+  await expectElementInert(page.locator("header.topbar"), `${label} topbar`);
+  await expectElementInert(page.locator("nav.topbar-tabs"), `${label} primary navigation`);
+  await page.locator("header.topbar .topbar-actions button").first().evaluate((element) => element.focus());
+  const activeElementState = await modal.evaluate((element) => ({
+    activeTestId: document.activeElement?.getAttribute("data-testid") || "",
+    activeTagName: document.activeElement?.tagName || "",
+    modalOwnsFocus: element.contains(document.activeElement),
+  }));
+  expect(activeElementState.modalOwnsFocus, `${label} background focus attempt must stay inside the modal: ${JSON.stringify(activeElementState)}`).toBe(true);
+}
+
+async function expectVisibleFocusIndicator(locator, label) {
+  const styles = await locator.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return {
+      boxShadow: style.boxShadow,
+      className: element.className,
+      focusMatches: element.matches(":focus"),
+      focusVisibleMatches: element.matches(":focus-visible"),
+      outlineStyle: style.outlineStyle,
+      outlineWidth: Number.parseFloat(style.outlineWidth || "0"),
+    };
+  });
+  expect(styles.outlineStyle, `${label} must expose a focus outline: ${JSON.stringify(styles)}`).not.toBe("none");
+  expect(styles.outlineWidth, `${label} focus outline plus shadow must remain visible: ${JSON.stringify(styles)}`).toBeGreaterThanOrEqual(1);
+  expect(styles.boxShadow, `${label} must expose a focus ring shadow: ${JSON.stringify(styles)}`).not.toBe("none");
+}
+
+async function expectControlInsideViewport(locator, label) {
+  await expect.poll(async () => locator.evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    const viewport = window.visualViewport;
+    const left = viewport?.offsetLeft || 0;
+    const top = viewport?.offsetTop || 0;
+    const right = left + (viewport?.width || window.innerWidth);
+    const bottom = top + (viewport?.height || window.innerHeight);
+    return box.left >= left - 1 && box.right <= right + 1 && box.top >= top - 1 && box.bottom <= bottom + 1;
+  }), `${label} should remain fully inside the visual viewport`).toBe(true);
+}
+
+async function chooseFileWithKeyboard(page, previousControl, button, file, label, key = "Enter") {
+  await button.scrollIntoViewIfNeeded();
+  await expect(button, `${label} picker should be visible`).toBeVisible();
+  await expect(button, `${label} picker should be enabled`).toBeEnabled();
+  await previousControl.focus();
+  await expect(previousControl, `${label} preceding control should receive focus`).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(button, `${label} picker should be next in the real Tab order`).toBeFocused();
+  const chooserPromise = page.waitForEvent("filechooser");
+  await page.keyboard.press(key);
+  const chooser = await chooserPromise;
+  await chooser.setFiles(file);
+  return chooser;
+}
+
+async function isControlInsideRegion(region, control) {
+  const [regionBox, controlBox] = await Promise.all([region.boundingBox(), control.boundingBox()]);
+  return Boolean(
+    regionBox
+      && controlBox
+      && controlBox.x >= regionBox.x - 1
+      && controlBox.x + controlBox.width <= regionBox.x + regionBox.width + 1
+  );
+}
+
+async function swipeOverflowRegion(context, page, region, targetControl, label) {
+  await region.scrollIntoViewIfNeeded();
+  const box = await region.boundingBox();
+  expect(box, `${label} should expose a touchable bounding box`).not.toBeNull();
+  const viewport = page.viewportSize();
+  expect(viewport, `${label} should expose a viewport`).not.toBeNull();
+  const session = await context.newCDPSession(page);
+  try {
+    const visibleLeft = Math.max(box.x, 0);
+    const visibleRight = Math.min(box.x + box.width, viewport.width);
+    const visibleTop = Math.max(box.y, 0);
+    const visibleBottom = Math.min(box.y + box.height, viewport.height);
+    expect(visibleRight - visibleLeft, `${label} should have a horizontally visible gesture surface`).toBeGreaterThan(48);
+    expect(visibleBottom - visibleTop, `${label} should have a vertically visible gesture surface`).toBeGreaterThan(24);
+    const startX = visibleLeft + (visibleRight - visibleLeft) / 2;
+    const y = visibleTop + Math.min((visibleBottom - visibleTop) / 2, 32);
+    for (let gesture = 0; gesture < 12; gesture += 1) {
+      if (await isControlInsideRegion(region, targetControl)) {
+        break;
+      }
+      const before = await region.evaluate((element) => element.scrollLeft);
+      const maximum = await region.evaluate((element) => element.scrollWidth - element.clientWidth);
+      if (before >= maximum - 24) {
+        break;
+      }
+      const gestureDistance = Math.min((visibleRight - visibleLeft) * 0.45, maximum - before);
+      let moved = false;
+      await session.send("Input.dispatchTouchEvent", {
+        type: "touchStart",
+        touchPoints: [{ x: startX, y, radiusX: 5, radiusY: 5, force: 0.8, id: 1 }],
+      });
+      for (let step = 1; step <= 8; step += 1) {
+        await session.send("Input.dispatchTouchEvent", {
+          type: "touchMove",
+          touchPoints: [{
+            x: startX - (gestureDistance * step) / 8,
+            y,
+            radiusX: 5,
+            radiusY: 5,
+            force: 0.8,
+            id: 1,
+          }],
+        });
+        await page.waitForTimeout(16);
+      }
+      await session.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+      try {
+        await expect
+          .poll(() => region.evaluate((element) => element.scrollLeft), {
+            message: `${label} trusted touch drag should advance the local scroller`,
+            timeout: 2_000,
+          })
+          .toBeGreaterThan(before);
+        moved = true;
+      } catch {
+        // Some Chromium revisions do not apply dispatchTouchEvent to native scrolling; use the trusted gesture API below.
+      }
+      for (const xDistance of moved ? [] : [-gestureDistance, gestureDistance]) {
+        await session.send("Input.synthesizeScrollGesture", {
+          x: startX,
+          y,
+          xDistance,
+          yDistance: 0,
+          speed: 800,
+          gestureSourceType: "touch",
+        });
+        try {
+          await expect
+            .poll(() => region.evaluate((element) => element.scrollLeft), {
+              message: `${label} trusted touch gesture should advance the local scroller`,
+              timeout: 2_000,
+            })
+            .toBeGreaterThan(before);
+          moved = true;
+          break;
+        } catch {
+          // Chromium's gesture distance sign has differed across CDP revisions; try the inverse direction.
+        }
+      }
+      expect(moved, `${label} trusted touch gesture should advance the local scroller`).toBe(true);
+    }
+  } finally {
+    await session.detach().catch(() => undefined);
+  }
+  await expect.poll(() => region.evaluate((element) => element.scrollLeft), `${label} should move after a horizontal touch gesture`).toBeGreaterThan(0);
+}
+
+async function expectControlInsideRegion(region, control, label) {
+  const [regionBox, controlBox] = await Promise.all([region.boundingBox(), control.boundingBox()]);
+  expect(regionBox, `${label} region should have geometry`).not.toBeNull();
+  expect(controlBox, `${label} control should have geometry`).not.toBeNull();
+  expect(controlBox.x, `${label} left edge should be inside the scroll viewport`).toBeGreaterThanOrEqual(regionBox.x - 1);
+  expect(controlBox.x + controlBox.width, `${label} right edge should be inside the scroll viewport`).toBeLessThanOrEqual(
+    regionBox.x + regionBox.width + 1
+  );
+}
+
 async function expectOrientation(page, orientation) {
   await expect.poll(() => page.evaluate((value) => matchMedia(`(orientation: ${value})`).matches, orientation)).toBe(true);
 }
@@ -336,6 +539,814 @@ test("cross-browser mobile matrix traverses core screens without layout or acces
     await captureFinding(page, testInfo, "MUI-004", "matrix-complete", ["matrix-complete"]);
   } finally {
     await context.close();
+  }
+});
+
+test("MUI-006 transaction sheet owns keyboard focus and restores its trigger", async ({ browser, browserName }, testInfo) => {
+  test.setTimeout(120_000);
+  const profile = MOBILE_PROFILES.find((candidate) => candidate.width === 390 && candidate.height === 844);
+  const { context, page } = await newMatrixPage(browser, browserName, profile);
+  try {
+    await registerAndVerify(page, {
+      email: `${unique(`mui-006-transaction-${browserName}`)}@example.com`,
+      displayName: unique(`mui-006-transaction-${browserName}-name`),
+    });
+    await openTab(page, "거래");
+    const trigger = page.getByTestId("transactions-fab");
+    await trigger.click();
+
+    const sheet = page.getByTestId("transaction-entry-sheet");
+    const amountInput = sheet.getByTestId("transaction-quick-amount");
+    await expect(sheet).toBeVisible();
+    await expect(amountInput, `${browserName} transaction amount should receive initial focus`).toBeFocused();
+    await captureFinding(page, testInfo, "MUI-006", "transaction-modal-initial-focus", [
+      "initial-focus",
+      "background-inert",
+      "focus-trap",
+      "return-focus",
+    ]);
+
+    await expectBackgroundInert(page, sheet, `${browserName} transaction sheet`);
+    await expectModalFocusWrap(page, sheet, `${browserName} transaction sheet`);
+    await captureFinding(page, testInfo, "MUI-006", "transaction-modal-focus-wrap", ["tab-wrap", "shift-tab-wrap"]);
+
+    await page.keyboard.press("Escape");
+    await expect(sheet).toBeHidden();
+    await expect(trigger, `${browserName} transaction sheet should restore its FAB trigger`).toBeFocused();
+    await captureFinding(page, testInfo, "MUI-006", "transaction-sheet", ["focus-trap", "background-inert", "escape", "return-focus"]);
+  } finally {
+    await context.close();
+  }
+});
+
+test("MUI-006 holding sheet owns keyboard focus and restores its trigger", async ({ browser, browserName }, testInfo) => {
+  test.setTimeout(120_000);
+  const profile = MOBILE_PROFILES.find((candidate) => candidate.width === 390 && candidate.height === 844);
+  const { context, page } = await newMatrixPage(browser, browserName, profile);
+  try {
+    await registerAndVerify(page, {
+      email: `${unique(`mui-006-holding-${browserName}`)}@example.com`,
+      displayName: unique(`mui-006-holding-${browserName}-name`),
+    });
+    await openTab(page, "자산");
+    const trigger = page.getByTestId("holdings-fab");
+    await trigger.click();
+
+    const sheet = page.getByTestId("holding-entry-sheet");
+    const nameInput = labeledField(sheet, "자산명", "textarea");
+    await expect(sheet).toBeVisible();
+    await expect(nameInput, `${browserName} holding name should receive initial focus`).toBeFocused();
+    await captureFinding(page, testInfo, "MUI-006", "holding-modal-initial-focus", [
+      "initial-focus",
+      "background-inert",
+      "focus-trap",
+      "return-focus",
+    ]);
+
+    await expectBackgroundInert(page, sheet, `${browserName} holding sheet`);
+    await expectModalFocusWrap(page, sheet, `${browserName} holding sheet`);
+    await captureFinding(page, testInfo, "MUI-006", "holding-modal-focus-wrap", ["tab-wrap", "shift-tab-wrap"]);
+
+    await page.keyboard.press("Escape");
+    await expect(sheet).toHaveCount(0);
+    await expect(trigger, `${browserName} holding sheet should restore its FAB trigger`).toBeFocused();
+    await captureFinding(page, testInfo, "MUI-006", "holding-sheet", ["focus-trap", "background-inert", "escape", "return-focus"]);
+  } finally {
+    await context.close();
+  }
+});
+
+test("MUI-006 holding focus survives tablet modal-inline orientation transitions", async ({ browser, browserName }, testInfo) => {
+  test.setTimeout(180_000);
+  const portrait = { width: 768, height: 1024, touch: true };
+  const landscape = { width: 1024, height: 768 };
+  const { context, page } = await newMatrixPage(browser, browserName, portrait);
+  try {
+    await registerAndVerify(page, {
+      email: `${unique(`mui-006-holding-orientation-${browserName}`)}@example.com`,
+      displayName: unique(`mui-006-holding-orientation-${browserName}-name`),
+    });
+    await openTab(page, "자산");
+    const trigger = page.getByTestId("holdings-fab");
+    await trigger.click();
+
+    let sheet = page.getByTestId("holding-entry-sheet");
+    const nameInput = page.getByLabel("자산명", { exact: true });
+    const accountInput = page.getByLabel("계좌", { exact: true });
+    const accountName = unique(`mui-006-account-${browserName}`);
+    await expect(nameInput, `${browserName} holding sheet should settle its initial focus`).toBeFocused();
+    await accountInput.fill(accountName);
+    await accountInput.focus();
+    await expect(sheet).toHaveAttribute("role", "dialog");
+    await expect(sheet).toHaveAttribute("aria-modal", "true");
+    await expect(accountInput).toBeFocused();
+    await captureFinding(page, testInfo, "MUI-006", "holding-tablet-portrait-modal", [
+      "tablet-orientation",
+      "modal-focus-preserved",
+    ]);
+
+    await page.setViewportSize(landscape);
+    await expect(sheet).toHaveCount(0);
+    await expect(page.getByTestId("holding-entry-sheet-backdrop")).toHaveCount(0);
+    await expect(accountInput).toHaveValue(accountName);
+    await expect(accountInput, `${browserName} holding focus should remain in the inline form`).toBeFocused();
+    await expectControlInsideViewport(accountInput, `${browserName} inline holding account focus`);
+    const backgroundRemainsInteractive = await page.locator("header.topbar").evaluate((element) => (
+      !element.inert && !element.closest("[inert]")
+    ));
+    expect(backgroundRemainsInteractive, `${browserName} inline mode should release modal background isolation`).toBe(true);
+    await captureFinding(page, testInfo, "MUI-006", "holding-tablet-landscape-inline", [
+      "modal-to-inline",
+      "draft-preserved",
+      "focus-preserved",
+      "focus-visible-in-viewport",
+      "background-released",
+    ]);
+
+    await page.setViewportSize({ width: portrait.width, height: portrait.height });
+    sheet = page.getByTestId("holding-entry-sheet");
+    await expect(sheet).toHaveAttribute("role", "dialog");
+    await expect(sheet).toHaveAttribute("aria-modal", "true");
+    await expect(accountInput).toHaveValue(accountName);
+    await expect(accountInput, `${browserName} holding focus should survive inline-to-modal restoration`).toBeFocused();
+    await expectBackgroundInert(page, sheet, `${browserName} restored holding sheet`);
+    await captureFinding(page, testInfo, "MUI-006", "holding-tablet-portrait-restored", [
+      "inline-to-modal",
+      "draft-preserved",
+      "focus-preserved",
+      "background-inert",
+    ]);
+
+    await page.keyboard.press("Escape");
+    const confirmation = page.getByRole("alertdialog");
+    await expect(confirmation).toBeVisible();
+    await confirmation.getByRole("button", { name: "입력 닫기", exact: true }).click();
+    await expect(sheet).toHaveCount(0);
+    await expect(trigger, `${browserName} actual close should restore the current holding trigger`).toBeFocused();
+    await expectVisibleFocusIndicator(trigger, `${browserName} current holding trigger`);
+    await captureFinding(page, testInfo, "MUI-006", "holding-tablet-actual-close", [
+      "actual-close",
+      "return-focus",
+    ]);
+  } finally {
+    await context.close();
+  }
+});
+
+test("MUI-006 holding focus survives tablet inline-modal orientation transitions", async ({ browser, browserName }, testInfo) => {
+  test.setTimeout(180_000);
+  const landscape = { width: 1024, height: 768, touch: true };
+  const portrait = { width: 768, height: 1024 };
+  const { context, page } = await newMatrixPage(browser, browserName, landscape);
+  try {
+    await registerAndVerify(page, {
+      email: `${unique(`mui-006-holding-reverse-${browserName}`)}@example.com`,
+      displayName: unique(`mui-006-holding-reverse-${browserName}-name`),
+    });
+    await openTab(page, "자산");
+    const inlineTrigger = page.locator(".holding-entry-card").getByRole("button", { name: "자산 추가", exact: true });
+    await inlineTrigger.click();
+
+    const accountInput = page.getByLabel("계좌", { exact: true });
+    const accountName = unique(`mui-006-reverse-account-${browserName}`);
+    await accountInput.fill(accountName);
+    await accountInput.focus();
+    await expect(page.getByTestId("holding-entry-sheet")).toHaveCount(0);
+    await expect(accountInput).toBeFocused();
+    await captureFinding(page, testInfo, "MUI-006", "holding-tablet-landscape-inline-open", [
+      "tablet-orientation",
+      "inline-focus",
+    ]);
+
+    await page.setViewportSize(portrait);
+    const sheet = page.getByTestId("holding-entry-sheet");
+    const compactTrigger = page.getByTestId("holdings-fab");
+    await expect(sheet).toHaveAttribute("role", "dialog");
+    await expect(accountInput).toHaveValue(accountName);
+    await expect(accountInput, `${browserName} reverse transition should preserve the account focus`).toBeFocused();
+    await expect(inlineTrigger).toBeHidden();
+    await expect(compactTrigger).toBeVisible();
+    await expectBackgroundInert(page, sheet, `${browserName} reverse holding sheet`);
+    await captureFinding(page, testInfo, "MUI-006", "holding-tablet-portrait-modal-from-inline", [
+      "inline-to-modal",
+      "draft-preserved",
+      "focus-preserved",
+      "current-trigger-visible",
+    ]);
+
+    await page.keyboard.press("Escape");
+    const confirmation = page.getByRole("alertdialog");
+    await expect(confirmation).toBeVisible();
+    await confirmation.getByRole("button", { name: "입력 닫기", exact: true }).click();
+    await expect(sheet).toHaveCount(0);
+    await expect(compactTrigger, `${browserName} reverse actual close should restore the visible compact trigger`).toBeFocused();
+    await expectVisibleFocusIndicator(compactTrigger, `${browserName} reverse compact holding trigger`);
+    await captureFinding(page, testInfo, "MUI-006", "holding-tablet-reverse-actual-close", [
+      "actual-close",
+      "visible-return-focus",
+    ]);
+  } finally {
+    await context.close();
+  }
+});
+
+test("MUI-006 dirty sheet keeps the nested alertdialog topmost", async ({ browser, browserName }, testInfo) => {
+  test.setTimeout(120_000);
+  const profile = MOBILE_PROFILES.find((candidate) => candidate.width === 390 && candidate.height === 844);
+  const { context, page } = await newMatrixPage(browser, browserName, profile);
+  try {
+    await registerAndVerify(page, {
+      email: `${unique(`mui-006-nested-${browserName}`)}@example.com`,
+      displayName: unique(`mui-006-nested-${browserName}-name`),
+    });
+    await openTab(page, "거래");
+    const trigger = page.getByTestId("transactions-fab");
+    await trigger.click();
+
+    const sheet = page.getByTestId("transaction-entry-sheet");
+    const closeButton = sheet.getByTestId("transaction-entry-sheet-close");
+    const amountInput = sheet.getByTestId("transaction-quick-amount");
+    await amountInput.fill("12345");
+    await closeButton.click();
+
+    const dialog = page.getByRole("alertdialog");
+    const cancelButton = dialog.getByRole("button", { name: "취소" });
+    await expect(dialog.getByRole("heading", { name: "거래 입력을 닫을까요?" })).toBeVisible();
+    await expect(cancelButton, `${browserName} nested confirm should focus the non-destructive action`).toBeFocused();
+    await expectElementInert(sheet, `${browserName} parent transaction sheet`);
+    await amountInput.evaluate((element) => element.focus());
+    await expect(cancelButton, `${browserName} parent focus attempt must remain in the nested confirm`).toBeFocused();
+    await expectModalFocusWrap(page, dialog, `${browserName} nested confirm`);
+    await captureFinding(page, testInfo, "MUI-006", "nested-confirm-topmost", [
+      "non-destructive-initial-focus",
+      "parent-inert",
+      "topmost-focus-trap",
+    ]);
+
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+    await expect(sheet).toBeVisible();
+    await expect(amountInput).toHaveValue("12,345");
+    await expect(closeButton, `${browserName} nested confirm should restore its invoking close button`).toBeFocused();
+    await captureFinding(page, testInfo, "MUI-006", "nested-confirm-escape-return", [
+      "escape-closes-topmost-only",
+      "draft-preserved",
+      "invoker-focus-restored",
+    ]);
+
+    await closeButton.click();
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: "입력 닫기" }).click();
+    await expect(sheet).toBeHidden();
+    await expect(trigger, `${browserName} confirmed sheet close should restore the transaction FAB`).toBeFocused();
+    await captureFinding(page, testInfo, "MUI-006", "confirmation-dialog", [
+      "focus-trap",
+      "background-inert",
+      "escape",
+      "return-focus",
+      "nested-confirmation",
+    ]);
+  } finally {
+    await context.close();
+  }
+});
+
+test("MUI-002 import file pickers expose keyboard and switch controls", async ({ browser, browserName }, testInfo) => {
+  test.setTimeout(120_000);
+  const profile = MOBILE_PROFILES.find((candidate) => candidate.width === 390 && candidate.height === 844);
+  const { context, page } = await newMatrixPage(browser, browserName, profile);
+  try {
+    await registerAndVerify(page, {
+      email: `${unique(`mui-002-import-${browserName}`)}@example.com`,
+      displayName: unique(`mui-002-import-${browserName}-name`),
+    });
+    await openTab(page, "데이터 가져오기");
+
+    const workbookPicker = page.getByRole("button", { name: "엑셀 파일 선택", exact: true });
+    await expectMinimumTargetSize(workbookPicker, `${browserName} workbook picker`);
+    const workbookChooser = await chooseFileWithKeyboard(
+      page,
+      page.getByRole("button", { name: "토스 이미지", exact: true }),
+      workbookPicker,
+      {
+        name: "mui-002-workbook.xlsx",
+        mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        buffer: Buffer.from("mui-002-workbook"),
+      },
+      `${browserName} workbook`,
+    );
+    expect(workbookChooser.isMultiple(), `${browserName} workbook picker should accept one file`).toBe(false);
+    await expect(page.getByText("mui-002-workbook.xlsx", { exact: false })).toBeVisible();
+    await page.keyboard.press("Tab");
+    await expect(page.getByRole("button", { name: "미리 검증", exact: true }), `${browserName} workbook action should follow the picker`).toBeFocused();
+    await captureFinding(page, testInfo, "MUI-002", "workbook-upload", ["keyboard-upload", "focus-order"]);
+
+    const packagePicker = page.getByRole("button", { name: "이식 패키지 선택", exact: true });
+    await expectMinimumTargetSize(packagePicker, `${browserName} migration package picker`);
+    const packageChooser = await chooseFileWithKeyboard(
+      page,
+      page.getByRole("button", { name: "적용", exact: true }),
+      packagePicker,
+      { name: "mui-002-package.zip", mimeType: "application/zip", buffer: Buffer.from("mui-002-package") },
+      `${browserName} migration package`,
+    );
+    expect(packageChooser.isMultiple(), `${browserName} migration package picker should accept one file`).toBe(false);
+    await expect(page.getByText("mui-002-package.zip", { exact: false })).toBeVisible();
+    await page.keyboard.press("Tab");
+    await expect(page.getByRole("button", { name: "패키지 미리 검증", exact: true }), `${browserName} migration action should follow the picker`).toBeFocused();
+    await captureFinding(page, testInfo, "MUI-002", "migration-upload", ["keyboard-upload", "focus-order"]);
+
+    await page.getByRole("button", { name: "토스 이미지", exact: true }).click();
+    const tossPicker = page.getByRole("button", { name: "토스 이미지 선택", exact: true });
+    await expectMinimumTargetSize(tossPicker, `${browserName} Toss image picker`);
+    const tossChooser = await chooseFileWithKeyboard(
+      page,
+      page.getByRole("button", { name: "토스 이미지", exact: true }),
+      tossPicker,
+      { name: "mui-002-toss.png", mimeType: "image/png", buffer: Buffer.from("mui-002-toss") },
+      `${browserName} Toss image`,
+      "Space",
+    );
+    expect(tossChooser.isMultiple(), `${browserName} Toss picker should accept multiple images`).toBe(true);
+    await expect(page.getByText("mui-002-toss.png", { exact: true })).toBeVisible();
+    await page.keyboard.press("Tab");
+    await expect(page.getByRole("button", { name: "검토 표 만들기", exact: true }), `${browserName} Toss preview action should follow the picker`).toBeFocused();
+    await captureFinding(page, testInfo, "MUI-002", "toss-upload", ["keyboard-upload", "focus-order"]);
+    await expectZeroHorizontalOverflow(page, `${browserName}/MUI-002/import-pickers`);
+    await captureFinding(page, testInfo, "MUI-002", "import-keyboard-file-pickers", [
+      "visible-file-picker-buttons",
+      "enter-and-space-activation",
+      "single-and-multiple-file-contracts",
+      "target-size-44",
+      "zero-overflow",
+    ]);
+  } finally {
+    await context.close();
+  }
+});
+
+test("MUI-003 Toss review keeps every editable column reachable by touch and keyboard", async ({ browser, browserName }, testInfo) => {
+  test.skip(!["chromium", "webkit"].includes(browserName), "The evidence contract requires Chromium touch plus WebKit local-scroll and keyboard access.");
+  test.setTimeout(180_000);
+  const profiles = MOBILE_PROFILES.filter((candidate) =>
+    ((candidate.width === 320 && candidate.height === 568) || (candidate.width === 390 && candidate.height === 844)) &&
+    (browserName === "chromium" || candidate.width === 390)
+  );
+  for (const profile of profiles) {
+    const { context, page } = await newMatrixPage(browser, browserName, profile, { blockServiceWorkers: true });
+    try {
+      await page.route("**/api/v1/imports/toss-screenshots/preview", async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            rows: [{
+              row_id: `mui-003-row-${profile.width}`,
+              source_ref: `mui-003:${profile.width}`,
+              source_ref_signature: "matrix-signature",
+              source_image_name: "mui-003-toss.png",
+              source_image_index: 0,
+              occurred_on: "2026-07-13",
+              time: "12:07",
+              item_name: "모바일 검토 접근성",
+              detail: "가로 표",
+              amount: "12345",
+              signed_amount: "-12345",
+              balance: "987654",
+              flow_type: "expense",
+              category_id: null,
+              category_recommendation: null,
+              included: true,
+              duplicate_group_id: null,
+              exclusion_reason: null,
+            }],
+            excluded_candidates: [],
+            summary: { image_count: 1, parsed_rows: 1, excluded_candidates: 0, duplicate_candidates: 0 },
+            issues: [],
+          }),
+        });
+      });
+      await registerAndVerify(page, {
+        email: `${unique(`mui-003-toss-${profile.width}`)}@example.com`,
+        displayName: unique(`mui-003-toss-${profile.width}-name`),
+      });
+      await openTab(page, "데이터 가져오기");
+      await page.getByRole("button", { name: "토스 이미지", exact: true }).click();
+      await page.getByLabel("토스 스크린샷 업로드").setInputFiles({
+        name: "mui-003-toss.png",
+        mimeType: "image/png",
+        buffer: Buffer.from("mui-003-toss"),
+      });
+      await page.getByRole("button", { name: "검토 표 만들기", exact: true }).click();
+
+      const region = page.getByRole("region", { name: "토스 거래 검토 표" });
+      await expect(region).toBeVisible();
+      await expect(region).toHaveAttribute("tabindex", "0");
+      const overflowContract = await region.evaluate((element) => ({
+        clientWidth: element.clientWidth,
+        scrollWidth: element.scrollWidth,
+        touchAction: getComputedStyle(element).touchAction,
+      }));
+      expect(overflowContract.scrollWidth, `${profile.name} Toss review should require local horizontal navigation`).toBeGreaterThan(
+        overflowContract.clientWidth
+      );
+      expect(
+        overflowContract.touchAction === "manipulation" || overflowContract.touchAction.split(/\s+/u).includes("pan-x"),
+        `${profile.name} Toss review should permit horizontal touch panning: ${overflowContract.touchAction}`
+      ).toBe(true);
+
+      const categorySelect = region.locator(".toss-category-cell select").first();
+      await expect(categorySelect).toBeVisible();
+      if (browserName === "chromium") {
+        await swipeOverflowRegion(context, page, region, categorySelect, profile.name);
+      } else {
+        await region.evaluate((element) => { element.scrollLeft = element.scrollWidth; });
+      }
+      const touchScrollLeft = await region.evaluate((element) => element.scrollLeft);
+      expect(touchScrollLeft, `${browserName}/${profile.name} should move the local table scroller`).toBeGreaterThan(0);
+      await expectControlInsideRegion(region, categorySelect, `${browserName}/${profile.name} local-scroll category editor`);
+      await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      await page.waitForTimeout(50);
+      await captureFinding(page, testInfo, "MUI-003", "local-scroll-access", [
+        browserName === "chromium" ? "trusted-horizontal-pan" : "webkit-local-scroll-region",
+        "editable-columns-reachable",
+      ]);
+
+      await region.evaluate((element) => { element.scrollLeft = 0; });
+      await region.focus();
+      await expect(region).toBeFocused();
+      const row = region.locator("tbody tr").first();
+      const expectedControlOrder = [
+        { control: row.locator('td[data-label="포함"] input[type="checkbox"]'), label: "include checkbox" },
+        { control: row.getByLabel("일자", { exact: true }), label: "date editor" },
+        { control: row.getByLabel("시간", { exact: true }), label: "time editor" },
+        { control: row.getByLabel("항목명", { exact: true }), label: "item editor" },
+        { control: row.getByLabel("항목 상세", { exact: true }), label: "detail editor" },
+        { control: row.getByLabel("금액", { exact: true }), label: "amount editor" },
+        { control: row.getByLabel("잔액", { exact: true }), label: "balance editor" },
+        { control: row.getByLabel("유형", { exact: true }), label: "flow type editor" },
+        { control: categorySelect, label: "category editor" },
+      ];
+      let previousControl = null;
+      for (const { control, label } of expectedControlOrder) {
+        const maxTabs = label === "time editor" ? 5 : 1;
+        let reached = false;
+        for (let attempt = 0; attempt < maxTabs; attempt += 1) {
+          await page.keyboard.press("Tab");
+          reached = await control.evaluate((element) => element === document.activeElement);
+          if (reached) {
+            break;
+          }
+          const nativeDateSubfocus = previousControl
+            ? await previousControl.evaluate((element) => element === document.activeElement && element.type === "date")
+            : false;
+          expect(nativeDateSubfocus, `${profile.name} Tab order should not enter an unrelated control before ${label}`).toBe(true);
+        }
+        expect(reached, `${profile.name} ${label} should follow the documented Tab order`).toBe(true);
+        await expectControlInsideRegion(region, control, `${profile.name} keyboard ${label}`);
+        previousControl = control;
+      }
+      const keyboardScrollLeft = await region.evaluate((element) => element.scrollLeft);
+      expect(keyboardScrollLeft, `${profile.name} keyboard focus should reveal the category editor`).toBeGreaterThan(0);
+      await expectZeroHorizontalOverflow(page, `${profile.name}/MUI-003/Toss-review`);
+      await region.focus();
+      await expect(region, `${profile.name} keyboard capture should retain a visible table-region focus indicator`).toBeFocused();
+      await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      await page.waitForTimeout(50);
+      await captureFinding(page, testInfo, "MUI-003", "keyboard-access", ["horizontal-pan", "editable-columns-reachable"]);
+    } finally {
+      await context.close();
+    }
+  }
+});
+
+test("MUI-008 collaboration tabs and import mode group expose truthful keyboard semantics", async ({ browser, browserName }, testInfo) => {
+  test.setTimeout(120_000);
+  const profile = MOBILE_PROFILES.find((candidate) => candidate.width === 390 && candidate.height === 844);
+  const { context, page } = await newMatrixPage(browser, browserName, profile);
+  try {
+    await registerAndVerify(page, {
+      email: `${unique(`mui-008-navigation-${browserName}`)}@example.com`,
+      displayName: unique(`mui-008-navigation-${browserName}-name`),
+    });
+    await openTab(page, "협업");
+
+    const receivedArticle = page.locator("article").filter({
+      has: page.getByRole("heading", { name: "받은 초대", exact: true }),
+    });
+    const receivedTabList = receivedArticle.getByRole("tablist", { name: "받은 초대 분류" });
+    const receivedNewTab = receivedTabList.getByRole("tab", { name: "신규", exact: true });
+    const receivedHistoryTab = receivedTabList.getByRole("tab", { name: "이전", exact: true });
+    await expect(receivedNewTab).toHaveAttribute("aria-selected", "true");
+    await expect(receivedNewTab).toHaveAttribute("tabindex", "0");
+    await expect(receivedHistoryTab).toHaveAttribute("aria-selected", "false");
+    await expect(receivedHistoryTab).toHaveAttribute("tabindex", "-1");
+    await expect(receivedNewTab).toHaveAttribute("aria-controls", "received-invites-new-panel");
+    await expect(receivedHistoryTab).toHaveAttribute("aria-controls", "received-invites-history-panel");
+    await expect(receivedArticle.locator("#received-invites-new-panel")).toHaveAttribute("role", "tabpanel");
+    await expect(receivedArticle.locator("#received-invites-new-panel")).toHaveAttribute(
+      "aria-labelledby",
+      "received-invites-new-tab"
+    );
+    await expect(receivedArticle.locator("#received-invites-new-panel")).toBeVisible();
+    await expect(receivedArticle.locator("#received-invites-history-panel")).toBeHidden();
+
+    await receivedNewTab.focus();
+    await page.keyboard.press("ArrowRight");
+    await expect(receivedHistoryTab).toBeFocused();
+    await expect(receivedHistoryTab).toHaveAttribute("aria-selected", "true");
+    await expect(receivedArticle.locator("#received-invites-history-panel")).toBeVisible();
+    await page.keyboard.press("Home");
+    await expect(receivedNewTab).toBeFocused();
+    await expect(receivedNewTab).toHaveAttribute("aria-selected", "true");
+
+    const sentArticle = page.locator("article").filter({
+      has: page.getByRole("heading", { name: "보낸 초대 현황(내 액션)", exact: true }),
+    });
+    const sentTabList = sentArticle.getByRole("tablist", { name: "보낸 초대 분류" });
+    const sentNewTab = sentTabList.getByRole("tab", { name: "신규", exact: true });
+    const sentHistoryTab = sentTabList.getByRole("tab", { name: "이전", exact: true });
+    await expect(sentNewTab).toHaveAttribute("aria-selected", "true");
+    await expect(sentNewTab).toHaveAttribute("aria-controls", "sent-invites-new-panel");
+    await sentNewTab.focus();
+    await page.keyboard.press("End");
+    await expect(sentHistoryTab).toBeFocused();
+    await expect(sentHistoryTab).toHaveAttribute("aria-selected", "true");
+    await expect(sentArticle.locator("#sent-invites-history-panel")).toBeVisible();
+    await expectVisibleFocusIndicator(sentHistoryTab, `${browserName} collaboration history tab`);
+    await captureFinding(page, testInfo, "MUI-008", "collaboration-tabs", ["tab-semantics", "arrow-navigation"]);
+
+    await openTab(page, "데이터 가져오기");
+    const importModeGroup = page.getByRole("group", { name: "가져오기 형식" });
+    await expect(importModeGroup.getByRole("tab")).toHaveCount(0);
+    const workbookMode = importModeGroup.getByRole("button", { name: "XLSX", exact: true });
+    const tossMode = importModeGroup.getByRole("button", { name: "토스 이미지", exact: true });
+    await expect(workbookMode).toHaveAttribute("aria-pressed", "true");
+    await expect(workbookMode).toHaveAttribute("tabindex", "0");
+    await expect(tossMode).toHaveAttribute("aria-pressed", "false");
+    await expect(tossMode).toHaveAttribute("tabindex", "-1");
+    await workbookMode.focus();
+    await page.keyboard.press("ArrowRight");
+    await expect(tossMode).toBeFocused();
+    await expect(tossMode).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByRole("button", { name: "토스 이미지 선택", exact: true })).toBeVisible();
+    const tossUploadPlaceholder = page.locator(".toss-drop-area .upload-placeholder");
+    await expect(tossUploadPlaceholder).toBeVisible();
+    await expect(tossUploadPlaceholder.locator(":scope > span")).toHaveText([
+      "토스 거래내역 이미지를 선택하세요.",
+      "사진 앱이나 저장소에서 고르세요.",
+    ]);
+    const placeholderWrapStyles = await tossUploadPlaceholder.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return {
+        overflowWrap: style.overflowWrap,
+        wordBreak: style.wordBreak,
+      };
+    });
+    expect(placeholderWrapStyles.wordBreak, "Korean upload guidance must wrap at word boundaries").toBe("keep-all");
+    expect(placeholderWrapStyles.overflowWrap, "Korean upload guidance must not split ordinary words").toBe("normal");
+    await page.keyboard.press("Home");
+    await expect(workbookMode).toBeFocused();
+    await expect(workbookMode).toHaveAttribute("aria-pressed", "true");
+    await page.keyboard.press("End");
+    await expect(tossMode).toBeFocused();
+    await expect(tossMode).toHaveAttribute("aria-pressed", "true");
+    await expectVisibleFocusIndicator(tossMode, `${browserName} Toss import mode`);
+    await captureFinding(page, testInfo, "MUI-008", "import-mode-group", ["exclusive-button-group", "arrow-navigation"]);
+  } finally {
+    await context.close();
+  }
+});
+
+test("MUI-009 blocking errors and non-blocking statuses expose distinct live-region contracts", async ({ browser, browserName }, testInfo) => {
+  test.setTimeout(120_000);
+  const profile = MOBILE_PROFILES.find((candidate) => candidate.width === 390 && candidate.height === 844);
+
+  const errorSession = await newMatrixPage(browser, browserName, profile, { blockServiceWorkers: true });
+  try {
+    await errorSession.page.route("**/api/v1/auth/login", async (route) => {
+      await route.fulfill({
+        status: 401,
+        contentType: "application/json",
+        body: JSON.stringify({
+          error: {
+            code: "AUTH_INVALID_CREDENTIALS",
+            message: "이메일 또는 비밀번호가 올바르지 않습니다.",
+          },
+        }),
+      });
+    });
+    await errorSession.page.goto("/");
+    await errorSession.page.getByLabel("이메일", { exact: true }).fill(`${unique(`mui-009-error-${browserName}`)}@example.com`);
+    await errorSession.page.getByLabel("비밀번호", { exact: true }).fill("WrongPassword1234");
+    await errorSession.page.getByRole("button", { name: "로그인하기" }).click();
+
+    const blockingError = errorSession.page.locator("form.auth-card-login .message");
+    await expect(blockingError).toHaveAttribute("role", "alert");
+    await expect(blockingError).toHaveAttribute("aria-live", "assertive");
+    await expect(blockingError).toHaveAttribute("aria-atomic", "true");
+    await expect(blockingError).toHaveAttribute("data-feedback-kind", "error");
+    const cjkWrapStyles = await errorSession.page.evaluate(() => {
+      const feedbackCopy = document.querySelector("form.auth-card-login .message .feedback-copy");
+      const recoveryCopy = document.querySelector("form.auth-card-login .auth-recovery-callout span");
+      return {
+        feedback: feedbackCopy
+          ? {
+              overflowWrap: getComputedStyle(feedbackCopy).overflowWrap,
+              wordBreak: getComputedStyle(feedbackCopy).wordBreak,
+            }
+          : null,
+        recovery: recoveryCopy
+          ? {
+              overflowWrap: getComputedStyle(recoveryCopy).overflowWrap,
+              wordBreak: getComputedStyle(recoveryCopy).wordBreak,
+            }
+          : null,
+      };
+    });
+    expect(cjkWrapStyles.feedback?.wordBreak, "blocking feedback must preserve Korean word boundaries").toBe("keep-all");
+    expect(cjkWrapStyles.feedback?.overflowWrap, "blocking feedback may split only an otherwise unbreakable token").toBe("break-word");
+    expect(cjkWrapStyles.recovery?.wordBreak, "recovery guidance must preserve Korean word boundaries").toBe("keep-all");
+    expect(cjkWrapStyles.recovery?.overflowWrap, "recovery guidance may split only an otherwise unbreakable token").toBe("break-word");
+    const firstErrorId = await blockingError.getAttribute("data-feedback-id");
+    await errorSession.page.waitForTimeout(4_100);
+    await expect(blockingError).toBeVisible();
+    await errorSession.page.getByRole("button", { name: "로그인하기" }).click();
+    await expect(blockingError).not.toHaveAttribute("data-feedback-id", firstErrorId || "");
+    await captureFinding(errorSession.page, testInfo, "MUI-009", "blocking-error", ["assertive-error"]);
+  } finally {
+    await errorSession.context.close();
+  }
+
+  const statusSession = await newMatrixPage(browser, browserName, profile, { blockServiceWorkers: true });
+  try {
+    await statusSession.page.route("**/api/v1/household/ws-ticket", async (route) => {
+      await route.fulfill({
+        status: 403,
+        contentType: "application/json",
+        body: JSON.stringify({
+          error: {
+            code: "HOUSEHOLD_PERMISSION_DENIED",
+            message: "가계 접근 권한이 없습니다.",
+          },
+        }),
+      });
+    });
+    await registerAndVerify(statusSession.page, {
+      email: `${unique(`mui-009-status-${browserName}`)}@example.com`,
+      displayName: unique(`mui-009-status-${browserName}-name`),
+    });
+    const persistentRecoveryStatus = statusSession.page.locator(".app-content > .message-status.message-persistent");
+    const expectPersistentRecoveryGeometry = async (stateLabel) => {
+      await expect(persistentRecoveryStatus, `${stateLabel}: recovery status`).toBeVisible();
+      await expect(persistentRecoveryStatus.locator(".feedback-detail"), `${stateLabel}: recovery detail`).toBeVisible();
+      await expect(persistentRecoveryStatus.locator(".feedback-detail")).toContainText("가계 목록을 새로고침하거나 다시 선택해 주세요.");
+      const geometry = await persistentRecoveryStatus.evaluate((messageElement) => {
+        const box = messageElement.getBoundingClientRect();
+        const viewportTop = window.visualViewport?.offsetTop || 0;
+        const viewportBottom = viewportTop + (window.visualViewport?.height || window.innerHeight);
+        const obscuredTargets = Array.from(document.querySelectorAll("button, a[href], input, select, textarea, [role='button'], [role='tab']"))
+          .filter((element) => element instanceof HTMLElement && !messageElement.contains(element))
+          .map((element) => {
+            const targetBox = element.getBoundingClientRect();
+            const style = getComputedStyle(element);
+            const rendered =
+              style.display !== "none" &&
+              style.visibility !== "hidden" &&
+              targetBox.width > 0 &&
+              targetBox.height > 0 &&
+              targetBox.bottom > viewportTop &&
+              targetBox.top < viewportBottom;
+            return {
+              label: element.getAttribute("aria-label") || element.textContent?.replace(/\s+/g, " ").trim() || "",
+              overlap: rendered && !(
+                targetBox.right <= box.left ||
+                targetBox.left >= box.right ||
+                targetBox.bottom <= box.top ||
+                targetBox.top >= box.bottom
+              ),
+            };
+          })
+          .filter((target) => target.overlap);
+        return {
+          bottom: box.bottom,
+          obscuredTargets,
+          placement: messageElement.dataset.feedbackPlacement || "default",
+          top: box.top,
+          viewportBottom,
+          viewportTop,
+        };
+      });
+      expect(geometry.top, `${stateLabel}: feedback top ${JSON.stringify(geometry)}`).toBeGreaterThanOrEqual(geometry.viewportTop - 1);
+      expect(geometry.bottom, `${stateLabel}: feedback bottom ${JSON.stringify(geometry)}`).toBeLessThanOrEqual(geometry.viewportBottom + 1);
+      expect(geometry.obscuredTargets, `${stateLabel}: feedback overlap ${JSON.stringify(geometry)}`).toEqual([]);
+    };
+    await expectPersistentRecoveryGeometry("portrait before dense fallback");
+
+    await statusSession.page.evaluate(() => {
+      const viewportTop = window.visualViewport?.offsetTop || 0;
+      const viewportHeight = window.visualViewport?.height || window.innerHeight;
+      for (let top = viewportTop; top < viewportTop + viewportHeight; top += 48) {
+        const blocker = document.createElement("button");
+        blocker.type = "button";
+        blocker.tabIndex = -1;
+        blocker.setAttribute("aria-hidden", "true");
+        blocker.dataset.mui009DenseBlocker = "true";
+        Object.assign(blocker.style, {
+          height: "64px",
+          left: "0",
+          opacity: "0",
+          pointerEvents: "none",
+          position: "fixed",
+          right: "0",
+          top: `${top}px`,
+        });
+        document.body.appendChild(blocker);
+      }
+      window.dispatchEvent(new Event("resize"));
+    });
+    await expect(persistentRecoveryStatus).toHaveAttribute("data-feedback-placement", "inline");
+    await statusSession.page.evaluate(() => {
+      document.querySelectorAll("[data-mui009-dense-blocker]").forEach((element) => element.remove());
+      window.dispatchEvent(new Event("resize"));
+    });
+    await expectPersistentRecoveryGeometry("portrait after dense fallback");
+
+    await statusSession.page.setViewportSize({ width: 844, height: 390 });
+    await expectPersistentRecoveryGeometry("landscape");
+    await statusSession.page.setViewportSize({ width: profile.width, height: profile.height });
+    await expectPersistentRecoveryGeometry("portrait restored");
+    await openTab(statusSession.page, "설정");
+    const profileCard = statusSession.page.locator("article.card", {
+      has: statusSession.page.getByRole("heading", { name: "내 프로필", exact: true }),
+    });
+    await labeledField(profileCard, "닉네임", "input").fill(unique(`mui-009-nickname-${browserName}`));
+    await labeledField(profileCard, "표시명 방식", "select").selectOption("nickname");
+    const profileSaveButton = profileCard.getByRole("button", { name: "프로필 저장", exact: true });
+    await profileSaveButton.scrollIntoViewIfNeeded();
+    await profileSaveButton.focus();
+    await expect(profileSaveButton).toBeFocused();
+    const scrollYBeforeStatus = await statusSession.page.evaluate(() => window.scrollY);
+    await profileSaveButton.press("Enter");
+
+    const nonBlockingStatus = statusSession.page.locator(".app-content > .message");
+    await expect(nonBlockingStatus).toBeVisible();
+    await expect(nonBlockingStatus).toHaveAttribute("role", "status");
+    await expect(nonBlockingStatus).toHaveAttribute("aria-live", "polite");
+    await expect(nonBlockingStatus).toHaveAttribute("aria-atomic", "true");
+    await expect(nonBlockingStatus).toHaveAttribute("data-feedback-kind", "status");
+    await expect(profileSaveButton).toBeFocused();
+    const scrollYAfterStatus = await statusSession.page.evaluate(() => window.scrollY);
+    expect(Math.abs(scrollYAfterStatus - scrollYBeforeStatus), "non-blocking feedback must not move document scroll").toBeLessThanOrEqual(1);
+    const statusOverlap = await nonBlockingStatus.evaluate((messageElement) => {
+      const focusedElement = document.activeElement;
+      if (!(focusedElement instanceof HTMLElement)) {
+        return { overlap: false };
+      }
+      const messageBox = messageElement.getBoundingClientRect();
+      const focusBox = focusedElement.getBoundingClientRect();
+      return {
+        focusLabel: focusedElement.textContent?.trim() || focusedElement.getAttribute("aria-label") || "",
+        overlap: !(
+          focusBox.right <= messageBox.left ||
+          focusBox.left >= messageBox.right ||
+          focusBox.bottom <= messageBox.top ||
+          focusBox.top >= messageBox.bottom
+        ),
+      };
+    });
+    expect(statusOverlap.overlap, `feedback must not obscure its focused trigger: ${JSON.stringify(statusOverlap)}`).toBe(false);
+    const obscuredTargets = await nonBlockingStatus.evaluate((messageElement) => {
+      const messageBox = messageElement.getBoundingClientRect();
+      return Array.from(document.querySelectorAll("button, a[href], input, select, textarea, [role='button'], [role='tab']"))
+        .filter((element) => element instanceof HTMLElement && !messageElement.contains(element))
+        .map((element) => {
+          const box = element.getBoundingClientRect();
+          const style = getComputedStyle(element);
+          const rendered =
+            style.display !== "none" &&
+            style.visibility !== "hidden" &&
+            box.width > 0 &&
+            box.height > 0 &&
+            box.bottom > 0 &&
+            box.top < window.innerHeight;
+          return {
+            label: element.getAttribute("aria-label") || element.textContent?.replace(/\s+/g, " ").trim() || "",
+            overlap: rendered && !(
+              box.right <= messageBox.left ||
+              box.left >= messageBox.right ||
+              box.bottom <= messageBox.top ||
+              box.top >= messageBox.bottom
+            ),
+          };
+        })
+        .filter((target) => target.overlap);
+    });
+    expect(obscuredTargets, `feedback must not obscure visible actions: ${JSON.stringify(obscuredTargets)}`).toEqual([]);
+    await captureFinding(statusSession.page, testInfo, "MUI-009", "non-blocking-status", ["polite-status"]);
+    await expect(nonBlockingStatus).toHaveCount(0, { timeout: 5_000 });
+  } finally {
+    await statusSession.context.close();
   }
 });
 

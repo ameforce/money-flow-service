@@ -23,6 +23,9 @@ const ALLOWED_FINDING_STATUSES = new Set(["Open", "In progress", "Fixed, pending
 const VERIFIED_STATUS = "Fixed and verified";
 const requireClosed = process.argv.includes("--require-closed");
 const currentHeadSha = requireClosed ? execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim() : null;
+const trackedWorktreeChanges = requireClosed
+  ? execFileSync("git", ["status", "--porcelain", "--untracked-files=no"], { encoding: "utf8" }).trim()
+  : "";
 const REQUIRED_CONTRACT_SNIPPETS = [
   "v0.1.48 baseline",
   "P0 / CRITICAL",
@@ -42,6 +45,9 @@ function parseMobileFindingRows(ledger) {
 }
 
 const failures = [];
+if (trackedWorktreeChanges) {
+  failures.push("final evidence gate requires a clean tracked worktree");
+}
 let unresolvedFindings = [];
 const unresolvedBySeverity = Object.fromEntries([...REQUIRED_SEVERITIES].map((severity) => [severity, 0]));
 if (!existsSync(LEDGER_PATH)) {

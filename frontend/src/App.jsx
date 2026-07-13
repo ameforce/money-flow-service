@@ -12,8 +12,11 @@ import {
   Tooltip,
 } from "chart.js";
 import { AppShell, TAB_IDS } from "./components/AppShell";
+import { FeedbackMessage } from "./components/FeedbackMessage";
 import { IsoDateInput } from "./components/IsoDateInput";
 import { useCompactViewport } from "./hooks/useCompactViewport";
+import { useFeedbackMessage } from "./hooks/useFeedbackMessage";
+import { useModalFocus } from "./hooks/useModalFocus";
 import { CollaborationPage } from "./pages/CollaborationPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { HoldingsPage } from "./pages/HoldingsPage";
@@ -2282,7 +2285,14 @@ function App() {
   const [importMode, setImportMode] = useState("workbook");
   const [tossPreview, setTossPreview] = useState(null);
   const [tossApplyReport, setTossApplyReport] = useState(null);
-  const [message, setMessage] = useState("");
+  const {
+    clearFeedback,
+    feedback,
+    message,
+    showErrorMessage,
+    showStatusMessage,
+    updateFeedbackText,
+  } = useFeedbackMessage();
   const [loading, setLoading] = useState(false);
   const [dashboardLoading, setDashboardLoading] = useState(false);
   const [dashboardLoaded, setDashboardLoaded] = useState(false);
@@ -2414,7 +2424,15 @@ function App() {
   const transactionSheetScrollYRef = useRef(0);
   const holdingSheetScrollYRef = useRef(0);
   const holdingEntryActionRef = useRef(null);
+  const holdingFabRef = useRef(null);
   const holdingEntryReturnFocusRef = useRef(null);
+  const holdingEntrySheetBackdropRef = useRef(null);
+  const holdingEntrySheetRef = useRef(null);
+  const transactionEntrySheetBackdropRef = useRef(null);
+  const transactionEntrySheetRef = useRef(null);
+  const confirmBackdropRef = useRef(null);
+  const confirmDialogRef = useRef(null);
+  const confirmCancelButtonRef = useRef(null);
   const holdingSummaryCardRef = useRef(null);
   const topbarTabsRef = useRef(null);
   const receivedInviteSectionRef = useRef(null);
@@ -2451,12 +2469,12 @@ function App() {
   }
 
   function dismissMessage() {
-    setMessage("");
+    clearFeedback();
   }
 
   function switchPublicAuthMode(nextMode) {
     setAuthMode(nextMode);
-    setMessage("");
+    clearFeedback();
     setAuthForm((prev) => ({
       ...prev,
       password: "",
@@ -2464,23 +2482,6 @@ function App() {
       ...(nextMode === "login" ? { display_name: "" } : {}),
     }));
   }
-
-  useEffect(() => {
-    const normalizedMessage = String(message || "").trim();
-    if (!normalizedMessage) {
-      return undefined;
-    }
-    const requiresUserAttention = /실패|오류|입력|선택|권한|필요|수 없습니다|토큰|비밀번호|먼저|초과|올바르지|유효하지|만료|일치|찾지 못|삭제할|비어/u.test(
-      normalizedMessage
-    );
-    if (requiresUserAttention) {
-      return undefined;
-    }
-    const timer = window.setTimeout(() => {
-      setMessage("");
-    }, 3800);
-    return () => window.clearTimeout(timer);
-  }, [message]);
 
   function handleTxInlineEditKeyDown(event) {
     if (event.key !== "Enter") {
@@ -3279,7 +3280,7 @@ function App() {
     const nextRole = String(householdRole || "").trim();
     const previous = roleNoticeStateRef.current;
     if (token && nextHouseholdId && nextRole && previous.householdId === nextHouseholdId && previous.role && previous.role !== nextRole) {
-      setMessage(
+      showStatusMessage(
         uiGuideMessage(
           "내 권한이 변경되었습니다.",
           `현재 권한: ${COLLAB_ROLE_LABELS[nextRole] || nextRole || "-"}`,
@@ -3290,7 +3291,7 @@ function App() {
       householdId: nextHouseholdId,
       role: nextRole,
     };
-  }, [household?.id, householdRole, token]);
+  }, [household?.id, householdRole, showStatusMessage, token]);
 
   useEffect(() => {
     const canShowOnboardingGuide = householdRole === "owner" || householdRole === "co_owner" || householdRole === "editor";
@@ -3445,37 +3446,6 @@ function App() {
     setHoldingColumnWidths(normalizedHoldingSettings.column_widths || {});
   }, [JSON.stringify(normalizedHoldingSettings.column_widths || {})]);
 
-  useLayoutEffect(() => {
-    if (!showTransactionForm) {
-      return undefined;
-    }
-    let cancelled = false;
-    let frameId = 0;
-    let timeoutId = 0;
-    const focusEntryTarget = () => {
-      if (cancelled) {
-        return;
-      }
-      const focusTarget = txEntrySheetStep === "form" ? txAmountInputRef.current : txDateInputRef.current;
-      if (!focusTarget || focusTarget.disabled) {
-        return;
-      }
-      txQuickLastFocusedFieldRef.current = focusTarget;
-      focusTarget?.focus?.({ preventScroll: true });
-      if (focusTarget === txAmountInputRef.current) {
-        setShowTransactionQuickResume(false);
-      }
-    };
-    focusEntryTarget();
-    frameId = requestAnimationFrame(focusEntryTarget);
-    timeoutId = window.setTimeout(focusEntryTarget, 0);
-    return () => {
-      cancelled = true;
-      cancelAnimationFrame(frameId);
-      window.clearTimeout(timeoutId);
-    };
-  }, [showTransactionForm, txEntrySheetStep]);
-
   useEffect(() => {
     if (!txRepeatFocusRequest || loading || !showTransactionForm || txEntrySheetStep !== "form") {
       return undefined;
@@ -3619,15 +3589,6 @@ function App() {
     holdingOwnerTouched,
     showHoldingForm,
   ]);
-
-  useEffect(() => {
-    if (!showHoldingForm) {
-      return;
-    }
-    requestAnimationFrame(() => {
-      holdingNameInputRef.current?.focus?.();
-    });
-  }, [showHoldingForm]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -3832,11 +3793,11 @@ function App() {
     );
 
     setTxFormErrors(createTransactionFormErrors());
-    setMessage((prev) => {
+    updateFeedbackText((prev) => {
       const normalized = String(prev || "").trim();
       return normalized && validationMessages.has(normalized) ? "" : prev;
     });
-  }, [txFormErrors.amount, txFormErrors.occurred_on]);
+  }, [txFormErrors.amount, txFormErrors.occurred_on, updateFeedbackText]);
 
   function openTransactionEntrySheet(nextStep = "form") {
     if (loading) {
@@ -3875,7 +3836,6 @@ function App() {
       }
     }
     const restoreScrollY = transactionSheetScrollYRef.current;
-    const focusedElementAtClose = document.activeElement;
     clearTransactionEntryValidationFeedback();
     setShowTransactionForm(false);
     setTxEntrySheetStep("form");
@@ -3883,42 +3843,15 @@ function App() {
     clearTransactionQuickFocusScrollTimers();
     window.setTimeout(() => {
       window.scrollTo({ top: restoreScrollY, behavior: "auto" });
-      const trigger = isCompactViewport ? transactionFabRef.current : transactionDesktopAddActionRef.current ?? transactionFabRef.current;
-      const activeElement = document.activeElement;
-      const shouldRestoreTriggerFocus =
-        !activeElement ||
-        activeElement === focusedElementAtClose ||
-        activeElement === document.body ||
-        activeElement === document.documentElement ||
-        !activeElement.isConnected;
-      if (shouldRestoreTriggerFocus) {
-        trigger?.focus?.({ preventScroll: true });
-      }
     }, 0);
     return true;
   }, [
     clearTransactionEntryValidationFeedback,
     clearTransactionQuickFocusScrollTimers,
-    isCompactViewport,
     isTransactionEntryDraftDirty,
     requestConfirmDialog,
     txEntrySheetStep,
   ]);
-
-  useEffect(() => {
-    if (!showTransactionForm) {
-      return undefined;
-    }
-    const handleTransactionEntryEscape = (event) => {
-      if (event.key !== "Escape") {
-        return;
-      }
-      event.preventDefault();
-      closeTransactionEntrySheet();
-    };
-    document.addEventListener("keydown", handleTransactionEntryEscape);
-    return () => document.removeEventListener("keydown", handleTransactionEntryEscape);
-  }, [showTransactionForm, closeTransactionEntrySheet]);
 
   function resetTransactionDraft() {
     setTxForm(createTransactionForm(transactionEntryTodayDate()));
@@ -4152,7 +4085,7 @@ function App() {
     setTxCategoryMajor(compatibleCategory ? String(compatibleCategory.major || "") : "");
     if (compatibleCategory) {
       setTxCategoryRestore(null);
-      setMessage(
+      showStatusMessage(
         uiGuideMessage(
           "유형에 맞는 카테고리를 유지했습니다.",
           `${toCategoryPairLabel(compatibleCategory)} 카테고리로 이어서 입력합니다.`
@@ -4163,7 +4096,7 @@ function App() {
     const restoreSnapshot = buildCategoryRestoreSnapshot(selectedCategory);
     setTxCategoryRestore(restoreSnapshot);
     if (restoreSnapshot) {
-      setMessage(
+      showStatusMessage(
         uiGuideMessage(
           "카테고리 선택을 비웠습니다.",
           "선택한 유형에 같은 카테고리가 없어 필요하면 이전 카테고리를 복구하세요."
@@ -4184,7 +4117,7 @@ function App() {
     }));
     setTxCategoryMajor(txCategoryRestore.category_major);
     setTxCategoryRestore(null);
-    setMessage(
+    showStatusMessage(
       uiGuideMessage(
         "이전 카테고리를 복구했습니다.",
         `${FLOW_TYPE_LABELS[txCategoryRestore.flow_type] || txCategoryRestore.flow_type} · ${txCategoryRestore.label}`
@@ -4278,27 +4211,10 @@ function App() {
       if (isCompactViewport) {
         window.scrollTo({ top: restoreScrollY, behavior: "auto" });
       }
-      const returnFocusTarget = holdingEntryReturnFocusRef.current || holdingEntryActionRef.current;
-      returnFocusTarget?.focus?.({ preventScroll: true });
       holdingEntryReturnFocusRef.current = null;
     }, 0);
     return true;
   }, [isCompactViewport, isHoldingEntryDraftDirty, requestConfirmDialog]);
-
-  useEffect(() => {
-    if (!showHoldingForm || !isCompactViewport) {
-      return undefined;
-    }
-    const handleHoldingEntryEscape = (event) => {
-      if (event.key !== "Escape") {
-        return;
-      }
-      event.preventDefault();
-      closeHoldingEntrySheet();
-    };
-    document.addEventListener("keydown", handleHoldingEntryEscape);
-    return () => document.removeEventListener("keydown", handleHoldingEntryEscape);
-  }, [showHoldingForm, isCompactViewport, closeHoldingEntrySheet]);
 
   function scrollToHoldingSummary() {
     const summaryCard = holdingSummaryCardRef.current;
@@ -4602,6 +4518,53 @@ function App() {
     }
   }
 
+  useModalFocus({
+    dialogRef: transactionEntrySheetRef,
+    focusKey: txEntrySheetStep,
+    getInitialFocus: () => {
+      const focusTarget = txEntrySheetStep === "form" ? txAmountInputRef.current : txDateInputRef.current;
+      if (focusTarget) {
+        txQuickLastFocusedFieldRef.current = focusTarget;
+        if (focusTarget === txAmountInputRef.current) {
+          setShowTransactionQuickResume(false);
+        }
+      }
+      return focusTarget;
+    },
+    getReturnFocus: () =>
+      isCompactViewport
+        ? transactionFabRef.current
+        : transactionDesktopAddActionRef.current ?? transactionFabRef.current,
+    isolationRef: transactionEntrySheetBackdropRef,
+    onEscape: () => closeTransactionEntrySheet(),
+    open: showTransactionForm,
+  });
+
+  useModalFocus({
+    activeOutsideRefs: [holdingEntrySheetBackdropRef],
+    dialogRef: holdingEntrySheetRef,
+    getInitialFocus: () => holdingNameInputRef.current,
+    getReturnFocus: () => {
+      const compactTrigger = isCompactViewport ? holdingFabRef.current : null;
+      if (compactTrigger?.isConnected) {
+        return compactTrigger;
+      }
+      const originalTrigger = holdingEntryReturnFocusRef.current;
+      return originalTrigger?.isConnected ? originalTrigger : holdingFabRef.current || holdingEntryActionRef.current;
+    },
+    onEscape: () => closeHoldingEntrySheet(),
+    open: showHoldingForm && isCompactViewport,
+    surfaceOpen: showHoldingForm,
+  });
+
+  useModalFocus({
+    dialogRef: confirmDialogRef,
+    getInitialFocus: () => confirmCancelButtonRef.current,
+    isolationRef: confirmBackdropRef,
+    onEscape: () => closeConfirmDialog(false),
+    open: confirmDialog.open,
+  });
+
   async function handleHouseholdInviteAccepted(acceptedPayload, nextToken = token) {
     const nextHouseholdId = String(acceptedPayload?.household_id || "").trim();
     const nextInvitationId = String(acceptedPayload?.invitation_id || "").trim();
@@ -4620,7 +4583,7 @@ function App() {
       activeHouseholdSelected,
     });
     setTab("collaboration");
-    setMessage(
+    showStatusMessage(
       uiGuideMessage(
         "초대를 수락했습니다.",
         activeHouseholdSelected
@@ -4653,7 +4616,7 @@ function App() {
   useEffect(() => {
     setSavedTabId(tab);
     syncUrlTabParam(tab);
-    setMessage((prev) => (prev ? "" : prev));
+    clearFeedback();
     if (tab === "transactions") {
       if (transactionLatestAnchorSuppressedRef.current) {
         transactionLatestAnchorPendingRef.current = false;
@@ -4669,7 +4632,7 @@ function App() {
         window.scrollTo({ top: 0, left: 0, behavior: "auto" });
       });
     }
-  }, [tab]);
+  }, [clearFeedback, tab]);
 
   useEffect(() => {
     if (
@@ -4890,7 +4853,7 @@ function App() {
       const hadLegacyQueryTokens = params.has("verify_token") || params.has("invite_token");
 
       if (verifyToken || inviteToken) {
-        setMessage("");
+        clearFeedback();
       }
       if (verifyToken) {
         activeDeepLinkFlowRef.current = { type: "verify", token: verifyToken };
@@ -4929,7 +4892,7 @@ function App() {
         params.delete("verify_token");
         params.delete("invite_token");
         if (!verifyToken && !inviteToken) {
-          setMessage("보안을 위해 URL query 토큰은 지원하지 않습니다. 최신 인증 링크로 다시 시도해 주세요.");
+          showErrorMessage("보안을 위해 URL query 토큰은 지원하지 않습니다. 최신 인증 링크로 다시 시도해 주세요.");
         }
       }
       if (!verifyToken && !inviteToken && !hadLegacyQueryTokens) {
@@ -5245,7 +5208,7 @@ function App() {
       if (resolveFilterQuery().txQuery !== expectedTxQuery) {
         return;
       }
-      setMessage(formatApiError(error, "bootstrap"));
+      showErrorMessage(formatApiError(error, "bootstrap"));
       const code = String(error?.code || "").toUpperCase();
       if (code === "AUTH_TOKEN_INVALID" || Number(error?.status || 0) === 401) {
         logout({ revoke: false }).catch(() => undefined);
@@ -5369,7 +5332,7 @@ function App() {
       setTab("collaboration");
     }
     if (showSuccessMessage && inviteAcceptToken) {
-      setMessage(
+      showStatusMessage(
         successMessage ||
           uiGuideMessage(
             "인증이 완료되었습니다.",
@@ -5377,7 +5340,7 @@ function App() {
           )
       );
     } else {
-      setMessage("");
+      clearFeedback();
     }
   }
 
@@ -5390,7 +5353,7 @@ function App() {
       activeDeepLinkFlowRef.current.type === "verify" && activeDeepLinkFlowRef.current.token === tokenText;
     autoVerifyTokenRef.current = tokenText;
     setLoading(true);
-    setMessage("인증 링크를 확인하고 있습니다...");
+    showStatusMessage("인증 링크를 확인하고 있습니다...", { dismissAfterMs: null });
     try {
       await loadClientConfig();
       const payload = await api(`${API_PREFIX}/auth/verify-email`, {
@@ -5423,10 +5386,10 @@ function App() {
           requires_password_setup: true,
           password_setup_reason: "token",
         }));
-        setMessage(registrationPasswordSetupMessage());
+        showErrorMessage(registrationPasswordSetupMessage());
         return;
       }
-      setMessage(formatAuthError(error, "verify"));
+      showErrorMessage(formatAuthError(error, "verify"));
     } finally {
       if (isCurrentVerifyDeepLink()) {
         setLoading(false);
@@ -5477,12 +5440,11 @@ function App() {
   function handleTransactionAmountInput(event, setForm, field = "amount") {
     const rawValue = String(event.currentTarget.value || "");
     handleGroupedDecimalInput(event, setForm, field);
-    setMessage((prev) => {
-      if (hasDecimalSeparatorInput(rawValue)) {
-        return KRW_TRANSACTION_INTEGER_AMOUNT_MESSAGE;
-      }
-      return prev === KRW_TRANSACTION_INTEGER_AMOUNT_MESSAGE ? "" : prev;
-    });
+    if (hasDecimalSeparatorInput(rawValue)) {
+      showErrorMessage(KRW_TRANSACTION_INTEGER_AMOUNT_MESSAGE);
+    } else {
+      updateFeedbackText((prev) => (prev === KRW_TRANSACTION_INTEGER_AMOUNT_MESSAGE ? "" : prev));
+    }
   }
 
   function handleTransactionEntryAmountInput(event) {
@@ -5707,7 +5669,7 @@ function App() {
     if (currentMode === "login") {
       const validationMessage = validateLoginForm(authForm);
       if (validationMessage) {
-        setMessage(validationMessage);
+        showErrorMessage(validationMessage);
         return;
       }
     }
@@ -5718,43 +5680,43 @@ function App() {
         const verificationCode = String(verifyForm.verification_code || "").trim();
         const requiresPasswordSetup = Boolean(verifyForm.requires_password_setup);
         if (!verifyToken && !verificationCode) {
-          setMessage("메일의 인증 링크를 열거나 6자리 인증번호를 입력해 주세요.");
+          showErrorMessage("메일의 인증 링크를 열거나 6자리 인증번호를 입력해 주세요.");
           return;
         }
         if (verificationCode && !String(verifyForm.email || "").trim()) {
-          setMessage("6자리 인증번호로 인증하려면 이메일을 입력해 주세요.");
+          showErrorMessage("6자리 인증번호로 인증하려면 이메일을 입력해 주세요.");
           return;
         }
         if (verifyToken && verificationCode) {
-          setMessage("인증 토큰과 6자리 인증번호 중 하나만 입력해 주세요.");
+          showErrorMessage("인증 토큰과 6자리 인증번호 중 하나만 입력해 주세요.");
           return;
         }
         if (verificationCode && !/^\d{6}$/.test(verificationCode)) {
-          setMessage("6자리 숫자 인증번호를 입력해 주세요.");
+          showErrorMessage("6자리 숫자 인증번호를 입력해 주세요.");
           return;
         }
         if (requiresPasswordSetup) {
           const password = String(activeForm.password || "");
           const passwordConfirm = String(activeForm.password_confirm || "");
           if (password.length < 8) {
-            setMessage("새 비밀번호는 8자 이상이어야 합니다.");
+            showErrorMessage("새 비밀번호는 8자 이상이어야 합니다.");
             return;
           }
           if (password !== passwordConfirm) {
-            setMessage("새 비밀번호 확인이 일치하지 않습니다.");
+            showErrorMessage("새 비밀번호 확인이 일치하지 않습니다.");
             return;
           }
         }
       } else {
         const validationMessage = validateRegisterForm(activeForm);
         if (validationMessage) {
-          setMessage(validationMessage);
+          showErrorMessage(validationMessage);
           return;
         }
       }
     }
     setLoading(true);
-    setMessage("");
+    clearFeedback();
     try {
       await loadClientConfig();
       if (currentMode === "verify") {
@@ -5816,7 +5778,7 @@ function App() {
             requires_password_setup: false,
             password_setup_reason: "",
           });
-          setMessage("");
+          clearFeedback();
           return;
         }
       }
@@ -5833,10 +5795,10 @@ function App() {
           requires_password_setup: true,
           password_setup_reason: prev.token ? "token" : "code",
         }));
-        setMessage(registrationPasswordSetupMessage());
+        showErrorMessage(registrationPasswordSetupMessage());
         return;
       }
-      setMessage(formatAuthError(error, currentMode));
+      showErrorMessage(formatAuthError(error, currentMode));
     } finally {
       setLoading(false);
     }
@@ -5845,11 +5807,11 @@ function App() {
   async function resendVerification() {
     const email = String(verifyForm.email || authForm.email || "").trim();
     if (!email) {
-      setMessage(uiGuideMessage("이메일을 입력해 주세요.", "인증 메일을 받을 이메일 주소를 입력한 뒤 재전송해 주세요."));
+      showErrorMessage(uiGuideMessage("이메일을 입력해 주세요.", "인증 메일을 받을 이메일 주소를 입력한 뒤 재전송해 주세요."));
       return;
     }
     setLoading(true);
-    setMessage("");
+    clearFeedback();
     try {
       await loadClientConfig();
       const payload = await api(`${API_PREFIX}/auth/resend-verification`, {
@@ -5888,9 +5850,9 @@ function App() {
         };
       });
       setNowTick(sentAt);
-      setMessage("");
+      clearFeedback();
     } catch (error) {
-      setMessage(formatAuthError(error, "resend"));
+      showErrorMessage(formatAuthError(error, "resend"));
     } finally {
       setLoading(false);
     }
@@ -5917,7 +5879,7 @@ function App() {
 
   async function selectActiveHousehold(householdId) {
     setLoading(true);
-    setMessage("");
+    clearFeedback();
     try {
       await api(
         `${API_PREFIX}/household/select`,
@@ -5940,9 +5902,9 @@ function App() {
           activeHouseholdSelected: true,
         };
       });
-      setMessage(uiGuideMessage("가계를 전환했습니다.", "협업/거래/자산 화면이 새 가계 기준으로 갱신되었습니다."));
+      showStatusMessage(uiGuideMessage("가계를 전환했습니다.", "협업/거래/자산 화면이 새 가계 기준으로 갱신되었습니다."));
     } catch (error) {
-      setMessage(formatApiError(error, "household_select"));
+      showErrorMessage(formatApiError(error, "household_select"));
     } finally {
       setLoading(false);
     }
@@ -5955,13 +5917,13 @@ function App() {
       setInviteFormErrors({ email: validationMessage });
       inviteEmailInputRef.current?.setCustomValidity?.(validationMessage);
       inviteEmailInputRef.current?.focus({ preventScroll: true });
-      setMessage(validationMessage);
+      showErrorMessage(validationMessage);
       return;
     }
     setInviteFormErrors({ email: "" });
     inviteEmailInputRef.current?.setCustomValidity?.("");
     setLoading(true);
-    setMessage("");
+    clearFeedback();
     try {
       const payload = await api(
         `${API_PREFIX}/household/invitations`,
@@ -5981,7 +5943,7 @@ function App() {
       setInviteForm({ email: "", role: "viewer" });
       setInviteFormErrors({ email: "" });
       await refreshCollaborationData(token);
-      setMessage(
+      showStatusMessage(
         uiGuideMessage(
           "초대를 발송했습니다.",
           debugToken && DEBUG_TOKEN_OPT_IN
@@ -5990,7 +5952,7 @@ function App() {
         )
       );
     } catch (error) {
-      setMessage(formatApiError(error, "household_invite_create"));
+      showErrorMessage(formatApiError(error, "household_invite_create"));
     } finally {
       setLoading(false);
     }
@@ -6000,11 +5962,11 @@ function App() {
     event.preventDefault();
     const rawToken = String(inviteAcceptToken || "").trim();
     if (!rawToken) {
-      setMessage(uiGuideMessage("초대 토큰이 비어 있습니다.", "메일 링크의 토큰을 입력하거나 링크로 직접 접속해 주세요."));
+      showErrorMessage(uiGuideMessage("초대 토큰이 비어 있습니다.", "메일 링크의 토큰을 입력하거나 링크로 직접 접속해 주세요."));
       return;
     }
     setLoading(true);
-    setMessage("");
+    clearFeedback();
     try {
       const payload = await api(
         `${API_PREFIX}/household/invitations/accept`,
@@ -6016,7 +5978,7 @@ function App() {
       );
       await handleHouseholdInviteAccepted(payload, token);
     } catch (error) {
-      setMessage(formatApiError(error, "household_invite_accept"));
+      showErrorMessage(formatApiError(error, "household_invite_accept"));
     } finally {
       setLoading(false);
     }
@@ -6024,7 +5986,7 @@ function App() {
 
   async function acceptReceivedHouseholdInvite(invitationId) {
     setLoading(true);
-    setMessage("");
+    clearFeedback();
     try {
       const payload = await api(
         `${API_PREFIX}/household/invitations/${invitationId}/accept`,
@@ -6035,7 +5997,7 @@ function App() {
       );
       await handleHouseholdInviteAccepted(payload, token);
     } catch (error) {
-      setMessage(formatApiError(error, "household_invite_accept"));
+      showErrorMessage(formatApiError(error, "household_invite_accept"));
     } finally {
       setLoading(false);
     }
@@ -6043,7 +6005,7 @@ function App() {
 
   async function revokeHouseholdInvite(invitationId) {
     setLoading(true);
-    setMessage("");
+    clearFeedback();
     try {
       await api(
         `${API_PREFIX}/household/invitations/${invitationId}`,
@@ -6053,9 +6015,9 @@ function App() {
         token
       );
       await refreshCollaborationData(token);
-      setMessage(uiGuideMessage("초대를 취소했습니다.", "필요하면 새 초대를 다시 발송해 주세요."));
+      showStatusMessage(uiGuideMessage("초대를 취소했습니다.", "필요하면 새 초대를 다시 발송해 주세요."));
     } catch (error) {
-      setMessage(formatApiError(error, "household_invite_revoke"));
+      showErrorMessage(formatApiError(error, "household_invite_revoke"));
     } finally {
       setLoading(false);
     }
@@ -6063,7 +6025,7 @@ function App() {
 
   async function changeMemberRole(memberId, role) {
     setLoading(true);
-    setMessage("");
+    clearFeedback();
     try {
       await api(
         `${API_PREFIX}/household/members/${memberId}/role`,
@@ -6075,9 +6037,9 @@ function App() {
       );
       await loadAuthContext(token);
       await refreshCollaborationData(token);
-      setMessage(uiGuideMessage("구성원 권한을 변경했습니다.", "권한 변경 내용이 즉시 반영되었습니다."));
+      showStatusMessage(uiGuideMessage("구성원 권한을 변경했습니다.", "권한 변경 내용이 즉시 반영되었습니다."));
     } catch (error) {
-      setMessage(formatApiError(error, "household_member_role"));
+      showErrorMessage(formatApiError(error, "household_member_role"));
     } finally {
       setLoading(false);
     }
@@ -6093,7 +6055,7 @@ function App() {
       return;
     }
     setLoading(true);
-    setMessage("");
+    clearFeedback();
     try {
       await api(
         `${API_PREFIX}/household/members/${memberId}`,
@@ -6104,9 +6066,9 @@ function App() {
       );
       await loadAuthContext(token);
       await refreshCollaborationData(token);
-      setMessage(uiGuideMessage("구성원을 제거했습니다.", "필요하면 새로운 초대를 발송해 주세요."));
+      showStatusMessage(uiGuideMessage("구성원을 제거했습니다.", "필요하면 새로운 초대를 발송해 주세요."));
     } catch (error) {
-      setMessage(formatApiError(error, "household_member_remove"));
+      showErrorMessage(formatApiError(error, "household_member_remove"));
     } finally {
       setLoading(false);
     }
@@ -6115,20 +6077,20 @@ function App() {
   async function submitTransaction(event) {
     event.preventDefault();
     if (!canEditRecords) {
-      setMessage(uiGuideMessage("현재 권한으로는 거래를 저장할 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
+      showErrorMessage(uiGuideMessage("현재 권한으로는 거래를 저장할 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
       return;
     }
     const transactionErrors = getTransactionFormErrors(txForm);
     const validationMessage = firstTransactionFormError(transactionErrors);
     setTxFormErrors(transactionErrors);
     if (validationMessage) {
-      setMessage(validationMessage);
+      showErrorMessage(validationMessage);
       focusFirstTransactionFormError(transactionErrors);
       return;
     }
     setTxFormSubmitting(true);
     setLoading(true);
-    setMessage("");
+    clearFeedback();
     try {
       const keepQuickEntryOpen = isCompactViewport && showTransactionForm && txEntrySheetStep === "form";
       const payload = buildTransactionPayloadFromForm(txForm);
@@ -6154,7 +6116,7 @@ function App() {
       setShowTransactionQuickResume(false);
       await revealSavedTransactionInList(createdTransaction, payload.occurred_on, { alignToEnd: !isAnchoredInsert });
       focusTransactionAmountForRepeatEntry();
-      setMessage(
+      showStatusMessage(
         keepQuickEntryOpen
           ? ""
           : isAnchoredInsert
@@ -6162,7 +6124,7 @@ function App() {
             : uiGuideMessage("거래를 등록했습니다.", "필터를 초기화하고 저장한 거래를 표시했습니다. 다음 거래 금액을 바로 입력할 수 있습니다.")
       );
     } catch (error) {
-      setMessage(formatApiError(error, "transaction_submit"));
+      showErrorMessage(formatApiError(error, "transaction_submit"));
     } finally {
       setTxFormSubmitting(false);
       setLoading(false);
@@ -6252,7 +6214,7 @@ function App() {
 
   async function applyLegacyOwnerRemap(rowKey) {
     if (!canEditRecords) {
-      setMessage(uiGuideMessage("현재 권한으로는 소유자를 매핑할 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
+      showErrorMessage(uiGuideMessage("현재 권한으로는 소유자를 매핑할 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
       return;
     }
     const row = legacyOwnerCleanupRows.find((item) => item.key === rowKey);
@@ -6262,12 +6224,12 @@ function App() {
     const targetValue = ownerRemapTargets[row.key] || defaultOwnerRemapOption?.value || "";
     const target = ownerMemberOptions.find((option) => option.value === targetValue);
     if (!target) {
-      setMessage(uiGuideMessage("매핑할 현재 구성원을 선택해 주세요.", "대상 구성원을 선택한 뒤 다시 실행해 주세요."));
+      showErrorMessage(uiGuideMessage("매핑할 현재 구성원을 선택해 주세요.", "대상 구성원을 선택한 뒤 다시 실행해 주세요."));
       return;
     }
     setOwnerRemappingKey(row.key);
     setLoading(true);
-    setMessage("");
+    clearFeedback();
     try {
       const remapResult = await api(
         `${API_PREFIX}/household/legacy-owner-remap`,
@@ -6284,14 +6246,14 @@ function App() {
       await loadOwnerCleanupTransactions(token);
       const total = Number(remapResult?.remapped_transactions || 0) + Number(remapResult?.remapped_holdings || 0);
       const targetDisplayName = remapResult?.target_owner_name || target.displayName;
-      setMessage(
+      showStatusMessage(
         uiGuideMessage(
           "기존 소유자를 현재 구성원으로 매핑했습니다.",
           `${remapResult?.source_owner_name || row.ownerName} ${fmt(total)}건을 ${targetDisplayName}으로 연결했습니다.`
         )
       );
     } catch (error) {
-      setMessage(formatApiError(error, "owner_remap"));
+      showErrorMessage(formatApiError(error, "owner_remap"));
     } finally {
       setOwnerRemappingKey("");
       setLoading(false);
@@ -6322,7 +6284,7 @@ function App() {
   }
 
   function notifyTransactionEditPermissionDenied() {
-    setMessage(uiGuideMessage("현재 권한으로는 거래를 수정할 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
+    showErrorMessage(uiGuideMessage("현재 권한으로는 거래를 수정할 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
   }
 
   function openTransactionInlineEditor(item) {
@@ -6402,7 +6364,7 @@ function App() {
 
   async function removeSelectedTransactions() {
     if (!canEditRecords) {
-      setMessage(uiGuideMessage("현재 권한으로는 거래를 삭제할 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
+      showErrorMessage(uiGuideMessage("현재 권한으로는 거래를 삭제할 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
       return;
     }
     const ids = selectedTransactionItems.map((item) => String(item.id || "").trim()).filter(Boolean);
@@ -6422,7 +6384,7 @@ function App() {
       return;
     }
     setLoading(true);
-    setMessage("");
+    clearFeedback();
     try {
       const result = await api(
         `${API_PREFIX}/transactions/bulk-delete`,
@@ -6446,7 +6408,7 @@ function App() {
       try {
         await refreshData(false);
       } catch (refreshError) {
-        setMessage(
+        showErrorMessage(
           uiGuideMessage(
             "선택한 거래를 삭제했지만 목록 새로고침에 실패했습니다.",
             formatApiError(refreshError, "transaction_delete")
@@ -6454,9 +6416,9 @@ function App() {
         );
         return;
       }
-      setMessage(uiGuideMessage("선택한 거래를 삭제했습니다.", `${deletedIds.size}건을 목록에서 제거했습니다.`));
+      showStatusMessage(uiGuideMessage("선택한 거래를 삭제했습니다.", `${deletedIds.size}건을 목록에서 제거했습니다.`));
     } catch (error) {
-      setMessage(formatApiError(error, "transaction_delete"));
+      showErrorMessage(formatApiError(error, "transaction_delete"));
     } finally {
       setLoading(false);
     }
@@ -6514,7 +6476,7 @@ function App() {
   async function submitHolding(event) {
     event.preventDefault();
     if (!canEditRecords) {
-      setMessage(uiGuideMessage("현재 권한으로는 자산을 저장할 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
+      showErrorMessage(uiGuideMessage("현재 권한으로는 자산을 저장할 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
       return;
     }
     const validationMessage = validateHoldingForm(holdingForm, {
@@ -6522,11 +6484,11 @@ function App() {
       showAverageCost: holdingFormShowAverageCost,
     });
     if (validationMessage) {
-      setMessage(validationMessage);
+      showErrorMessage(validationMessage);
       return;
     }
     setLoading(true);
-    setMessage("");
+    clearFeedback();
     try {
       const payload = holdingPayloadFromForm(holdingForm);
       await api(
@@ -6549,9 +6511,9 @@ function App() {
       );
       closeHoldingEntrySheet({ skipDraftGuard: true });
       await refreshData(false);
-      setMessage(uiGuideMessage("자산을 저장했습니다.", "목록에서 반영 결과를 확인해 주세요."));
+      showStatusMessage(uiGuideMessage("자산을 저장했습니다.", "목록에서 반영 결과를 확인해 주세요."));
     } catch (error) {
-      setMessage(formatApiError(error, "holding_submit"));
+      showErrorMessage(formatApiError(error, "holding_submit"));
     } finally {
       setLoading(false);
     }
@@ -6565,19 +6527,19 @@ function App() {
       return;
     }
     if (!canEditRecords) {
-      setMessage(uiGuideMessage("현재 권한으로는 거래를 수정할 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
+      showErrorMessage(uiGuideMessage("현재 권한으로는 거래를 수정할 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
       return;
     }
     if (!txInlineEdit?.id) return;
     const validationMessage = validateTransactionForm(txInlineEdit);
     if (validationMessage) {
-      setMessage(validationMessage);
+      showErrorMessage(validationMessage);
       return;
     }
     txInlineEditSubmittingRef.current = true;
     setTxInlineEditSubmitting(true);
     setLoading(true);
-    setMessage("");
+    clearFeedback();
     try {
       const payload = buildTransactionPayloadFromForm(txInlineEdit);
       if (txInlineEdit.mode === "insert") {
@@ -6593,7 +6555,7 @@ function App() {
         await revealSavedTransactionInList(createdTransaction, payload.occurred_on || txInlineEdit.occurred_on, {
           alignToEnd: false,
         });
-        setMessage(uiGuideMessage("선택한 위치에 거래를 삽입했습니다.", "삽입한 거래를 목록에서 확인할 수 있습니다."));
+        showStatusMessage(uiGuideMessage("선택한 위치에 거래를 삽입했습니다.", "삽입한 거래를 목록에서 확인할 수 있습니다."));
         return;
       }
       const originalTx = transactionById.get(txInlineEdit.id);
@@ -6626,9 +6588,9 @@ function App() {
         dirtyPatch.occurred_on || txInlineEdit.occurred_on || transactionLocalTodayRef.current || todayIso(),
         { alignToEnd: true }
       );
-      setMessage(uiGuideMessage("거래를 수정했습니다.", "필터를 초기화하고 수정한 거래를 표시했습니다."));
+      showStatusMessage(uiGuideMessage("거래를 수정했습니다.", "필터를 초기화하고 수정한 거래를 표시했습니다."));
     } catch (error) {
-      setMessage(formatApiError(error, "transaction_submit"));
+      showErrorMessage(formatApiError(error, "transaction_submit"));
     } finally {
       txInlineEditSubmittingRef.current = false;
       setTxInlineEditSubmitting(false);
@@ -6641,7 +6603,7 @@ function App() {
       event.preventDefault();
     }
     if (!canEditRecords) {
-      setMessage(uiGuideMessage("현재 권한으로는 자산을 수정할 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
+      showErrorMessage(uiGuideMessage("현재 권한으로는 자산을 수정할 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
       return;
     }
     if (!holdingInlineEdit?.id) {
@@ -6654,11 +6616,11 @@ function App() {
       showAverageCost: Boolean(inlineType?.show_average_cost ?? true),
     });
     if (validationMessage) {
-      setMessage(validationMessage);
+      showErrorMessage(validationMessage);
       return;
     }
     setLoading(true);
-    setMessage("");
+    clearFeedback();
     try {
       const payload = holdingPayloadFromForm(holdingInlineEdit);
       const originalHolding = holdingById.get(holdingInlineEdit.id);
@@ -6693,9 +6655,9 @@ function App() {
       );
       setHoldingInlineEdit(null);
       await refreshData(false);
-      setMessage(uiGuideMessage("자산을 수정했습니다.", "목록에서 변경 내용을 확인해 주세요."));
+      showStatusMessage(uiGuideMessage("자산을 수정했습니다.", "목록에서 변경 내용을 확인해 주세요."));
     } catch (error) {
-      setMessage(formatApiError(error, "holding_submit"));
+      showErrorMessage(formatApiError(error, "holding_submit"));
     } finally {
       setLoading(false);
     }
@@ -6704,7 +6666,7 @@ function App() {
   async function saveProfileSettings(event) {
     event.preventDefault();
     setLoading(true);
-    setMessage("");
+    clearFeedback();
     try {
       const payload = {
         real_name: String(profileForm.real_name || "").trim() || null,
@@ -6722,9 +6684,9 @@ function App() {
       setUser(nextUser);
       await refreshCollaborationData(token);
       await refreshData(false, token);
-      setMessage(uiGuideMessage("프로필을 저장했습니다.", "표시명 변경 내용이 멤버 목록과 거래/자산 화면에 반영되었습니다."));
+      showStatusMessage(uiGuideMessage("프로필을 저장했습니다.", "표시명 변경 내용이 멤버 목록과 거래/자산 화면에 반영되었습니다."));
     } catch (error) {
-      setMessage(formatApiError(error, "profile_save"));
+      showErrorMessage(formatApiError(error, "profile_save"));
     } finally {
       setLoading(false);
     }
@@ -6733,7 +6695,7 @@ function App() {
   async function saveHouseholdSettings(event) {
     event.preventDefault();
     setLoading(true);
-    setMessage("");
+    clearFeedback();
     try {
       const payload = {
         name: String(householdSettingsForm.name || "").trim(),
@@ -6754,9 +6716,9 @@ function App() {
         holding_settings: normalizeHoldingSettings(nextSettings?.holding_settings),
       });
       await loadAuthContext(token);
-      setMessage(uiGuideMessage("가계 설정을 저장했습니다.", "가계 이름과 거래 행 색상이 현재 가계 전체에 반영되었습니다."));
+      showStatusMessage(uiGuideMessage("가계 설정을 저장했습니다.", "가계 이름과 거래 행 색상이 현재 가계 전체에 반영되었습니다."));
     } catch (error) {
-      setMessage(formatApiError(error, "household_settings"));
+      showErrorMessage(formatApiError(error, "household_settings"));
     } finally {
       setLoading(false);
     }
@@ -6766,11 +6728,11 @@ function App() {
     event.preventDefault();
     const validationMessage = validateCategoryDraftForm();
     if (validationMessage) {
-      setMessage(validationMessage);
+      showErrorMessage(validationMessage);
       return;
     }
     setLoading(true);
-    setMessage("");
+    clearFeedback();
     try {
       const createdCategory = await api(
         `${API_PREFIX}/categories`,
@@ -6789,9 +6751,9 @@ function App() {
       setCategoryDraftMinorSelect("__custom__");
       setCategoryQuickSelectedId(String(createdCategory?.id || "").trim());
       await loadAuthContext(token);
-      setMessage(uiGuideMessage("카테고리를 추가했습니다.", "거래 입력 폼 옵션에도 즉시 반영되었습니다."));
+      showStatusMessage(uiGuideMessage("카테고리를 추가했습니다.", "거래 입력 폼 옵션에도 즉시 반영되었습니다."));
     } catch (error) {
-      setMessage(formatApiError(error, "category_create"));
+      showErrorMessage(formatApiError(error, "category_create"));
     } finally {
       setLoading(false);
     }
@@ -6800,12 +6762,12 @@ function App() {
   async function createAndApplyTransactionCategory(draft) {
     const validationMessage = validateInlineCategoryCreateDraft(draft);
     if (validationMessage) {
-      setMessage(validationMessage);
+      showErrorMessage(validationMessage);
       return false;
     }
     const flowType = String(txForm.flow_type || "expense").trim() || "expense";
     setLoading(true);
-    setMessage("");
+    clearFeedback();
     try {
       const createdCategory = await api(
         `${API_PREFIX}/categories`,
@@ -6823,11 +6785,11 @@ function App() {
       setCategoryQuickSelectedId(createdId);
       await loadAuthContext(token);
       applyTransactionCategory(createdId, createdCategory);
-      setMessage(uiGuideMessage("카테고리를 추가했습니다.", "새 카테고리를 현재 거래 초안에 바로 적용했습니다."));
+      showStatusMessage(uiGuideMessage("카테고리를 추가했습니다.", "새 카테고리를 현재 거래 초안에 바로 적용했습니다."));
       focusTransactionAfterCategoryCreate();
       return createdCategory;
     } catch (error) {
-      setMessage(formatApiError(error, "category_create"));
+      showErrorMessage(formatApiError(error, "category_create"));
       return false;
     } finally {
       setLoading(false);
@@ -6836,18 +6798,18 @@ function App() {
 
   async function createAndApplyTxInlineCategory(draft) {
     if (!txInlineEdit) {
-      setMessage("수정 중인 거래가 없습니다.");
+      showErrorMessage("수정 중인 거래가 없습니다.");
       return false;
     }
     const validationMessage = validateInlineCategoryCreateDraft(draft);
     if (validationMessage) {
-      setMessage(validationMessage);
+      showErrorMessage(validationMessage);
       return false;
     }
     const editId = txInlineEdit.id;
     const flowType = String(txInlineEdit.flow_type || "expense").trim() || "expense";
     setLoading(true);
-    setMessage("");
+    clearFeedback();
     try {
       const createdCategory = await api(
         `${API_PREFIX}/categories`,
@@ -6873,11 +6835,11 @@ function App() {
           }
           : prev
       );
-      setMessage(uiGuideMessage("카테고리를 추가했습니다.", "새 카테고리를 수정 중인 거래에 바로 적용했습니다."));
+      showStatusMessage(uiGuideMessage("카테고리를 추가했습니다.", "새 카테고리를 수정 중인 거래에 바로 적용했습니다."));
       focusTxInlineAfterCategoryCreate();
       return createdCategory;
     } catch (error) {
-      setMessage(formatApiError(error, "category_create"));
+      showErrorMessage(formatApiError(error, "category_create"));
       return false;
     } finally {
       setLoading(false);
@@ -6887,7 +6849,7 @@ function App() {
   async function saveCategoryEdit(event, categoryId) {
     event.preventDefault();
     setLoading(true);
-    setMessage("");
+    clearFeedback();
     try {
       await api(
         `${API_PREFIX}/categories/${categoryId}`,
@@ -6904,9 +6866,9 @@ function App() {
       setCategoryEditForm({ major: "", minor: "" });
       await loadAuthContext(token);
       await refreshData(false, token);
-      setMessage(uiGuideMessage("카테고리를 수정했습니다.", "연결된 거래 화면에도 즉시 반영되었습니다."));
+      showStatusMessage(uiGuideMessage("카테고리를 수정했습니다.", "연결된 거래 화면에도 즉시 반영되었습니다."));
     } catch (error) {
-      setMessage(formatApiError(error, "category_patch"));
+      showErrorMessage(formatApiError(error, "category_patch"));
     } finally {
       setLoading(false);
     }
@@ -6915,11 +6877,11 @@ function App() {
   async function renameCategoryMajorGroup(flowType, currentMajor) {
     const nextMajor = String(majorRenameDrafts[`${flowType}:${currentMajor}`] || "").trim();
     if (!nextMajor) {
-      setMessage("새 대분류 이름을 입력해 주세요.");
+      showErrorMessage("새 대분류 이름을 입력해 주세요.");
       return;
     }
     setLoading(true);
-    setMessage("");
+    clearFeedback();
     try {
       await api(
         `${API_PREFIX}/categories/rename-major`,
@@ -6936,9 +6898,9 @@ function App() {
       setMajorRenameDrafts((prev) => ({ ...prev, [`${flowType}:${currentMajor}`]: "" }));
       await loadAuthContext(token);
       await refreshData(false, token);
-      setMessage(uiGuideMessage("대분류 이름을 일괄 변경했습니다.", "해당 그룹의 모든 중분류와 기존 거래 표시에 반영되었습니다."));
+      showStatusMessage(uiGuideMessage("대분류 이름을 일괄 변경했습니다.", "해당 그룹의 모든 중분류와 기존 거래 표시에 반영되었습니다."));
     } catch (error) {
-      setMessage(formatApiError(error, "category_rename_major"));
+      showErrorMessage(formatApiError(error, "category_rename_major"));
     } finally {
       setLoading(false);
     }
@@ -6954,7 +6916,7 @@ function App() {
       return;
     }
     setLoading(true);
-    setMessage("");
+    clearFeedback();
     try {
       await api(
         `${API_PREFIX}/categories/${category.id}`,
@@ -6974,9 +6936,9 @@ function App() {
         delete next[category.id];
         return next;
       });
-      setMessage(uiGuideMessage("카테고리를 삭제했습니다.", "사용 중이지 않은 카테고리만 정리했습니다."));
+      showStatusMessage(uiGuideMessage("카테고리를 삭제했습니다.", "사용 중이지 않은 카테고리만 정리했습니다."));
     } catch (error) {
-      setMessage(formatApiError(error, "category_delete"));
+      showErrorMessage(formatApiError(error, "category_delete"));
     } finally {
       setLoading(false);
     }
@@ -7003,7 +6965,7 @@ function App() {
         [categoryId]: Array.isArray(payload) ? payload : [],
       }));
     } catch (error) {
-      setMessage(formatApiError(error, "category_usage"));
+      showErrorMessage(formatApiError(error, "category_usage"));
     } finally {
       setCategoryUsageLoadingId((prev) => (prev === categoryId ? "" : prev));
     }
@@ -7012,7 +6974,7 @@ function App() {
   function editSelectedCategoryQuick() {
     const selected = categories.find((item) => String(item.id) === String(categoryQuickSelectedId));
     if (!selected) {
-      setMessage("수정할 카테고리를 먼저 선택해 주세요.");
+      showErrorMessage("수정할 카테고리를 먼저 선택해 주세요.");
       return;
     }
     setCategoryEditId(selected.id);
@@ -7022,7 +6984,7 @@ function App() {
   function deleteSelectedCategoryQuick() {
     const selected = categories.find((item) => String(item.id) === String(categoryQuickSelectedId));
     if (!selected) {
-      setMessage("삭제할 카테고리를 먼저 선택해 주세요.");
+      showErrorMessage("삭제할 카테고리를 먼저 선택해 주세요.");
       return;
     }
     void deleteCategoryPair(selected);
@@ -7051,7 +7013,7 @@ function App() {
 
   async function copyImportReportCsv() {
     if (!importReportVisibleRows.length) {
-      setMessage("복사할 정리 표 행이 없습니다.");
+      showErrorMessage("복사할 정리 표 행이 없습니다.");
       return;
     }
     try {
@@ -7068,15 +7030,15 @@ function App() {
         document.execCommand("copy");
         document.body.removeChild(textarea);
       }
-      setMessage("정리 표 CSV를 클립보드에 복사했습니다.");
+      showStatusMessage("정리 표 CSV를 클립보드에 복사했습니다.");
     } catch {
-      setMessage("브라우저 권한 때문에 CSV 복사에 실패했습니다. 다운로드를 사용하세요.");
+      showErrorMessage("브라우저 권한 때문에 CSV 복사에 실패했습니다. 다운로드를 사용하세요.");
     }
   }
 
   function downloadImportReportCsv() {
     if (!importReportVisibleRows.length) {
-      setMessage("내보낼 정리 표 행이 없습니다.");
+      showErrorMessage("내보낼 정리 표 행이 없습니다.");
       return;
     }
     const blob = new Blob(["\uFEFF", importReportCsv], { type: "text/csv;charset=utf-8" });
@@ -7088,12 +7050,12 @@ function App() {
     anchor.click();
     document.body.removeChild(anchor);
     URL.revokeObjectURL(url);
-    setMessage("정리 표 CSV를 다운로드했습니다.");
+    showStatusMessage("정리 표 CSV를 다운로드했습니다.");
   }
 
   async function showImportedTransactions({ startEdit = false } = {}) {
     if (importAppliedTransactionRefs.length === 0) {
-      setMessage("가져온 거래가 없습니다.");
+      showErrorMessage("가져온 거래가 없습니다.");
       return;
     }
     const ids = importAppliedTransactionRefs.map((item) => item.id);
@@ -7134,7 +7096,7 @@ function App() {
 
   function showImportedHoldings({ startEdit = false } = {}) {
     if (importAppliedHoldingRefs.length === 0) {
-      setMessage("가져온 자산이 없습니다.");
+      showErrorMessage("가져온 자산이 없습니다.");
       return;
     }
     const ids = importAppliedHoldingRefs.map((item) => item.id);
@@ -7161,16 +7123,18 @@ function App() {
 
   async function doImport(mode) {
     if (!canEditRecords) {
-      setMessage(uiGuideMessage("현재 권한으로는 데이터를 가져올 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
+      showErrorMessage(uiGuideMessage("현재 권한으로는 데이터를 가져올 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
       return;
     }
     if (!importFile) {
-      setMessage("엑셀 파일을 먼저 업로드해 주세요.");
+      showErrorMessage("엑셀 파일을 먼저 업로드해 주세요.");
       return;
     }
     setImportLoadingMode(mode);
     setLoading(true);
-    setMessage(`${IMPORT_MODE_LABELS[mode] || mode} 요청을 처리 중입니다. 잠시만 기다려 주세요.`);
+    showStatusMessage(`${IMPORT_MODE_LABELS[mode] || mode} 요청을 처리 중입니다. 잠시만 기다려 주세요.`, {
+      dismissAfterMs: null,
+    });
     try {
       let report = null;
       const formData = new FormData();
@@ -7197,9 +7161,9 @@ function App() {
         setPendingImportEditTransactionId("");
         setPendingImportEditHoldingId("");
       }
-      setMessage(`${IMPORT_MODE_LABELS[mode] || mode} 완료`);
+      showStatusMessage(`${IMPORT_MODE_LABELS[mode] || mode} 완료`);
     } catch (error) {
-      setMessage(formatImportError(error, mode));
+      showErrorMessage(formatImportError(error, mode));
     } finally {
       setImportLoadingMode("");
       setLoading(false);
@@ -7208,12 +7172,12 @@ function App() {
 
   async function exportMigrationPackage() {
     if (!canEditRecords) {
-      setMessage(uiGuideMessage("현재 권한으로는 이식 패키지를 추출할 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
+      showErrorMessage(uiGuideMessage("현재 권한으로는 이식 패키지를 추출할 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
       return;
     }
     setMigrationExporting(true);
     setLoading(true);
-    setMessage("이식 패키지를 생성하는 중입니다. 잠시만 기다려 주세요.");
+    showStatusMessage("이식 패키지를 생성하는 중입니다. 잠시만 기다려 주세요.", { dismissAfterMs: null });
     try {
       const path = `${API_PREFIX}/imports/migration-package/export`;
       const response = await api(
@@ -7236,9 +7200,9 @@ function App() {
       anchor.click();
       document.body.removeChild(anchor);
       URL.revokeObjectURL(url);
-      setMessage(uiGuideMessage("이식 패키지를 다운로드했습니다.", "운영 환경에서 패키지 업로드로 dry-run 후 적용할 수 있습니다."));
+      showStatusMessage(uiGuideMessage("이식 패키지를 다운로드했습니다.", "운영 환경에서 패키지 업로드로 dry-run 후 적용할 수 있습니다."));
     } catch (error) {
-      setMessage(formatMigrationError(error, "export"));
+      showErrorMessage(formatMigrationError(error, "export"));
     } finally {
       setMigrationExporting(false);
       setLoading(false);
@@ -7247,11 +7211,11 @@ function App() {
 
   async function doMigrationImport(mode) {
     if (!canEditRecords) {
-      setMessage(uiGuideMessage("현재 권한으로는 이식 패키지를 적용할 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
+      showErrorMessage(uiGuideMessage("현재 권한으로는 이식 패키지를 적용할 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
       return;
     }
     if (!migrationPackageFile) {
-      setMessage("업로드할 이식 패키지 파일(.zip)을 먼저 선택해 주세요.");
+      showErrorMessage("업로드할 이식 패키지 파일(.zip)을 먼저 선택해 주세요.");
       return;
     }
     let replaceExisting = false;
@@ -7269,7 +7233,9 @@ function App() {
 
     setMigrationLoadingMode(mode);
     setLoading(true);
-    setMessage(`${IMPORT_MODE_LABELS[mode] || mode} 요청을 처리 중입니다. 잠시만 기다려 주세요.`);
+    showStatusMessage(`${IMPORT_MODE_LABELS[mode] || mode} 요청을 처리 중입니다. 잠시만 기다려 주세요.`, {
+      dismissAfterMs: null,
+    });
     try {
       const formData = new FormData();
       formData.append("file", migrationPackageFile);
@@ -7286,9 +7252,9 @@ function App() {
         await loadAuthContext(token);
         await refreshData(false);
       }
-      setMessage(`${IMPORT_MODE_LABELS[mode] || mode} 완료`);
+      showStatusMessage(`${IMPORT_MODE_LABELS[mode] || mode} 완료`);
     } catch (error) {
-      setMessage(formatMigrationError(error, mode));
+      showErrorMessage(formatMigrationError(error, mode));
     } finally {
       setMigrationLoadingMode("");
       setLoading(false);
@@ -7334,18 +7300,18 @@ function App() {
 
   async function doTossPreview() {
     if (!canEditRecords) {
-      setMessage(uiGuideMessage("현재 권한으로는 데이터를 가져올 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
+      showErrorMessage(uiGuideMessage("현재 권한으로는 데이터를 가져올 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
       return;
     }
     if (tossFiles.length === 0) {
-      setMessage("토스 스크린샷 이미지를 먼저 업로드해 주세요.");
+      showErrorMessage("토스 스크린샷 이미지를 먼저 업로드해 주세요.");
       return;
     }
     setTossLoadingMode("preview");
     setLoading(true);
     setImportReport(null);
     setTossApplyReport(null);
-    setMessage("토스 스크린샷을 로컬 OCR로 읽고 있습니다.");
+    showStatusMessage("토스 스크린샷을 로컬 OCR로 읽고 있습니다.", { dismissAfterMs: null });
     try {
       const formData = new FormData();
       for (const file of tossFiles) {
@@ -7362,9 +7328,9 @@ function App() {
       setTossPreview(preview);
       const parsedRows = Number(preview?.summary?.parsed_rows || 0);
       const excludedRows = Number(preview?.summary?.excluded_candidates || 0);
-      setMessage(`토스 거래 ${fmt(parsedRows)}건을 검토 표에 올렸습니다. 제외 후보 ${fmt(excludedRows)}건`);
+      showStatusMessage(`토스 거래 ${fmt(parsedRows)}건을 검토 표에 올렸습니다. 제외 후보 ${fmt(excludedRows)}건`);
     } catch (error) {
-      setMessage(formatImportError(error, "toss_preview"));
+      showErrorMessage(formatImportError(error, "toss_preview"));
     } finally {
       setTossLoadingMode("");
       setLoading(false);
@@ -7373,20 +7339,20 @@ function App() {
 
   async function doTossApply() {
     if (!canEditRecords) {
-      setMessage(uiGuideMessage("현재 권한으로는 데이터를 가져올 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
+      showErrorMessage(uiGuideMessage("현재 권한으로는 데이터를 가져올 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
       return;
     }
     if (!tossPreview || tossRows.length === 0) {
-      setMessage("먼저 토스 스크린샷 미리보기를 생성해 주세요.");
+      showErrorMessage("먼저 토스 스크린샷 미리보기를 생성해 주세요.");
       return;
     }
     if (tossIncludedCount === 0) {
-      setMessage("적용할 행이 없습니다. 필요한 행을 포함으로 바꾼 뒤 다시 시도해 주세요.");
+      showErrorMessage("적용할 행이 없습니다. 필요한 행을 포함으로 바꾼 뒤 다시 시도해 주세요.");
       return;
     }
     setTossLoadingMode("apply");
     setLoading(true);
-    setMessage("검토 표에 포함된 토스 거래를 적용 중입니다.");
+    showStatusMessage("검토 표에 포함된 토스 거래를 적용 중입니다.", { dismissAfterMs: null });
     try {
       const result = await api(
         `${API_PREFIX}/imports/toss-screenshots/apply`,
@@ -7400,11 +7366,11 @@ function App() {
       if (Number(result?.applied_transactions || 0) > 0) {
         await refreshData(false);
       }
-      setMessage(
+      showStatusMessage(
         `토스 거래 적용 완료: 추가 ${fmt(result?.applied_transactions || 0)}건, 제외/중복 ${fmt(result?.skipped_transactions || 0)}건`
       );
     } catch (error) {
-      setMessage(formatImportError(error, "toss_apply"));
+      showErrorMessage(formatImportError(error, "toss_apply"));
     } finally {
       setTossLoadingMode("");
       setLoading(false);
@@ -7424,7 +7390,7 @@ function App() {
     setCategoryDraftMajorSelect("__custom__");
     setCategoryDraftMinorSelect("__custom__");
     setTab("settings");
-    setMessage("추천 카테고리 초안을 채웠습니다. 저장 후 가져오기 탭에서 해당 행에 선택할 수 있습니다.");
+    showStatusMessage("추천 카테고리 초안을 채웠습니다. 저장 후 가져오기 탭에서 해당 행에 선택할 수 있습니다.");
   }
 
   async function refreshPriceNow() {
@@ -7472,7 +7438,7 @@ function App() {
         logout({ revoke: false }).catch(() => undefined);
       }
       if (!silent) {
-        setMessage(formatApiError(error, "prices_refresh"));
+        showErrorMessage(formatApiError(error, "prices_refresh"));
       }
       return null;
     } finally {
@@ -7482,7 +7448,7 @@ function App() {
 
   async function removeTx(id) {
     if (!canEditRecords) {
-      setMessage(uiGuideMessage("현재 권한으로는 거래를 삭제할 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
+      showErrorMessage(uiGuideMessage("현재 권한으로는 거래를 삭제할 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
       return;
     }
     const confirmed = await requestConfirmDialog({
@@ -7494,15 +7460,15 @@ function App() {
     try {
       await api(`${API_PREFIX}/transactions/${id}`, { method: "DELETE" }, token);
       await refreshData(false);
-      setMessage(uiGuideMessage("거래를 삭제했습니다.", "필요하면 새 거래를 다시 등록해 주세요."));
+      showStatusMessage(uiGuideMessage("거래를 삭제했습니다.", "필요하면 새 거래를 다시 등록해 주세요."));
     } catch (error) {
-      setMessage(formatApiError(error, "transaction_delete"));
+      showErrorMessage(formatApiError(error, "transaction_delete"));
     }
   }
 
   async function removeHolding(id) {
     if (!canEditRecords) {
-      setMessage(uiGuideMessage("현재 권한으로는 자산을 삭제할 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
+      showErrorMessage(uiGuideMessage("현재 권한으로는 자산을 삭제할 수 없습니다.", "가계 소유자에게 편집자 이상 권한을 요청해 주세요."));
       return;
     }
     const confirmed = await requestConfirmDialog({
@@ -7517,9 +7483,9 @@ function App() {
         setHoldingInlineEdit(null);
       }
       await refreshData(false);
-      setMessage(uiGuideMessage("자산을 삭제했습니다.", "필요하면 새 자산을 다시 등록해 주세요."));
+      showStatusMessage(uiGuideMessage("자산을 삭제했습니다.", "필요하면 새 자산을 다시 등록해 주세요."));
     } catch (error) {
-      setMessage(formatApiError(error, "holding_delete"));
+      showErrorMessage(formatApiError(error, "holding_delete"));
     }
   }
 
@@ -7539,7 +7505,7 @@ function App() {
 
   async function persistHoldingSettings(nextHoldingSettings, successMessage = "") {
     setLoading(true);
-    setMessage("");
+    clearFeedback();
     try {
       const payload = await api(
         `${API_PREFIX}/household/settings`,
@@ -7553,10 +7519,10 @@ function App() {
       );
       applyHoldingSettingsLocal(payload?.holding_settings, payload);
       if (successMessage) {
-        setMessage(successMessage);
+        showStatusMessage(successMessage);
       }
     } catch (error) {
-      setMessage(formatApiError(error, "household_settings"));
+      showErrorMessage(formatApiError(error, "household_settings"));
     } finally {
       setLoading(false);
     }
@@ -7579,7 +7545,7 @@ function App() {
       return;
     }
     setLoading(true);
-    setMessage("");
+    clearFeedback();
     try {
       await api(
         `${API_PREFIX}/holdings/${currentRow.id}`,
@@ -7604,9 +7570,9 @@ function App() {
         token
       );
       await refreshData(false);
-      setMessage(uiGuideMessage("자산 순서를 변경했습니다.", "목록 순서가 즉시 반영되었습니다."));
+      showStatusMessage(uiGuideMessage("자산 순서를 변경했습니다.", "목록 순서가 즉시 반영되었습니다."));
     } catch (error) {
-      setMessage(formatApiError(error, "holding_order"));
+      showErrorMessage(formatApiError(error, "holding_order"));
     } finally {
       setLoading(false);
     }
@@ -7640,13 +7606,13 @@ function App() {
     event.preventDefault();
     const validationMessage = validateHoldingTypeDraftForm();
     if (validationMessage) {
-      setMessage(validationMessage);
+      showErrorMessage(validationMessage);
       return;
     }
     const nextKey = normalizeHoldingTypeKey(holdingTypeDraft.key || holdingTypeDraft.label);
     const nextLabel = String(holdingTypeDraft.label || "").trim();
     if (!nextKey || !nextLabel) {
-      setMessage("유형 키와 이름을 입력해 주세요.");
+      showErrorMessage("유형 키와 이름을 입력해 주세요.");
       return;
     }
     const nextType = {
@@ -7662,17 +7628,17 @@ function App() {
     if (holdingTypeEditKey) {
       const editIndex = nextTypes.findIndex((item) => normalizeHoldingTypeKey(item.key) === normalizeHoldingTypeKey(holdingTypeEditKey));
       if (editIndex < 0) {
-        setMessage("수정할 유형을 찾지 못했습니다.");
+        showErrorMessage("수정할 유형을 찾지 못했습니다.");
         return;
       }
       if (existingIndex >= 0 && existingIndex !== editIndex) {
-        setMessage("같은 유형 키가 이미 존재합니다.");
+        showErrorMessage("같은 유형 키가 이미 존재합니다.");
         return;
       }
       nextTypes.splice(editIndex, 1, nextType);
     } else {
       if (existingIndex >= 0) {
-        setMessage("같은 유형 키가 이미 존재합니다.");
+        showErrorMessage("같은 유형 키가 이미 존재합니다.");
         return;
       }
       nextTypes.push(nextType);
@@ -7694,14 +7660,14 @@ function App() {
       (item) => (normalizeHoldingTypeKey(item.type_key || item.asset_type || "other") || "other") === normalizedKey
     );
     if (inUse) {
-      setMessage("사용 중인 유형은 삭제할 수 없습니다. 먼저 자산의 유형을 변경해 주세요.");
+      showErrorMessage("사용 중인 유형은 삭제할 수 없습니다. 먼저 자산의 유형을 변경해 주세요.");
       return;
     }
     const nextTypes = holdingTypeOptions.filter(
       (item) => (normalizeHoldingTypeKey(item.key || item.asset_type || "other") || "other") !== normalizedKey
     );
     if (nextTypes.length === 0) {
-      setMessage("유형은 최소 1개 이상 유지해야 합니다.");
+      showErrorMessage("유형은 최소 1개 이상 유지해야 합니다.");
       return;
     }
     const nextSettings = normalizeHoldingSettings({
@@ -7992,7 +7958,7 @@ function App() {
                         holdingTypeByKey.get(normalizeHoldingTypeKey(editForm.type_key || editForm.asset_type || "")) ||
                         editType;
                       if (shouldExplainHoldingValueReset(editForm.average_cost, previousType, nextType)) {
-                        setMessage(
+                        showStatusMessage(
                           uiGuideMessage(
                             "자산 유형을 변경했습니다.",
                             "평가금액과 평균단가의 의미가 달라 금액 입력값을 비웠습니다."
@@ -8231,7 +8197,7 @@ function App() {
     setTossPreview(null);
     setTossApplyReport(null);
     setTossLoadingMode("");
-    setMessage(logoutWarning);
+    showErrorMessage(logoutWarning);
     setPriceRefreshPolling(false);
     setDashboardLoading(false);
     setDashboardLoaded(false);
@@ -8365,11 +8331,12 @@ function App() {
           const wasManualRefresh = priceRefreshOriginRef.current === "manual";
           releasePriceRefreshLock();
           if (wasManualRefresh) {
-            setMessage(
+            showStatusMessage(
               uiGuideMessage(
                 "시세 갱신 상태 확인이 지연되고 있습니다.",
                 "시세 상태를 다시 확인한 뒤 필요하면 갱신을 다시 시도해 주세요.",
               ),
+              { dismissAfterMs: null },
             );
           }
         }
@@ -8482,7 +8449,7 @@ function App() {
         const code = String(error?.code || "").toUpperCase();
         const isAuthError = status === 401 || code === "AUTH_TOKEN_INVALID" || code === "AUTH_TOKEN_MISSING";
         if (!isAuthError) {
-          setMessage(formatApiError(error, "bootstrap"));
+          showErrorMessage(formatApiError(error, "bootstrap"));
         }
         setActiveHouseholdId("");
         setToken("");
@@ -8516,7 +8483,7 @@ function App() {
         await refreshCollaborationData(token);
       } catch (error) {
         if (!cancelled) {
-          setMessage(formatApiError(error, "household_members"));
+          showErrorMessage(formatApiError(error, "household_members"));
         }
       }
     };
@@ -8528,7 +8495,7 @@ function App() {
       cancelled = true;
       clearInterval(timerId);
     };
-  }, [household?.id, tab, token]);
+  }, [household?.id, showErrorMessage, tab, token]);
 
   useEffect(() => {
     if (!token || !inviteAcceptToken) {
@@ -8575,11 +8542,12 @@ function App() {
           if ([401, 403].includes(status)) {
             wsTicketMethodRef.current = "NONE";
             setSocketStatus("permission_lost");
-            setMessage(
+            showStatusMessage(
               uiGuideMessage(
                 "가계 접근 권한이 변경되어 실시간 연결을 시작할 수 없습니다.",
                 "가계 목록을 새로고침하거나 다시 선택해 주세요.",
               ),
+              { dismissAfterMs: null },
             );
             return "";
           }
@@ -8603,11 +8571,12 @@ function App() {
         ws.onclose = (event) => {
           if (Number(event?.code || 0) === 1008) {
             setSocketStatus("permission_lost");
-            setMessage(
+            showStatusMessage(
               uiGuideMessage(
                 "가계 접근 권한이 변경되어 실시간 연결이 종료되었습니다.",
                 "가계 목록을 새로고침하거나 다시 선택해 주세요.",
               ),
+              { dismissAfterMs: null },
             );
             wsTicketMethodRef.current = "NONE";
             refreshDataByKinds(new Set(["full"]), token, { silent: true }).catch(() => undefined);
@@ -8678,7 +8647,10 @@ function App() {
               connectWs().catch(() => undefined);
             }, 1500);
           } else {
-            setMessage(uiGuideMessage("실시간 연결을 사용할 수 없습니다.", "서버 업데이트 후 페이지를 새로고침해 주세요."));
+            showStatusMessage(
+              uiGuideMessage("실시간 연결을 사용할 수 없습니다.", "서버 업데이트 후 페이지를 새로고침해 주세요."),
+              { dismissAfterMs: null },
+            );
           }
         }
       }
@@ -8971,13 +8943,13 @@ function App() {
   const packageActionsDisabled =
     Boolean(migrationLoadingMode) || migrationExporting || !canEditRecords || packageMissingFile;
   const workbookUploadPlaceholder = isCompactViewport
-    ? "탭해서 엑셀 파일을 선택하세요. 파일 앱 또는 기기 저장소에서 업로드할 수 있습니다."
+    ? "엑셀 파일을 선택하세요. 파일 앱이나 저장소에서 파일을 고르세요."
     : "엑셀 파일을 이곳에 드래그 앤 드롭 하거나 클릭하여 업로드하세요.";
   const tossUploadPlaceholder = isCompactViewport
-    ? "탭해서 토스 거래내역 이미지를 선택하세요. 사진 앱 또는 기기 저장소에서 업로드할 수 있습니다."
-    : "토스 거래내역 이미지를 이곳에 드래그 앤 드롭 하거나 클릭하여 업로드하세요.";
+    ? ["토스 거래내역 이미지를 선택하세요.", "사진 앱이나 저장소에서 고르세요."]
+    : ["토스 거래내역 이미지를 이곳에 드래그 앤 드롭 하거나 클릭하여 업로드하세요."];
   const migrationPackageUploadPlaceholder = isCompactViewport
-    ? "탭해서 추출한 패키지(.zip)를 선택하세요. 파일 앱 또는 기기 저장소에서 업로드할 수 있습니다."
+    ? "추출한 패키지(.zip)를 선택하세요. 파일 앱이나 저장소에서 파일을 고르세요."
     : "추출한 패키지(.zip) 파일을 클릭하여 업로드하세요.";
   const memberRoleOptions = canAssignOwner
     ? COLLAB_ROLE_OPTIONS
@@ -10106,14 +10078,7 @@ function App() {
               </>
             )}
           </div>
-          {message && (
-            <div className="message" role="status">
-              <span>{message}</span>
-              <button type="button" className="message-close secondary" onClick={dismissMessage}>
-                닫기
-              </button>
-            </div>
-          )}
+          {message && <FeedbackMessage key={feedback.id} feedback={feedback} onDismiss={dismissMessage} />}
           </form>
         </div>
         <div className="app-copyright" aria-hidden="true">
@@ -10278,6 +10243,8 @@ function App() {
       renderTransactionFormFields,
       showTransactionForm,
       transactionDesktopAddActionRef,
+      transactionEntrySheetBackdropRef,
+      transactionEntrySheetRef,
       transactionEntryBanner,
       transactionFabRef,
       txEntrySheetStep,
@@ -10345,6 +10312,9 @@ function App() {
     },
     entryState: {
       holdingEntryActionRef,
+      holdingFabRef,
+      holdingEntrySheetBackdropRef,
+      holdingEntrySheetRef,
       holdingForm,
       holdingFormOwnerOptions,
       holdingFormShowAverageCost,
@@ -10368,7 +10338,7 @@ function App() {
       updateHoldingDraftTouched: (nextTouched) => setHoldingDraftTouched(nextTouched),
       updateHoldingForm: (nextForm) => setHoldingForm(nextForm),
       updateHoldingOwnerTouched: (nextTouched) => setHoldingOwnerTouched(nextTouched),
-      notifyMessage: (nextMessage) => setMessage(nextMessage),
+      notifyMessage: (nextMessage) => showStatusMessage(nextMessage),
     },
     entryLookups: {
       holdingTypeByKey,
@@ -10746,12 +10716,7 @@ function App() {
     >
       <div className="app-content">
       {shouldShowGlobalMessage && (
-        <div className="message" role="status">
-          <span>{message}</span>
-          <button type="button" className="message-close secondary" onClick={dismissMessage}>
-            닫기
-          </button>
-        </div>
+        <FeedbackMessage key={feedback.id} feedback={feedback} onDismiss={dismissMessage} />
       )}
       {showOnboardingGuide && (
         <section className="card onboarding-guide" role="status">
@@ -10785,11 +10750,13 @@ function App() {
       {confirmDialog.open && (
         <div
           className="confirm-backdrop"
+          ref={confirmBackdropRef}
           role="presentation"
           onClick={() => closeConfirmDialog(false)}
         >
           <section
             className="confirm-dialog"
+            ref={confirmDialogRef}
             role="alertdialog"
             aria-modal="true"
             aria-labelledby="confirm-title"
@@ -10798,7 +10765,7 @@ function App() {
             <h2 id="confirm-title">{confirmDialog.title}</h2>
             <p>{confirmDialog.action}</p>
             <div className="confirm-actions">
-              <button type="button" className="secondary" onClick={() => closeConfirmDialog(false)}>
+              <button ref={confirmCancelButtonRef} type="button" className="secondary" onClick={() => closeConfirmDialog(false)}>
                 취소
               </button>
               <button type="button" className="danger" onClick={() => closeConfirmDialog(true)}>

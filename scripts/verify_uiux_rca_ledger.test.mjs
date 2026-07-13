@@ -330,7 +330,7 @@ for (const [findingId, requiredScenarios] of [
   ["MUI-003", ["320x568 touch access", "320x568 keyboard access", "390x844 touch access", "390x844 keyboard access"]],
   ["MUI-005", ["auth 915x412 WebKit text", "dashboard filters 915x412 WebKit text", "settings 915x412 WebKit text", "collaboration 915x412 WebKit text", "import 915x412 WebKit text", "auth 844x390 WebKit text", "dashboard filters 844x390 WebKit text", "settings 844x390 WebKit text", "collaboration 844x390 WebKit text", "import 844x390 WebKit text"]],
   ["MUI-007", ["transaction targets", "holding targets", "settings targets", "landscape navigation targets"]],
-  ["MUI-008", ["collaboration tabs", "import tabs"]],
+  ["MUI-008", ["collaboration tabs", "import mode group"]],
   ["MUI-009", ["blocking error", "non-blocking status"]],
   ["MUI-010", ["auth computed styles", "auth interaction states", "dashboard computed styles", "dashboard interaction states", "transactions computed styles", "transactions interaction states", "holdings computed styles", "holdings interaction states", "import computed styles", "import interaction states", "settings computed styles", "settings interaction states", "collaboration computed styles", "collaboration interaction states"]],
   ["MUI-011", ["800x360 dashboard", "844x390 dashboard", "915x412 dashboard"]],
@@ -357,6 +357,18 @@ test("final gate accepts complete browser and viewport evidence", () => {
   try {
     const result = runVerifier(workspace);
     assert.equal(result.status, 0, JSON.stringify(result.report.failures));
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("final gate rejects a dirty tracked worktree even when evidence names HEAD", () => {
+  const workspace = createWorkspace({ completeMatrix: true, completeRequiredScenarios: true });
+  try {
+    writeFileSync(path.join(workspace, "tracked.txt"), "dirty fixture");
+    const result = runVerifier(workspace);
+    assert.equal(result.status, 1);
+    assert.ok(result.report.failures.includes("final evidence gate requires a clean tracked worktree"));
   } finally {
     rmSync(workspace, { recursive: true, force: true });
   }

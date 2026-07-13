@@ -1,3 +1,5 @@
+import { FilePickerDropzone } from "./FilePickerDropzone";
+
 export function MigrationPackagePanel({ permissions, migration, helpers }) {
   const { canEditRecords } = permissions;
   const {
@@ -34,10 +36,16 @@ export function MigrationPackagePanel({ permissions, migration, helpers }) {
           {migrationExporting ? "패키지 추출 중..." : "현재 가계 패키지 추출"}
         </button>
       </div>
-      <div className="file-drop-area" onClick={() => { if (!migrationLoadingMode && !migrationExporting && canEditRecords) migrationPackageInputRef.current?.click(); }}>
-        <input ref={migrationPackageInputRef} type="file" accept=".zip" onChange={(e) => updateMigrationPackageFile(e.target.files?.[0] || null)} className="visually-hidden-file-input" aria-label="이식 패키지 업로드" disabled={Boolean(migrationLoadingMode) || migrationExporting || !canEditRecords} />
+      <FilePickerDropzone
+        accept=".zip"
+        buttonLabel="이식 패키지 선택"
+        disabled={Boolean(migrationLoadingMode) || migrationExporting || !canEditRecords}
+        inputLabel="이식 패키지 업로드"
+        inputRef={migrationPackageInputRef}
+        onChange={updateMigrationPackageFile}
+      >
         {migrationPackageFile ? <div className="upload-file-name">선택된 패키지: {migrationPackageFile.name}</div> : <div className="upload-placeholder">{migrationPackageUploadPlaceholder}</div>}
-      </div>
+      </FilePickerDropzone>
       {packageMissingFile && <p id="package-import-file-required" className="table-summary import-action-help">패키지 파일(.zip)을 선택하면 미리 검증과 적용을 사용할 수 있습니다.</p>}
       <div className="inline import-action-row">
         <button type="button" disabled={packageActionsDisabled} aria-describedby={packageMissingFile ? "package-import-file-required" : undefined} onClick={() => doMigrationImport("dry_run")}>

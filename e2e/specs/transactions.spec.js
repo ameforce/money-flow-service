@@ -3559,8 +3559,16 @@ test("transaction sheet return focus does not override a newer ledger focus", as
   await expect(transactionSheet).toBeVisible();
 
   await row.evaluate((element) => {
+    const sheet = document.querySelector('[data-testid="transaction-entry-sheet"]');
+    const observer = new MutationObserver(() => {
+      if (sheet?.isConnected) {
+        return;
+      }
+      observer.disconnect();
+      element.focus({ preventScroll: true });
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
     document.querySelector('[data-testid="transaction-entry-sheet-close"]')?.click();
-    element.focus({ preventScroll: true });
   });
   await expect(transactionSheet).toBeHidden();
   await page.evaluate(() => new Promise((resolve) => window.setTimeout(resolve, 0)));

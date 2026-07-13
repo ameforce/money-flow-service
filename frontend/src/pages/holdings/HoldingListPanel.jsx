@@ -1,8 +1,9 @@
 import { HoldingSurfaceTable } from "../../components/worksurface/HoldingSurfaceTable";
 import { HoldingDisplayOptions } from "./HoldingDisplayOptions";
 
-export function HoldingListPanel({ permissions, listState, listActions, entryActions, formatters, renderers }) {
+export function HoldingListPanel({ permissions, entryRefs, listState, listActions, entryActions, formatters, renderers }) {
   const { isCompactViewport, loading } = permissions;
+  const { holdingFabRef } = entryRefs;
   const {
     activeHoldingTabLabel,
     activeHoldingTypeFilterLabel,
@@ -34,7 +35,7 @@ export function HoldingListPanel({ permissions, listState, listActions, entryAct
           <h2>자산 목록</h2>
         </div>
         {isCompactViewport && (
-          <button type="button" className="holdings-fab holdings-fab-inline surface-heading-action" data-testid="holdings-fab" aria-label="자산 추가" disabled={loading} onClick={openHoldingEntrySheet}>
+          <button ref={holdingFabRef} type="button" className="holdings-fab holdings-fab-inline surface-heading-action" data-testid="holdings-fab" aria-label="자산 추가" disabled={loading} onClick={openHoldingEntrySheet}>
             <span aria-hidden="true">＋</span>
           </button>
         )}
