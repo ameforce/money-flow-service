@@ -1084,8 +1084,10 @@ test("MUI-009 blocking errors and non-blocking statuses expose distinct live-reg
     await labeledField(profileCard, "표시명 방식", "select").selectOption("nickname");
     const profileSaveButton = profileCard.getByRole("button", { name: "프로필 저장", exact: true });
     await profileSaveButton.scrollIntoViewIfNeeded();
+    await profileSaveButton.focus();
+    await expect(profileSaveButton).toBeFocused();
     const scrollYBeforeStatus = await statusSession.page.evaluate(() => window.scrollY);
-    await profileSaveButton.click();
+    await profileSaveButton.press("Enter");
 
     const nonBlockingStatus = statusSession.page.locator(".app-content > .message");
     await expect(nonBlockingStatus).toBeVisible();

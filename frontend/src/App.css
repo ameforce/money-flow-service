@@ -7951,7 +7951,6 @@ tr.holding-row-imported {
     margin: 0;
     padding: 0;
     border: 0;
-    border-radius: initial;
     background: inherit;
   }
   .toss-review-table th,
