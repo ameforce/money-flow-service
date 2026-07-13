@@ -150,7 +150,7 @@ const IMPORT_REPORT_SEVERITY_RANK = {
   informational: 2,
 };
 const MOBILE_BREAKPOINT_PX = 820;
-const TRANSACTION_LEDGER_LANDSCAPE_BREAKPOINT_PX = 900;
+const TRANSACTION_LEDGER_LANDSCAPE_BREAKPOINT_PX = 920;
 const TRANSACTION_LEDGER_LANDSCAPE_MAX_HEIGHT_PX = 520;
 const HOLDING_SUMMARY_SCROLL_OFFSET_PX = 96;
 const SOCKET_STATUS_LABELS = {
@@ -2176,7 +2176,11 @@ function App() {
   const [holdingDraftTouched, setHoldingDraftTouched] = useState(false);
   const [holdingSummaryOpen, setHoldingSummaryOpen] = useState(true);
   const [tab, setTab] = useState(() => getInitialTabId());
-  const isCompactViewport = useCompactViewport(MOBILE_BREAKPOINT_PX);
+  const isCompactViewport = useCompactViewport(
+    MOBILE_BREAKPOINT_PX,
+    TRANSACTION_LEDGER_LANDSCAPE_BREAKPOINT_PX,
+    TRANSACTION_LEDGER_LANDSCAPE_MAX_HEIGHT_PX
+  );
   const [isTransactionLedgerCompactViewport, setIsTransactionLedgerCompactViewport] = useState(() =>
     matchesTransactionLedgerCompactViewport()
   );
@@ -3470,7 +3474,7 @@ function App() {
       cancelAnimationFrame(frameId);
       window.clearTimeout(timeoutId);
     };
-  }, [isCompactViewport, showTransactionForm, txEntrySheetStep]);
+  }, [showTransactionForm, txEntrySheetStep]);
 
   useEffect(() => {
     if (!txRepeatFocusRequest || loading || !showTransactionForm || txEntrySheetStep !== "form") {
@@ -3871,6 +3875,7 @@ function App() {
       }
     }
     const restoreScrollY = transactionSheetScrollYRef.current;
+    const focusedElementAtClose = document.activeElement;
     clearTransactionEntryValidationFeedback();
     setShowTransactionForm(false);
     setTxEntrySheetStep("form");
@@ -3879,7 +3884,16 @@ function App() {
     window.setTimeout(() => {
       window.scrollTo({ top: restoreScrollY, behavior: "auto" });
       const trigger = isCompactViewport ? transactionFabRef.current : transactionDesktopAddActionRef.current ?? transactionFabRef.current;
-      trigger?.focus?.({ preventScroll: true });
+      const activeElement = document.activeElement;
+      const shouldRestoreTriggerFocus =
+        !activeElement ||
+        activeElement === focusedElementAtClose ||
+        activeElement === document.body ||
+        activeElement === document.documentElement ||
+        !activeElement.isConnected;
+      if (shouldRestoreTriggerFocus) {
+        trigger?.focus?.({ preventScroll: true });
+      }
     }, 0);
     return true;
   }, [
@@ -4309,7 +4323,7 @@ function App() {
   }
 
   function isCurrentCompactViewport() {
-    return typeof window !== "undefined" && window.innerWidth <= MOBILE_BREAKPOINT_PX;
+    return matchesTransactionLedgerCompactViewport();
   }
 
   function getFixedBottomNavTop() {
@@ -4330,7 +4344,7 @@ function App() {
     }
     const labels = Array.from(summaryCard.querySelectorAll(".portfolio-donut-slice-label"));
     const chart = summaryCard.querySelector(".compact-chart-wrap");
-    const measuredNodes = labels.length > 0 ? labels : chart ? [chart] : [];
+    const measuredNodes = [...labels, ...(chart ? [chart] : [])];
     if (measuredNodes.length === 0) {
       return;
     }

@@ -1,4 +1,41 @@
+import { useLayoutEffect, useRef, useState } from "react";
+
 import { HOLDING_SURFACE_FIELDS, getWorkSurfaceMobilePriority } from "./fieldPriority";
+
+function useHorizontalOverflow() {
+  const containerRef = useRef(null);
+  const [hasOverflow, setHasOverflow] = useState(false);
+
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    if (!container) {
+      return undefined;
+    }
+
+    let animationFrame = 0;
+    const measure = () => {
+      window.cancelAnimationFrame(animationFrame);
+      animationFrame = window.requestAnimationFrame(() => {
+        setHasOverflow(container.scrollWidth > container.clientWidth + 1);
+      });
+    };
+    const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    resizeObserver?.observe(container);
+    if (container.firstElementChild) {
+      resizeObserver?.observe(container.firstElementChild);
+    }
+    window.addEventListener("resize", measure);
+    measure();
+
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+      window.removeEventListener("resize", measure);
+      resizeObserver?.disconnect();
+    };
+  }, []);
+
+  return { containerRef, hasOverflow };
+}
 
 export function HoldingSurfaceTable({
   holdingColumnWidths,
@@ -13,6 +50,7 @@ export function HoldingSurfaceTable({
 }) {
   const columnSpan = HOLDING_SURFACE_FIELDS.length + 2;
   const holdingMobilePriority = (fieldKey) => getWorkSurfaceMobilePriority("holdings", fieldKey);
+  const { containerRef: scrollContainerRef, hasOverflow } = useHorizontalOverflow();
 
   return (
     <>
@@ -23,7 +61,13 @@ export function HoldingSurfaceTable({
         <span className="ledger-head-amount">평가</span>
         <span className="ledger-head-actions">⋯</span>
       </div>
-      <div className="holdings-surface-scroll">
+      <div
+        ref={scrollContainerRef}
+        className="holdings-surface-scroll"
+        role={hasOverflow ? "region" : undefined}
+        aria-label={hasOverflow ? "자산 표 가로 스크롤 영역" : undefined}
+        tabIndex={hasOverflow ? 0 : undefined}
+      >
         <table
           className="holdings-surface-table"
           aria-label="자산 작업 표"

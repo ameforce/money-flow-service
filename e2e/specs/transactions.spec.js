@@ -718,31 +718,11 @@ async function selectTransactionRowForToolbar(page, row, { expectedCount = 1 } =
   await row.evaluate((element) => element.scrollIntoView({ block: "center", inline: "nearest" }));
   if ((await row.getAttribute("data-row-selected")) !== "true") {
     const viewport = page.viewportSize();
-    const isLedgerCompactViewport = (viewport?.width ?? 0) <= 820 || ((viewport?.width ?? 0) <= 900 && (viewport?.height ?? 0) <= 520);
-    if (isLedgerCompactViewport) {
-      await longPressTransactionRow(page, row);
-    }
-    const selectionTargets = [
-      row.locator(".transaction-col-memo").first(),
-      row.locator(".transaction-col-date").first(),
-      row.locator(".transaction-col-type").first(),
-    ];
-    if ((await row.getAttribute("data-row-selected")) !== "true") {
-      for (const target of selectionTargets) {
-        if (!(await target.isVisible().catch(() => false))) {
-          continue;
-        }
-        await target.click();
-        if ((await row.getAttribute("data-row-selected")) === "true") {
-          break;
-        }
-      }
-    }
-    if ((await row.getAttribute("data-row-selected")) !== "true") {
-      await row.focus();
-      await expect(row).toBeFocused();
-      await page.keyboard.press(isLedgerCompactViewport ? "Shift+Space" : "Space");
-    }
+    const isLedgerCompactViewport =
+      (viewport?.width ?? 0) <= 820 || ((viewport?.width ?? 0) <= 920 && (viewport?.height ?? 0) <= 520);
+    await row.focus();
+    await expect(row).toBeFocused();
+    await page.keyboard.press(isLedgerCompactViewport ? "Shift+Space" : "Space");
   }
   await expect(row).toHaveAttribute("data-row-selected", "true");
   await expectTransactionSelectionSummary(page, expectedCount);
@@ -3564,6 +3544,31 @@ test("transaction add action and sticky toolbar stay reachable after ledger scro
   expect(Math.abs(mobileScrollAfterSheet - mobileScrollBeforeSheet)).toBeLessThanOrEqual(16);
 });
 
+test("transaction sheet return focus does not override a newer ledger focus", async ({ page }) => {
+  const email = `${unique("tx-sheet-focus-race")}@example.com`;
+  const displayName = unique("tx-sheet-focus-race-owner");
+  const memo = unique("tx-sheet-focus-race-row");
+
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 1366, height: 900 });
+  const row = await createBasicTransaction(page, { memo, amount: "12000" });
+  await expect(row).toBeVisible();
+
+  await page.getByTestId("transactions-desktop-add-action").click();
+  const transactionSheet = page.getByTestId("transaction-entry-sheet");
+  await expect(transactionSheet).toBeVisible();
+
+  await row.evaluate((element) => {
+    document.querySelector('[data-testid="transaction-entry-sheet-close"]')?.click();
+    element.focus({ preventScroll: true });
+  });
+  await expect(transactionSheet).toBeHidden();
+  await page.evaluate(() => new Promise((resolve) => window.setTimeout(resolve, 0)));
+
+  await expect(row, "deferred sheet cleanup must not steal a newer explicit ledger focus").toBeFocused();
+  await capture(page, "transaction-sheet-newer-ledger-focus");
+});
+
 test("issue 211: transaction add opens a visible sheet from a scrolled list", async ({ page }) => {
   test.setTimeout(180_000);
 
@@ -4972,9 +4977,14 @@ test("issue 227: 1024px transaction row actions stay inside the viewport", async
   await expect(targetRow).toBeVisible({ timeout: 20_000 });
   await page.locator(".transaction-list-card").first().evaluate((element) => element.scrollIntoView({ block: "start" }));
   await targetRow.evaluate((element) => element.scrollIntoView({ block: "center", inline: "nearest" }));
-  await page.locator(".transactions-surface-scroll").first().evaluate((element) => {
+  const transactionScroller = page.locator(".transactions-surface-scroll").first();
+  await transactionScroller.evaluate((element) => {
     element.scrollLeft = 0;
   });
+  await expect(
+    transactionScroller,
+    "a transaction ledger that fits its container must not add an inert keyboard stop"
+  ).not.toHaveAttribute("tabindex");
   await page.waitForTimeout(150);
 
   const metrics = await page.evaluate((rowMemoPrefix) => {
@@ -5284,6 +5294,7 @@ test("issue #249: mobile transaction sticky stack uses measured heights", async 
     amount: "49000",
     occurredOn: isoDaysAgo(0),
   });
+  await page.reload();
   await page.setViewportSize({ width: 390, height: 844 });
   await openTab(page, "거래");
   await waitForTransactionAppShell(page);

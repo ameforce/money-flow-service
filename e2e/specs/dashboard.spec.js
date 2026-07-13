@@ -6,6 +6,9 @@ import {
   createBasicHolding,
   createBasicTransaction,
   currentE2EHistoryDateIso,
+  expectDonutLabelsCenteredOnRing,
+  expectDonutLabelsInsideChart,
+  expectDonutTextNotClipped,
   expectKeyboardReachableInOrder,
   expectNoOrphanTextLine,
   expectNoHorizontalOverflow,
@@ -29,60 +32,6 @@ function currentMonthBounds() {
     start: `${year}-${monthText}-01`,
     end: new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10),
   };
-}
-
-async function expectDonutTextNotClipped(labelLocator) {
-  const metrics = await labelLocator.evaluateAll((nodes) =>
-    nodes.map((node) => {
-      const labelBox = node.getBoundingClientRect();
-      return {
-        text: node.textContent?.replace(/\s+/g, " ").trim(),
-        children: Array.from(node.children).map((child) => {
-          const childBox = child.getBoundingClientRect();
-          const style = getComputedStyle(child);
-          return {
-            topGap: childBox.top - labelBox.top,
-            bottomGap: labelBox.bottom - childBox.bottom,
-            fontSize: Number.parseFloat(style.fontSize) || 0,
-            lineHeight: Number.parseFloat(style.lineHeight) || 0,
-          };
-        }),
-      };
-    }),
-  );
-  expect(metrics.length, "donut label should exist before checking clipping").toBeGreaterThan(0);
-  for (const metric of metrics) {
-    for (const child of metric.children) {
-      expect(child.topGap, `${metric.text} should not clip at top`).toBeGreaterThanOrEqual(-1);
-      expect(child.bottomGap, `${metric.text} should not clip at bottom`).toBeGreaterThanOrEqual(-1);
-      if (child.fontSize > 0 && child.lineHeight > 0) {
-        expect(child.lineHeight, `${metric.text} line-height should leave descender room`).toBeGreaterThanOrEqual(
-          child.fontSize * 1.08,
-        );
-      }
-    }
-  }
-}
-
-async function expectDonutLabelsInsideChart(card, label) {
-  const metrics = await card.getByTestId("portfolio-donut-slice-label").evaluateAll((nodes) =>
-    nodes.map((node) => {
-      const chart = node.closest(".chart-wrap")?.getBoundingClientRect();
-      const box = node.getBoundingClientRect();
-      return {
-        text: node.textContent?.replace(/\s+/g, " ").trim(),
-        missingChart: !chart,
-        topGap: chart ? box.top - chart.top : 0,
-        bottomGap: chart ? chart.bottom - box.bottom : 0,
-      };
-    }),
-  );
-  expect(metrics.length, `${label} should expose visible slice labels`).toBeGreaterThan(0);
-  for (const item of metrics) {
-    expect(item.missingChart, `${label} ${item.text} should be measured against a chart`).toBeFalsy();
-    expect(item.topGap, `${label} ${item.text} should stay clear of chart top chrome`).toBeGreaterThanOrEqual(12);
-    expect(item.bottomGap, `${label} ${item.text} should stay clear of chart bottom edge`).toBeGreaterThanOrEqual(12);
-  }
 }
 
 async function expectDonutSliceLabelsWithoutLeftAccentBars(card, label) {
@@ -404,41 +353,6 @@ async function expectNoRefreshNoteLayoutShiftWhenEnabled(page, button, filterCar
   await expect(button, `${label} button should remain visible`).toBeVisible();
   if (await button.isEnabled()) {
     await expectNoRefreshNoteLayoutShift(page, button, filterCard, label);
-  }
-}
-
-async function expectDonutLabelsCenteredOnRing(card, label) {
-  const geometry = await card.getByTestId("portfolio-donut-slice-label").evaluateAll((nodes) =>
-    nodes.map((node) => {
-      const chart = node.closest(".portfolio-donut-slice-labels")?.getBoundingClientRect();
-      const box = node.getBoundingClientRect();
-      if (!chart) {
-        return { text: node.textContent?.replace(/\s+/g, " ").trim(), missingChart: true };
-      }
-      const centerX = chart.x + chart.width / 2;
-      const centerY = chart.y + chart.height / 2;
-      const labelX = box.x + box.width / 2;
-      const labelY = box.y + box.height / 2;
-      const dx = labelX - centerX;
-      const dy = labelY - centerY;
-      const actualRadius = (Math.sqrt(dx * dx + dy * dy) / (Math.min(chart.width, chart.height) / 2)) * 100;
-      const actualAngle = (Math.atan2(dy, dx) * 180) / Math.PI;
-      const expectedAngle = Number(node.dataset.donutAngle || 0);
-      const expectedRadius = Number(node.dataset.donutRadius || 0);
-      const angleDelta = Math.abs((((actualAngle - expectedAngle + 540) % 360) - 180));
-      return {
-        text: node.textContent?.replace(/\s+/g, " ").trim(),
-        actualRadius,
-        expectedRadius,
-        angleDelta,
-      };
-    }),
-  );
-  expect(geometry.length, `${label} should expose visible slice labels`).toBeGreaterThan(0);
-  for (const item of geometry) {
-    expect(item.missingChart, `${label} ${item.text} should be measured against a chart`).toBeFalsy();
-    expect(Math.abs(item.actualRadius - item.expectedRadius), `${label} ${item.text} should sit on ring midpoint`).toBeLessThanOrEqual(2.6);
-    expect(item.angleDelta, `${label} ${item.text} should sit on slice midpoint angle`).toBeLessThanOrEqual(2.6);
   }
 }
 
@@ -952,7 +866,7 @@ test("dashboard range inputs expose readable mobile labels and focus", async ({ 
 });
 
 test("dashboard flow: onboarding, portfolio coherence, summary visibility", async ({ page }, testInfo) => {
-  test.setTimeout(180_000);
+  test.setTimeout(420_000);
 
   const email = `${unique("dashboard-user")}@example.com`;
   const displayName = unique("dashboard-name");

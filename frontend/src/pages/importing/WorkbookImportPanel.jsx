@@ -18,9 +18,9 @@ export function WorkbookImportPanel({ constants, permissions, workbook, reportSt
         </div>
         <p className="table-summary">{importMode === "toss" ? (toss.tossFiles.length > 0 ? `이미지 ${fmt(toss.tossFiles.length)}개 선택됨` : "이미지 대기") : (importFile ? "파일 선택됨" : "파일 대기")}</p>
       </div>
-      <div className="import-mode-switch" role="tablist" aria-label="가져오기 형식">
+      <div className="import-mode-switch" role="group" aria-label="가져오기 형식">
         {IMPORT_SOURCE_MODES.map((mode) => (
-          <button key={mode.value} type="button" className={importMode === mode.value ? "active" : "secondary"} onClick={() => { updateImportMode(mode.value); updateIsDragOver(false); }} disabled={importBusy}>
+          <button key={mode.value} type="button" className={importMode === mode.value ? "active" : "secondary"} aria-pressed={importMode === mode.value} onClick={() => { updateImportMode(mode.value); updateIsDragOver(false); }} disabled={importBusy}>
             {mode.label}
           </button>
         ))}

@@ -52,6 +52,24 @@ function expectColorInputsKeepTouchTargets(metrics, label) {
   }
 }
 
+async function expectPassiveStatusStripsDoNotScroll(page, label) {
+  const metrics = await page.locator(".secondary-control-strip[role='group']").evaluateAll((strips) =>
+    strips.map((strip) => ({
+      label: strip.getAttribute("aria-label") || "",
+      clientWidth: strip.clientWidth,
+      scrollWidth: strip.scrollWidth,
+      overflowX: getComputedStyle(strip).overflowX,
+    })),
+  );
+  expect(metrics.length, `${label} should expose passive status strips`).toBeGreaterThan(0);
+  for (const metric of metrics) {
+    expect(metric.scrollWidth, `${label}/${metric.label} should wrap without horizontal scrolling: ${JSON.stringify(metric)}`).toBeLessThanOrEqual(
+      metric.clientWidth + 1,
+    );
+    expect(metric.overflowX, `${label}/${metric.label} should not be a scroll container`).not.toBe("auto");
+  }
+}
+
 async function expectCategoryUsageSummariesKeepHitTargets(page, group, label) {
   await scrollLocatorIntoView(group);
   const summaryMetrics = await group.locator(".settings-category-usage-detail .category-usage-month summary").evaluateAll((summaries) =>
@@ -118,6 +136,20 @@ test("settings color inputs keep mobile and tablet hit targets", async ({ page }
   await capture(page, "settings-color-input-hit-targets");
 });
 
+test("settings passive status strips wrap instead of creating keyboard-inaccessible scroll regions", async ({ page }) => {
+  const email = `${unique("settings-status-strip")}@example.com`;
+  const displayName = unique("settings-status-strip-name-with-a-long-mobile-label");
+
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 320, height: 568 });
+  await assertResponsiveShell(page);
+  await openTab(page, "설정");
+
+  await expectPassiveStatusStripsDoNotScroll(page, "320x568 settings");
+  await expectNoHorizontalOverflow(page, 12);
+  await capture(page, "settings-passive-status-strips-mobile");
+});
+
 test("issue 236: mobile asset type rule checkboxes keep touch targets", async ({ page }) => {
   const email = `${unique("settings-asset-rule-hit")}@example.com`;
   const displayName = unique("settings-asset-rule-hit-name");
@@ -128,29 +160,33 @@ test("issue 236: mobile asset type rule checkboxes keep touch targets", async ({
   await openTab(page, "설정");
 
   const assetRulesCard = await openSettingsDetails(page, "자산 유형/색상 설정");
-  const metrics = await assetRulesCard.locator("label.check-row").evaluateAll((labels) =>
-    labels.map((label) => {
-      const input = label.querySelector("input[type='checkbox']");
-      const labelBox = label.getBoundingClientRect();
-      const inputBox = input?.getBoundingClientRect();
-      const centerX = labelBox.left + labelBox.width / 2;
-      const centerY = labelBox.top + labelBox.height / 2;
-      const topElement = document.elementFromPoint(centerX, centerY);
-      return {
-        text: label.textContent?.replace(/\s+/g, " ").trim() || "",
-        labelHeight: labelBox.height,
-        labelWidth: labelBox.width,
-        inputHeight: inputBox?.height || 0,
-        inputWidth: inputBox?.width || 0,
-        centerHitsLabel: Boolean(topElement && (topElement === label || label.contains(topElement))),
-      };
-    }),
-  );
-  const targetMetrics = metrics.filter(({ text }) =>
-    ["시장 추적형 유형", "평균단가/평가금액 입력 표시", "손익 표시"].includes(text),
-  );
+  const targetLabels = ["시장 추적형 유형", "평균단가/평가금액 입력 표시", "손익 표시"];
+  const targetMetrics = [];
+  for (const text of targetLabels) {
+    const label = assetRulesCard.locator("label.check-row", { hasText: text }).first();
+    await scrollLocatorIntoView(label);
+    await expect(label).toBeVisible();
+    targetMetrics.push(
+      await label.evaluate((element) => {
+        const input = element.querySelector("input[type='checkbox']");
+        const labelBox = element.getBoundingClientRect();
+        const inputBox = input?.getBoundingClientRect();
+        const centerX = labelBox.left + labelBox.width / 2;
+        const centerY = labelBox.top + labelBox.height / 2;
+        const topElement = document.elementFromPoint(centerX, centerY);
+        return {
+          text: element.textContent?.replace(/\s+/g, " ").trim() || "",
+          labelHeight: labelBox.height,
+          labelWidth: labelBox.width,
+          inputHeight: inputBox?.height || 0,
+          inputWidth: inputBox?.width || 0,
+          centerHitsLabel: Boolean(topElement && (topElement === element || element.contains(topElement))),
+        };
+      }),
+    );
+  }
 
-  expect(targetMetrics, `asset type rule labels should be present: ${JSON.stringify(metrics)}`).toHaveLength(3);
+  expect(targetMetrics, `asset type rule labels should be present: ${JSON.stringify(targetMetrics)}`).toHaveLength(3);
   for (const metric of targetMetrics) {
     expect(metric.labelHeight, `${metric.text} label hit target height: ${JSON.stringify(targetMetrics)}`).toBeGreaterThanOrEqual(44);
     expect(metric.labelWidth, `${metric.text} label should span a tappable row: ${JSON.stringify(targetMetrics)}`).toBeGreaterThanOrEqual(220);
@@ -161,6 +197,7 @@ test("issue 236: mobile asset type rule checkboxes keep touch targets", async ({
 
   const gainLossRule = assetRulesCard.locator("label.check-row", { hasText: "손익 표시" }).first();
   const gainLossInput = gainLossRule.locator("input[type='checkbox']");
+  await scrollLocatorIntoView(gainLossRule);
   const before = await gainLossInput.isChecked();
   await gainLossRule.click({ position: { x: 180, y: 22 } });
   await expect(gainLossInput, "tapping the rule row should toggle the checkbox").toBeChecked({ checked: !before });
@@ -462,7 +499,7 @@ test("settings flow: profile, household, colors, categories CRUD", async ({ page
   );
   expect(typeOrderButtonMetrics.length, "asset type order buttons should be present").toBeGreaterThanOrEqual(4);
   expect(
-    typeOrderButtonMetrics.every(({ width, height }) => width >= 40 && height >= 40),
+    typeOrderButtonMetrics.every(({ width, height }) => width >= 44 && height >= 44),
     `asset type order buttons should keep mobile hit targets: ${JSON.stringify(typeOrderButtonMetrics)}`,
   ).toBe(true);
   await capture(page, "settings-asset-type-order-buttons-mobile");

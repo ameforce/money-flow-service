@@ -9,7 +9,7 @@ export function ProfileSettingsCard({ constants, profile }) {
           <span className="surface-eyebrow">개인 설정</span>
           <h2>내 프로필</h2>
         </div>
-        <div className="surface-control-strip secondary-control-strip" aria-label="프로필 설정 상태">
+        <div className="surface-control-strip secondary-control-strip" role="group" aria-label="프로필 설정 상태">
           <span className="surface-chip surface-chip-strong">{user?.display_name || "표시명 대기"}</span>
           <span className="surface-chip">{profileDisplayModeLabel}</span>
         </div>

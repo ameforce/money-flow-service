@@ -47,7 +47,7 @@ export function CollaborationCommandCard({
           <span className="surface-eyebrow">협업 컨트롤</span>
           <h2>가계 협업 관리</h2>
         </div>
-        <div className="surface-control-strip secondary-control-strip" aria-label="협업 관리 상태">
+        <div className="surface-control-strip secondary-control-strip" role="group" aria-label="협업 관리 상태">
           <span className="surface-chip surface-chip-strong">내 권한 {householdRoleLabel}</span>
           <span className="surface-chip">멤버 {householdMembers.length}명</span>
           <span className={`surface-chip${receivedNewInvites.length > 0 || sentNewInvites.length > 0 ? " surface-chip-strong" : " surface-chip-muted"}`}>

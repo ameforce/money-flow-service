@@ -1,8 +1,11 @@
 import { useEffect, useState } from "react";
 
-export function useCompactViewport(breakpointPx) {
+export function useCompactViewport(breakpointPx, landscapeBreakpointPx, landscapeMaxHeightPx) {
   const [isCompactViewport, setIsCompactViewport] = useState(
-    () => typeof window !== "undefined" && window.innerWidth <= breakpointPx
+    () => typeof window !== "undefined" && (
+      window.innerWidth <= breakpointPx ||
+      (window.innerWidth <= landscapeBreakpointPx && window.innerHeight <= landscapeMaxHeightPx)
+    )
   );
 
   useEffect(() => {
@@ -10,7 +13,9 @@ export function useCompactViewport(breakpointPx) {
       return undefined;
     }
 
-    const mediaQuery = window.matchMedia(`(max-width: ${breakpointPx}px)`);
+    const mediaQuery = window.matchMedia(
+      `(max-width: ${breakpointPx}px), (max-width: ${landscapeBreakpointPx}px) and (max-height: ${landscapeMaxHeightPx}px)`
+    );
     const syncViewportMode = (event) => {
       setIsCompactViewport(Boolean(event?.matches ?? mediaQuery.matches));
     };
@@ -32,7 +37,7 @@ export function useCompactViewport(breakpointPx) {
       window.removeEventListener("resize", syncViewportModeFromResize);
       mediaQuery.removeListener(syncViewportMode);
     };
-  }, [breakpointPx]);
+  }, [breakpointPx, landscapeBreakpointPx, landscapeMaxHeightPx]);
 
   return isCompactViewport;
 }
