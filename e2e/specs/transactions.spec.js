@@ -192,6 +192,99 @@ async function scrollTransactionLedgerIntoStickyRange(page) {
   await page.waitForTimeout(400);
 }
 
+async function stabilizeTransactionLedgerAtPageTop(page) {
+  const metrics = await page.evaluate(async () => {
+    const listCard = document.querySelector(".transaction-list-card");
+    const toolbar = document.querySelector('[data-testid="transaction-sticky-toolbar"]');
+    const ledgerHead = document.querySelector(".transactions-mobile-ledger-head");
+    if (!listCard || !toolbar || !ledgerHead) {
+      return {
+        stable: false,
+        reason: "transaction sticky elements are missing",
+      };
+    }
+
+    const activeElement = document.activeElement;
+    if (activeElement instanceof HTMLElement && activeElement !== document.body) {
+      activeElement.blur();
+    }
+    await document.fonts?.ready;
+
+    const nextFrame = () => new Promise((resolve) => window.requestAnimationFrame(resolve));
+    const readMetrics = () => {
+      const listStyle = getComputedStyle(listCard);
+      const toolbarHeight = Math.ceil(toolbar.getBoundingClientRect().height);
+      const ledgerHeight = Math.ceil(ledgerHead.getBoundingClientRect().height);
+      const toolbarHeightVar = Number.parseFloat(
+        listStyle.getPropertyValue("--transaction-toolbar-sticky-height"),
+      );
+      const ledgerHeightVar = Number.parseFloat(
+        listStyle.getPropertyValue("--surface-ledger-head-height"),
+      );
+      return {
+        scrollY: window.scrollY || window.pageYOffset || 0,
+        stickyActive: ledgerHead.getAttribute("data-sticky-active"),
+        toolbarHeight,
+        toolbarHeightVar,
+        ledgerHeight,
+        ledgerHeightVar,
+      };
+    };
+    const geometrySignature = (current) =>
+      [
+        current.toolbarHeight,
+        current.toolbarHeightVar,
+        current.ledgerHeight,
+        current.ledgerHeightVar,
+      ].join(":");
+    const geometryMatches = (current) =>
+      Number.isFinite(current.toolbarHeightVar) &&
+      Number.isFinite(current.ledgerHeightVar) &&
+      Math.abs(current.toolbarHeightVar - current.toolbarHeight) <= 1 &&
+      Math.abs(current.ledgerHeightVar - current.ledgerHeight) <= 1;
+    const isTopState = (current) =>
+      current.scrollY <= 1 && current.stickyActive === "false";
+
+    let stableFrames = 0;
+    let previousGeometry = "";
+    let current = readMetrics();
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+
+    for (let frame = 0; frame < 60; frame += 1) {
+      await nextFrame();
+      current = readMetrics();
+      const nextGeometry = geometrySignature(current);
+      if (geometryMatches(current) && isTopState(current) && nextGeometry === previousGeometry) {
+        stableFrames += 1;
+      } else {
+        stableFrames = 0;
+      }
+      if (!isTopState(current)) {
+        window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+      }
+      previousGeometry = nextGeometry;
+      if (stableFrames >= 4) {
+        return {
+          stable: true,
+          stableFrames,
+          ...current,
+        };
+      }
+    }
+
+    return {
+      stable: false,
+      stableFrames,
+      ...current,
+    };
+  });
+
+  expect(
+    metrics.stable,
+    `transaction sticky geometry and top state should settle together: ${JSON.stringify(metrics)}`,
+  ).toBe(true);
+}
+
 async function expectTransactionMonthControls(page, isoDate, label = "transaction month controls") {
   const { year, month } = yearMonthFromIso(isoDate);
   const listCard = page.locator(".transaction-list-card").first();
@@ -625,31 +718,11 @@ async function selectTransactionRowForToolbar(page, row, { expectedCount = 1 } =
   await row.evaluate((element) => element.scrollIntoView({ block: "center", inline: "nearest" }));
   if ((await row.getAttribute("data-row-selected")) !== "true") {
     const viewport = page.viewportSize();
-    const isLedgerCompactViewport = (viewport?.width ?? 0) <= 820 || ((viewport?.width ?? 0) <= 900 && (viewport?.height ?? 0) <= 520);
-    if (isLedgerCompactViewport) {
-      await longPressTransactionRow(page, row);
-    }
-    const selectionTargets = [
-      row.locator(".transaction-col-memo").first(),
-      row.locator(".transaction-col-date").first(),
-      row.locator(".transaction-col-type").first(),
-    ];
-    if ((await row.getAttribute("data-row-selected")) !== "true") {
-      for (const target of selectionTargets) {
-        if (!(await target.isVisible().catch(() => false))) {
-          continue;
-        }
-        await target.click();
-        if ((await row.getAttribute("data-row-selected")) === "true") {
-          break;
-        }
-      }
-    }
-    if ((await row.getAttribute("data-row-selected")) !== "true") {
-      await row.focus();
-      await expect(row).toBeFocused();
-      await page.keyboard.press(isLedgerCompactViewport ? "Shift+Space" : "Space");
-    }
+    const isLedgerCompactViewport =
+      (viewport?.width ?? 0) <= 820 || ((viewport?.width ?? 0) <= 920 && (viewport?.height ?? 0) <= 520);
+    await row.focus();
+    await expect(row).toBeFocused();
+    await page.keyboard.press(isLedgerCompactViewport ? "Shift+Space" : "Space");
   }
   await expect(row).toHaveAttribute("data-row-selected", "true");
   await expectTransactionSelectionSummary(page, expectedCount);
@@ -3471,6 +3544,39 @@ test("transaction add action and sticky toolbar stay reachable after ledger scro
   expect(Math.abs(mobileScrollAfterSheet - mobileScrollBeforeSheet)).toBeLessThanOrEqual(16);
 });
 
+test("transaction sheet return focus does not override a newer ledger focus", async ({ page }) => {
+  const email = `${unique("tx-sheet-focus-race")}@example.com`;
+  const displayName = unique("tx-sheet-focus-race-owner");
+  const memo = unique("tx-sheet-focus-race-row");
+
+  await registerAndVerify(page, { email, displayName });
+  await page.setViewportSize({ width: 1366, height: 900 });
+  const row = await createBasicTransaction(page, { memo, amount: "12000" });
+  await expect(row).toBeVisible();
+
+  await page.getByTestId("transactions-desktop-add-action").click();
+  const transactionSheet = page.getByTestId("transaction-entry-sheet");
+  await expect(transactionSheet).toBeVisible();
+
+  await row.evaluate((element) => {
+    const sheet = document.querySelector('[data-testid="transaction-entry-sheet"]');
+    const observer = new MutationObserver(() => {
+      if (sheet?.isConnected) {
+        return;
+      }
+      observer.disconnect();
+      element.focus({ preventScroll: true });
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    document.querySelector('[data-testid="transaction-entry-sheet-close"]')?.click();
+  });
+  await expect(transactionSheet).toBeHidden();
+  await page.evaluate(() => new Promise((resolve) => window.setTimeout(resolve, 0)));
+
+  await expect(row, "deferred sheet cleanup must not steal a newer explicit ledger focus").toBeFocused();
+  await capture(page, "transaction-sheet-newer-ledger-focus");
+});
+
 test("issue 211: transaction add opens a visible sheet from a scrolled list", async ({ page }) => {
   test.setTimeout(180_000);
 
@@ -3926,6 +4032,8 @@ test("issue 198: mobile collapsed transaction row keeps key details and actions 
       },
       category: visible(".transaction-mobile-category-cue"),
       memo: visible(".transaction-memo-text"),
+      memoFull: visible(".transaction-memo-text-full"),
+      memoCompact: visible(".transaction-memo-text-compact"),
       owner: visible(".transaction-col-owner .transaction-mobile-detail-value"),
       ownerCue: visible(".transaction-col-owner .transaction-owner-compact"),
       actions,
@@ -3940,7 +4048,14 @@ test("issue 198: mobile collapsed transaction row keeps key details and actions 
     "즉시수정",
   );
   expect(metrics.memo?.hidden, `collapsed memo should stay visible: ${JSON.stringify(metrics)}`).toBe(false);
-  expect(metrics.memo?.text || "", `collapsed memo should keep the memo text: ${JSON.stringify(metrics)}`).toBe(memo);
+  expect(metrics.memo?.ariaLabel || "", `collapsed memo should expose the full memo label: ${JSON.stringify(metrics)}`).toBe(
+    `메모 ${memo}`,
+  );
+  expect(metrics.memoFull?.hidden, `collapsed memo should hide the full visual text: ${JSON.stringify(metrics)}`).toBe(true);
+  expect(metrics.memoCompact?.hidden, `collapsed memo should show the compact visual text: ${JSON.stringify(metrics)}`).toBe(false);
+  expect(metrics.memoCompact?.text || "", `collapsed memo should remain identifiable: ${JSON.stringify(metrics)}`).toMatch(
+    /^.\u2026.{3}$/u,
+  );
   expect(metrics.owner?.hidden, `collapsed owner detail should not duplicate the compact owner cue: ${JSON.stringify(metrics)}`).toBe(true);
   expect(metrics.ownerCue?.hidden, `collapsed owner cue should stay visible: ${JSON.stringify(metrics)}`).toBe(false);
   expect(metrics.ownerCue?.ariaLabel || "", `collapsed owner cue should expose the full owner label: ${JSON.stringify(metrics)}`).toBe(
@@ -4870,9 +4985,14 @@ test("issue 227: 1024px transaction row actions stay inside the viewport", async
   await expect(targetRow).toBeVisible({ timeout: 20_000 });
   await page.locator(".transaction-list-card").first().evaluate((element) => element.scrollIntoView({ block: "start" }));
   await targetRow.evaluate((element) => element.scrollIntoView({ block: "center", inline: "nearest" }));
-  await page.locator(".transactions-surface-scroll").first().evaluate((element) => {
+  const transactionScroller = page.locator(".transactions-surface-scroll").first();
+  await transactionScroller.evaluate((element) => {
     element.scrollLeft = 0;
   });
+  await expect(
+    transactionScroller,
+    "a transaction ledger that fits its container must not add an inert keyboard stop"
+  ).not.toHaveAttribute("tabindex");
   await page.waitForTimeout(150);
 
   const metrics = await page.evaluate((rowMemoPrefix) => {
@@ -5182,6 +5302,7 @@ test("issue #249: mobile transaction sticky stack uses measured heights", async 
     amount: "49000",
     occurredOn: isoDaysAgo(0),
   });
+  await page.reload();
   await page.setViewportSize({ width: 390, height: 844 });
   await openTab(page, "거래");
   await waitForTransactionAppShell(page);
@@ -6354,16 +6475,6 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   const transactionEntryCard = page.locator(".transaction-entry-card").first();
   const transactionTopActionButton = page.locator(".transaction-entry-card").getByRole("button", { name: /거래 추가|카테고리 관리/ }).first();
   const transactionListCard = page.locator(".transaction-list-card").first();
-  await page.waitForFunction(
-    () => {
-      window.scrollTo({ top: 0, left: 0, behavior: "auto" });
-      const ledgerHead = document.querySelector(".transactions-mobile-ledger-head");
-      const scrollY = window.scrollY || window.pageYOffset || 0;
-      return scrollY <= 16 && ledgerHead?.getAttribute("data-sticky-active") === "false";
-    },
-    null,
-    { timeout: 15_000 }
-  );
   await expect(transactionEntryCard).toBeHidden();
   await expect(transactionTopActionButton).toBeHidden();
   await expect(transactionFab).toBeVisible();
@@ -6375,6 +6486,7 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   const mobileHeaderFilters = page.locator(".tx-header-filters").first();
   await expect(page.locator(".tx-filter-details")).toHaveCount(0);
   await expect(mobileHeaderFilters).toBeHidden();
+  await stabilizeTransactionLedgerAtPageTop(page);
   await expect(page.locator(".transactions-mobile-ledger-head")).toHaveAttribute("data-sticky-active", "false");
   await expect(page.locator(".transactions-mobile-ledger-head")).toBeVisible();
   const mobileLedgerHead = page.locator(".transactions-mobile-ledger-head").first();
@@ -6458,7 +6570,9 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   await expect(mobileFilterPanel).toBeHidden();
   await expect(mobileRow).toBeVisible();
   await expect(mobileRow).not.toHaveClass(/mobile-row-expanded/);
-  await expect(mobileRow.getByText(memo, { exact: true })).toBeVisible();
+  await expect(mobileRow.locator(".transaction-memo-text").first()).toHaveAttribute("aria-label", `메모 ${memo}`);
+  await expect(mobileRow.locator(".transaction-memo-text-full").first()).toBeHidden();
+  await expect(mobileRow.locator(".transaction-memo-text-compact").first()).toBeVisible();
   await expectCompactLedgerRow(mobileRow, 96);
   await expectSingleLineText(mobileRow.locator(".transaction-memo-text").first());
   await expect(mobileRow.locator(".transaction-mobile-category-cue").first()).toBeVisible();
@@ -6684,6 +6798,7 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
     "거래자명",
     "카테고리",
     "메모",
+    "금액",
     "최종 수정일",
   ]);
   const expandedDetailMetrics = await mobileRow.evaluate((row) => {

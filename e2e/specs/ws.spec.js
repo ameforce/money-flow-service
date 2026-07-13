@@ -32,7 +32,8 @@ async function selectTransactionRowForToolbar(page, row) {
     if (await checkbox.isVisible().catch(() => false)) {
       await checkbox.check({ force: true });
     } else {
-      await row.locator(".transaction-col-memo").click();
+      await row.focus();
+      await page.keyboard.press("Shift+Space");
     }
   }
   await expect(row).toHaveAttribute("data-row-selected", "true");

@@ -1,8 +1,9 @@
 import { HoldingSurfaceTable } from "../../components/worksurface/HoldingSurfaceTable";
 import { HoldingDisplayOptions } from "./HoldingDisplayOptions";
 
-export function HoldingListPanel({ permissions, listState, listActions, entryActions, formatters, renderers }) {
+export function HoldingListPanel({ permissions, entryRefs, listState, listActions, entryActions, formatters, renderers }) {
   const { isCompactViewport, loading } = permissions;
+  const { holdingFabRef } = entryRefs;
   const {
     activeHoldingTabLabel,
     activeHoldingTypeFilterLabel,
@@ -34,13 +35,13 @@ export function HoldingListPanel({ permissions, listState, listActions, entryAct
           <h2>자산 목록</h2>
         </div>
         {isCompactViewport && (
-          <button type="button" className="holdings-fab holdings-fab-inline surface-heading-action" data-testid="holdings-fab" aria-label="자산 추가" disabled={loading} onClick={openHoldingEntrySheet}>
+          <button ref={holdingFabRef} type="button" className="holdings-fab holdings-fab-inline surface-heading-action" data-testid="holdings-fab" aria-label="자산 추가" disabled={loading} onClick={openHoldingEntrySheet}>
             <span aria-hidden="true">＋</span>
           </button>
         )}
         <p className="table-summary surface-count-summary">총 {holdingItems.length}건 중 {filteredHoldingItems.length}건 표시</p>
       </div>
-      <div className="surface-control-strip" aria-label="자산 목록 상태">
+      <div className="surface-control-strip" role="group" aria-label="자산 목록 상태">
         <span className="surface-chip surface-chip-strong">{activeHoldingTabLabel}</span>
         {holdingTypeFilter !== "all" && <span className="surface-chip surface-chip-strong">유형 {activeHoldingTypeFilterLabel}</span>}
         <span className="surface-chip">{holdingSortSummary}</span>

@@ -12,7 +12,7 @@ const TAB_NAV_META = {
   transactions: { helper: "흐름", mobileLabel: "거래" },
   holdings: { helper: "자산", mobileLabel: "자산" },
   collaboration: { helper: "공유", mobileLabel: "협업" },
-  import: { helper: "가져오기", mobileLabel: "가져\n오기" },
+  import: { helper: "가져오기", mobileLabel: "가져오기" },
   settings: { helper: "설정", mobileLabel: "설정" },
 };
 

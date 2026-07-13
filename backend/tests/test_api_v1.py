@@ -634,7 +634,7 @@ def test_jenkinsfile_uses_ci_node_for_frontend_and_smoke_steps() -> None:
     root = Path(__file__).resolve().parents[2]
     source = (root / "Jenkinsfile").read_text(encoding="utf-8")
 
-    assert "CI_NODE_VERSION = '22.12.0'" in source
+    assert "CI_NODE_VERSION = '22.13.0'" in source
     assert source.count(". ./scripts/ci/ensure-node.sh") >= 4
     assert "npx is unavailable; skip pre-deploy browser smoke" not in source
 

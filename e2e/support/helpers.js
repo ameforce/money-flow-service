@@ -551,6 +551,99 @@ export async function expectNoOrphanTextLine(locator, label) {
   expect(lastLine.length, `${label} should not leave a one-character orphan line`).not.toBe(1);
 }
 
+export async function expectDonutTextNotClipped(labelLocator) {
+  const metrics = await labelLocator.evaluateAll((nodes) =>
+    nodes.map((node) => {
+      const labelBox = node.getBoundingClientRect();
+      return {
+        text: node.textContent?.replace(/\s+/g, " ").trim(),
+        children: Array.from(node.children).map((child) => {
+          const childBox = child.getBoundingClientRect();
+          const style = getComputedStyle(child);
+          return {
+            topGap: childBox.top - labelBox.top,
+            bottomGap: labelBox.bottom - childBox.bottom,
+            fontSize: Number.parseFloat(style.fontSize) || 0,
+            lineHeight: Number.parseFloat(style.lineHeight) || 0,
+          };
+        }),
+      };
+    }),
+  );
+  expect(metrics.length, "donut label should exist before checking clipping").toBeGreaterThan(0);
+  for (const metric of metrics) {
+    for (const child of metric.children) {
+      expect(child.topGap, `${metric.text} should not clip at top`).toBeGreaterThanOrEqual(-1);
+      expect(child.bottomGap, `${metric.text} should not clip at bottom`).toBeGreaterThanOrEqual(-1);
+      if (child.fontSize > 0 && child.lineHeight > 0) {
+        expect(child.lineHeight, `${metric.text} line-height should leave descender room`).toBeGreaterThanOrEqual(
+          child.fontSize * 1.08,
+        );
+      }
+    }
+  }
+}
+
+export async function expectDonutLabelsInsideChart(card, label) {
+  const metrics = await card.getByTestId("portfolio-donut-slice-label").evaluateAll((nodes) =>
+    nodes.map((node) => {
+      const chart = node.closest(".chart-wrap")?.getBoundingClientRect();
+      const box = node.getBoundingClientRect();
+      return {
+        text: node.textContent?.replace(/\s+/g, " ").trim(),
+        missingChart: !chart,
+        leftGap: chart ? box.left - chart.left : 0,
+        rightGap: chart ? chart.right - box.right : 0,
+        topGap: chart ? box.top - chart.top : 0,
+        bottomGap: chart ? chart.bottom - box.bottom : 0,
+      };
+    }),
+  );
+  expect(metrics.length, `${label} should expose visible slice labels`).toBeGreaterThan(0);
+  for (const item of metrics) {
+    expect(item.missingChart, `${label} ${item.text} should be measured against a chart`).toBeFalsy();
+    expect(item.leftGap, `${label} ${item.text} should stay clear of chart left edge`).toBeGreaterThanOrEqual(12);
+    expect(item.rightGap, `${label} ${item.text} should stay clear of chart right edge`).toBeGreaterThanOrEqual(12);
+    expect(item.topGap, `${label} ${item.text} should stay clear of chart top chrome`).toBeGreaterThanOrEqual(12);
+    expect(item.bottomGap, `${label} ${item.text} should stay clear of chart bottom edge`).toBeGreaterThanOrEqual(12);
+  }
+}
+
+export async function expectDonutLabelsCenteredOnRing(card, label) {
+  const geometry = await card.getByTestId("portfolio-donut-slice-label").evaluateAll((nodes) =>
+    nodes.map((node) => {
+      const chart = node.closest(".portfolio-donut-slice-labels")?.getBoundingClientRect();
+      const box = node.getBoundingClientRect();
+      if (!chart) {
+        return { text: node.textContent?.replace(/\s+/g, " ").trim(), missingChart: true };
+      }
+      const centerX = chart.x + chart.width / 2;
+      const centerY = chart.y + chart.height / 2;
+      const labelX = box.x + box.width / 2;
+      const labelY = box.y + box.height / 2;
+      const dx = labelX - centerX;
+      const dy = labelY - centerY;
+      const actualRadius = (Math.sqrt(dx * dx + dy * dy) / (Math.min(chart.width, chart.height) / 2)) * 100;
+      const actualAngle = (Math.atan2(dy, dx) * 180) / Math.PI;
+      const expectedAngle = Number(node.dataset.donutAngle || 0);
+      const expectedRadius = Number(node.dataset.donutRadius || 0);
+      const angleDelta = Math.abs(((actualAngle - expectedAngle + 540) % 360) - 180);
+      return {
+        text: node.textContent?.replace(/\s+/g, " ").trim(),
+        actualRadius,
+        expectedRadius,
+        angleDelta,
+      };
+    }),
+  );
+  expect(geometry.length, `${label} should expose visible slice labels`).toBeGreaterThan(0);
+  for (const item of geometry) {
+    expect(item.missingChart, `${label} ${item.text} should be measured against a chart`).toBeFalsy();
+    expect(Math.abs(item.actualRadius - item.expectedRadius), `${label} ${item.text} should sit on ring midpoint`).toBeLessThanOrEqual(2.6);
+    expect(item.angleDelta, `${label} ${item.text} should sit on slice midpoint angle`).toBeLessThanOrEqual(2.6);
+  }
+}
+
 export async function expectPortfolioLabelsClearOfBottomNav(page, card, label) {
   let metrics = [];
   const readMetrics = () =>
@@ -558,10 +651,11 @@ export async function expectPortfolioLabelsClearOfBottomNav(page, card, label) {
       const nav = document.querySelector("nav.topbar-tabs");
       const navBox = nav?.getBoundingClientRect();
       const navStyle = nav ? getComputedStyle(nav) : null;
+      const chart = nodes[0]?.closest(".chart-wrap");
+      const chartBox = chart?.getBoundingClientRect();
       const fixedBottomNav = Boolean(
         navBox &&
           navStyle?.position === "fixed" &&
-          window.innerWidth <= 820 &&
           navBox.bottom >= window.innerHeight - 32 &&
           navBox.top > window.innerHeight * 0.5,
       );
@@ -570,6 +664,8 @@ export async function expectPortfolioLabelsClearOfBottomNav(page, card, label) {
         return {
           text: node.textContent?.replace(/\s+/g, " ").trim(),
           bottom: box.bottom,
+          chartBottom: chartBox?.bottom ?? null,
+          missingChart: !chartBox,
           fixedBottomNav,
           navTop: fixedBottomNav ? navBox.top : window.innerHeight,
           viewportBottom: window.innerHeight,
@@ -583,8 +679,15 @@ export async function expectPortfolioLabelsClearOfBottomNav(page, card, label) {
         metrics = await readMetrics();
         return (
           metrics.length > 0 &&
+          metrics.every((item) => !item.missingChart) &&
           metrics.every(
             (item) => item.bottom <= item.viewportBottom && (!item.fixedBottomNav || item.bottom <= item.navTop - 4),
+          ) &&
+          metrics.every(
+            (item) =>
+              item.chartBottom === null ||
+              (item.chartBottom <= item.viewportBottom &&
+                (!item.fixedBottomNav || item.chartBottom <= item.navTop - 4)),
           )
         );
       },
@@ -594,6 +697,7 @@ export async function expectPortfolioLabelsClearOfBottomNav(page, card, label) {
   metrics = await readMetrics();
   expect(metrics.length, `${label} should expose visible slice labels`).toBeGreaterThan(0);
   for (const item of metrics) {
+    expect(item.missingChart, `${label} should be measured against its chart wrapper`).toBeFalsy();
     expect(item.bottom, `${label} ${item.text} should stay within the viewport`).toBeLessThanOrEqual(
       item.viewportBottom,
     );
@@ -601,6 +705,11 @@ export async function expectPortfolioLabelsClearOfBottomNav(page, card, label) {
       expect(item.bottom, `${label} ${item.text} should clear the fixed bottom navigation`).toBeLessThanOrEqual(
         item.navTop - 4,
       );
+      if (item.chartBottom !== null) {
+        expect(item.chartBottom, `${label} chart should clear the fixed bottom navigation`).toBeLessThanOrEqual(
+          item.navTop - 4,
+        );
+      }
     }
   }
   await expect(page.locator("nav.topbar-tabs")).toBeVisible();

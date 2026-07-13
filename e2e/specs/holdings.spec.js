@@ -491,10 +491,13 @@ test("issue 226: 1024px holding right-side columns and actions stay discoverable
       pageOverflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
       scroller: {
         ...boxOf(scroller),
+        ariaLabel: scroller?.getAttribute("aria-label") || "",
         clientWidth: scroller?.clientWidth || 0,
+        role: scroller?.getAttribute("role") || "",
         scrollWidth: scroller?.scrollWidth || 0,
         scrollLeft: scroller?.scrollLeft || 0,
         scrollOverflowX: scroller ? scroller.scrollWidth - scroller.clientWidth : 0,
+        tabIndex: scroller?.getAttribute("tabindex"),
       },
       table: boxOf(table),
       updatedHeader: boxOf(updatedHeader),
@@ -522,10 +525,27 @@ test("issue 226: 1024px holding right-side columns and actions stay discoverable
   expect(metrics.groupButtons.length, `test should exercise holding group move targets: ${JSON.stringify(metrics)}`).toBeGreaterThanOrEqual(4);
   expect(metrics.pageOverflowX, `1024px desktop page should not overflow horizontally: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
   expect(metrics.scroller.scrollOverflowX, `1024px holding table should not hide right-side columns/actions behind horizontal scroll: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(1);
+  expect(metrics.scroller.tabIndex, `non-scrollable holding table should not add an inert focus stop: ${JSON.stringify(metrics)}`).toBeNull();
+  expect(metrics.scroller.role, `non-scrollable holding table should not expose a scroll region: ${JSON.stringify(metrics)}`).toBe("");
+  expect(metrics.scroller.ariaLabel, `non-scrollable holding table should not announce scrolling: ${JSON.stringify(metrics)}`).toBe("");
   expect(metrics.outsideViewport, `updated/action headers, row actions, and group move buttons should stay inside viewport: ${JSON.stringify(metrics)}`).toEqual([]);
   expect(metrics.undersizedRowActions, `holding row actions should keep usable desktop targets: ${JSON.stringify(metrics)}`).toEqual([]);
   expect(metrics.undersizedGroupActions, `holding group move actions should keep usable desktop targets: ${JSON.stringify(metrics)}`).toEqual([]);
   expect(metrics.hiddenHitTargets, `holding action centers should remain directly clickable: ${JSON.stringify(metrics)}`).toEqual([]);
+
+  const holdingScroller = page.locator(".holdings-surface-scroll").first();
+  await page.locator(".holdings-surface-table").first().evaluate((element) => {
+    element.style.minWidth = "1200px";
+  });
+  await expect(holdingScroller).toHaveAttribute("tabindex", "0");
+  await expect(holdingScroller).toHaveAttribute("role", "region");
+  await expect(holdingScroller).toHaveAttribute("aria-label", "자산 표 가로 스크롤 영역");
+  await page.locator(".holdings-surface-table").first().evaluate((element) => {
+    element.style.removeProperty("min-width");
+  });
+  await expect(holdingScroller).not.toHaveAttribute("tabindex");
+  await expect(holdingScroller).not.toHaveAttribute("role");
+  await expect(holdingScroller).not.toHaveAttribute("aria-label");
   await expectNoHorizontalOverflow(page, 12);
   await capture(page, "issue-226-1024-holding-actions-visible");
 });
