@@ -917,6 +917,17 @@ test("MUI-008 collaboration tabs and import mode group expose truthful keyboard 
     await expect(tossMode).toBeFocused();
     await expect(tossMode).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByRole("button", { name: "토스 이미지 선택", exact: true })).toBeVisible();
+    const tossUploadPlaceholder = page.locator(".toss-drop-area .upload-placeholder");
+    await expect(tossUploadPlaceholder).toBeVisible();
+    const placeholderWrapStyles = await tossUploadPlaceholder.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return {
+        overflowWrap: style.overflowWrap,
+        wordBreak: style.wordBreak,
+      };
+    });
+    expect(placeholderWrapStyles.wordBreak, "Korean upload guidance must wrap at word boundaries").toBe("keep-all");
+    expect(placeholderWrapStyles.overflowWrap, "Korean upload guidance must not split ordinary words").toBe("normal");
     await page.keyboard.press("Home");
     await expect(workbookMode).toBeFocused();
     await expect(workbookMode).toHaveAttribute("aria-pressed", "true");

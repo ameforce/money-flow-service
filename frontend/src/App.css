@@ -501,6 +501,8 @@
   color: #3f5f8f;
   font-size: 0.95rem;
   font-weight: 700;
+  overflow-wrap: normal;
+  word-break: keep-all;
 }
 
 .import-progress {
@@ -7636,7 +7638,6 @@ tr.holding-row-imported {
   }
 
   .upload-file-name,
-  .upload-placeholder,
   .import-summary-item,
   .import-list-grid,
   .compact-list,
