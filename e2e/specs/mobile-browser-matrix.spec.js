@@ -125,6 +125,30 @@ async function expectZeroHorizontalOverflow(page, label) {
   expect(metrics, `${label} must have zero horizontal overflow`).toEqual({ body: 0, document: 0 });
 }
 
+async function expectBrandSubtitleOnOneLine(page, label) {
+  const subtitle = page.locator(".nav-brand small");
+  await expect(subtitle, `${label} brand subtitle should be visible`).toBeVisible();
+  const metrics = await subtitle.evaluate((element) => {
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    const lineTops = new Set(
+      Array.from(range.getClientRects())
+        .filter((rect) => rect.width > 0 && rect.height > 0)
+        .map((rect) => Math.round(rect.top * 10) / 10)
+    );
+    return {
+      clientWidth: element.clientWidth,
+      lineCount: lineTops.size,
+      scrollWidth: element.scrollWidth,
+      text: element.textContent?.trim() || "",
+    };
+  });
+  expect(metrics.lineCount, `${label} brand subtitle must not leave a CJK orphan line: ${JSON.stringify(metrics)}`).toBe(1);
+  expect(metrics.scrollWidth, `${label} brand subtitle must fit its available width: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(
+    metrics.clientWidth + 1
+  );
+}
+
 async function expectCriticalTargets(page, tabLabel, profile) {
   if (!profile.touch) return;
   if (tabLabel === "거래") {
@@ -264,6 +288,14 @@ test("cross-browser mobile matrix traverses core screens without layout or acces
         await test.step(profile.name, async () => {
           await page.setViewportSize({ width: profile.width, height: profile.height });
           await applyFont(page, profile.font);
+          if (profile.width === 1024 && profile.height === 768) {
+            await expectBrandSubtitleOnOneLine(page, `${browserName}/${profile.name}`);
+            await captureFinding(page, testInfo, "MUI-007", "tablet-1024x768-brand-subtitle", [
+              "brand-subtitle-single-line",
+              "no-cjk-orphan",
+              "no-overflow",
+            ]);
+          }
           for (const tabLabel of NAV_TABS) {
             await openTab(page, tabLabel);
             await expect(page.getByRole("button", { name: tabLabel, exact: true }).first()).toHaveAttribute("aria-current", "page");
@@ -275,6 +307,7 @@ test("cross-browser mobile matrix traverses core screens without layout or acces
             "engine-matrix",
             "zero-overflow",
             ...(profile.touch ? ["target-size-44"] : []),
+            ...(profile.width === 1024 && profile.height === 768 ? ["brand-subtitle-single-line"] : []),
           ]);
         });
       }

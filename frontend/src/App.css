@@ -6528,7 +6528,12 @@ tr.holding-row-imported {
 
 @media (max-width: 1100px) {
   .app-shell {
-    --app-shell-nav-width: 188px;
+    --app-shell-nav-width: 200px;
+  }
+
+  .nav-brand small {
+    white-space: nowrap;
+    word-break: keep-all;
   }
 
   .topbar {
