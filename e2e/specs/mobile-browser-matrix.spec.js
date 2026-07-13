@@ -852,6 +852,19 @@ test("MUI-008 collaboration tabs and import mode group expose truthful keyboard 
   test.setTimeout(120_000);
   const profile = MOBILE_PROFILES.find((candidate) => candidate.width === 390 && candidate.height === 844);
   const { context, page } = await newMatrixPage(browser, browserName, profile);
+  const expectRovingFocusIndicator = async (locator, label) => {
+    const styles = await locator.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return {
+        boxShadow: style.boxShadow,
+        outlineStyle: style.outlineStyle,
+        outlineWidth: Number.parseFloat(style.outlineWidth || "0"),
+      };
+    });
+    expect(styles.outlineStyle, `${label} must expose a focus outline: ${JSON.stringify(styles)}`).not.toBe("none");
+    expect(styles.outlineWidth, `${label} focus outline plus shadow must remain visible: ${JSON.stringify(styles)}`).toBeGreaterThanOrEqual(1);
+    expect(styles.boxShadow, `${label} must expose a focus ring shadow: ${JSON.stringify(styles)}`).not.toBe("none");
+  };
   try {
     await registerAndVerify(page, {
       email: `${unique(`mui-008-navigation-${browserName}`)}@example.com`,
@@ -901,6 +914,7 @@ test("MUI-008 collaboration tabs and import mode group expose truthful keyboard 
     await expect(sentHistoryTab).toBeFocused();
     await expect(sentHistoryTab).toHaveAttribute("aria-selected", "true");
     await expect(sentArticle.locator("#sent-invites-history-panel")).toBeVisible();
+    await expectRovingFocusIndicator(sentHistoryTab, `${browserName} collaboration history tab`);
     await captureFinding(page, testInfo, "MUI-008", "collaboration-tabs", ["tab-semantics", "arrow-navigation"]);
 
     await openTab(page, "데이터 가져오기");
@@ -919,6 +933,10 @@ test("MUI-008 collaboration tabs and import mode group expose truthful keyboard 
     await expect(page.getByRole("button", { name: "토스 이미지 선택", exact: true })).toBeVisible();
     const tossUploadPlaceholder = page.locator(".toss-drop-area .upload-placeholder");
     await expect(tossUploadPlaceholder).toBeVisible();
+    await expect(tossUploadPlaceholder.locator(":scope > span")).toHaveText([
+      "토스 거래내역 이미지를 선택하세요.",
+      "사진 앱이나 저장소에서 고르세요.",
+    ]);
     const placeholderWrapStyles = await tossUploadPlaceholder.evaluate((element) => {
       const style = getComputedStyle(element);
       return {
@@ -934,6 +952,7 @@ test("MUI-008 collaboration tabs and import mode group expose truthful keyboard 
     await page.keyboard.press("End");
     await expect(tossMode).toBeFocused();
     await expect(tossMode).toHaveAttribute("aria-pressed", "true");
+    await expectRovingFocusIndicator(tossMode, `${browserName} Toss import mode`);
     await captureFinding(page, testInfo, "MUI-008", "import-mode-group", ["exclusive-button-group", "arrow-navigation"]);
   } finally {
     await context.close();
@@ -968,6 +987,28 @@ test("MUI-009 blocking errors and non-blocking statuses expose distinct live-reg
     await expect(blockingError).toHaveAttribute("aria-live", "assertive");
     await expect(blockingError).toHaveAttribute("aria-atomic", "true");
     await expect(blockingError).toHaveAttribute("data-feedback-kind", "error");
+    const cjkWrapStyles = await errorSession.page.evaluate(() => {
+      const feedbackCopy = document.querySelector("form.auth-card-login .message .feedback-copy");
+      const recoveryCopy = document.querySelector("form.auth-card-login .auth-recovery-callout span");
+      return {
+        feedback: feedbackCopy
+          ? {
+              overflowWrap: getComputedStyle(feedbackCopy).overflowWrap,
+              wordBreak: getComputedStyle(feedbackCopy).wordBreak,
+            }
+          : null,
+        recovery: recoveryCopy
+          ? {
+              overflowWrap: getComputedStyle(recoveryCopy).overflowWrap,
+              wordBreak: getComputedStyle(recoveryCopy).wordBreak,
+            }
+          : null,
+      };
+    });
+    expect(cjkWrapStyles.feedback?.wordBreak, "blocking feedback must preserve Korean word boundaries").toBe("keep-all");
+    expect(cjkWrapStyles.feedback?.overflowWrap, "blocking feedback may split only an otherwise unbreakable token").toBe("break-word");
+    expect(cjkWrapStyles.recovery?.wordBreak, "recovery guidance must preserve Korean word boundaries").toBe("keep-all");
+    expect(cjkWrapStyles.recovery?.overflowWrap, "recovery guidance may split only an otherwise unbreakable token").toBe("break-word");
     const firstErrorId = await blockingError.getAttribute("data-feedback-id");
     await errorSession.page.waitForTimeout(4_100);
     await expect(blockingError).toBeVisible();

@@ -279,7 +279,8 @@
 
 .auth-recovery-callout span {
   color: #4a6387;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
+  word-break: keep-all;
 }
 
 .auth-recovery-callout .text-button {
@@ -498,6 +499,8 @@
 }
 
 .upload-placeholder {
+  display: grid;
+  gap: 0.14rem;
   color: #3f5f8f;
   font-size: 0.95rem;
   font-weight: 700;
@@ -2649,6 +2652,13 @@ button:focus-visible {
   box-shadow: var(--mf-focus-ring);
 }
 
+.tabs[role="tablist"] > button:focus,
+.import-mode-switch[role="group"] > button:focus {
+  outline: 2px solid var(--mf-color-blue-600);
+  outline-offset: 2px;
+  box-shadow: var(--mf-focus-ring);
+}
+
 button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -2732,6 +2742,11 @@ button.transaction-selection-clear {
 .feedback-summary,
 .feedback-detail {
   display: block;
+}
+
+.message .feedback-copy {
+  overflow-wrap: break-word;
+  word-break: keep-all;
 }
 
 .message-close {

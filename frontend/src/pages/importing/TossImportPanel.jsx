@@ -23,7 +23,13 @@ export function TossImportPanel({ constants, permissions, reportState, toss, hel
         onDragActiveChange={updateIsDragOver}
         onDrop={updateTossImportFiles}
       >
-        {tossFiles.length > 0 ? <ul className="upload-file-list">{tossFiles.map((file) => <li key={`${file.name}-${file.size}`}>{file.name}</li>)}</ul> : <div className="upload-placeholder">{tossUploadPlaceholder}</div>}
+        {tossFiles.length > 0 ? (
+          <ul className="upload-file-list">{tossFiles.map((file) => <li key={`${file.name}-${file.size}`}>{file.name}</li>)}</ul>
+        ) : (
+          <div className="upload-placeholder">
+            {tossUploadPlaceholder.map((line) => <span key={line}>{line}</span>)}
+          </div>
+        )}
       </FilePickerDropzone>
       <div className="inline import-actions">
         <button type="button" disabled={importBusy || !canEditRecords} onClick={() => doTossPreview()}>{tossLoadingMode === "preview" ? "추출 중..." : "검토 표 만들기"}</button>
