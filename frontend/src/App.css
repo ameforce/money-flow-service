@@ -479,11 +479,6 @@
   opacity: 0.72;
 }
 
-.file-picker-status {
-  min-width: 0;
-  max-width: 100%;
-}
-
 .file-picker-button {
   min-width: min(100%, 11rem);
   min-height: 2.75rem;
@@ -499,13 +494,15 @@
 }
 
 .upload-placeholder {
-  display: grid;
-  gap: 0.14rem;
   color: #3f5f8f;
   font-size: 0.95rem;
   font-weight: 700;
   overflow-wrap: normal;
   word-break: keep-all;
+}
+
+.upload-placeholder span {
+  display: block;
 }
 
 .import-progress {
@@ -550,9 +547,7 @@
 .toss-review-table-wrap {
   overflow-x: auto;
   overscroll-behavior-x: contain;
-  overscroll-behavior-inline: contain;
-  scrollbar-gutter: stable;
-  touch-action: pan-x pan-y pinch-zoom;
+  touch-action: pan-x pan-y;
   -webkit-overflow-scrolling: touch;
 }
 
@@ -565,10 +560,6 @@
   margin: 0;
   overflow-wrap: normal;
   word-break: keep-all;
-}
-
-.toss-review-scroll-help span {
-  display: block;
 }
 
 .toss-review-table {
@@ -2737,11 +2728,6 @@ button.transaction-selection-clear {
   min-width: 0;
   white-space: pre-line;
   overflow-wrap: anywhere;
-}
-
-.feedback-summary,
-.feedback-detail {
-  display: block;
 }
 
 .message .feedback-copy {
@@ -5786,6 +5772,8 @@ tr.holding-row-imported {
 .onboarding-guide p {
   margin: 0.35rem 0 0;
   color: #355177;
+  word-break: keep-all;
+  overflow-wrap: break-word;
 }
 
 .tx-entry-banner {
@@ -7951,18 +7939,18 @@ tr.holding-row-imported {
     min-width: 1080px;
     table-layout: fixed;
   }
+  .toss-review-table :is(thead, tbody, tr, th, td) {
+    width: auto;
+  }
   .toss-review-table thead {
     display: table-header-group;
-    width: auto;
   }
   .toss-review-table tbody {
     display: table-row-group;
-    width: auto;
   }
   .toss-review-table thead tr,
   .toss-review-table tbody tr {
     display: table-row;
-    width: auto;
     margin: 0;
     padding: 0;
     border: 0;
@@ -7971,7 +7959,6 @@ tr.holding-row-imported {
   .toss-review-table th,
   .toss-review-table td {
     display: table-cell;
-    width: auto;
     padding: 0.6rem 0.5rem;
     border-bottom: 1px solid var(--mf-border-subtle);
     text-align: left;
@@ -10726,4 +10713,11 @@ tr.holding-row-imported {
   .invite-row-new {
     animation: none;
   }
+}
+
+button.modal-return-focus {
+  outline: 2px solid var(--mf-color-blue-600) !important;
+  outline-offset: 3px;
+  box-shadow: var(--mf-focus-ring) !important;
+  transition: none;
 }

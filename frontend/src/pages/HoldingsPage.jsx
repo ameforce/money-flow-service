@@ -24,6 +24,7 @@ export function HoldingsPage({
   } = permissions;
   const {
     holdingEntryActionRef,
+    holdingFabRef,
     holdingEntrySheetBackdropRef,
     holdingEntrySheetRef,
     holdingForm,
@@ -131,6 +132,7 @@ export function HoldingsPage({
       />
       <HoldingListPanel
         permissions={{ isCompactViewport, loading }}
+        entryRefs={{ holdingFabRef }}
         listState={{ activeHoldingTabLabel, activeHoldingTypeFilterLabel, dynamicHoldingTabs, filteredHoldingItems, groupedHoldingSections, holdingColorMode, holdingColorModeLabel, holdingColumnWidths, holdingGroupByColor, holdingItems, holdingListTab, holdingListTabAriaLabel, holdingSortSummary, holdingTypeFilter, selectedHoldingSummary, sortedHoldingItems }}
         listActions={{ moveHoldingCategoryOrder, scrollToHoldingSummary, updateHoldingColumnWidth, updateHoldingColorMode, updateHoldingGroupByColor, updateHoldingListTab, updateHoldingTypeFilter, updateSelectedHoldingIds }}
         entryActions={{ openHoldingEntrySheet }}

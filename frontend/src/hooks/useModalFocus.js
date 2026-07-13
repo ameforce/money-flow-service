@@ -95,14 +95,22 @@ function collectBackgroundElements(activeRoots) {
   return Array.from(background);
 }
 
-function scheduleInitialFocus(entry) {
+function scheduleInitialFocus(entry, preservedTarget = null, force = false) {
+  let focusSettled = false;
   const focus = () => {
     if (modalStack.at(-1) !== entry || !entry.dialog.isConnected) {
       return;
     }
-    const preferred = entry.getInitialFocus?.();
+    const active = document.activeElement;
+    if (entry.dialog.contains(active) && isVisibleFocusable(active) && (!force || focusSettled)) {
+      return;
+    }
+    const preferred = isVisibleFocusable(preservedTarget) && entry.dialog.contains(preservedTarget)
+      ? preservedTarget
+      : entry.getInitialFocus?.();
     const target = isVisibleFocusable(preferred) ? preferred : focusableElements(entry.dialog)[0];
     target?.focus?.({ preventScroll: true });
+    focusSettled = entry.dialog.contains(document.activeElement);
   };
 
   window.cancelAnimationFrame(entry.focusFrameId || 0);
@@ -128,19 +136,42 @@ export function useModalFocus({
   isolationRef,
   onEscape,
   open,
+  surfaceOpen = open,
 }) {
   const entryRef = useRef(null);
   const activeOutsideRefsRef = useRef(activeOutsideRefs);
+  const focusKeyRef = useRef(focusKey);
   const getInitialFocusRef = useRef(getInitialFocus);
   const getReturnFocusRef = useRef(getReturnFocus);
+  const lastSurfaceFocusRef = useRef(null);
   const onEscapeRef = useRef(onEscape);
+  const surfaceOpenRef = useRef(surfaceOpen);
 
   useLayoutEffect(() => {
     activeOutsideRefsRef.current = activeOutsideRefs;
+    focusKeyRef.current = focusKey;
     getInitialFocusRef.current = getInitialFocus;
     getReturnFocusRef.current = getReturnFocus;
     onEscapeRef.current = onEscape;
+    surfaceOpenRef.current = surfaceOpen;
   });
+
+  useLayoutEffect(() => {
+    if (!surfaceOpen || typeof document === "undefined") {
+      lastSurfaceFocusRef.current = null;
+      return undefined;
+    }
+
+    const rememberSurfaceFocus = (event) => {
+      const dialog = dialogRef.current;
+      if (dialog instanceof HTMLElement && event.target instanceof HTMLElement && dialog.contains(event.target)) {
+        lastSurfaceFocusRef.current = event.target;
+      }
+    };
+    rememberSurfaceFocus({ target: document.activeElement });
+    document.addEventListener("focusin", rememberSurfaceFocus, true);
+    return () => document.removeEventListener("focusin", rememberSurfaceFocus, true);
+  }, [dialogRef, surfaceOpen]);
 
   useLayoutEffect(() => {
     if (!open || typeof document === "undefined") {
@@ -152,6 +183,12 @@ export function useModalFocus({
     }
 
     const focusedAtOpen = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const lastSurfaceFocus = lastSurfaceFocusRef.current;
+    const preservedTarget = dialog.contains(focusedAtOpen) && isVisibleFocusable(focusedAtOpen)
+      ? focusedAtOpen
+      : dialog.contains(lastSurfaceFocus) && isVisibleFocusable(lastSurfaceFocus)
+        ? lastSurfaceFocus
+        : null;
     const requestedReturnFocus = getReturnFocusRef.current?.();
     const returnFocusTarget = requestedReturnFocus instanceof HTMLElement ? requestedReturnFocus : focusedAtOpen;
     const isolationRoot = isolationRef?.current instanceof HTMLElement ? isolationRef.current : dialog;
@@ -165,6 +202,7 @@ export function useModalFocus({
       dialog,
       focusFrameId: 0,
       focusTimerId: 0,
+      focusKey: focusKeyRef.current,
       getInitialFocus: () => getInitialFocusRef.current?.(),
     };
     entryRef.current = entry;
@@ -202,7 +240,7 @@ export function useModalFocus({
     };
 
     document.addEventListener("keydown", handleKeyDown, true);
-    scheduleInitialFocus(entry);
+    scheduleInitialFocus(entry, preservedTarget);
 
     return () => {
       const focusedAtClose = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -214,7 +252,13 @@ export function useModalFocus({
       entryRef.current = null;
 
       window.setTimeout(() => {
-        if (!(returnFocusTarget instanceof HTMLElement) || !returnFocusTarget.isConnected) {
+        if (surfaceOpenRef.current) {
+          if (isVisibleFocusable(focusedAtClose) && dialog.contains(focusedAtClose)) {
+            focusedAtClose.scrollIntoView({ behavior: "auto", block: "center", inline: "nearest" });
+          }
+          return;
+        }
+        if (!isVisibleFocusable(returnFocusTarget)) {
           return;
         }
         const topModal = modalStack.at(-1);
@@ -230,14 +274,21 @@ export function useModalFocus({
           !active.isConnected;
         if (canRestore) {
           returnFocusTarget.focus({ preventScroll: true });
+          if (document.activeElement === returnFocusTarget) {
+            returnFocusTarget.classList.add("modal-return-focus");
+            returnFocusTarget.addEventListener("blur", () => {
+              returnFocusTarget.classList.remove("modal-return-focus");
+            }, { once: true });
+          }
         }
       }, 0);
     };
   }, [dialogRef, isolationRef, open]);
 
   useLayoutEffect(() => {
-    if (open && entryRef.current) {
-      scheduleInitialFocus(entryRef.current);
+    if (open && entryRef.current && entryRef.current.focusKey !== focusKey) {
+      entryRef.current.focusKey = focusKey;
+      scheduleInitialFocus(entryRef.current, null, true);
     }
   }, [focusKey, open]);
 }

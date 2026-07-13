@@ -361,3 +361,15 @@ test("final gate accepts complete browser and viewport evidence", () => {
     rmSync(workspace, { recursive: true, force: true });
   }
 });
+
+test("final gate rejects a dirty tracked worktree even when evidence names HEAD", () => {
+  const workspace = createWorkspace({ completeMatrix: true, completeRequiredScenarios: true });
+  try {
+    writeFileSync(path.join(workspace, "tracked.txt"), "dirty fixture");
+    const result = runVerifier(workspace);
+    assert.equal(result.status, 1);
+    assert.ok(result.report.failures.includes("final evidence gate requires a clean tracked worktree"));
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
+  }
+});

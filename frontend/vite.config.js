@@ -20,6 +20,12 @@ export default defineConfig({
     },
   },
   build: {
+    cssMinify: "lightningcss",
+    minify: "terser",
+    terserOptions: {
+      compress: { passes: 2 },
+      format: { comments: false },
+    },
     outDir: "dist",
     emptyOutDir: true,
     rollupOptions: {

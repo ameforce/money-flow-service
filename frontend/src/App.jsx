@@ -2424,6 +2424,7 @@ function App() {
   const transactionSheetScrollYRef = useRef(0);
   const holdingSheetScrollYRef = useRef(0);
   const holdingEntryActionRef = useRef(null);
+  const holdingFabRef = useRef(null);
   const holdingEntryReturnFocusRef = useRef(null);
   const holdingEntrySheetBackdropRef = useRef(null);
   const holdingEntrySheetRef = useRef(null);
@@ -4543,9 +4544,17 @@ function App() {
     activeOutsideRefs: [holdingEntrySheetBackdropRef],
     dialogRef: holdingEntrySheetRef,
     getInitialFocus: () => holdingNameInputRef.current,
-    getReturnFocus: () => holdingEntryReturnFocusRef.current || holdingEntryActionRef.current,
+    getReturnFocus: () => {
+      const compactTrigger = isCompactViewport ? holdingFabRef.current : null;
+      if (compactTrigger?.isConnected) {
+        return compactTrigger;
+      }
+      const originalTrigger = holdingEntryReturnFocusRef.current;
+      return originalTrigger?.isConnected ? originalTrigger : holdingFabRef.current || holdingEntryActionRef.current;
+    },
     onEscape: () => closeHoldingEntrySheet(),
     open: showHoldingForm && isCompactViewport,
+    surfaceOpen: showHoldingForm,
   });
 
   useModalFocus({
@@ -10303,6 +10312,7 @@ function App() {
     },
     entryState: {
       holdingEntryActionRef,
+      holdingFabRef,
       holdingEntrySheetBackdropRef,
       holdingEntrySheetRef,
       holdingForm,

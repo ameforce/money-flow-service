@@ -18,17 +18,16 @@ export function FeedbackMessage({ feedback, onDismiss }) {
       messageElement.style.removeProperty("top");
       messageElement.style.removeProperty("bottom");
       delete messageElement.dataset.feedbackPlacement;
-
       const messageBox = messageElement.getBoundingClientRect();
       const clearance = 8;
       const viewportTop = visualViewport?.offsetTop || 0;
       const viewportBottom = viewportTop + (visualViewport?.height || window.innerHeight);
-      const protectedIntervals = Array.from(document.querySelectorAll(PROTECTED_TARGET_SELECTOR))
+      const protectedBoxes = Array.from(document.querySelectorAll(PROTECTED_TARGET_SELECTOR))
         .filter((element) => element instanceof HTMLElement && !messageElement.contains(element))
         .map((element) => {
           const box = element.getBoundingClientRect();
           const style = getComputedStyle(element);
-          const rendered =
+          return (
             style.display !== "none" &&
             style.visibility !== "hidden" &&
             box.width > 0 &&
@@ -36,51 +35,26 @@ export function FeedbackMessage({ feedback, onDismiss }) {
             box.bottom > viewportTop &&
             box.top < viewportBottom &&
             box.right > messageBox.left &&
-            box.left < messageBox.right;
-          return rendered
-            ? {
-                bottom: Math.min(viewportBottom, box.bottom + clearance),
-                top: Math.max(viewportTop, box.top - clearance),
-              }
-            : null;
+            box.left < messageBox.right
+          ) ? box : null;
         })
-        .filter(Boolean)
-        .sort((left, right) => left.top - right.top);
-
-      const mergedIntervals = [];
-      for (const interval of protectedIntervals) {
-        const previous = mergedIntervals.at(-1);
-        if (previous && interval.top <= previous.bottom) {
-          previous.bottom = Math.max(previous.bottom, interval.bottom);
-        } else {
-          mergedIntervals.push({ ...interval });
-        }
-      }
-
-      const availableGaps = [];
-      let cursor = viewportTop + clearance;
-      for (const interval of mergedIntervals) {
-        if (interval.top - cursor >= messageBox.height) {
-          availableGaps.push({ bottom: interval.top, top: cursor });
-        }
-        cursor = Math.max(cursor, interval.bottom);
-      }
-      if (viewportBottom - clearance - cursor >= messageBox.height) {
-        availableGaps.push({ bottom: viewportBottom - clearance, top: cursor });
-      }
-
-      const placement = availableGaps
-        .map((gap) => {
-          const top = Math.min(Math.max(messageBox.top, gap.top), gap.bottom - messageBox.height);
-          return { distance: Math.abs(top - messageBox.top), top };
-        })
-        .sort((left, right) => left.distance - right.distance)[0];
-      if (!placement) {
+        .filter(Boolean);
+      const maxTop = viewportBottom - clearance - messageBox.height;
+      const candidates = [
+        messageBox.top,
+        viewportTop + clearance,
+        (viewportTop + maxTop) / 2,
+        maxTop,
+      ].filter((top, index, values) => top >= viewportTop + clearance && top <= maxTop && values.indexOf(top) === index);
+      const top = candidates
+        .filter((candidate) => protectedBoxes.every((box) => candidate + messageBox.height <= box.top || candidate >= box.bottom))
+        .sort((left, right) => Math.abs(left - messageBox.top) - Math.abs(right - messageBox.top))[0];
+      if (!Number.isFinite(top)) {
         messageElement.dataset.feedbackPlacement = "inline";
         return;
       }
-      if (Math.abs(placement.top - messageBox.top) > 0.5) {
-        messageElement.style.setProperty("top", `${placement.top}px`, "important");
+      if (Math.abs(top - messageBox.top) > 0.5) {
+        messageElement.style.setProperty("top", `${top}px`, "important");
         messageElement.style.setProperty("bottom", "auto", "important");
         messageElement.dataset.feedbackPlacement = "adaptive";
       }
@@ -122,8 +96,8 @@ export function FeedbackMessage({ feedback, onDismiss }) {
       data-feedback-kind={feedback.kind}
     >
       <span className="feedback-copy" aria-hidden="true">
-        <span className="feedback-summary">{summary}</span>
-        {detail && <span className="feedback-detail">{detail}</span>}
+        {summary}
+        {detail && <><br /><span className="feedback-detail">{detail}</span></>}
       </span>
       <button type="button" className="message-close secondary" onClick={onDismiss}>
         닫기

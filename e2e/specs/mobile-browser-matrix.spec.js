@@ -300,6 +300,35 @@ async function expectBackgroundInert(page, modal, label) {
   expect(activeElementState.modalOwnsFocus, `${label} background focus attempt must stay inside the modal: ${JSON.stringify(activeElementState)}`).toBe(true);
 }
 
+async function expectVisibleFocusIndicator(locator, label) {
+  const styles = await locator.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return {
+      boxShadow: style.boxShadow,
+      className: element.className,
+      focusMatches: element.matches(":focus"),
+      focusVisibleMatches: element.matches(":focus-visible"),
+      outlineStyle: style.outlineStyle,
+      outlineWidth: Number.parseFloat(style.outlineWidth || "0"),
+    };
+  });
+  expect(styles.outlineStyle, `${label} must expose a focus outline: ${JSON.stringify(styles)}`).not.toBe("none");
+  expect(styles.outlineWidth, `${label} focus outline plus shadow must remain visible: ${JSON.stringify(styles)}`).toBeGreaterThanOrEqual(1);
+  expect(styles.boxShadow, `${label} must expose a focus ring shadow: ${JSON.stringify(styles)}`).not.toBe("none");
+}
+
+async function expectControlInsideViewport(locator, label) {
+  await expect.poll(async () => locator.evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    const viewport = window.visualViewport;
+    const left = viewport?.offsetLeft || 0;
+    const top = viewport?.offsetTop || 0;
+    const right = left + (viewport?.width || window.innerWidth);
+    const bottom = top + (viewport?.height || window.innerHeight);
+    return box.left >= left - 1 && box.right <= right + 1 && box.top >= top - 1 && box.bottom <= bottom + 1;
+  }), `${label} should remain fully inside the visual viewport`).toBe(true);
+}
+
 async function chooseFileWithKeyboard(page, previousControl, button, file, label, key = "Enter") {
   await button.scrollIntoViewIfNeeded();
   await expect(button, `${label} picker should be visible`).toBeVisible();
@@ -587,6 +616,140 @@ test("MUI-006 holding sheet owns keyboard focus and restores its trigger", async
   }
 });
 
+test("MUI-006 holding focus survives tablet modal-inline orientation transitions", async ({ browser, browserName }, testInfo) => {
+  test.setTimeout(180_000);
+  const portrait = { width: 768, height: 1024, touch: true };
+  const landscape = { width: 1024, height: 768 };
+  const { context, page } = await newMatrixPage(browser, browserName, portrait);
+  try {
+    await registerAndVerify(page, {
+      email: `${unique(`mui-006-holding-orientation-${browserName}`)}@example.com`,
+      displayName: unique(`mui-006-holding-orientation-${browserName}-name`),
+    });
+    await openTab(page, "자산");
+    const trigger = page.getByTestId("holdings-fab");
+    await trigger.click();
+
+    let sheet = page.getByTestId("holding-entry-sheet");
+    const nameInput = page.getByLabel("자산명", { exact: true });
+    const accountInput = page.getByLabel("계좌", { exact: true });
+    const accountName = unique(`mui-006-account-${browserName}`);
+    await expect(nameInput, `${browserName} holding sheet should settle its initial focus`).toBeFocused();
+    await accountInput.fill(accountName);
+    await accountInput.focus();
+    await expect(sheet).toHaveAttribute("role", "dialog");
+    await expect(sheet).toHaveAttribute("aria-modal", "true");
+    await expect(accountInput).toBeFocused();
+    await captureFinding(page, testInfo, "MUI-006", "holding-tablet-portrait-modal", [
+      "tablet-orientation",
+      "modal-focus-preserved",
+    ]);
+
+    await page.setViewportSize(landscape);
+    await expect(sheet).toHaveCount(0);
+    await expect(page.getByTestId("holding-entry-sheet-backdrop")).toHaveCount(0);
+    await expect(accountInput).toHaveValue(accountName);
+    await expect(accountInput, `${browserName} holding focus should remain in the inline form`).toBeFocused();
+    await expectControlInsideViewport(accountInput, `${browserName} inline holding account focus`);
+    const backgroundRemainsInteractive = await page.locator("header.topbar").evaluate((element) => (
+      !element.inert && !element.closest("[inert]")
+    ));
+    expect(backgroundRemainsInteractive, `${browserName} inline mode should release modal background isolation`).toBe(true);
+    await captureFinding(page, testInfo, "MUI-006", "holding-tablet-landscape-inline", [
+      "modal-to-inline",
+      "draft-preserved",
+      "focus-preserved",
+      "focus-visible-in-viewport",
+      "background-released",
+    ]);
+
+    await page.setViewportSize({ width: portrait.width, height: portrait.height });
+    sheet = page.getByTestId("holding-entry-sheet");
+    await expect(sheet).toHaveAttribute("role", "dialog");
+    await expect(sheet).toHaveAttribute("aria-modal", "true");
+    await expect(accountInput).toHaveValue(accountName);
+    await expect(accountInput, `${browserName} holding focus should survive inline-to-modal restoration`).toBeFocused();
+    await expectBackgroundInert(page, sheet, `${browserName} restored holding sheet`);
+    await captureFinding(page, testInfo, "MUI-006", "holding-tablet-portrait-restored", [
+      "inline-to-modal",
+      "draft-preserved",
+      "focus-preserved",
+      "background-inert",
+    ]);
+
+    await page.keyboard.press("Escape");
+    const confirmation = page.getByRole("alertdialog");
+    await expect(confirmation).toBeVisible();
+    await confirmation.getByRole("button", { name: "입력 닫기", exact: true }).click();
+    await expect(sheet).toHaveCount(0);
+    await expect(trigger, `${browserName} actual close should restore the current holding trigger`).toBeFocused();
+    await expectVisibleFocusIndicator(trigger, `${browserName} current holding trigger`);
+    await captureFinding(page, testInfo, "MUI-006", "holding-tablet-actual-close", [
+      "actual-close",
+      "return-focus",
+    ]);
+  } finally {
+    await context.close();
+  }
+});
+
+test("MUI-006 holding focus survives tablet inline-modal orientation transitions", async ({ browser, browserName }, testInfo) => {
+  test.setTimeout(180_000);
+  const landscape = { width: 1024, height: 768, touch: true };
+  const portrait = { width: 768, height: 1024 };
+  const { context, page } = await newMatrixPage(browser, browserName, landscape);
+  try {
+    await registerAndVerify(page, {
+      email: `${unique(`mui-006-holding-reverse-${browserName}`)}@example.com`,
+      displayName: unique(`mui-006-holding-reverse-${browserName}-name`),
+    });
+    await openTab(page, "자산");
+    const inlineTrigger = page.locator(".holding-entry-card").getByRole("button", { name: "자산 추가", exact: true });
+    await inlineTrigger.click();
+
+    const accountInput = page.getByLabel("계좌", { exact: true });
+    const accountName = unique(`mui-006-reverse-account-${browserName}`);
+    await accountInput.fill(accountName);
+    await accountInput.focus();
+    await expect(page.getByTestId("holding-entry-sheet")).toHaveCount(0);
+    await expect(accountInput).toBeFocused();
+    await captureFinding(page, testInfo, "MUI-006", "holding-tablet-landscape-inline-open", [
+      "tablet-orientation",
+      "inline-focus",
+    ]);
+
+    await page.setViewportSize(portrait);
+    const sheet = page.getByTestId("holding-entry-sheet");
+    const compactTrigger = page.getByTestId("holdings-fab");
+    await expect(sheet).toHaveAttribute("role", "dialog");
+    await expect(accountInput).toHaveValue(accountName);
+    await expect(accountInput, `${browserName} reverse transition should preserve the account focus`).toBeFocused();
+    await expect(inlineTrigger).toBeHidden();
+    await expect(compactTrigger).toBeVisible();
+    await expectBackgroundInert(page, sheet, `${browserName} reverse holding sheet`);
+    await captureFinding(page, testInfo, "MUI-006", "holding-tablet-portrait-modal-from-inline", [
+      "inline-to-modal",
+      "draft-preserved",
+      "focus-preserved",
+      "current-trigger-visible",
+    ]);
+
+    await page.keyboard.press("Escape");
+    const confirmation = page.getByRole("alertdialog");
+    await expect(confirmation).toBeVisible();
+    await confirmation.getByRole("button", { name: "입력 닫기", exact: true }).click();
+    await expect(sheet).toHaveCount(0);
+    await expect(compactTrigger, `${browserName} reverse actual close should restore the visible compact trigger`).toBeFocused();
+    await expectVisibleFocusIndicator(compactTrigger, `${browserName} reverse compact holding trigger`);
+    await captureFinding(page, testInfo, "MUI-006", "holding-tablet-reverse-actual-close", [
+      "actual-close",
+      "visible-return-focus",
+    ]);
+  } finally {
+    await context.close();
+  }
+});
+
 test("MUI-006 dirty sheet keeps the nested alertdialog topmost", async ({ browser, browserName }, testInfo) => {
   test.setTimeout(120_000);
   const profile = MOBILE_PROFILES.find((candidate) => candidate.width === 390 && candidate.height === 844);
@@ -723,11 +886,13 @@ test("MUI-002 import file pickers expose keyboard and switch controls", async ({
 });
 
 test("MUI-003 Toss review keeps every editable column reachable by touch and keyboard", async ({ browser, browserName }, testInfo) => {
-  test.skip(browserName !== "chromium", "The evidence contract requires Chromium touch and keyboard access at 320px and 390px.");
+  test.skip(!["chromium", "webkit"].includes(browserName), "The evidence contract requires Chromium touch plus WebKit local-scroll and keyboard access.");
   test.setTimeout(180_000);
-  for (const profile of MOBILE_PROFILES.filter((candidate) =>
-    (candidate.width === 320 && candidate.height === 568) || (candidate.width === 390 && candidate.height === 844)
-  )) {
+  const profiles = MOBILE_PROFILES.filter((candidate) =>
+    ((candidate.width === 320 && candidate.height === 568) || (candidate.width === 390 && candidate.height === 844)) &&
+    (browserName === "chromium" || candidate.width === 390)
+  );
+  for (const profile of profiles) {
     const { context, page } = await newMatrixPage(browser, browserName, profile, { blockServiceWorkers: true });
     try {
       await page.route("**/api/v1/imports/toss-screenshots/preview", async (route) => {
@@ -792,13 +957,20 @@ test("MUI-003 Toss review keeps every editable column reachable by touch and key
 
       const categorySelect = region.locator(".toss-category-cell select").first();
       await expect(categorySelect).toBeVisible();
-      await swipeOverflowRegion(context, page, region, categorySelect, profile.name);
+      if (browserName === "chromium") {
+        await swipeOverflowRegion(context, page, region, categorySelect, profile.name);
+      } else {
+        await region.evaluate((element) => { element.scrollLeft = element.scrollWidth; });
+      }
       const touchScrollLeft = await region.evaluate((element) => element.scrollLeft);
-      expect(touchScrollLeft, `${profile.name} touch should move the local table scroller`).toBeGreaterThan(0);
-      await expectControlInsideRegion(region, categorySelect, `${profile.name} touch category editor`);
+      expect(touchScrollLeft, `${browserName}/${profile.name} should move the local table scroller`).toBeGreaterThan(0);
+      await expectControlInsideRegion(region, categorySelect, `${browserName}/${profile.name} local-scroll category editor`);
       await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
       await page.waitForTimeout(50);
-      await captureFinding(page, testInfo, "MUI-003", "touch-access", ["horizontal-pan", "editable-columns-reachable"]);
+      await captureFinding(page, testInfo, "MUI-003", "local-scroll-access", [
+        browserName === "chromium" ? "trusted-horizontal-pan" : "webkit-local-scroll-region",
+        "editable-columns-reachable",
+      ]);
 
       await region.evaluate((element) => { element.scrollLeft = 0; });
       await region.focus();
@@ -852,19 +1024,6 @@ test("MUI-008 collaboration tabs and import mode group expose truthful keyboard 
   test.setTimeout(120_000);
   const profile = MOBILE_PROFILES.find((candidate) => candidate.width === 390 && candidate.height === 844);
   const { context, page } = await newMatrixPage(browser, browserName, profile);
-  const expectRovingFocusIndicator = async (locator, label) => {
-    const styles = await locator.evaluate((element) => {
-      const style = getComputedStyle(element);
-      return {
-        boxShadow: style.boxShadow,
-        outlineStyle: style.outlineStyle,
-        outlineWidth: Number.parseFloat(style.outlineWidth || "0"),
-      };
-    });
-    expect(styles.outlineStyle, `${label} must expose a focus outline: ${JSON.stringify(styles)}`).not.toBe("none");
-    expect(styles.outlineWidth, `${label} focus outline plus shadow must remain visible: ${JSON.stringify(styles)}`).toBeGreaterThanOrEqual(1);
-    expect(styles.boxShadow, `${label} must expose a focus ring shadow: ${JSON.stringify(styles)}`).not.toBe("none");
-  };
   try {
     await registerAndVerify(page, {
       email: `${unique(`mui-008-navigation-${browserName}`)}@example.com`,
@@ -914,7 +1073,7 @@ test("MUI-008 collaboration tabs and import mode group expose truthful keyboard 
     await expect(sentHistoryTab).toBeFocused();
     await expect(sentHistoryTab).toHaveAttribute("aria-selected", "true");
     await expect(sentArticle.locator("#sent-invites-history-panel")).toBeVisible();
-    await expectRovingFocusIndicator(sentHistoryTab, `${browserName} collaboration history tab`);
+    await expectVisibleFocusIndicator(sentHistoryTab, `${browserName} collaboration history tab`);
     await captureFinding(page, testInfo, "MUI-008", "collaboration-tabs", ["tab-semantics", "arrow-navigation"]);
 
     await openTab(page, "데이터 가져오기");
@@ -952,7 +1111,7 @@ test("MUI-008 collaboration tabs and import mode group expose truthful keyboard 
     await page.keyboard.press("End");
     await expect(tossMode).toBeFocused();
     await expect(tossMode).toHaveAttribute("aria-pressed", "true");
-    await expectRovingFocusIndicator(tossMode, `${browserName} Toss import mode`);
+    await expectVisibleFocusIndicator(tossMode, `${browserName} Toss import mode`);
     await captureFinding(page, testInfo, "MUI-008", "import-mode-group", ["exclusive-button-group", "arrow-navigation"]);
   } finally {
     await context.close();

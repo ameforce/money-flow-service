@@ -102,8 +102,7 @@ function TossReviewTable({ rows, FLOW_TYPE_OPTIONS, categories, categoryById, im
   return (
     <>
       <p id="toss-review-scroll-help" className="table-summary toss-review-scroll-help">
-        <span>표를 좌우로 밀거나 스크롤 영역에서 좌우 방향키를 사용하세요.</span>
-        <span>탭으로 편집 칸을 이동합니다.</span>
+        표를 좌우로 밀거나 스크롤 영역에서 좌우 방향키를 사용하세요. 탭으로 편집 칸을 이동합니다.
       </p>
       <div
         className="toss-review-table-wrap"
