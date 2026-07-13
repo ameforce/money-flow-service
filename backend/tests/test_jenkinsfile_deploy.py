@@ -138,6 +138,12 @@ def test_main_prod_deploy_without_allow_flag_becomes_no_deploy_build() -> None:
     assert "error('prod deploy is disabled unless ALLOW_PROD_DEPLOY=true" not in source
 
 
+def test_scm_build_requires_explicit_run_deploy_opt_in() -> None:
+    source = _jenkinsfile_source()
+
+    assert "name: 'RUN_DEPLOY',\n      defaultValue: false" in source
+
+
 def test_jenkins_does_not_pipe_remote_uv_installer() -> None:
     source = _jenkinsfile_source()
 

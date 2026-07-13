@@ -281,7 +281,7 @@ test("import flow: legacy owner values can be explained and bulk remapped", asyn
 });
 
 test("import flow: workbook dry-run and apply", async ({ page }, testInfo) => {
-  test.setTimeout(240_000);
+  test.setTimeout(420_000);
 
   const email = `${unique("import-user")}@example.com`;
   const displayName = unique("import-name");

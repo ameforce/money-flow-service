@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "reactDoctorVersion": "0.7.4",
+  "maxErrorCount": 0,
+  "maxWarningCount": 200,
+  "note": "v0.1.48 W0 ratchet. W3 final gate requires zero diagnostics."
+}

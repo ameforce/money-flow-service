@@ -22,6 +22,7 @@ const videoMode = process.platform === "win32" && ffmpegPath && !existsSync(ffmp
 const projects = [
   {
     name: "desktop-chromium",
+    testIgnore: "**/mobile-browser-matrix.spec.js",
     use: { ...devices["Desktop Chrome"], ...chromiumRuntime },
   },
 ];
@@ -30,11 +31,28 @@ if (runProjectMatrix) {
   projects.push(
     {
       name: "tablet-chromium",
+      testIgnore: "**/mobile-browser-matrix.spec.js",
       use: { ...devices["iPad Pro 11"], browserName: "chromium", ...chromiumRuntime },
     },
     {
       name: "mobile-chromium",
+      testIgnore: "**/mobile-browser-matrix.spec.js",
       use: { ...devices["Pixel 5"], ...chromiumRuntime },
+    },
+    {
+      name: "matrix-chromium",
+      testMatch: "**/mobile-browser-matrix.spec.js",
+      use: { browserName: "chromium", ...chromiumRuntime },
+    },
+    {
+      name: "matrix-firefox",
+      testMatch: "**/mobile-browser-matrix.spec.js",
+      use: { browserName: "firefox" },
+    },
+    {
+      name: "matrix-webkit",
+      testMatch: "**/mobile-browser-matrix.spec.js",
+      use: { browserName: "webkit" },
     }
   );
 }

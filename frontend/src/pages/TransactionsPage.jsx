@@ -98,6 +98,8 @@ export function TransactionsPage({
     renderTransactionFormFields,
     showTransactionForm,
     transactionDesktopAddActionRef,
+    transactionEntrySheetBackdropRef,
+    transactionEntrySheetRef,
     transactionEntryBanner,
     transactionFabRef,
     txEntrySheetStep,
@@ -218,7 +220,7 @@ export function TransactionsPage({
       />
       <TransactionEntrySheet
         permissions={{ canEditRecords, isCompactViewport }}
-        entrySheet={{ closeTransactionEntrySheet, renderTransactionFormFields, showTransactionForm, transactionEntryBanner, txEntrySheetStep, updateTxEntrySheetStep }}
+        entrySheet={{ closeTransactionEntrySheet, renderTransactionFormFields, showTransactionForm, transactionEntryBanner, transactionEntrySheetBackdropRef, transactionEntrySheetRef, txEntrySheetStep, updateTxEntrySheetStep }}
         categoryManager={{ renderTransactionCategoryManagerContent }}
       />
     </section>

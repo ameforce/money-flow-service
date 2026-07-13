@@ -10,7 +10,7 @@ export function HouseholdSettingsCard({ permissions, householdAdmin, categoryLis
           <span className="surface-eyebrow">공유 환경</span>
           <h2>가계 설정</h2>
         </div>
-        <div className="surface-control-strip secondary-control-strip" aria-label="가계 설정 상태">
+        <div className="surface-control-strip secondary-control-strip" role="group" aria-label="가계 설정 상태">
           <span className="surface-chip surface-chip-strong">{settingsPermissionLabel}</span>
           <span className="surface-chip">내 권한 {householdRoleLabel}</span>
         </div>

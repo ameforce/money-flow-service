@@ -470,13 +470,17 @@ test("transaction ledger keeps dense columns, bottom mobile chrome, and quiet se
     const wideAmountMetrics = await page.locator("tr.transaction-row", { hasText: wideMemo }).first().evaluate((row) => {
       const amount = row.querySelector(".transaction-col-amount");
       const amountText = amount?.querySelector(".transaction-amount-text");
+      const compactAmountText = amount?.querySelector(".transaction-amount-text-compact");
       const amountBox = amount?.getBoundingClientRect();
       return {
         viewportWidth: document.documentElement.clientWidth,
+        amountAria: amount?.getAttribute("aria-label") || "",
         amountClass: amountText?.className || "",
         text: amountText?.textContent?.trim() || "",
         clientWidth: amountText?.clientWidth || 0,
         scrollWidth: amountText?.scrollWidth || 0,
+        compactText: compactAmountText?.textContent?.trim() || "",
+        compactFontSize: compactAmountText ? Number.parseFloat(getComputedStyle(compactAmountText).fontSize || "0") : 0,
         amountRight: amountBox?.right || 0,
       };
     });
@@ -484,9 +488,9 @@ test("transaction ledger keeps dense columns, bottom mobile chrome, and quiet se
       wideAmountMetrics.amountClass,
       `${profile.name} wide amount should use the compact wide-amount path: ${JSON.stringify(wideAmountMetrics)}`,
     ).toContain("transaction-amount-text-wide");
-    expect(wideAmountMetrics.text, `${profile.name} wide amount text should render: ${JSON.stringify(wideAmountMetrics)}`).toContain(
-      "1,234,567,890원",
-    );
+    expect(wideAmountMetrics.amountAria, `${profile.name} amount accessibility name should retain the exact value`).toContain("1,234,567,890원");
+    expect(wideAmountMetrics.compactText, `${profile.name} wide amount should use marked Korean compact notation`).toBe("≈12.3억원");
+    expect(wideAmountMetrics.compactFontSize, `${profile.name} compact amount should honor the caption token`).toBeGreaterThanOrEqual(10.8);
     expect(
       wideAmountMetrics.scrollWidth,
       `${profile.name} wide amount text should fit inside its cell: ${JSON.stringify(wideAmountMetrics)}`,
@@ -499,6 +503,14 @@ test("transaction ledger keeps dense columns, bottom mobile chrome, and quiet se
       mobileMetrics.documentOverflowX,
       `${profile.name} document should not overflow: ${JSON.stringify(mobileMetrics)}`,
     ).toBeLessThanOrEqual(1);
+    const wideAmountRow = page.locator("tr.transaction-row", { hasText: wideMemo }).first();
+    await wideAmountRow.click({ position: { x: 88, y: 22 } });
+    await expect(wideAmountRow, `${profile.name} wide amount row should expand on tap`).toHaveClass(/mobile-row-expanded/);
+    const expandedDetail = page.locator("tr.transaction-mobile-expanded-detail-row").first();
+    await expect(expandedDetail.getByText("금액", { exact: true })).toBeVisible();
+    await expect(expandedDetail.getByText("1,234,567,890원", { exact: true })).toBeVisible();
+    await wideAmountRow.click({ position: { x: 88, y: 22 } });
+    await expect(wideAmountRow).not.toHaveClass(/mobile-row-expanded/);
     await capture(page, `transactions-ledger-layout-${profile.name}`);
   }
 
@@ -880,6 +892,27 @@ test("transaction ledger aligns desktop cells and keeps mobile rows compact", as
 
   for (const profile of MOBILE_PROFILES) {
     await openLedger(page, profile);
+    const compactMemoMetrics = await Promise.all(
+      ["-00", "-01"].map(async (suffix) =>
+        page
+          .locator("tr.transaction-row", { hasText: `${memoPrefix}${suffix}` })
+          .first()
+          .locator(".transaction-memo-text")
+          .evaluate((memo) => ({
+            text: memo.querySelector(".transaction-memo-text-compact")?.textContent?.trim() || "",
+            clientWidth: memo.clientWidth,
+            scrollWidth: memo.scrollWidth,
+          })),
+      ),
+    );
+    expect(compactMemoMetrics[0].text, `${profile.name} compact memo should preserve the identifying suffix`).toContain("-00");
+    expect(compactMemoMetrics[1].text, `${profile.name} compact memo should preserve the identifying suffix`).toContain("-01");
+    expect(new Set(compactMemoMetrics.map(({ text }) => text)).size, `${profile.name} adjacent compact memos should remain distinguishable`).toBe(2);
+    for (const metrics of compactMemoMetrics) {
+      expect(metrics.scrollWidth, `${profile.name} compact memo must fit without clipping: ${JSON.stringify(metrics)}`).toBeLessThanOrEqual(
+        metrics.clientWidth + 1,
+      );
+    }
     const mobileMetrics = await page.locator("tr.transaction-row", { hasText: `${memoPrefix}-00` }).first().evaluate((row) => {
       const head = document.querySelector(".transactions-mobile-ledger-head");
       const fab = document.querySelector('[data-testid="transactions-fab"]');

@@ -2,9 +2,104 @@ import { execFileSync } from "node:child_process";
 import { diffHunkPattern, jsxDynamicStylePattern, jsxInlineStylePattern, jsxScanFiles, repoRoot, scanFiles } from "./config.mjs";
 import { extractLineRawValues } from "./scanner.mjs";
 
-export function gitChangedFiles() {
+export function selectBaseRef({
+  explicitBaseRef = "",
+  environmentBaseRef = "",
+  baseSha = "",
+  targetBranch = "",
+  targetSha = "",
+  headBranch = "",
+  hotfixBaseRef = "",
+  hotfixBaseSha = "",
+  headSha = "",
+  parentBaseRef = "",
+} = {}) {
+  const targetRef = targetBranch ? (targetBranch.startsWith("origin/") ? targetBranch : `origin/${targetBranch}`) : "";
+  const normalizedHeadBranch = headBranch.replace(/^origin\//, "");
+  const normalizedHotfixBranch = hotfixBaseRef.replace(/^origin\//, "");
+  const hotfixIdentifier = normalizedHotfixBranch.replace(/^hotfix\//, "");
+  const escapedHotfixIdentifier = hotfixIdentifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const hotfixTaskPattern = escapedHotfixIdentifier
+    ? new RegExp(`(?:^|[/_-])${escapedHotfixIdentifier}(?:$|[/_-])`)
+    : null;
+  const isHotfixTaskContext =
+    normalizedHeadBranch === normalizedHotfixBranch ||
+    Boolean(hotfixTaskPattern?.test(normalizedHeadBranch));
+  const eligibleHotfixBaseRef = hotfixBaseRef && isHotfixTaskContext && (!headSha || !hotfixBaseSha || hotfixBaseSha !== headSha)
+    ? hotfixBaseRef
+    : "";
+  return explicitBaseRef || environmentBaseRef || baseSha || targetSha || targetRef || eligibleHotfixBaseRef || parentBaseRef;
+}
+
+function findAncestorHotfixBaseRef() {
+  const output = execFileSync(
+    "git",
+    ["for-each-ref", "--sort=-committerdate", "--format=%(refname:short)", "refs/remotes/origin/hotfix/*"],
+    { cwd: repoRoot, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+  );
+  for (const ref of output.split(/\r?\n/).filter(Boolean)) {
+    try {
+      execFileSync("git", ["merge-base", "--is-ancestor", ref, "HEAD"], {
+        cwd: repoRoot,
+        stdio: "ignore",
+      });
+      const sha = execFileSync("git", ["rev-parse", ref], {
+        cwd: repoRoot,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }).trim();
+      return { ref, sha };
+    } catch {
+      // Continue until the closest active hotfix ancestor is found.
+    }
+  }
+  return { ref: "", sha: "" };
+}
+
+function findParentBaseRef() {
   try {
-    const output = execFileSync("git", ["diff", "--name-only", "--", ...scanFiles], {
+    execFileSync("git", ["rev-parse", "--verify", "--quiet", "HEAD^"], {
+      cwd: repoRoot,
+      stdio: "ignore",
+    });
+    return "HEAD^";
+  } catch {
+    return "";
+  }
+}
+
+function resolveBaseRef(explicitBaseRef) {
+  const targetBranch = process.env.GITHUB_BASE_REF || process.env.CHANGE_TARGET || process.env.CI_MERGE_REQUEST_TARGET_BRANCH_NAME;
+  const headBranch =
+    process.env.GITHUB_HEAD_REF ||
+    process.env.CHANGE_BRANCH ||
+    process.env.CI_COMMIT_REF_NAME ||
+    process.env.BRANCH_NAME ||
+    process.env.GIT_BRANCH ||
+    execFileSync("git", ["branch", "--show-current"], { cwd: repoRoot, encoding: "utf8" }).trim();
+  const hotfixBase = findAncestorHotfixBaseRef();
+  const headSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repoRoot, encoding: "utf8" }).trim();
+  return selectBaseRef({
+    explicitBaseRef,
+    environmentBaseRef: process.env.UI_TOKEN_AUDIT_BASE_REF,
+    baseSha: process.env.GITHUB_BASE_SHA,
+    targetBranch,
+    targetSha: process.env.CI_MERGE_REQUEST_TARGET_BRANCH_SHA,
+    headBranch,
+    hotfixBaseRef: hotfixBase.ref,
+    hotfixBaseSha: hotfixBase.sha,
+    headSha,
+    parentBaseRef: findParentBaseRef(),
+  });
+}
+
+function diffRevisionArgs(baseRef) {
+  return baseRef ? [`${baseRef}...HEAD`] : [];
+}
+
+export function gitChangedFiles(baseRef = "") {
+  try {
+    const output = execFileSync("git", ["diff", ...diffRevisionArgs(baseRef), "--name-only", "--", ...scanFiles], {
       cwd: repoRoot,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
@@ -15,8 +110,8 @@ export function gitChangedFiles() {
   }
 }
 
-export function gitAddedLines() {
-  const output = execFileSync("git", ["diff", "--unified=0", "--", ...scanFiles], {
+export function gitAddedLines(baseRef = "") {
+  const output = execFileSync("git", ["diff", ...diffRevisionArgs(baseRef), "--unified=0", "--", ...scanFiles], {
     cwd: repoRoot,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "ignore"],
@@ -52,14 +147,20 @@ export function gitAddedLines() {
   return addedLines;
 }
 
-export function inspectChangedOnly(declaredValues) {
-  const changedFiles = gitChangedFiles();
+export function inspectChangedOnly(declaredValues, options = {}) {
+  const baseRef = resolveBaseRef(options.baseRef);
+  const changedFiles = gitChangedFiles(baseRef);
+  if (!baseRef && changedFiles.length === 0) {
+    if (process.env.CI) {
+      throw new Error("changed-only token audit requires a resolvable PR, hotfix, or parent baseline in clean CI");
+    }
+  }
   const auditedFiles = changedFiles.filter((path) => scanFiles.includes(path));
   const checkedValues = [];
   const jsxInlineStyleChecks = [];
   const violations = [];
 
-  for (const addedLine of gitAddedLines()) {
+  for (const addedLine of gitAddedLines(baseRef)) {
     for (const rawValue of extractLineRawValues(addedLine.text)) {
       const checkedValue = {
         file: addedLine.path,
@@ -101,6 +202,7 @@ export function inspectChangedOnly(declaredValues) {
   return {
     mode: "ci",
     changedOnly: true,
+    comparisonBase: baseRef || "working-tree",
     changedFiles,
     auditedFiles,
     checkedValues,
