@@ -55,7 +55,7 @@ def publish_uiux_evidence(
     if prepared is None:
         return ()
     try:
-        commit_publications((prepared,))
+        _ = commit_publications((prepared,))
     except PublicationTransactionError as error:
         discard_publication(prepared)
         raise UiuxEvidencePublicationError(str(error)) from error

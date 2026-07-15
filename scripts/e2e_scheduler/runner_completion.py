@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-import time
 
 from scripts.e2e_scheduler.aggregate import AggregationError
 from scripts.e2e_scheduler.adaptive import CapacityDecision
@@ -59,18 +58,25 @@ def complete_run(runtime: SchedulerRuntime, context: CompletionContext) -> int:
     if capacity_decisions_failed or _is_partial(context):
         _save_metrics(runtime, context, telemetry, RunMetricsStatus.PARTIAL)
         return 1
-    aggregation_started = time.perf_counter()
+    snapshot = _metrics_snapshot(
+        context,
+        telemetry,
+        RunMetricsStatus.COMPLETE,
+        process=RunTelemetry(),
+    )
     try:
-        runtime.aggregate(
+        runtime.publish_complete(
             context.manifest,
             tuple(item.result for item in context.results),
+            snapshot,
         )
+    except (KeyboardInterrupt, SystemExit):
+        _save_metrics(runtime, context, telemetry, RunMetricsStatus.PARTIAL)
+        raise
     except AggregationError as error:
-        telemetry = _with_aggregation_duration(telemetry, aggregation_started)
         _save_metrics(runtime, context, telemetry, RunMetricsStatus.PARTIAL)
         print(f"[e2e-runner] {error}", flush=True)
         return 1
-    telemetry = _with_aggregation_duration(telemetry, aggregation_started)
     try:
         runtime.save_history(
             context.history.with_results(
@@ -78,12 +84,11 @@ def complete_run(runtime: SchedulerRuntime, context: CompletionContext) -> int:
             )
         )
     except OSError as error:
+        message = "duration history cache save failed; run evidence remains complete"
         print(
-            "[e2e-runner] duration history cache save failed; "
-            f"run evidence remains complete: {error}",
+            f"[e2e-runner] {message}: {error}",
             flush=True,
         )
-    _save_metrics(runtime, context, telemetry, RunMetricsStatus.COMPLETE)
     return 0
 
 
@@ -105,16 +110,6 @@ def _telemetry(
     )
 
 
-def _with_aggregation_duration(
-    telemetry: RunTelemetry,
-    started_at: float,
-) -> RunTelemetry:
-    return replace(
-        telemetry,
-        artifact_aggregation_seconds=max(time.perf_counter() - started_at, 0.0),
-    )
-
-
 def _is_partial(context: CompletionContext) -> bool:
     return (
         context.crash is not None
@@ -132,22 +127,34 @@ def _save_metrics(
     telemetry: RunTelemetry,
     status: RunMetricsStatus,
 ) -> None:
-    process = runtime.process_telemetry()
+    snapshot = _metrics_snapshot(
+        context,
+        telemetry,
+        status,
+        process=runtime.process_telemetry(),
+    )
+    runtime.save_run_metrics(context.run_id, snapshot)
+
+
+def _metrics_snapshot(
+    context: CompletionContext,
+    telemetry: RunTelemetry,
+    status: RunMetricsStatus,
+    *,
+    process: RunTelemetry,
+) -> RunMetricsSnapshot:
     final_telemetry = replace(
         process,
         host_samples=telemetry.host_samples,
         artifact_aggregation_seconds=telemetry.artifact_aggregation_seconds,
         resource_sample_errors=telemetry.resource_sample_errors,
     )
-    runtime.save_run_metrics(
-        context.run_id,
-        RunMetricsSnapshot(
-            results=context.results,
-            cleanup=context.cleanup,
-            final_sample=context.final_sample,
-            status=status,
-            expected_jobs=len(context.manifest.jobs),
-            started_workers=context.started_workers,
-            telemetry=final_telemetry,
-        ),
+    return RunMetricsSnapshot(
+        results=context.results,
+        cleanup=context.cleanup,
+        final_sample=context.final_sample,
+        status=status,
+        expected_jobs=len(context.manifest.jobs),
+        started_workers=context.started_workers,
+        telemetry=final_telemetry,
     )

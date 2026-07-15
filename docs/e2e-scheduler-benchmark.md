@@ -24,6 +24,12 @@ cleanup 100%, 중복 service/setup 제거, queue tail과 effective concurrency �
 0 interrupted / 0 missing이었다. 6 projects, 3 browser engines, 6 project viewport
 entries와 1,023 expected/actual semantic evidence fingerprint가 모두 일치했다.
 
+이 표는 benchmark SHA의 동일 runner inventory 비교를 보존한다. 이후 독립 리뷰에서
+mobile core를 세 test로 나눈 구현이 하나의 600초 budget을 세 개로 확대한다는 점을
+확인해 해당 split은 최종 코드에서 원복했다. 최종 채택 inventory는 같은 scenario와
+assertion을 단일 core test에 다시 묶은 564 tests / 99 jobs이며, 아래 시간 수치는
+구조적 처리량 개선의 보조 증거이지 최종 SHA의 시간 주장으로 사용하지 않는다.
+
 | Mode | Run ID | Wall | Worker-min | Throughput | Effective concurrency | Host CPU / available memory / backend p95 | Result / cleanup |
 | --- | --- | ---: | ---: | ---: | ---: | --- | --- |
 | Legacy 1 | `benchmark-20260715T153450-ba51cbee` | 55.60m | 150.19 | 10.25 scenarios/min | 2.701 | 15.25-100% / 23.79-42.18% / 2.91ms | 560/0/10, complete |
@@ -89,8 +95,34 @@ green으로 완료하면서 memory `<15%` 신호에 capacity를 `8 -> 7 -> 6 -> 
 - `uv run python scripts/verify_e2e_screenshots.py` (1,023 verified)
 - `uv run python scripts/check_mojibake.py`
 - fixed-8 full matrix 3회 연속 green과 adaptive full matrix 1회 green
-- foreground-window monitor 0 transition, cleanup residue 0
+- 최종 SHA full-run foreground-window monitor 0 transition, cleanup residue 0
 
 제품 assertion, timeout, retry, skip 또는 coverage는 성능을 위해 변경하지 않았다.
 같은 SHA의 교차 결과는 구조적 처리량 개선이 wall time 감소로 이어졌음을 보조적으로
 확인한다.
+
+## Final adopted inventory validation
+
+독립 리뷰에서 mobile core timeout 의미를 복원하고, complete metrics와
+screenshot/UIUX publication을 하나의 transaction으로 묶고, worker `.runtime` cleanup을
+추가한 최종 구조는 564 tests / 99 jobs다. 아래 세 run은 모두 554 passed / 0 failed /
+10 expected skipped, 6 projects, 3 browser engines, 1,023/1,023 evidence,
+avoidable idle 0, auth API 485/UI 24/failure 0, build 1/Vite 0을 기록했다.
+
+| Mode | Run ID | Wall (secondary) | Worker-min | Runner CPU | Read/write | Peak WS/process | Cleanup/foreground |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
+| Fixed 8 | `20260715T215634-21bd4ba0` | 14.75m | 97.84 | 7,602.56s | 15.54/14.70 GB | 16.15 GiB / 200 | 8/8, residue 0, transition 0 |
+| Fixed 8 | `20260715T221228-3c4fbdea` | 13.93m | 98.65 | 7,623.05s | 15.62/14.73 GB | 14.97 GiB / 184 | 8/8, residue 0, transition 0 |
+| Adaptive | `20260715T230402-ced81a8b` | 14.31m | 92.95 | 7,444.39s | 15.30/14.44 GB | 15.27 GiB / 197 | 10/10, residue 0, transition 0 |
+
+Fixed runs는 host CPU median 100%와 minimum available memory 11.02%/8.70%에서도
+flaky나 cleanup failure 없이 자원을 적극 활용했다. Adaptive run은 minimum available
+memory 13.00%와 backend latency signal에 따라 `8 -> 7 -> 6 -> 5 -> 4`로 감소했고,
+running job interruption이나 재확장은 없었다.
+
+첫 adaptive qualification은 기존 touch helper가 `pointerdown` 뒤 120ms wall-clock sleep을
+사용해 CPU saturation에서 release가 long-press 임계값 뒤로 밀리는 race를 드러냈다.
+해당 partial run은 history와 global publication을 갱신하지 않았다. Assertion, test
+timeout, retry, skip은 유지하고 pointerdown/up을 한 browser task에서 동기적으로
+전달한 뒤 기존 cancellation wait를 유지했다. 문제 test `repeat-each=5` 전부와 위
+adaptive full run이 green으로 재검증됐다.

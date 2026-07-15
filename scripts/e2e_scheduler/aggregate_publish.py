@@ -42,7 +42,7 @@ def publish_run(
     """Stage and swap one complete verifier-compatible publication."""
     prepared = prepare_run(manifest, jobs, output_root, repository_root)
     try:
-        commit_publications((prepared,))
+        _ = commit_publications((prepared,))
     except PublicationTransactionError as error:
         discard_publication(prepared)
         raise PublicationError(str(error)) from error

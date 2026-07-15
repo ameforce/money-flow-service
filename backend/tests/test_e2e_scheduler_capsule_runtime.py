@@ -269,6 +269,7 @@ def test_capsule_keeps_services_warm_and_namespaces_each_job(
     assert not capsule.uploads_root.exists()
     assert not capsule.backend_upload_root.exists()
     assert not capsule.browser_profile_root.exists()
+    assert not capsule.runtime_root.exists()
 
 
 def test_capsule_closes_playwright_job_and_resets_after_interrupt(

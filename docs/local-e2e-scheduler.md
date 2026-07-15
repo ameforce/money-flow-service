@@ -51,8 +51,8 @@ Playwright JSON discovery를 canonical test ID로 정규화하고, historical du
 sample의 실제 Playwright test duration median과 browser별 job-boundary overhead
 median을 사용한다. Failed, flaky, partial, interrupted, cleanup-failed run은 history를
 갱신하지 않으며 v1은 읽기 호환 후 첫 complete green에서 v2로 atomic migration한다.
-모든 run/job/worker는 고유 ID를 가진다. 현재 develop inventory는 570 tests,
-105 jobs이며 manifest의 expected inventory가 최종 actual inventory의 기준이다.
+모든 run/job/worker는 고유 ID를 가진다. 현재 feature inventory는 564 tests,
+99 jobs이며 manifest의 expected inventory가 최종 actual inventory의 기준이다.
 
 ### B. Isolated warm worker capsule와 cleanup
 
@@ -64,7 +64,7 @@ median을 사용한다. Failed, flaky, partial, interrupted, cleanup-failed run�
 | Frontend | worker backend와 동일 origin, 별도 process/port 없이 공유 `dist` read-only 소비 |
 | Database | worker별 SQLite DB, job 간 deterministic DELETE reset |
 | Browser | project affinity별 warm server pool, worker별 profile/context namespace, runner 소유 process만 종료 |
-| Files | worker/job별 temp, upload, screenshot, evidence, log 경로 |
+| Files | worker/job별 temp, upload, `.runtime`, screenshot, evidence, log 경로 |
 | Environment | run/worker/job ID namespace와 전용 environment overlay |
 
 정상 종료, worker crash, `Ctrl+C` 모두 process/port/DB/browser cleanup evidence를
@@ -96,14 +96,12 @@ logical group이고, `transactions.spec.js`의 71개 test는 다음 7개 업무 
 - `tx-ledger-readability`
 - `tx-month-date-filter-loading`
 
-`mobile-browser-matrix.spec.js`의 19개 test는 Chromium/Firefox/WebKit 각 project에서
-다음 8개 업무 그룹으로 분할된다. 기존 단일 core test의 mobile profile, desktop
-profile, dialog surface는 각각 독립된 test/job으로 실행하되 assertion, evidence,
-인증 방식과 timeout은 그대로 유지한다.
+`mobile-browser-matrix.spec.js`의 17개 test는 Chromium/Firefox/WebKit 각 project에서
+다음 6개 업무 그룹으로 분할된다. Core test 안의 mobile profile, desktop profile,
+dialog surface는 하나의 600초 timeout 예산을 공유한다. 세 test로 나누면 총 timeout
+예산이 1,800초로 완화되므로, profiling상 tail 이점이 있어도 채택하지 않는다.
 
 - `mobile-core-profiles`
-- `desktop-core-profiles`
-- `mobile-dialog-surfaces`
 - `mobile-modal-focus`
 - `mobile-import-accessibility`
 - `mobile-semantics-status`
@@ -157,13 +155,20 @@ cooldown 60초이고 한 결정에서 capacity를 1만 변경한다.
   Playwright boundary, auth mode/count/duration, reset/cleanup/aggregation, process role별
   spawn, runner CPU/I/O/memory/process, host CPU/memory/backend p95, cleanup와 concurrency
 - `capacity-decisions.json`: fixed/adaptive capacity 결정 근거
-- 최종 published screenshot/evidence manifest: expected/actual fingerprint가 일치할
-  때만 갱신
+- 최종 published screenshot/evidence manifest와 complete `run-metrics.json`: 같은
+  multi-target transaction에서 expected/actual fingerprint가 일치할 때만 함께 갱신
 
-최종 동일 SHA 교차 검증에서는 fixed-8 dynamic 3회가 모두 570/570 inventory,
-560 passed / 0 failed / 10 expected skipped, 1,023/1,023 evidence, avoidable idle 0,
-foreground transition 0, cleanup 8/8로 완료됐다. 처리량과 자원 증거는
+동일 SHA 교차 benchmark의 이전 `570/105` inventory 결과와 최종 채택된 `564/99`
+inventory 검증은 구분해 기록한다. 전자는 처리량 개선 증거이고, 후자는 단일 600초
+timeout 의미와 최신 cleanup/publication 계약의 합격 증거다. 처리량과 자원 증거는
 [`e2e-scheduler-benchmark.md`](e2e-scheduler-benchmark.md)에 기록한다.
+
+최종 채택 구조는 fixed-8 `20260715T215634-21bd4ba0`,
+`20260715T221228-3c4fbdea`와 adaptive `20260715T230402-ced81a8b`에서 모두
+564/564 tests, 554 passed / 0 failed / 10 expected skipped, 1,023/1,023 evidence,
+avoidable idle 0, foreground transition 0, `.runtime` 포함 cleanup residue 0으로
+완료됐다. Adaptive run은 pressure signal에 따라 `8 -> 7 -> 6 -> 5 -> 4`로 줄였지만
+running job을 중단하거나 failure를 숨기지 않았다.
 
 합격 우선순위는 inventory/evidence 동등성, flaky 0과 Windows cleanup, 처리량·effective
 concurrency·queue tail, scenario당 setup/orchestration work, wall time 순이다. Compatible

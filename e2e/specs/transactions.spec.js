@@ -680,20 +680,22 @@ async function longPressDragTransactionRows(page, startRow, endRow, durationMs =
 async function releaseTouchPointerOutsideRowBeforeLongPress(page, row) {
   const { x, y } = await transactionRowTouchCoordinates(page, row);
   const outsideY = Math.max(8, y - 96);
-  await row.dispatchEvent("pointerdown", {
-    bubbles: true,
-    cancelable: true,
-    pointerId: 287,
-    pointerType: "touch",
-    isPrimary: true,
-    button: 0,
-    buttons: 1,
-    clientX: x,
-    clientY: y,
-  });
-  await page.waitForTimeout(120);
-  await page.evaluate(
-    ({ clientX, clientY }) => {
+  await row.evaluate(
+    async (element, { clientX, clientY, releaseY }) => {
+      element.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          cancelable: true,
+          pointerId: 287,
+          pointerType: "touch",
+          isPrimary: true,
+          button: 0,
+          buttons: 1,
+          clientX,
+          clientY,
+        })
+      );
+      await new Promise((resolve) => window.setTimeout(resolve, 120));
       window.dispatchEvent(
         new PointerEvent("pointerup", {
           bubbles: true,
@@ -704,11 +706,11 @@ async function releaseTouchPointerOutsideRowBeforeLongPress(page, row) {
           button: 0,
           buttons: 0,
           clientX,
-          clientY,
+          clientY: releaseY,
         })
       );
     },
-    { clientX: x, clientY: outsideY }
+    { clientX: x, clientY: y, releaseY: outsideY }
   );
   await page.waitForTimeout(560);
 }

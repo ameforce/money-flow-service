@@ -6,7 +6,7 @@ from dataclasses import dataclass, replace
 import os
 from pathlib import Path
 import shutil
-from typing import override
+from typing import Literal, override
 from uuid import uuid4
 
 from scripts.e2e_scheduler.publication_paths import (
@@ -28,6 +28,14 @@ class PublicationTransactionError(Exception):
 
 
 @dataclass(frozen=True, slots=True)
+class PublicationCleanupWarning:
+    """Post-commit residue that cannot invalidate installed publications."""
+
+    path: Path
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
 class PreparedPublication:
     """One fully staged directory ready for an atomic target swap."""
 
@@ -36,6 +44,7 @@ class PreparedPublication:
     stage: Path
     backup: Path
     published_files: tuple[str, ...]
+    kind: Literal["directory", "file"] = "directory"
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,18 +68,48 @@ def prepare_publication(
     stage = target.parent / f".{target.name}.stage-{token}"
     backup = target.parent / f".{target.name}.backup-{token}"
     stage.mkdir()
-    return PreparedPublication(trusted_root, target, stage, backup, published_files)
+    return PreparedPublication(
+        trusted_root,
+        target,
+        stage,
+        backup,
+        published_files,
+        "directory",
+    )
+
+
+def prepare_file_publication(
+    trusted_root: Path,
+    target: Path,
+) -> PreparedPublication:
+    """Allocate an empty sibling file for a future atomic multi-target swap."""
+    _validate_path(trusted_root, target)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    token = uuid4().hex
+    stage = target.parent / f".{target.name}.stage-{token}"
+    backup = target.parent / f".{target.name}.backup-{token}"
+    stage.touch(exist_ok=False)
+    return PreparedPublication(
+        trusted_root,
+        target,
+        stage,
+        backup,
+        (target.name,),
+        "file",
+    )
 
 
 def discard_publication(publication: PreparedPublication) -> None:
     """Best-effort removal of an uncommitted stage."""
-    _remove_directory(publication.stage)
+    _remove_path(publication.stage)
 
 
-def commit_publications(publications: tuple[PreparedPublication, ...]) -> None:
+def commit_publications(
+    publications: tuple[PreparedPublication, ...],
+) -> tuple[PublicationCleanupWarning, ...]:
     """Commit all prepared targets or restore every previous target."""
     if not publications:
-        return
+        return ()
     _validate_prepared(publications)
     states: list[_SwapState] = []
     try:
@@ -84,23 +123,39 @@ def commit_publications(publications: tuple[PreparedPublication, ...]) -> None:
         states = _create_recoveries(states)
         for state in states:
             if state.had_previous:
-                cleanup_error = _remove_directory_strict(state.publication.backup)
+                cleanup_error = _remove_path_strict(state.publication.backup)
                 if cleanup_error is not None:
                     raise cleanup_error
-    except OSError as error:
+    except BaseException as error:
         rollback_error = _rollback(states)
         _discard_uncommitted(publications, states)
         if rollback_error is not None:
             reason = f"publication failed: {error}; rollback failed: {rollback_error}"
             raise PublicationTransactionError(reason) from rollback_error
-        raise PublicationTransactionError(f"publication failed: {error}") from error
+        if isinstance(error, OSError):
+            raise PublicationTransactionError(f"publication failed: {error}") from error
+        raise
+    cleanup_warnings: list[PublicationCleanupWarning] = []
     for state in states:
         if state.recovery is not None:
-            cleanup_error = _remove_directory_strict(state.recovery)
+            cleanup_error = _remove_path_strict(state.recovery)
             if cleanup_error is not None:
-                raise PublicationTransactionError(
-                    f"publication recovery cleanup failed: {cleanup_error}"
-                ) from cleanup_error
+                cleanup_warnings.append(
+                    PublicationCleanupWarning(
+                        state.recovery,
+                        str(cleanup_error),
+                    )
+                )
+    for warning in cleanup_warnings:
+        message = (
+            "[e2e-runner] publication committed; stale recovery cleanup warning: "
+            f"{warning.path}: {warning.reason}"
+        )
+        print(
+            message,
+            flush=True,
+        )
+    return tuple(cleanup_warnings)
 
 
 def _validate_prepared(publications: tuple[PreparedPublication, ...]) -> None:
@@ -127,9 +182,20 @@ def _validate_prepared(publications: tuple[PreparedPublication, ...]) -> None:
             raise PublicationTransactionError(
                 f"publication stage cannot be a link: {publication.stage}"
             )
-        if not publication.stage.is_dir():
+        if publication.kind == "directory" and not publication.stage.is_dir():
             raise PublicationTransactionError(
                 f"publication stage is missing: {publication.stage}"
+            )
+        if publication.kind == "file" and not publication.stage.is_file():
+            raise PublicationTransactionError(
+                f"publication file stage is missing: {publication.stage}"
+            )
+        if publication.target.exists() and (
+            (publication.kind == "directory" and not publication.target.is_dir())
+            or (publication.kind == "file" and not publication.target.is_file())
+        ):
+            raise PublicationTransactionError(
+                f"publication target kind differs from stage: {publication.target}"
             )
         if publication.backup.exists():
             raise PublicationTransactionError(
@@ -159,17 +225,22 @@ def _create_recoveries(states: list[_SwapState]) -> list[_SwapState]:
             f".{state.publication.target.name}.recovery-{uuid4().hex}"
         )
         try:
-            _ = shutil.copytree(
-                state.publication.backup,
-                recovery,
-                copy_function=os.link,
-            )
-        except OSError:
-            cleanup_error = _remove_directory_strict(recovery)
+            if state.publication.kind == "directory":
+                _ = shutil.copytree(
+                    state.publication.backup,
+                    recovery,
+                    copy_function=os.link,
+                )
+            else:
+                _ = shutil.copy2(state.publication.backup, recovery)
+        except BaseException as error:
+            cleanup_error = _remove_path_strict(recovery)
             if cleanup_error is not None:
-                raise OSError(
-                    f"recovery creation and cleanup failed: {cleanup_error}"
-                ) from cleanup_error
+                message = (
+                    "recovery creation failed and partial recovery cleanup failed: "
+                    f"{cleanup_error}"
+                )
+                raise OSError(message) from error
             raise
         states[index] = replace(state, recovery=recovery)
     return states
@@ -208,11 +279,11 @@ def _rollback_one(state: _SwapState) -> OSError | None:
                         f"{error}; preserve new target failed: {restore_error}"
                     )
             return error
-    cleanup_error = _remove_directory_strict(discarded)
+    cleanup_error = _remove_path_strict(discarded)
     if cleanup_error is not None:
         return cleanup_error
     if state.recovery is not None and state.recovery.exists():
-        cleanup_error = _remove_directory_strict(state.recovery)
+        cleanup_error = _remove_path_strict(state.recovery)
         if cleanup_error is not None:
             return cleanup_error
     if publication.backup.exists() and publication.target.exists():
@@ -223,7 +294,7 @@ def _rollback_one(state: _SwapState) -> OSError | None:
             _ = publication.backup.replace(stale_backup)
         except OSError as error:
             return error
-        cleanup_error = _remove_directory_strict(stale_backup)
+        cleanup_error = _remove_path_strict(stale_backup)
         if cleanup_error is not None:
             return cleanup_error
     return None
@@ -248,25 +319,31 @@ def _discard_uncommitted(
     attempted = {state.publication.stage for state in states}
     for publication in publications:
         if publication.stage not in attempted or publication.stage.exists():
-            _remove_directory(publication.stage)
+            _remove_path(publication.stage)
 
 
-def _remove_directory(path: Path) -> None:
+def _remove_path(path: Path) -> None:
     if not path.exists():
         return
     try:
-        shutil.rmtree(path)
+        if path.is_dir():
+            shutil.rmtree(path)
+        else:
+            path.unlink()
     except OSError:
         return
 
 
-def _remove_directory_strict(path: Path) -> OSError | None:
+def _remove_path_strict(path: Path) -> OSError | None:
     first_error: OSError | None = None
     for _ in range(2):
         if not path.exists():
             return None
         try:
-            shutil.rmtree(path)
+            if path.is_dir():
+                shutil.rmtree(path)
+            else:
+                path.unlink()
         except OSError as error:
             if first_error is None:
                 first_error = error

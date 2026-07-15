@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 import json
 import os
@@ -11,7 +11,11 @@ from pathlib import Path
 import time
 from uuid import uuid4
 
-from scripts.e2e_scheduler.aggregate import JobResult, aggregate_run
+from scripts.e2e_scheduler.aggregate import (
+    AggregationError,
+    JobResult,
+    prepare_aggregation,
+)
 from scripts.e2e_scheduler.capsule import WorkerCapsule
 from scripts.e2e_scheduler.capsule_settings import CapsuleSettings
 from scripts.e2e_scheduler.history import DurationHistory
@@ -44,6 +48,12 @@ from scripts.e2e_scheduler.runtime_support import (
     ROOT,
     SCREENSHOT_DIR,
     with_local_playwright_runtime,
+)
+from scripts.e2e_scheduler.publication_transaction import (
+    PublicationTransactionError,
+    commit_publications,
+    discard_publication,
+    prepare_file_publication,
 )
 from scripts.e2e_scheduler.job_metrics import load_job_metrics
 from scripts.e2e_scheduler.process_launch import resolve_dynamic_windows_spawn_mode
@@ -165,12 +175,50 @@ class LocalSchedulerRuntime:
             load_job_metrics(paths.json_report.parent / "scheduler-metrics.json"),
         )
 
-    def aggregate(
+    def publish_complete(
         self,
         manifest: RunManifest,
         results: tuple[JobResult, ...],
+        snapshot: RunMetricsSnapshot,
     ) -> None:
-        _ = aggregate_run(manifest, results, self.publication_root)
+        aggregation_started = time.perf_counter()
+        aggregation = prepare_aggregation(manifest, results, self.publication_root)
+        publications = list(aggregation.publications)
+        try:
+            metrics_publication = prepare_file_publication(
+                self.repository_root,
+                self.manifest_path(manifest.run_id).with_name("run-metrics.json"),
+            )
+            publications.append(metrics_publication)
+            process = self.process_telemetry()
+            complete_snapshot = replace(
+                snapshot,
+                telemetry=replace(
+                    process,
+                    host_samples=snapshot.telemetry.host_samples,
+                    artifact_aggregation_seconds=max(
+                        time.perf_counter() - aggregation_started,
+                        0.0,
+                    ),
+                    resource_sample_errors=(
+                        snapshot.telemetry.resource_sample_errors
+                    ),
+                ),
+            )
+            save_run_metrics(
+                metrics_publication.stage,
+                complete_snapshot,
+                self._run_metrics_configuration(complete_snapshot),
+            )
+            _ = commit_publications(tuple(publications))
+        except (OSError, PublicationTransactionError) as error:
+            for publication in publications:
+                discard_publication(publication)
+            raise AggregationError(str(error)) from error
+        except BaseException:
+            for publication in publications:
+                discard_publication(publication)
+            raise
 
     def save_history(self, history: DurationHistory) -> None:
         history.save(self.history_path)
@@ -223,14 +271,20 @@ class LocalSchedulerRuntime:
         save_run_metrics(
             self.manifest_path(run_id).with_name("run-metrics.json"),
             snapshot,
-            RunMetricsConfiguration(
-                benchmark_invocation_id=str(
-                    os.environ.get("E2E_BENCHMARK_INVOCATION_ID") or ""
-                ),
-                adaptive=self.options.adaptive_workers,
-                initial_workers=self.options.scheduler_workers,
-                started_workers=snapshot.started_workers,
+            self._run_metrics_configuration(snapshot),
+        )
+
+    def _run_metrics_configuration(
+        self,
+        snapshot: RunMetricsSnapshot,
+    ) -> RunMetricsConfiguration:
+        return RunMetricsConfiguration(
+            benchmark_invocation_id=str(
+                os.environ.get("E2E_BENCHMARK_INVOCATION_ID") or ""
             ),
+            adaptive=self.options.adaptive_workers,
+            initial_workers=self.options.scheduler_workers,
+            started_workers=snapshot.started_workers,
         )
 
     def process_telemetry(self) -> RunTelemetry:

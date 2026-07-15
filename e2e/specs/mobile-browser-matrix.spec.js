@@ -518,18 +518,11 @@ async function runCoreProfiles({ browser, browserName }, testInfo, profileGroup)
   }
 }
 
-test("cross-browser mobile matrix traverses core screens for mobile profiles without layout or accessibility regressions", async ({ browser, browserName }, testInfo) => {
+test("cross-browser mobile matrix traverses core screens without layout or accessibility regressions", async ({ browser, browserName }, testInfo) => {
   test.setTimeout(600_000);
-  await runCoreProfiles({ browser, browserName }, testInfo, MOBILE_PROFILES);
-});
-
-test("cross-browser mobile matrix traverses desktop core profiles without layout or accessibility regressions", async ({ browser, browserName }, testInfo) => {
-  test.setTimeout(600_000);
-  await runCoreProfiles({ browser, browserName }, testInfo, DESKTOP_PROFILES);
-});
-
-test("cross-browser mobile matrix audits dialog surfaces without accessibility regressions", async ({ browser, browserName }, testInfo) => {
-  test.setTimeout(600_000);
+  for (const profileGroup of [MOBILE_PROFILES, DESKTOP_PROFILES]) {
+    await runCoreProfiles({ browser, browserName }, testInfo, profileGroup);
+  }
   const auditProfile = MOBILE_PROFILES.find((profile) => profile.width === 390 && profile.height === 844);
   const { context, page } = await newMatrixPage(browser, browserName, auditProfile);
   try {

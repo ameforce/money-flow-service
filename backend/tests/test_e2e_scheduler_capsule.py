@@ -92,6 +92,17 @@ def test_capsule_close_removes_sqlite_database_and_sidecars(tmp_path: Path) -> N
     assert all(not path.exists() for path in database_files)
 
 
+def test_capsule_close_removes_worker_runtime_namespace(tmp_path: Path) -> None:
+    capsule = make_capsule(tmp_path, RunId("run-a"), WorkerId("worker-1"))
+    import_lock = capsule.runtime_root / "import-locks" / "household.lock"
+    import_lock.parent.mkdir(parents=True)
+    _ = import_lock.write_text("0", encoding="utf-8")
+
+    capsule.close()
+
+    assert not capsule.runtime_root.exists()
+
+
 def test_capsule_closes_browser_when_orchestrator_start_fails(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

@@ -8,11 +8,13 @@ from typing import Literal
 import pytest
 
 from backend.tests.e2e_scheduler_aggregate_fakes import complete_result_fixture
+import scripts.e2e_scheduler.publication_transaction as transaction_module
 from scripts.e2e_scheduler.aggregate import AggregationError, aggregate_run
 from scripts.e2e_scheduler.model import RunId
 from scripts.e2e_scheduler.publication_transaction import (
     PublicationTransactionError,
     commit_publications,
+    prepare_file_publication,
     prepare_publication,
 )
 from scripts.verify_e2e_screenshots import verify_screenshot_manifest
@@ -107,3 +109,154 @@ def test_rollback_reports_stale_backup_move_failure(
 
     assert (target / "old.txt").read_text(encoding="utf-8") == "old"
     assert publication.backup.exists()
+
+
+def test_keyboard_interrupt_between_swaps_restores_previous_publication(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = tmp_path / "published"
+    target.mkdir()
+    _ = (target / "old.txt").write_text("old", encoding="utf-8")
+    publication = prepare_publication(tmp_path, target, ("new.txt",))
+    _ = (publication.stage / "new.txt").write_text("new", encoding="utf-8")
+    original_replace = Path.replace
+
+    def interrupt_stage_install(path: Path, destination: str | Path) -> Path:
+        if path == publication.stage:
+            raise KeyboardInterrupt
+        return original_replace(path, destination)
+
+    monkeypatch.setattr(Path, "replace", interrupt_stage_install)
+
+    with pytest.raises(KeyboardInterrupt):
+        commit_publications((publication,))
+
+    assert (target / "old.txt").read_text(encoding="utf-8") == "old"
+    assert not publication.backup.exists()
+    assert not publication.stage.exists()
+
+
+def test_directory_and_file_publications_rollback_together(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    evidence = tmp_path / "published"
+    evidence.mkdir()
+    _ = (evidence / "old.txt").write_text("old", encoding="utf-8")
+    metrics = tmp_path / "runs" / "run-a" / "run-metrics.json"
+    metrics.parent.mkdir(parents=True)
+    _ = metrics.write_text("old metrics", encoding="utf-8")
+    evidence_publication = prepare_publication(tmp_path, evidence, ("new.txt",))
+    _ = (evidence_publication.stage / "new.txt").write_text(
+        "new", encoding="utf-8"
+    )
+    metrics_publication = prepare_file_publication(tmp_path, metrics)
+    _ = metrics_publication.stage.write_text("new metrics", encoding="utf-8")
+    original_replace = Path.replace
+
+    def fail_metrics_install(path: Path, destination: str | Path) -> Path:
+        if path == metrics_publication.stage:
+            raise OSError("injected metrics publication failure")
+        return original_replace(path, destination)
+
+    monkeypatch.setattr(Path, "replace", fail_metrics_install)
+
+    with pytest.raises(PublicationTransactionError):
+        commit_publications((evidence_publication, metrics_publication))
+
+    assert (evidence / "old.txt").read_text(encoding="utf-8") == "old"
+    assert metrics.read_text(encoding="utf-8") == "old metrics"
+
+
+def test_post_commit_recovery_cleanup_warning_preserves_complete_targets(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    evidence = tmp_path / "published"
+    evidence.mkdir()
+    _ = (evidence / "old.txt").write_text("old", encoding="utf-8")
+    metrics = tmp_path / "runs" / "run-a" / "run-metrics.json"
+    metrics.parent.mkdir(parents=True)
+    _ = metrics.write_text("old metrics", encoding="utf-8")
+    evidence_publication = prepare_publication(tmp_path, evidence, ("new.txt",))
+    _ = (evidence_publication.stage / "new.txt").write_text(
+        "new", encoding="utf-8"
+    )
+    metrics_publication = prepare_file_publication(tmp_path, metrics)
+    _ = metrics_publication.stage.write_text("new metrics", encoding="utf-8")
+    original_remove = transaction_module._remove_path_strict
+
+    def fail_recovery_cleanup(path: Path) -> OSError | None:
+        if ".recovery-" in path.name:
+            return OSError("injected post-commit recovery cleanup failure")
+        return original_remove(path)
+
+    monkeypatch.setattr(
+        transaction_module,
+        "_remove_path_strict",
+        fail_recovery_cleanup,
+    )
+
+    warnings = commit_publications((evidence_publication, metrics_publication))
+
+    assert len(warnings) == 2
+    assert (evidence / "new.txt").read_text(encoding="utf-8") == "new"
+    assert metrics.read_text(encoding="utf-8") == "new metrics"
+
+
+def test_directory_recovery_copy_interrupt_removes_partial_recovery(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = tmp_path / "published"
+    target.mkdir()
+    _ = (target / "old.txt").write_text("old", encoding="utf-8")
+    publication = prepare_publication(tmp_path, target, ("new.txt",))
+    _ = (publication.stage / "new.txt").write_text("new", encoding="utf-8")
+
+    def interrupt_copytree(
+        _source: str | Path,
+        destination: str | Path,
+        *,
+        copy_function: object,
+    ) -> Path:
+        _ = copy_function
+        recovery = Path(destination)
+        recovery.mkdir()
+        _ = (recovery / "partial.txt").write_text("partial", encoding="utf-8")
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(shutil, "copytree", interrupt_copytree)
+
+    with pytest.raises(KeyboardInterrupt):
+        _ = commit_publications((publication,))
+
+    assert (target / "old.txt").read_text(encoding="utf-8") == "old"
+    assert not tuple(tmp_path.glob(".published.recovery-*"))
+
+
+def test_file_recovery_copy_interrupt_removes_partial_recovery(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = tmp_path / "run-metrics.json"
+    _ = target.write_text("old", encoding="utf-8")
+    publication = prepare_file_publication(tmp_path, target)
+    _ = publication.stage.write_text("new", encoding="utf-8")
+
+    def interrupt_copy2(
+        _source: str | Path,
+        destination: str | Path,
+    ) -> Path:
+        recovery = Path(destination)
+        _ = recovery.write_text("partial", encoding="utf-8")
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(shutil, "copy2", interrupt_copy2)
+
+    with pytest.raises(KeyboardInterrupt):
+        _ = commit_publications((publication,))
+
+    assert target.read_text(encoding="utf-8") == "old"
+    assert not tuple(tmp_path.glob(".run-metrics.json.recovery-*"))

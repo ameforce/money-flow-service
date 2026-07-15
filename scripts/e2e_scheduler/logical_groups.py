@@ -106,13 +106,7 @@ TRANSACTION_GROUPS: Final[Mapping[str, tuple[str, ...]]] = MappingProxyType(
 MOBILE_MATRIX_GROUPS: Final[Mapping[str, tuple[str, ...]]] = MappingProxyType(
     {
         "mobile-core-profiles": (
-            "cross-browser mobile matrix traverses core screens for mobile profiles without layout or accessibility regressions",
-        ),
-        "desktop-core-profiles": (
-            "cross-browser mobile matrix traverses desktop core profiles without layout or accessibility regressions",
-        ),
-        "mobile-dialog-surfaces": (
-            "cross-browser mobile matrix audits dialog surfaces without accessibility regressions",
+            "cross-browser mobile matrix traverses core screens without layout or accessibility regressions",
         ),
         "mobile-modal-focus": (
             "MUI-006 transaction sheet owns keyboard focus and restores its trigger",

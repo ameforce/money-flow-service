@@ -67,6 +67,12 @@ class AggregationSummary:
     published_files: tuple[str, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class PreparedAggregation:
+    summary: AggregationSummary
+    publications: tuple[PreparedPublication, ...]
+
+
 @dataclass(slots=True)
 class AggregationError(Exception):
     reason: str
@@ -92,6 +98,25 @@ def aggregate_run(
     job_results: Sequence[JobResult],
     output_root: Path,
 ) -> AggregationSummary:
+    prepared = prepare_aggregation(manifest, job_results, output_root)
+    try:
+        _ = commit_publications(prepared.publications)
+    except PublicationTransactionError as error:
+        for publication in prepared.publications:
+            discard_publication(publication)
+        raise AggregationError(str(error)) from error
+    except BaseException:
+        for publication in prepared.publications:
+            discard_publication(publication)
+        raise
+    return prepared.summary
+
+
+def prepare_aggregation(
+    manifest: RunManifest,
+    job_results: Sequence[JobResult],
+    output_root: Path,
+) -> PreparedAggregation:
     """Validate one complete run before publishing its compatibility manifest."""
     expected_jobs = Counter(job.job_id for job in manifest.jobs)
     actual_jobs = Counter(result.job_id for result in job_results)
@@ -152,7 +177,6 @@ def aggregate_run(
             if uiux_publication is not None
             else (screenshot_publication,)
         )
-        commit_publications(prepared)
     except (
         PublicationError,
         PublicationTransactionError,
@@ -163,6 +187,12 @@ def aggregate_run(
         if screenshot_publication is not None:
             discard_publication(screenshot_publication)
         raise AggregationError(str(error)) from error
+    except BaseException:
+        if uiux_publication is not None:
+            discard_publication(uiux_publication)
+        if screenshot_publication is not None:
+            discard_publication(screenshot_publication)
+        raise
     uiux_files = (
         uiux_publication.published_files if uiux_publication is not None else ()
     )
@@ -175,17 +205,20 @@ def aggregate_run(
         sum(len(job.result.expected_evidence_names) for job in parsed)
     )
     actual_evidence = EvidenceCount(sum(job.actual_evidence_count for job in parsed))
-    return AggregationSummary(
-        expected_test_ids=frozenset(expected_tests),
-        actual_test_ids=frozenset(actual_tests),
-        expected_scenario_ids=frozenset(expected_tests),
-        actual_scenario_ids=frozenset(actual_tests),
-        skipped_test_ids=frozenset(
-            test_id for job in parsed for test_id in job.skipped_test_ids
+    return PreparedAggregation(
+        summary=AggregationSummary(
+            expected_test_ids=frozenset(expected_tests),
+            actual_test_ids=frozenset(actual_tests),
+            expected_scenario_ids=frozenset(expected_tests),
+            actual_scenario_ids=frozenset(actual_tests),
+            skipped_test_ids=frozenset(
+                test_id for job in parsed for test_id in job.skipped_test_ids
+            ),
+            expected_evidence_count=expected_evidence,
+            actual_evidence_count=actual_evidence,
+            published_files=all_published_files,
         ),
-        expected_evidence_count=expected_evidence,
-        actual_evidence_count=actual_evidence,
-        published_files=all_published_files,
+        publications=prepared,
     )
 
 

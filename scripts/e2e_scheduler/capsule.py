@@ -122,6 +122,10 @@ class WorkerCapsule:
         return self.worker_root / "tmp_import_uploads"
 
     @property
+    def runtime_root(self) -> Path:
+        return self.worker_root / ".runtime"
+
+    @property
     def browser_profile_root(self) -> Path:
         return self.worker_root / "browser"
 
@@ -238,6 +242,7 @@ class WorkerCapsule:
             self.uploads_root,
             self.backend_upload_root,
             self.browser_profile_root,
+            self.runtime_root,
         ):
             try:
                 if path.exists():

@@ -183,14 +183,14 @@ def test_coordinator_persists_manifest_before_workers_and_updates_history(
         for index, event in enumerate(runtime.events)
         if event.startswith("close:")
     )
-    assert runtime.events[-2:] == ["history", "metrics:complete"]
+    assert runtime.events[-2:] == ["metrics:complete", "history"]
     assert runtime.history_saved
     assert runtime.saved_run_metrics_status is RunMetricsStatus.COMPLETE
     assert runtime.saved_run_metrics_expected_jobs == 2
     assert runtime.saved_run_metrics_completed_jobs == 2
 
 
-def test_process_telemetry_is_snapshotted_after_aggregation_and_history(
+def test_process_telemetry_is_snapshotted_after_aggregation_before_history(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -206,7 +206,7 @@ def test_process_telemetry_is_snapshotted_after_aggregation_and_history(
     return_code = run_dynamic(make_options(), (), runtime=runtime)
 
     assert return_code == 0
-    assert observations == [(1, True)]
+    assert observations == [(1, False)]
 
 
 def test_coordinator_records_worker_crash_once_and_stops_new_assignments(
@@ -369,6 +369,23 @@ def test_history_cache_failure_does_not_invalidate_published_green_run(
     assert runtime.saved_run_metrics_status is RunMetricsStatus.COMPLETE
     assert runtime.saved_run_metrics_expected_jobs == 2
     assert runtime.saved_run_metrics_completed_jobs == 2
+
+
+def test_metrics_publication_failure_never_updates_history(
+    tmp_path: Path,
+) -> None:
+    runtime = FakeRuntime(
+        tmp_path,
+        (make_test(1), make_test(2)),
+        metrics_publication_failure=True,
+    )
+
+    return_code = run_dynamic(make_options(), (), runtime=runtime)
+
+    assert return_code == 1
+    assert runtime.aggregate_calls == 1
+    assert not runtime.history_saved
+    assert runtime.saved_run_metrics_status is RunMetricsStatus.PARTIAL
 
 
 def test_capacity_evidence_failure_records_partial_without_publication_or_history(

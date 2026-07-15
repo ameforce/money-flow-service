@@ -129,10 +129,11 @@ class SchedulerRuntime(Protocol):
         job: JobSpec,
     ) -> TimedJobResult: ...
 
-    def aggregate(
+    def publish_complete(
         self,
         manifest: RunManifest,
         results: tuple[JobResult, ...],
+        snapshot: RunMetricsSnapshot,
     ) -> None: ...
 
     def save_history(self, history: DurationHistory) -> None: ...

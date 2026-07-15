@@ -12,13 +12,7 @@ MOBILE_MATRIX_SPEC = Path("e2e/specs/mobile-browser-matrix.spec.js")
 
 EXPECTED_MOBILE_MATRIX_GROUPS = {
     "mobile-core-profiles": (
-        "cross-browser mobile matrix traverses core screens for mobile profiles without layout or accessibility regressions",
-    ),
-    "desktop-core-profiles": (
-        "cross-browser mobile matrix traverses desktop core profiles without layout or accessibility regressions",
-    ),
-    "mobile-dialog-surfaces": (
-        "cross-browser mobile matrix audits dialog surfaces without accessibility regressions",
+        "cross-browser mobile matrix traverses core screens without layout or accessibility regressions",
     ),
     "mobile-modal-focus": (
         "MUI-006 transaction sheet owns keyboard focus and restores its trigger",
@@ -62,15 +56,15 @@ def _test(spec_path: Path, title: str) -> DiscoveredTest:
     )
 
 
-def test_mobile_matrix_inventory_has_eight_state_independent_business_groups() -> None:
+def test_mobile_matrix_inventory_has_six_state_independent_business_groups() -> None:
     # Given / When
     groups = logical_groups.MOBILE_MATRIX_GROUPS
 
     # Then
     assert dict(groups) == EXPECTED_MOBILE_MATRIX_GROUPS
-    assert len(groups) == 8
-    assert sum(map(len, groups.values())) == 19
-    assert len(logical_groups.MOBILE_MATRIX_GROUP_BY_TITLE) == 19
+    assert len(groups) == 6
+    assert sum(map(len, groups.values())) == 17
+    assert len(logical_groups.MOBILE_MATRIX_GROUP_BY_TITLE) == 17
 
 
 def test_mobile_matrix_duplicate_title_fails_closed() -> None:

@@ -92,8 +92,8 @@ def test_real_matrix_partition_assigns_every_discovered_test_once(
     )
 
     # Then
-    assert len(real_matrix_discovery) == 570
-    assert len(manifest.jobs) == 105
+    assert len(real_matrix_discovery) == 564
+    assert len(manifest.jobs) == 99
     assert manifest.expected_projects == EXPECTED_PROJECTS
     assert manifest.expected_test_ids == frozenset(
         test.test_id for test in real_matrix_discovery
@@ -172,10 +172,10 @@ def test_current_mobile_matrix_titles_have_one_business_group(
     mapped_titles = set(MOBILE_MATRIX_GROUP_BY_TITLE)
 
     # Then
-    assert len(titles) == 19
+    assert len(titles) == 17
     assert mapped_titles == titles
     assert (
-        sum(len(group_titles) for group_titles in MOBILE_MATRIX_GROUPS.values()) == 19
+        sum(len(group_titles) for group_titles in MOBILE_MATRIX_GROUPS.values()) == 17
     )
 
 
@@ -195,7 +195,7 @@ def test_current_resolver_splits_transactions_and_keeps_default_spec_jobs(
     assert {job.project for job in transaction_jobs} == TRANSACTION_PROJECTS
 
     mobile_matrix_jobs = [job for job in jobs if job.spec_path == MOBILE_MATRIX_SPEC]
-    assert len(mobile_matrix_jobs) == 24
+    assert len(mobile_matrix_jobs) == 18
     assert len(mobile_matrix_jobs) == len(MOBILE_MATRIX_GROUPS) * len(
         MOBILE_MATRIX_PROJECTS
     )

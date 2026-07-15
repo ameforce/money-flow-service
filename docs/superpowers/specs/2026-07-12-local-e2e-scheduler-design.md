@@ -8,9 +8,9 @@ The implementation is rebased on Jenkins-green `origin/develop` commit `9793ac76
 
 ## Current State
 
-`npm run e2e:matrix` invokes `scripts/run_e2e_with_orchestrator.py --project-matrix`. The legacy runner uses one orchestrator, one ephemeral SQLite database, and one frontend origin for six Playwright projects. Windows legacy mode defaults to `--workers=3`, `fullyParallel` is false, and the current scheduler inventory contains 570 project-expanded tests in 105 jobs. A successful legacy run deletes and recreates one shared screenshot directory and writes one `latest-run.json` file.
+`npm run e2e:matrix` invokes `scripts/run_e2e_with_orchestrator.py --project-matrix`. The legacy runner uses one orchestrator, one ephemeral SQLite database, and one frontend origin for six Playwright projects. Windows legacy mode defaults to `--workers=3`, `fullyParallel` is false, and the final feature inventory contains 564 project-expanded tests in 99 jobs. A successful legacy run deletes and recreates one shared screenshot directory and writes one `latest-run.json` file.
 
-The current branch contains `e2e/specs/mobile-browser-matrix.spec.js` and runs its 19 tests through dedicated Chromium, Firefox, and WebKit projects. The scheduler treats that spec and the focused mobile successor specs as authoritative develop coverage; it splits the mobile matrix into exact-title logical groups without changing its assertions or browser semantics.
+The current branch contains `e2e/specs/mobile-browser-matrix.spec.js` and runs its 17 tests through dedicated Chromium, Firefox, and WebKit projects. The scheduler treats that spec and the focused mobile successor specs as authoritative develop coverage; it splits the mobile matrix into exact-title logical groups without changing its assertions, timeout, or browser semantics.
 
 ## Approaches Considered
 
@@ -85,7 +85,7 @@ Every run, worker, job, result, log, and artifact receives a stable unique ID. T
 
 The grouping table keys on exact test titles and must cover all discovered transaction tests exactly once. New or renamed transaction tests fail manifest validation until assigned, avoiding silent fallback into an oversized catch-all job.
 
-The mobile matrix uses eight exact-title logical groups. Profiling identified the former single cross-browser core test as the terminal WebKit tail, so its mobile profiles, desktop profiles, and dialog surfaces run as three state-independent tests and groups. The other groups preserve modal focus, import accessibility, semantics/status, orientation/zoom, and typography/touch/layout coverage. Every discovered mobile matrix title must map exactly once, just like the transaction bottleneck. This changes the core inventory from three project-expanded jobs to nine while preserving all assertions, finding evidence, authentication modes and counts, and the 600-second timeout.
+The mobile matrix uses six exact-title logical groups. Profiling identified the cross-browser core test as a WebKit tail, but splitting its mobile profiles, desktop profiles, and dialog surfaces into three Playwright tests would turn one shared 600-second budget into three independent 600-second budgets. The adopted design therefore keeps those scenarios in one core test and one group while preserving modal focus, import accessibility, semantics/status, orientation/zoom, and typography/touch/layout groups. Every discovered mobile matrix title must map exactly once, just like the transaction bottleneck. The final feature inventory is 564 project-expanded tests in 99 jobs, with assertions, finding evidence, authentication modes, and the original timeout semantics preserved.
 
 ## Isolation Contract
 

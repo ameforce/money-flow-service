@@ -51,6 +51,7 @@ class FakeRuntime:
         startup_failing_workers: frozenset[WorkerId] | None = None,
         capacity_decision_failure: bool = False,
         history_failure: bool = False,
+        metrics_publication_failure: bool = False,
     ) -> None:
         self.tmp_path = tmp_path
         self.tests = tests
@@ -61,6 +62,7 @@ class FakeRuntime:
         self.startup_failing_workers = startup_failing_workers or frozenset()
         self.capacity_decision_failure = capacity_decision_failure
         self.history_failure = history_failure
+        self.metrics_publication_failure = metrics_publication_failure
         self.events: list[str] = []
         self.capsules: list[FakeCapsule] = []
         self.executed_specs: list[str] = []
@@ -166,6 +168,25 @@ class FakeRuntime:
         self.events.append("aggregate")
         if self.aggregate_failure or len(results) != len(manifest.jobs):
             raise AggregationError("fake incomplete run")
+
+    def publish_complete(
+        self,
+        manifest: RunManifest,
+        results: tuple[JobResult, ...],
+        snapshot: RunMetricsSnapshot,
+    ) -> None:
+        self.aggregate_calls += 1
+        self.events.append("aggregate")
+        _ = self.process_telemetry()
+        if self.aggregate_failure or len(results) != len(manifest.jobs):
+            raise AggregationError("fake incomplete run")
+        if self.metrics_publication_failure:
+            raise AggregationError("fake metrics publication failed")
+        self.saved_run_metrics = True
+        self.saved_run_metrics_status = snapshot.status
+        self.saved_run_metrics_expected_jobs = snapshot.expected_jobs
+        self.saved_run_metrics_completed_jobs = len(snapshot.results)
+        self.events.append(f"metrics:{snapshot.status}")
 
     def save_history(self, history: DurationHistory) -> None:
         _ = history
