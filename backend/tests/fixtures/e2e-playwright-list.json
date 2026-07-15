@@ -1,0 +1,84 @@
+{
+  "config": {
+    "rootDir": "e2e/specs",
+    "projects": [
+      {"name": "desktop-chromium"},
+      {"name": "tablet-chromium"},
+      {"name": "mobile-chromium"}
+    ]
+  },
+  "suites": [
+    {
+      "title": "alpha.spec.js",
+      "file": "alpha.spec.js",
+      "line": 0,
+      "column": 0,
+      "specs": [
+        {
+          "title": "creates a record",
+          "file": "alpha.spec.js",
+          "line": 10,
+          "column": 5,
+          "tests": [
+            {"projectName": "desktop-chromium"}
+          ]
+        },
+        {
+          "title": "creates a record",
+          "file": "alpha.spec.js",
+          "line": 10,
+          "column": 5,
+          "tests": [
+            {"projectName": "tablet-chromium"}
+          ]
+        },
+        {
+          "title": "creates a record",
+          "file": "alpha.spec.js",
+          "line": 10,
+          "column": 5,
+          "tests": [
+            {"projectName": "mobile-chromium"}
+          ]
+        }
+      ],
+      "suites": [
+        {
+          "title": "nested behavior",
+          "file": "alpha.spec.js",
+          "line": 20,
+          "column": 1,
+          "specs": [
+            {
+              "title": "updates a record",
+              "file": "alpha.spec.js",
+              "line": 21,
+              "column": 7,
+              "tests": [
+                {"projectName": "desktop-chromium"}
+              ]
+            },
+            {
+              "title": "updates a record",
+              "file": "alpha.spec.js",
+              "line": 21,
+              "column": 7,
+              "tests": [
+                {"projectName": "tablet-chromium"}
+              ]
+            },
+            {
+              "title": "updates a record",
+              "file": "alpha.spec.js",
+              "line": 21,
+              "column": 7,
+              "tests": [
+                {"projectName": "mobile-chromium"}
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

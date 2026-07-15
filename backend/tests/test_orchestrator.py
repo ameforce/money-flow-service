@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-import orchestrator
+import orchestrator  # noqa: E402
 
 
 def test_make_backend_env_forces_local_when_prod_uses_sqlite_fallback(
@@ -119,6 +119,76 @@ def test_spawn_frontend_injects_backend_origin(monkeypatch: pytest.MonkeyPatch) 
     kwargs = dict(captured.get("kwargs", {}))
     env = dict(kwargs.get("env", {}))
     assert env.get("VITE_BACKEND_ORIGIN") == "http://127.0.0.1:8123"
+
+
+def test_spawn_frontend_hides_windows_console_in_e2e(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Given
+    captured: dict[str, object] = {}
+    startup_info = object()
+    monkeypatch.setenv("ENV", "test")
+    monkeypatch.setattr(orchestrator, "IS_WINDOWS", True)
+    monkeypatch.setattr(
+        orchestrator,
+        "hidden_creationflags",
+        lambda flags=0: flags | 0x08000000,
+    )
+    monkeypatch.setattr(orchestrator, "hidden_startupinfo", lambda: startup_info)
+
+    @dataclass
+    class DummyProc:
+        pid: int = 1234
+
+    def fake_popen(cmd, **kwargs):  # noqa: ANN001
+        captured["cmd"] = cmd
+        captured["kwargs"] = kwargs
+        return DummyProc()
+
+    monkeypatch.setattr(orchestrator.subprocess, "Popen", fake_popen)
+    args = argparse.Namespace(
+        frontend_host="127.0.0.1",
+        frontend_port=5173,
+        backend_host="127.0.0.1",
+        backend_port=8123,
+    )
+
+    # When
+    _ = orchestrator.spawn_frontend(args)
+
+    # Then
+    kwargs = dict(captured.get("kwargs", {}))
+    assert int(kwargs["creationflags"]) & 0x08000000
+    assert kwargs["startupinfo"] is startup_info
+
+
+def test_spawn_backend_forwards_explicit_keep_alive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    @dataclass
+    class DummyProc:
+        pid: int = 1234
+
+    def fake_popen(cmd, **kwargs):  # noqa: ANN001
+        captured["cmd"] = cmd
+        captured["kwargs"] = kwargs
+        return DummyProc()
+
+    monkeypatch.setattr(orchestrator.subprocess, "Popen", fake_popen)
+    args = argparse.Namespace(
+        backend_host="127.0.0.1",
+        backend_port=8123,
+        backend_timeout_keep_alive=120,
+        no_reload=True,
+    )
+
+    _ = orchestrator.spawn_backend(args, {})
+
+    command = list(captured["cmd"])
+    option_index = command.index("--timeout-keep-alive")
+    assert command[option_index + 1] == "120"
 
 
 def test_make_backend_env_keeps_schema_bootstrap_out_of_orchestrator_env(
