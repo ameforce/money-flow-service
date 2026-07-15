@@ -40,7 +40,7 @@ def with_hidden_node_children(env: Mapping[str, str]) -> dict[str, str]:
     existing = str(resolved.get("NODE_OPTIONS") or "").strip()
     if preload in existing:
         return resolved
-    require_option = f"--require={preload}"
+    require_option = f'--require="{preload}"'
     resolved["NODE_OPTIONS"] = " ".join(
         part for part in (existing, require_option) if part
     )

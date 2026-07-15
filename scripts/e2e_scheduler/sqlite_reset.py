@@ -9,6 +9,7 @@ import sqlite3
 import time
 from typing import Final, override
 
+from scripts.e2e_scheduler.capsule_cleanup import sqlite_database_files
 
 MAX_RESET_ATTEMPTS: Final = 20
 RESET_BACKOFF_SECONDS: Final = 0.25
@@ -43,6 +44,20 @@ def reset_sqlite_database(path: Path) -> DatabaseResetMetrics:
         attempt_started = time.monotonic()
         try:
             _reset_once(path)
+            sidecars = tuple(
+                candidate
+                for candidate in sqlite_database_files(path)[1:]
+                if candidate.exists()
+            )
+            if sidecars:
+                raise DatabaseResetError(
+                    path=path,
+                    attempts=attempt,
+                    reason=(
+                        "SQLite reset left sidecar files: "
+                        + ", ".join(candidate.name for candidate in sidecars)
+                    ),
+                )
         except sqlite3.OperationalError as error:
             locked = "locked" in str(error).lower()
             if locked and attempt < MAX_RESET_ATTEMPTS:

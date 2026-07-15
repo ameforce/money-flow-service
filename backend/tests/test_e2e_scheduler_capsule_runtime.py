@@ -184,6 +184,7 @@ def test_capsule_keeps_services_warm_and_namespaces_each_job(
     monkeypatch.setattr(capsule_module, "reset_capsule_state", reset_state)
     monkeypatch.setattr(process_module, "kill_process_tree", stop_fake_process)
     monkeypatch.setattr(process_module, "port_is_open", port_closed)
+    monkeypatch.setenv("E2E_API_REQUEST_ORIGIN", "https://shared.example.invalid")
     capsule = WorkerCapsule(
         tmp_path,
         RunId("run-a"),
@@ -228,6 +229,7 @@ def test_capsule_keeps_services_warm_and_namespaces_each_job(
     assert first_env["E2E_EVIDENCE_DIR"] == str(first_paths.evidence)
     assert first_env["E2E_BASE_URL"] == "http://127.0.0.1:8123"
     assert first_env["E2E_API_BASE_URL"] == first_env["E2E_BASE_URL"]
+    assert first_env["E2E_API_REQUEST_ORIGIN"] == first_env["E2E_BASE_URL"]
     assert first_env["E2E_AUTH_SETUP_MODE"] == "api"
     assert first_env["E2E_AUTH_SETUP_METRICS_FILE"] == str(
         first_paths.root / "auth-setup.jsonl"

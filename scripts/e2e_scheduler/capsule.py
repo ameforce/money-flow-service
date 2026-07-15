@@ -13,7 +13,10 @@ from typing import Self, final, override
 from scripts.e2e_scheduler.active_job import ActiveJobController
 from scripts.e2e_scheduler.browser import BrowserServerHandle, BrowserServerStartError
 from scripts.e2e_scheduler.browser_pool import BrowserServerPool
-from scripts.e2e_scheduler.capsule_cleanup import remove_file_with_retry
+from scripts.e2e_scheduler.capsule_cleanup import (
+    remove_file_with_retry,
+    sqlite_database_files,
+)
 from scripts.e2e_scheduler.capsule_job_execution import (
     JobMetricsRecord,
     PlaywrightProcessRequest,
@@ -241,10 +244,11 @@ class WorkerCapsule:
                     shutil.rmtree(path)
             except OSError as error:
                 failures.append(f"remove {path}: {error}")
-        try:
-            remove_file_with_retry(self.database_path)
-        except OSError as error:
-            failures.append(f"remove {self.database_path}: {error}")
+        for path in sqlite_database_files(self.database_path):
+            try:
+                remove_file_with_retry(path)
+            except OSError as error:
+                failures.append(f"remove {path}: {error}")
         if failures:
             raise CapsuleError(self.run_id, self.worker_id, "; ".join(failures))
 

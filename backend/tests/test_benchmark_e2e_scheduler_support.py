@@ -66,7 +66,14 @@ def test_legacy_cleanup_writes_failure_artifact_and_removes_database(
     tmp_path: Path,
 ) -> None:
     database = tmp_path / "run.db"
-    _ = database.write_bytes(b"db")
+    database_files = (
+        database,
+        Path(f"{database}-journal"),
+        Path(f"{database}-wal"),
+        Path(f"{database}-shm"),
+    )
+    for path in database_files:
+        _ = path.write_bytes(b"db")
     artifact = tmp_path / "cleanup.json"
     owned = OwnedProcess(_Process(), (8000, 5173))
 
@@ -88,7 +95,7 @@ def test_legacy_cleanup_writes_failure_artifact_and_removes_database(
             artifact,
         )
     assert artifact.is_file()
-    assert not database.exists()
+    assert all(not path.exists() for path in database_files)
 
 
 def test_benchmark_command_redacts_auth_values() -> None:

@@ -7,6 +7,10 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import override
 
+from scripts.e2e_scheduler.capsule_cleanup import (
+    remove_file_with_retry,
+    sqlite_database_files,
+)
 from scripts.e2e_scheduler.processes import (
     OwnedProcess,
     OwnedProcessCleanupError,
@@ -82,14 +86,16 @@ def finalize_legacy_cleanup(
         orchestrator.close()
     except (OSError, OwnedProcessCleanupError) as error:
         failures.append(str(error))
-    try:
-        database_path.unlink(missing_ok=True)
-    except OSError as error:
-        failures.append(f"remove ephemeral database: {error}")
+    database_files = sqlite_database_files(database_path)
+    for path in database_files:
+        try:
+            remove_file_with_retry(path)
+        except OSError as error:
+            failures.append(f"remove ephemeral database file {path.name}: {error}")
     process_exited = orchestrator.process.poll() is not None
     backend_closed = not port_is_open(backend_port)
     frontend_closed = not port_is_open(frontend_port)
-    database_removed = not database_path.exists()
+    database_removed = not any(path.exists() for path in database_files)
     if artifact_path is not None:
         write_legacy_cleanup_artifact(
             artifact_path,

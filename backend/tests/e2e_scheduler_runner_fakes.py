@@ -49,6 +49,8 @@ class FakeRuntime:
         build_code: int = 0,
         cleanup_failing_workers: frozenset[WorkerId] | None = None,
         startup_failing_workers: frozenset[WorkerId] | None = None,
+        capacity_decision_failure: bool = False,
+        history_failure: bool = False,
     ) -> None:
         self.tmp_path = tmp_path
         self.tests = tests
@@ -57,6 +59,8 @@ class FakeRuntime:
         self.build_code = build_code
         self.cleanup_failing_workers = cleanup_failing_workers or frozenset()
         self.startup_failing_workers = startup_failing_workers or frozenset()
+        self.capacity_decision_failure = capacity_decision_failure
+        self.history_failure = history_failure
         self.events: list[str] = []
         self.capsules: list[FakeCapsule] = []
         self.executed_specs: list[str] = []
@@ -165,6 +169,8 @@ class FakeRuntime:
 
     def save_history(self, history: DurationHistory) -> None:
         _ = history
+        if self.history_failure:
+            raise OSError("history cache unavailable")
         self.events.append("history")
         self.history_saved = True
 
@@ -187,6 +193,8 @@ class FakeRuntime:
         decisions: tuple[CapacityDecision, ...],
     ) -> None:
         _ = run_id
+        if self.capacity_decision_failure:
+            raise OSError("capacity evidence unavailable")
         self.saved_capacity_decisions = decisions
 
     def save_run_metrics(

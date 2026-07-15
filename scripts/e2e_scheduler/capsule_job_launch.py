@@ -44,6 +44,7 @@ def build_job_launch(request: JobLaunchRequest) -> JobLaunch:
         {
             "E2E_BASE_URL": request.frontend_origin,
             "E2E_API_BASE_URL": f"http://127.0.0.1:{request.backend_port}",
+            "E2E_API_REQUEST_ORIGIN": request.frontend_origin,
             "E2E_AUTH_SETUP_MODE": "api",
             "E2E_AUTH_SETUP_METRICS_FILE": str(
                 request.paths.root / "auth-setup.jsonl"

@@ -17,16 +17,6 @@ from scripts.e2e_scheduler.browser_runtime import (
 ROOT = Path(__file__).resolve().parents[2]
 
 
-class _RuntimeIdentity(BaseModel):
-    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", frozen=True)
-
-    version: Literal[1]
-    decision: Literal["system-chrome", "playwright-chromium"]
-    channel: str | None
-    executable_path: str = Field(min_length=1)
-    browser_version: str = Field(min_length=1)
-
-
 class _LaunchOptions(BaseModel):
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", frozen=True)
 
@@ -56,16 +46,8 @@ def test_browser_runtime_identity_resolves_bundled_chromium_once() -> None:
     env = os.environ.copy()
     env["E2E_USE_SYSTEM_CHROME"] = "0"
 
-    completed = subprocess.run(
-        ["node", "scripts/e2e_scheduler/browser_runtime_identity.mjs"],
-        cwd=ROOT,
-        env=env,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
+    identity = resolve_browser_runtime_identity(ROOT, env)
 
-    identity = _RuntimeIdentity.model_validate_json(completed.stdout)
     assert identity.decision == "playwright-chromium"
     assert identity.channel is None
     assert Path(identity.executable_path).is_file()

@@ -60,6 +60,15 @@ class WindowsSpawnModeError(ValueError):
         )
 
 
+@dataclass(slots=True)
+class PosixProcessGroupError(ValueError):
+    command: tuple[str, ...]
+
+    @override
+    def __str__(self) -> str:
+        return "POSIX owned processes require start_new_session=True"
+
+
 def resolve_dynamic_windows_spawn_mode(
     environment: Mapping[str, str] | None = None,
 ) -> WindowsSpawnMode:
@@ -81,7 +90,7 @@ class ProcessLaunch:
     stdout: ProcessStream = None
     stderr: ProcessStream = None
     creationflags: int = 0
-    start_new_session: bool = False
+    start_new_session: bool = os.name != "nt"
     role: str = "process"
     metrics_recorder: ProcessMetricsRecorder | None = None
     windows_spawn_mode: WindowsSpawnMode = WindowsSpawnMode.BOOTSTRAP

@@ -6,6 +6,7 @@ from dataclasses import dataclass, replace
 import time
 
 from scripts.e2e_scheduler.aggregate import AggregationError
+from scripts.e2e_scheduler.adaptive import CapacityDecision
 from scripts.e2e_scheduler.history import DurationHistory
 from scripts.e2e_scheduler.metrics import HostResourceMetrics, RunTelemetry
 from scripts.e2e_scheduler.model import RunId, RunManifest
@@ -35,14 +36,27 @@ class CompletionContext:
     crash: WorkerCrash | None
     monitor_failed: bool
     interruption: KeyboardInterrupt | SystemExit | None
+    capacity_decisions: tuple[CapacityDecision, ...]
 
 
 def complete_run(runtime: SchedulerRuntime, context: CompletionContext) -> int:
     telemetry = _telemetry(RunTelemetry(), context.sampling)
+    capacity_decisions_failed = False
+    try:
+        runtime.save_capacity_decisions(
+            context.run_id,
+            context.capacity_decisions,
+        )
+    except OSError as error:
+        capacity_decisions_failed = True
+        print(
+            f"[e2e-runner] capacity decision evidence save failed: {error}",
+            flush=True,
+        )
     if context.interruption is not None:
         _save_metrics(runtime, context, telemetry, RunMetricsStatus.INTERRUPTED)
         raise context.interruption
-    if _is_partial(context):
+    if capacity_decisions_failed or _is_partial(context):
         _save_metrics(runtime, context, telemetry, RunMetricsStatus.PARTIAL)
         return 1
     aggregation_started = time.perf_counter()
@@ -64,9 +78,11 @@ def complete_run(runtime: SchedulerRuntime, context: CompletionContext) -> int:
             )
         )
     except OSError as error:
-        _save_metrics(runtime, context, telemetry, RunMetricsStatus.PARTIAL)
-        print(f"[e2e-runner] duration history save failed: {error}", flush=True)
-        return 1
+        print(
+            "[e2e-runner] duration history cache save failed; "
+            f"run evidence remains complete: {error}",
+            flush=True,
+        )
     _save_metrics(runtime, context, telemetry, RunMetricsStatus.COMPLETE)
     return 0
 

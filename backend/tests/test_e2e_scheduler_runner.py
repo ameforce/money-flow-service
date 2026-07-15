@@ -352,6 +352,44 @@ def test_adaptive_mode_starts_eight_warm_capsules_and_keeps_two_cold(
     assert all(capsule.close_calls == 1 for capsule in runtime.capsules)
 
 
+def test_history_cache_failure_does_not_invalidate_published_green_run(
+    tmp_path: Path,
+) -> None:
+    runtime = FakeRuntime(
+        tmp_path,
+        (make_test(1), make_test(2)),
+        history_failure=True,
+    )
+
+    return_code = run_dynamic(make_options(), (), runtime=runtime)
+
+    assert return_code == 0
+    assert runtime.aggregate_calls == 1
+    assert not runtime.history_saved
+    assert runtime.saved_run_metrics_status is RunMetricsStatus.COMPLETE
+    assert runtime.saved_run_metrics_expected_jobs == 2
+    assert runtime.saved_run_metrics_completed_jobs == 2
+
+
+def test_capacity_evidence_failure_records_partial_without_publication_or_history(
+    tmp_path: Path,
+) -> None:
+    runtime = FakeRuntime(
+        tmp_path,
+        (make_test(1), make_test(2)),
+        capacity_decision_failure=True,
+    )
+
+    return_code = run_dynamic(make_options(), (), runtime=runtime)
+
+    assert return_code == 1
+    assert runtime.saved_run_metrics_status is RunMetricsStatus.PARTIAL
+    assert runtime.saved_run_metrics_expected_jobs == 2
+    assert runtime.saved_run_metrics_completed_jobs == 2
+    assert runtime.aggregate_calls == 0
+    assert not runtime.history_saved
+
+
 @final
 class _DesiredCapacity:
     def __init__(self, capacity: int) -> None:

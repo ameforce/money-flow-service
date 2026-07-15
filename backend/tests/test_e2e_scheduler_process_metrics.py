@@ -339,7 +339,7 @@ def test_process_launch_metrics_fields_are_backward_compatible() -> None:
     assert launch.role == "process"
     assert launch.metrics_recorder is None
     assert launch.creationflags == 0
-    assert launch.start_new_session is False
+    assert launch.start_new_session is (os.name != "nt")
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows Job Object accounting")

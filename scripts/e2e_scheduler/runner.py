@@ -202,7 +202,6 @@ def _run_dynamic(
         decisions: tuple[CapacityDecision, ...] = (
             controller.decisions if controller is not None else ()
         )
-        runtime.save_capacity_decisions(run_id, decisions)
 
     return complete_run(
         runtime,
@@ -218,6 +217,7 @@ def _run_dynamic(
             crash=crash,
             monitor_failed=monitor_failed,
             interruption=interruption,
+            capacity_decisions=decisions,
         ),
     )
 

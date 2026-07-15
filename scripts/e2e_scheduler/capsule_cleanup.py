@@ -10,6 +10,7 @@ from typing import Final
 
 FILE_REMOVE_TIMEOUT_SECONDS: Final = 15.0
 FILE_REMOVE_POLL_SECONDS: Final = 0.1
+SQLITE_SIDECAR_SUFFIXES: Final = ("-journal", "-wal", "-shm")
 
 
 def replace_directory(path: Path) -> None:
@@ -30,3 +31,10 @@ def remove_file_with_retry(path: Path) -> None:
             time.sleep(FILE_REMOVE_POLL_SECONDS)
         else:
             return
+
+
+def sqlite_database_files(database_path: Path) -> tuple[Path, ...]:
+    return (
+        database_path,
+        *(Path(f"{database_path}{suffix}") for suffix in SQLITE_SIDECAR_SUFFIXES),
+    )

@@ -78,6 +78,27 @@ def test_interrupted_metrics_persist_partial_job_inventory(tmp_path: Path) -> No
     assert persisted.jobs == ()
 
 
+def test_partial_status_marks_full_job_inventory_partial(tmp_path: Path) -> None:
+    path = tmp_path / "run-metrics.json"
+    _, results = complete_result_fixture(tmp_path)
+    save_run_metrics(
+        path,
+        RunMetricsSnapshot(
+            results=(TimedJobResult(results[0], 1.0),),
+            cleanup=(),
+            final_sample=None,
+            status=RunMetricsStatus.PARTIAL,
+            expected_jobs=1,
+        ),
+        RunMetricsConfiguration("partial-full-inventory", False, 8, 8),
+    )
+
+    persisted = RunMetricsV2.model_validate_json(path.read_bytes())
+
+    assert persisted.completed_jobs == persisted.expected_jobs == 1
+    assert persisted.partial
+
+
 def test_adaptive_metrics_preserve_cold_reserve_capacity(tmp_path: Path) -> None:
     path = tmp_path / "run-metrics.json"
     save_run_metrics(

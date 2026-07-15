@@ -36,7 +36,10 @@ from scripts.e2e_scheduler.runner_options import (  # noqa: E402
     RunnerOptions,
     parse_runner_options,
 )
-from scripts.e2e_scheduler.runner_cli import run_cli  # noqa: E402
+from scripts.e2e_scheduler.run_lock import (  # noqa: E402
+    LocalE2ERunLockError,
+    acquire_local_e2e_run_lock,
+)
 from scripts.e2e_scheduler.runtime_support import (  # noqa: E402
     LOCAL_PLAYWRIGHT_LIB_DIR,
     ROOT,
@@ -249,10 +252,23 @@ def _run_legacy(options: RunnerOptions) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    return run_cli(
-        list(argv if argv is not None else sys.argv[1:]),
-        _run_legacy,
-    )
+    try:
+        options = parse_runner_options(
+            list(argv if argv is not None else sys.argv[1:])
+        )
+    except RunnerOptionError as error:
+        print(f"[e2e-runner] {error}", flush=True)
+        return 2
+    try:
+        with acquire_local_e2e_run_lock(ROOT, options.mode.value):
+            if options.mode is RunnerMode.LEGACY:
+                return _run_legacy(options)
+            from scripts.e2e_scheduler.runner import run_dynamic
+
+            return run_dynamic(options, options.playwright_args)
+    except LocalE2ERunLockError as error:
+        print(f"[e2e-runner] {error}", flush=True)
+        return 1
 
 
 if __name__ == "__main__":

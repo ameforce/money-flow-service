@@ -75,6 +75,23 @@ def test_capsule_paths_are_unique_per_run_worker_and_job(tmp_path: Path) -> None
     assert first_job.output != other_job.output
 
 
+def test_capsule_close_removes_sqlite_database_and_sidecars(tmp_path: Path) -> None:
+    capsule = make_capsule(tmp_path, RunId("run-a"), WorkerId("worker-1"))
+    database_files = (
+        capsule.database_path,
+        Path(f"{capsule.database_path}-journal"),
+        Path(f"{capsule.database_path}-wal"),
+        Path(f"{capsule.database_path}-shm"),
+    )
+    capsule.worker_root.mkdir(parents=True)
+    for path in database_files:
+        _ = path.write_text("residue", encoding="utf-8")
+
+    capsule.close()
+
+    assert all(not path.exists() for path in database_files)
+
+
 def test_capsule_closes_browser_when_orchestrator_start_fails(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

@@ -107,6 +107,29 @@ def test_coordinator_saves_fail_closed_metrics_after_interrupt_cleanup(
     assert not runtime.history_saved
 
 
+def test_capacity_evidence_failure_does_not_mask_original_interrupt(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runtime = FakeRuntime(
+        tmp_path,
+        (make_test(1),),
+        capacity_decision_failure=True,
+    )
+
+    def interrupt_worker_pool(*_args: _WorkerPoolArgument) -> None:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(runner_module, "run_worker_pool", interrupt_worker_pool)
+
+    with pytest.raises(KeyboardInterrupt):
+        _ = run_dynamic(make_options(), (), runtime=runtime)
+
+    assert runtime.saved_run_metrics_status is RunMetricsStatus.INTERRUPTED
+    assert runtime.aggregate_calls == 0
+    assert not runtime.history_saved
+
+
 def test_worker_pool_interrupt_stops_active_capsules_before_executor_wait(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass
 import json
 from pathlib import Path
 
-from scripts.e2e_scheduler.runner_worker import RunMetricsSnapshot
+from scripts.e2e_scheduler.runner_worker import RunMetricsSnapshot, RunMetricsStatus
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,7 +40,10 @@ def save_run_metrics(
                 "status": snapshot.status.value,
                 "expected_jobs": snapshot.expected_jobs,
                 "completed_jobs": len(snapshot.results),
-                "partial": len(snapshot.results) != snapshot.expected_jobs,
+                "partial": (
+                    snapshot.status is not RunMetricsStatus.COMPLETE
+                    or len(snapshot.results) != snapshot.expected_jobs
+                ),
                 "worker_minutes": (
                     sum(result.seconds for result in snapshot.results) / 60.0
                 ),

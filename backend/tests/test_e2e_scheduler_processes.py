@@ -6,6 +6,7 @@ import signal
 import subprocess
 import sys
 import time
+from types import SimpleNamespace
 from typing import final
 
 import pytest
@@ -54,6 +55,45 @@ class FakeOwnership:
 
     def close(self) -> None:
         self.closed = True
+
+
+def test_posix_owned_spawn_always_creates_cleanup_process_group(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    start_new_session: list[bool] = []
+
+    def fake_popen(
+        _command: list[str],
+        **kwargs: object,
+    ) -> FakeProcess:
+        start_new_session.append(bool(kwargs["start_new_session"]))
+        return FakeProcess(returncode=0)
+
+    monkeypatch.setattr(process_module, "os", SimpleNamespace(name="posix"))
+    monkeypatch.setattr(process_module.subprocess, "Popen", fake_popen)
+
+    _ = process_module.OwnedProcess.spawn(
+        process_module.ProcessLaunch(
+            ("node", "worker.js"),
+            start_new_session=True,
+        )
+    )
+
+    assert start_new_session == [True]
+
+
+def test_posix_owned_spawn_rejects_missing_process_group_before_launch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(process_module, "os", SimpleNamespace(name="posix"))
+
+    with pytest.raises(process_module.PosixProcessGroupError):
+        _ = process_module.OwnedProcess.spawn(
+            process_module.ProcessLaunch(
+                ("node", "worker.js"),
+                start_new_session=False,
+            )
+        )
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows process-tree cleanup")

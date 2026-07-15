@@ -13,6 +13,7 @@ from typing import Final, override
 
 from scripts.e2e_scheduler.process_launch import (
     OwnedPopen as OwnedPopen,
+    PosixProcessGroupError as PosixProcessGroupError,
     ProcessLaunch as ProcessLaunch,
     ProcessOwnership as ProcessOwnership,
     WindowsSpawnMode as WindowsSpawnMode,
@@ -107,6 +108,8 @@ class OwnedProcess:
                 recording_id,
                 ownership.resource_usage if recording_id is not None else None,
             )
+        if not launch.start_new_session:
+            raise PosixProcessGroupError(launch.command)
         process: subprocess.Popen[bytes] = subprocess.Popen(
             list(launch.command),
             cwd=launch.cwd,

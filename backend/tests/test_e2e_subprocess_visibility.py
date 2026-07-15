@@ -90,7 +90,40 @@ def test_hidden_node_environment_injects_preload_on_windows(
 
     # Then
     preload = visibility.WINDOWS_NODE_PRELOAD.resolve().as_posix()
-    assert env["NODE_OPTIONS"] == f"--trace-warnings --require={preload}"
+    assert env["NODE_OPTIONS"] == f'--trace-warnings --require="{preload}"'
+
+
+def test_hidden_node_environment_quotes_preload_path_with_spaces(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    preload = tmp_path / "path with spaces" / "preload.cjs"
+    preload.parent.mkdir(parents=True)
+    _ = preload.write_text(
+        "globalThis.__e2ePreloadLoaded = true;\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(visibility, "WINDOWS_NODE_PRELOAD", preload)
+    monkeypatch.setattr(
+        visibility,
+        "os",
+        SimpleNamespace(name="nt", environ=os.environ),
+    )
+    env = visibility.with_hidden_node_children(os.environ)
+
+    completed = subprocess.run(
+        [
+            "node",
+            "--eval",
+            "process.stdout.write(String(globalThis.__e2ePreloadLoaded === true))",
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    assert completed.stdout == "true"
 
 
 def test_windows_node_preload_forces_hidden_child_processes() -> None:

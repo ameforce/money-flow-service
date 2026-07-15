@@ -116,3 +116,23 @@ def test_reset_sqlite_database_retries_only_locked_operational_errors(
     )
     assert metrics.retry_count == reset_module.MAX_RESET_ATTEMPTS - 1
     assert metrics.locked_seconds >= 0.0
+
+
+def test_reset_sqlite_database_fails_closed_on_sidecar_residue(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    attempts: list[Path] = []
+    database = tmp_path / "capsule.sqlite3"
+
+    def leave_wal(path: Path) -> None:
+        attempts.append(path)
+        _ = Path(f"{path}-wal").write_bytes(b"residue")
+
+    monkeypatch.setattr(reset_module, "_reset_once", leave_wal)
+
+    with pytest.raises(DatabaseResetError, match="sidecar files") as error:
+        _ = reset_sqlite_database(database)
+
+    assert attempts == [database]
+    assert error.value.attempts == 1
