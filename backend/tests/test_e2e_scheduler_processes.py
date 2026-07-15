@@ -56,6 +56,7 @@ class FakeOwnership:
         self.closed = True
 
 
+@pytest.mark.skipif(os.name != "nt", reason="Windows process-tree cleanup")
 def test_windows_cleanup_escalates_owned_pid_after_ctrl_break(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -85,7 +86,6 @@ def test_windows_cleanup_escalates_owned_pid_after_ctrl_break(
         return subprocess.CompletedProcess(command, 0, b"", b"")
 
     process.wait = fake_wait
-    monkeypatch.setattr("scripts.e2e_scheduler.processes.os.name", "nt")
     monkeypatch.setattr("scripts.e2e_scheduler.processes.subprocess.run", fake_run)
 
     # When
@@ -117,6 +117,7 @@ def test_owned_process_request_stop_terminates_job_without_closing_handle() -> N
     assert process.signals == []
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX process-group cleanup")
 def test_posix_cleanup_signals_owned_process_group(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -134,7 +135,6 @@ def test_posix_cleanup_signals_owned_process_group(
         sent_signals.append((pid, sent_signal))
 
     process.wait = fake_wait
-    monkeypatch.setattr("scripts.e2e_scheduler.processes.os.name", "posix")
     monkeypatch.setattr(
         "scripts.e2e_scheduler.processes.os.kill",
         record_signal,

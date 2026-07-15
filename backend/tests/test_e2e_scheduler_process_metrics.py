@@ -181,6 +181,7 @@ def test_process_metrics_recorder_samples_concurrent_children_and_parent_peak() 
     assert snapshot.total_process_count == 1
 
 
+@pytest.mark.skipif(os.name != "nt", reason="Windows Job Object accounting")
 def test_owned_process_records_windows_job_usage_before_close_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -203,7 +204,6 @@ def test_owned_process_records_windows_job_usage_before_close_once(
     ) -> tuple[FakeProcess, FakeMeasuredOwnership]:
         return process, ownership
 
-    monkeypatch.setattr("scripts.e2e_scheduler.processes.os.name", "nt")
     monkeypatch.setattr(
         "scripts.e2e_scheduler.windows_process_spawn.spawn_in_job",
         spawn_in_job,

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
 import signal
 import subprocess
@@ -120,7 +119,10 @@ def test_browser_endpoint_timeout_closes_only_owned_process(
 ) -> None:
     # Given
     process = FakeProcess()
-    monkeypatch.setattr(os, "name", "nt")
+
+    def stop_owned_process(owned: FakeProcess) -> None:
+        owned.send_signal(signal.SIGTERM)
+        _ = owned.wait()
 
     def fake_spawn(
         _cls: type[process_module.OwnedProcess],
@@ -138,6 +140,7 @@ def test_browser_endpoint_timeout_closes_only_owned_process(
         "spawn",
         classmethod(fake_spawn),
     )
+    monkeypatch.setattr(process_module, "kill_process_tree", stop_owned_process)
     monkeypatch.setattr(process_module, "port_is_open", fake_port_is_open)
 
     # When / Then
@@ -151,7 +154,7 @@ def test_browser_endpoint_timeout_closes_only_owned_process(
             endpoint_timeout_seconds=0,
         )
 
-    assert process.signals == [signal.CTRL_BREAK_EVENT]
+    assert process.signals == [signal.SIGTERM]
     assert process.returncode == 0
 
 
@@ -218,7 +221,10 @@ def test_browser_endpoint_cancellation_closes_owned_process(
     tmp_path: Path,
 ) -> None:
     process = FakeProcess()
-    monkeypatch.setattr(os, "name", "nt")
+
+    def stop_owned_process(owned: FakeProcess) -> None:
+        owned.send_signal(signal.SIGTERM)
+        _ = owned.wait()
 
     def fake_spawn(
         _cls: type[process_module.OwnedProcess],
@@ -236,6 +242,7 @@ def test_browser_endpoint_cancellation_closes_owned_process(
         "spawn",
         classmethod(fake_spawn),
     )
+    monkeypatch.setattr(process_module, "kill_process_tree", stop_owned_process)
     monkeypatch.setattr(process_module, "port_is_open", port_closed)
 
     with pytest.raises(browser_module.BrowserServerStartError, match="cancelled"):
@@ -248,5 +255,5 @@ def test_browser_endpoint_cancellation_closes_owned_process(
             stop_requested=lambda: True,
         )
 
-    assert process.signals == [signal.CTRL_BREAK_EVENT]
+    assert process.signals == [signal.SIGTERM]
     assert process.returncode == 0
