@@ -7,7 +7,6 @@ import sys
 from typing import final
 
 import pytest
-import win32job
 
 import scripts.e2e_scheduler.processes as process_module
 from scripts.e2e_scheduler.owned_command import run_owned_command
@@ -17,13 +16,6 @@ from scripts.e2e_scheduler.process_metrics import (
     ProcessRoleCount,
 )
 from scripts.e2e_scheduler.runner_process_telemetry import snapshot_run_telemetry
-from scripts.e2e_scheduler.windows_job import (
-    JOB_OBJECT_BASIC_AND_IO_ACCOUNTING_INFORMATION,
-    JOB_OBJECT_BASIC_PROCESS_ID_LIST,
-    WindowsJob,
-)
-
-
 type JobQueryResult = dict[str, int] | dict[str, dict[str, int]] | tuple[int, ...]
 
 
@@ -239,10 +231,19 @@ def test_owned_process_records_windows_job_usage_before_close_once(
     assert snapshot.active_launch_count == 0
 
 
+@pytest.mark.skipif(os.name != "nt", reason="Windows Job Object accounting")
 def test_windows_job_converts_accounting_units_and_retains_observed_peak(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Given
+    import win32job
+
+    from scripts.e2e_scheduler.windows_job import (
+        JOB_OBJECT_BASIC_AND_IO_ACCOUNTING_INFORMATION,
+        JOB_OBJECT_BASIC_PROCESS_ID_LIST,
+        WindowsJob,
+    )
+
     basic_queries = iter(
         (
             {
@@ -301,10 +302,17 @@ def test_windows_job_converts_accounting_units_and_retains_observed_peak(
     assert usage.total_process_count == 5
 
 
+@pytest.mark.skipif(os.name != "nt", reason="Windows Job Object accounting")
 def test_windows_job_reports_invalid_accounting_as_cleanup_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Given
+    from scripts.e2e_scheduler.windows_job import (
+        JOB_OBJECT_BASIC_AND_IO_ACCOUNTING_INFORMATION,
+        JOB_OBJECT_BASIC_PROCESS_ID_LIST,
+        WindowsJob,
+    )
+
     def query_information(_handle: int, info_class: int) -> JobQueryResult:
         if info_class == JOB_OBJECT_BASIC_AND_IO_ACCOUNTING_INFORMATION:
             return {"BasicInfo": {}, "IoInfo": {}}

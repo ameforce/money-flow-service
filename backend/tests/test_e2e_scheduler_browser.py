@@ -36,7 +36,7 @@ class FakeProcess:
 @pytest.mark.parametrize(
     ("expected_creationflags", "expected_new_session"),
     [
-        (subprocess.CREATE_NEW_PROCESS_GROUP, False),
+        (getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200), False),
         (0, True),
     ],
     ids=("nt", "posix"),

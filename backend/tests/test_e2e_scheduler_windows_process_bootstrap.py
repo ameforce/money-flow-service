@@ -9,14 +9,14 @@ import time
 
 import pytest
 
-import scripts.e2e_scheduler.windows_process_bootstrap as bootstrap_module
-
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows Job Object regression")
 def test_bootstrap_closes_opened_job_handle_immediately_after_assignment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Given
+    import scripts.e2e_scheduler.windows_process_bootstrap as bootstrap_module
+
     events: list[str] = []
 
     def create_process(
@@ -65,6 +65,8 @@ def test_bootstrap_launches_target_suspended_without_a_console_window(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Given
+    import scripts.e2e_scheduler.windows_process_bootstrap as bootstrap_module
+
     observed_creation_flags = 0
     observed_startup_info: bootstrap_module.win32process.STARTUPINFO | None = None
 

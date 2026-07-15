@@ -11,12 +11,8 @@ from typing import BinaryIO, final
 
 import pytest
 from pydantic import TypeAdapter
-import win32con
-import win32gui
-import win32process
 
 import scripts.e2e_scheduler.processes as process_module
-from scripts.e2e_scheduler.windows_job import WindowsJob
 
 type ProcessStream = int | BinaryIO | None
 
@@ -145,7 +141,10 @@ def test_direct_launcher_assigns_suspended_target_before_resume(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Given
+    import win32con
+
     import scripts.e2e_scheduler.windows_process_direct as direct_module
+    from scripts.e2e_scheduler.windows_job import WindowsJob
 
     events: list[str] = []
     process = FakeDirectProcess()
@@ -227,6 +226,7 @@ def test_direct_launcher_fails_closed_when_resume_fails(
 ) -> None:
     # Given
     import scripts.e2e_scheduler.windows_process_direct as direct_module
+    from scripts.e2e_scheduler.windows_job import WindowsJob
 
     events: list[str] = []
     process = FakeDirectProcess()
@@ -291,6 +291,9 @@ def test_real_direct_launcher_preserves_io_env_cwd_and_has_no_visible_console(
     tmp_path: Path,
 ) -> None:
     # Given
+    import win32gui
+    import win32process
+
     marker = tmp_path / "direct-target.txt"
     target = (
         "import ctypes,os,pathlib,sys;"
