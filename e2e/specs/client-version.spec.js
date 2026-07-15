@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { assertResponsiveShell, capture, registerAndVerify, unique } from "../support/helpers";
+import { assertResponsiveShell, capture, bootstrapVerifiedSession, unique } from "../support/helpers";
 
 test("issue #282: open mobile tab surfaces reload CTA after server client version changes", async ({ page }) => {
   test.setTimeout(180_000);
@@ -23,7 +23,7 @@ test("issue #282: open mobile tab surfaces reload CTA after server client versio
   const email = `${unique("client-version-user")}@example.com`;
   const displayName = unique("client-version-name");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await assertResponsiveShell(page);
   await expect(page.locator(".client-version-chip")).toHaveCount(0);
 

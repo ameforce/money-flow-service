@@ -1,6 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
-import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, readFileSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 
@@ -12,8 +12,10 @@ import {
   expectDonutLabelsInsideChart,
   expectDonutTextNotClipped,
   expectPortfolioLabelsClearOfBottomNav,
+  ensureMobileEvidenceDir,
   labeledField,
   openTab,
+  bootstrapVerifiedSession,
   registerAndVerify,
   unique,
 } from "../support/helpers";
@@ -94,10 +96,9 @@ async function captureFinding(page, testInfo, findingId, scenario, assertions) {
   const screenshotPath = await capture(page, `${testInfo.project.name}-${scenario}`);
   const viewport = page.viewportSize();
   const orientation = viewport && viewport.width > viewport.height ? "landscape" : "portrait";
-  const evidenceDir = path.resolve(".omo", "evidence", "mobile-uiux-v0.1.49", findingId);
+  const evidenceDir = ensureMobileEvidenceDir(findingId);
   const artifactStem = `${Date.now()}-${testInfo.project.name}-${scenario}`.replace(/[^a-zA-Z0-9._-]+/gu, "-");
   const evidenceScreenshot = path.join(evidenceDir, `${artifactStem}.png`);
-  mkdirSync(evidenceDir, { recursive: true });
   copyFileSync(screenshotPath, evidenceScreenshot);
   const metadataPath = path.join(evidenceDir, `${artifactStem}.json`);
   writeFileSync(metadataPath, `${JSON.stringify({
@@ -469,60 +470,70 @@ async function assertOrientationState(page, expected) {
   await expectZeroHorizontalOverflow(page, expected.label);
 }
 
-test("cross-browser mobile matrix traverses core screens without layout or accessibility regressions", async ({ browser, browserName }, testInfo) => {
-  test.setTimeout(600_000);
-  for (const profileGroup of [MOBILE_PROFILES, DESKTOP_PROFILES]) {
-    const auditProfile = profileGroup[0];
-    const { context, page } = await newMatrixPage(browser, browserName, auditProfile);
-    try {
-      await page.goto("/");
-      await applyFont(page, auditProfile.font);
-      await expect(page.locator("form.auth-card")).toBeVisible();
-      await expectZeroHorizontalOverflow(page, `${browserName}/${auditProfile.name}/auth`);
-      await expectNoAxeViolations(page, `${browserName}/${auditProfile.name}/auth`);
-      await captureFinding(page, testInfo, "MUI-004", `auth-${auditProfile.name}`, ["engine-matrix", "zero-overflow", "axe"]);
+async function runCoreProfiles({ browser, browserName }, testInfo, profileGroup) {
+  const auditProfile = profileGroup[0];
+  const { context, page } = await newMatrixPage(browser, browserName, auditProfile);
+  try {
+    await page.goto("/");
+    await applyFont(page, auditProfile.font);
+    await expect(page.locator("form.auth-card")).toBeVisible();
+    await expectZeroHorizontalOverflow(page, `${browserName}/${auditProfile.name}/auth`);
+    await expectNoAxeViolations(page, `${browserName}/${auditProfile.name}/auth`);
+    await captureFinding(page, testInfo, "MUI-004", `auth-${auditProfile.name}`, ["engine-matrix", "zero-overflow", "axe"]);
 
-      await registerAndVerify(page, {
-        email: `${unique(`matrix-${browserName}-${auditProfile.name}`)}@example.com`,
-        displayName: unique(`matrix-${browserName}-${auditProfile.name}-name`),
-      });
+    await registerAndVerify(page, {
+      email: `${unique(`matrix-${browserName}-${auditProfile.name}`)}@example.com`,
+      displayName: unique(`matrix-${browserName}-${auditProfile.name}-name`),
+    });
 
-      for (const profile of profileGroup) {
-        await test.step(profile.name, async () => {
-          await page.setViewportSize({ width: profile.width, height: profile.height });
-          await applyFont(page, profile.font);
-          if (profile.width === 1024 && profile.height === 768) {
-            await expectBrandSubtitleOnOneLine(page, `${browserName}/${profile.name}`);
-            await captureFinding(page, testInfo, "MUI-007", "tablet-1024x768-brand-subtitle", [
-              "brand-subtitle-single-line",
-              "no-cjk-orphan",
-              "no-overflow",
-            ]);
-          }
-          for (const tabLabel of NAV_TABS) {
-            await openTab(page, tabLabel);
-            await expect(page.getByRole("button", { name: tabLabel, exact: true }).first()).toHaveAttribute("aria-current", "page");
-            await expectZeroHorizontalOverflow(page, `${browserName}/${profile.name}/${tabLabel}`);
-            await expectCriticalTargets(page, tabLabel, profile);
-            if (profile === auditProfile) await expectNoAxeViolations(page, `${browserName}/${tabLabel}`);
-          }
-          await captureFinding(page, testInfo, "MUI-004", `${profile.name}-core-final`, [
-            "engine-matrix",
-            "zero-overflow",
-            ...(profile.touch ? ["target-size-44"] : []),
-            ...(profile.width === 1024 && profile.height === 768 ? ["brand-subtitle-single-line"] : []),
+    for (const profile of profileGroup) {
+      await test.step(profile.name, async () => {
+        await page.setViewportSize({ width: profile.width, height: profile.height });
+        await applyFont(page, profile.font);
+        if (profile.width === 1024 && profile.height === 768) {
+          await expectBrandSubtitleOnOneLine(page, `${browserName}/${profile.name}`);
+          await captureFinding(page, testInfo, "MUI-007", "tablet-1024x768-brand-subtitle", [
+            "brand-subtitle-single-line",
+            "no-cjk-orphan",
+            "no-overflow",
           ]);
-        });
-      }
-    } finally {
-      await context.close();
+        }
+        for (const tabLabel of NAV_TABS) {
+          await openTab(page, tabLabel);
+          await expect(page.getByRole("button", { name: tabLabel, exact: true }).first()).toHaveAttribute("aria-current", "page");
+          await expectZeroHorizontalOverflow(page, `${browserName}/${profile.name}/${tabLabel}`);
+          await expectCriticalTargets(page, tabLabel, profile);
+          if (profile === auditProfile) await expectNoAxeViolations(page, `${browserName}/${tabLabel}`);
+        }
+        await captureFinding(page, testInfo, "MUI-004", `${profile.name}-core-final`, [
+          "engine-matrix",
+          "zero-overflow",
+          ...(profile.touch ? ["target-size-44"] : []),
+          ...(profile.width === 1024 && profile.height === 768 ? ["brand-subtitle-single-line"] : []),
+        ]);
+      });
     }
+  } finally {
+    await context.close();
   }
+}
 
+test("cross-browser mobile matrix traverses core screens for mobile profiles without layout or accessibility regressions", async ({ browser, browserName }, testInfo) => {
+  test.setTimeout(600_000);
+  await runCoreProfiles({ browser, browserName }, testInfo, MOBILE_PROFILES);
+});
+
+test("cross-browser mobile matrix traverses desktop core profiles without layout or accessibility regressions", async ({ browser, browserName }, testInfo) => {
+  test.setTimeout(600_000);
+  await runCoreProfiles({ browser, browserName }, testInfo, DESKTOP_PROFILES);
+});
+
+test("cross-browser mobile matrix audits dialog surfaces without accessibility regressions", async ({ browser, browserName }, testInfo) => {
+  test.setTimeout(600_000);
   const auditProfile = MOBILE_PROFILES.find((profile) => profile.width === 390 && profile.height === 844);
   const { context, page } = await newMatrixPage(browser, browserName, auditProfile);
   try {
-    await registerAndVerify(page, {
+    await bootstrapVerifiedSession(page, {
       email: `${unique(`matrix-dialog-${browserName}`)}@example.com`,
       displayName: unique(`matrix-dialog-${browserName}-name`),
     });
@@ -547,7 +558,7 @@ test("MUI-006 transaction sheet owns keyboard focus and restores its trigger", a
   const profile = MOBILE_PROFILES.find((candidate) => candidate.width === 390 && candidate.height === 844);
   const { context, page } = await newMatrixPage(browser, browserName, profile);
   try {
-    await registerAndVerify(page, {
+    await bootstrapVerifiedSession(page, {
       email: `${unique(`mui-006-transaction-${browserName}`)}@example.com`,
       displayName: unique(`mui-006-transaction-${browserName}-name`),
     });
@@ -584,7 +595,7 @@ test("MUI-006 holding sheet owns keyboard focus and restores its trigger", async
   const profile = MOBILE_PROFILES.find((candidate) => candidate.width === 390 && candidate.height === 844);
   const { context, page } = await newMatrixPage(browser, browserName, profile);
   try {
-    await registerAndVerify(page, {
+    await bootstrapVerifiedSession(page, {
       email: `${unique(`mui-006-holding-${browserName}`)}@example.com`,
       displayName: unique(`mui-006-holding-${browserName}-name`),
     });
@@ -622,7 +633,7 @@ test("MUI-006 holding focus survives tablet modal-inline orientation transitions
   const landscape = { width: 1024, height: 768 };
   const { context, page } = await newMatrixPage(browser, browserName, portrait);
   try {
-    await registerAndVerify(page, {
+    await bootstrapVerifiedSession(page, {
       email: `${unique(`mui-006-holding-orientation-${browserName}`)}@example.com`,
       displayName: unique(`mui-006-holding-orientation-${browserName}-name`),
     });
@@ -699,7 +710,7 @@ test("MUI-006 holding focus survives tablet inline-modal orientation transitions
   const portrait = { width: 768, height: 1024 };
   const { context, page } = await newMatrixPage(browser, browserName, landscape);
   try {
-    await registerAndVerify(page, {
+    await bootstrapVerifiedSession(page, {
       email: `${unique(`mui-006-holding-reverse-${browserName}`)}@example.com`,
       displayName: unique(`mui-006-holding-reverse-${browserName}-name`),
     });
@@ -755,7 +766,7 @@ test("MUI-006 dirty sheet keeps the nested alertdialog topmost", async ({ browse
   const profile = MOBILE_PROFILES.find((candidate) => candidate.width === 390 && candidate.height === 844);
   const { context, page } = await newMatrixPage(browser, browserName, profile);
   try {
-    await registerAndVerify(page, {
+    await bootstrapVerifiedSession(page, {
       email: `${unique(`mui-006-nested-${browserName}`)}@example.com`,
       displayName: unique(`mui-006-nested-${browserName}-name`),
     });
@@ -816,7 +827,7 @@ test("MUI-002 import file pickers expose keyboard and switch controls", async ({
   const profile = MOBILE_PROFILES.find((candidate) => candidate.width === 390 && candidate.height === 844);
   const { context, page } = await newMatrixPage(browser, browserName, profile);
   try {
-    await registerAndVerify(page, {
+    await bootstrapVerifiedSession(page, {
       email: `${unique(`mui-002-import-${browserName}`)}@example.com`,
       displayName: unique(`mui-002-import-${browserName}-name`),
     });
@@ -926,7 +937,7 @@ test("MUI-003 Toss review keeps every editable column reachable by touch and key
           }),
         });
       });
-      await registerAndVerify(page, {
+      await bootstrapVerifiedSession(page, {
         email: `${unique(`mui-003-toss-${profile.width}`)}@example.com`,
         displayName: unique(`mui-003-toss-${profile.width}-name`),
       });
@@ -1025,7 +1036,7 @@ test("MUI-008 collaboration tabs and import mode group expose truthful keyboard 
   const profile = MOBILE_PROFILES.find((candidate) => candidate.width === 390 && candidate.height === 844);
   const { context, page } = await newMatrixPage(browser, browserName, profile);
   try {
-    await registerAndVerify(page, {
+    await bootstrapVerifiedSession(page, {
       email: `${unique(`mui-008-navigation-${browserName}`)}@example.com`,
       displayName: unique(`mui-008-navigation-${browserName}-name`),
     });
@@ -1359,7 +1370,7 @@ test("portrait-landscape transition preserves transaction task state", async ({ 
 
   const { context, page } = await newMatrixPage(browser, browserName, { ...portrait, touch: true });
   try {
-    await registerAndVerify(page, {
+    await bootstrapVerifiedSession(page, {
       email: `${unique(`matrix-orientation-${browserName}`)}@example.com`,
       displayName: unique(`matrix-orientation-${browserName}-name`),
     });
@@ -1674,7 +1685,7 @@ test("W1 status groups do not add inert keyboard stops", async ({ browser, brows
     touch: true,
   });
   try {
-    await registerAndVerify(page, {
+    await bootstrapVerifiedSession(page, {
       email: `${unique("w1-status-groups")}@example.com`,
       displayName: unique("w1-status-groups-name"),
     });
@@ -1700,7 +1711,7 @@ test("W1 MUI-007 exposes 44px core targets across mobile work surfaces", async (
   const transactionMemo = unique("w1-target-transaction");
   const holdingName = unique("w1-target-holding");
   try {
-    await registerAndVerify(page, {
+    await bootstrapVerifiedSession(page, {
       email: `${unique("w1-targets")}@example.com`,
       displayName: unique("w1-targets-name"),
     });
@@ -1798,7 +1809,7 @@ test("W1 MUI-011 keeps the first dashboard task visible and charts readable in l
   ];
   const { context, page } = await newMatrixPage(browser, browserName, { ...profiles[0], touch: true });
   try {
-    await registerAndVerify(page, {
+    await bootstrapVerifiedSession(page, {
       email: `${unique("w1-dashboard-landscape")}@example.com`,
       displayName: unique("w1-dashboard-landscape-name"),
     });

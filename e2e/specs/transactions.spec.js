@@ -17,7 +17,7 @@ import {
   expectTransparentBackground,
   labeledField,
   openTab,
-  registerAndVerify,
+  bootstrapVerifiedSession,
   selectFirstNonEmptyOption,
   unique,
 } from "../support/helpers";
@@ -1377,7 +1377,7 @@ async function installStaleCategoryHistoryFixture(page, { staleCategoryMajor, st
     const response = await route.fetch();
     const payload = await response.json().catch(() => null);
     const items = Array.isArray(payload) ? payload : Array.isArray(payload?.items) ? payload.items : [];
-    if (!payload || injected || items.length === 0) {
+    if (!payload || items.length === 0) {
       await route.fulfill({ response, json: payload ?? [] });
       return;
     }
@@ -1419,7 +1419,7 @@ test("mobile quick entry creates an expense through one-screen staged buttons", 
   const seedMemo = unique("tx-quick-seed");
   const memo = unique("tx-quick-created");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   const seedCategory = await createCategoryViaApi(page, {
     major: unique("빠른입력"),
     minor: unique("최근카테고리"),
@@ -1489,7 +1489,7 @@ test("mobile quick entry locks save while a transaction submit is pending", asyn
   const seedMemo = unique("tx-quick-submit-seed");
   const memo = unique("tx-quick-submit-created");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   const seedCategory = await createCategoryViaApi(page, {
     major: unique("빠른저장잠금"),
     minor: unique("최근카테고리"),
@@ -1530,8 +1530,7 @@ test("mobile quick entry locks save while a transaction submit is pending", asyn
     postCount += 1;
     resolveFirstPost();
     await postRelease;
-    const response = await route.fetch();
-    await route.fulfill({ response });
+    await route.continue();
   });
 
   const quickSave = page.getByTestId("transaction-quick-save");
@@ -1554,7 +1553,7 @@ test("transaction entry primary path stays shallow across mobile tablet and desk
   const email = `${unique("tx-entry-primary-path")}@example.com`;
   const displayName = unique("tx-entry-primary-path-name");
   const seedMemo = unique("tx-entry-primary-seed");
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   const recentCategories = await Promise.all(
     [
       {
@@ -1637,7 +1636,7 @@ test("desktop transaction entry keeps repeat context after save", async ({ page 
   const email = `${unique("tx-repeat-desktop")}@example.com`;
   const displayName = unique("tx-repeat-desktop-name");
   const category = await (async () => {
-    await registerAndVerify(page, { email, displayName });
+    await bootstrapVerifiedSession(page, { email, displayName });
     return createCategoryViaApi(page, {
       major: unique("반복입력"),
       minor: unique("영수증"),
@@ -1698,7 +1697,7 @@ test("issue 193: desktop transaction entry selects category through staged butto
     minor: unique("검색항목"),
   };
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   const category = await createCategoryViaApi(page, targetCategory);
   await page.reload();
   await waitForTransactionAppShell(page);
@@ -1728,7 +1727,7 @@ test("issue 193: inline transaction edit searches category in one step", async (
     minor: unique("수정항목"),
   };
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   const [source, target] = await Promise.all([
     createCategoryViaApi(page, sourceCategory),
     createCategoryViaApi(page, targetCategory),
@@ -1774,7 +1773,7 @@ test("issue 194: desktop transaction entry does not expose the removed category 
 
   const email = `${unique("tx-cat-create-entry")}@example.com`;
   const displayName = unique("tx-cat-create-entry-name");
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
 
   const transactionSheet = await openTransactionEntrySheet(page, { width: 1440, height: 900 });
   await expect(transactionSheet.getByTestId("transaction-staged-category")).toBeVisible();
@@ -1799,7 +1798,7 @@ test("issue 194: inline transaction edit creates and applies a missing category 
     minor: unique("수정즉시항목"),
   };
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   const source = await createCategoryViaApi(page, sourceCategory);
   await createTransactionViaApi(page, {
     memo,
@@ -1837,7 +1836,7 @@ test("issue 195: transaction entry keeps a compatible category when type changes
     minor: unique("유형공유항목"),
   };
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   const expenseCategory = await createCategoryViaApi(page, {
     ...categoryPair,
     flowType: "expense",
@@ -1878,7 +1877,7 @@ test("issue 195: transaction entry offers a category restore when type clears se
     minor: unique("유형복구항목"),
   };
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   const expenseCategory = await createCategoryViaApi(page, category);
   await page.reload();
   await waitForTransactionAppShell(page);
@@ -1922,7 +1921,7 @@ test("issue 195: inline transaction edit restores the original category after ty
     minor: unique("인라인복구항목"),
   };
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   const expenseCategory = await createCategoryViaApi(page, category);
   await createTransactionViaApi(page, {
     memo,
@@ -1968,7 +1967,7 @@ test("issue 196: transaction save clears hiding filters and reveals the saved ro
     minor: unique("저장필터항목"),
   };
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   const incomeCategory = await createCategoryViaApi(page, {
     ...categoryPair,
     flowType: "income",
@@ -2028,7 +2027,7 @@ test("issue 212: mobile transaction quick amount requests a numeric keypad", asy
   const email = `${unique("tx-mobile-amount-keypad")}@example.com`;
   const displayName = unique("tx-mobile-amount-keypad-name");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
 
   const transactionSheet = await openMobileTransactionQuickEntry(page);
   const quickAmount = page.getByTestId("transaction-quick-amount");
@@ -2059,7 +2058,7 @@ test("mobile quick entry keeps repeat context and returns focus to amount", asyn
 
   const email = `${unique("tx-repeat-mobile")}@example.com`;
   const displayName = unique("tx-repeat-mobile-name");
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   const category = await createCategoryViaApi(page, {
     major: unique("반복모바일"),
     minor: unique("영수증"),
@@ -2117,7 +2116,7 @@ test("mobile quick entry rejects decimal KRW amount immediately", async ({ page 
   const displayName = unique("tx-quick-decimal-name");
   const memo = unique("tx-quick-decimal-memo");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
 
   const transactionSheet = await openMobileTransactionQuickEntry(page);
   const quickAmount = page.getByTestId("transaction-quick-amount");
@@ -2148,7 +2147,7 @@ test("mobile quick entry selected category button remains readable while hovered
   const displayName = unique("tx-quick-chip-hover-name");
   const seedMemo = unique("tx-quick-chip-hover-seed");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   const seedCategory = await createCategoryViaApi(page, {
     major: unique("선택칩"),
     minor: unique("대비확인"),
@@ -2222,7 +2221,7 @@ test("mobile quick entry keeps all fields and actions in one non-scrolling sheet
   ];
 
   await page.setViewportSize(mobileCases[0].viewport);
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   const seedCategory = await createCategoryViaApi(page, {
     major: unique("고정버튼"),
     minor: unique("최근카테고리"),
@@ -2259,7 +2258,7 @@ test("transaction mobile meta text keeps readable contrast", async ({ page }) =>
   const memo = unique("tx-contrast-memo");
   const occurredOn = currentE2EHistoryDateIso();
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await createBasicTransaction(page, { memo, amount: "12000", occurredOn });
   await page.setViewportSize({ width: 390, height: 844 });
   await openTab(page, "거래");
@@ -2284,7 +2283,7 @@ test("mobile transaction month stepper keeps usable touch targets", async ({ pag
   const displayName = unique("tx-month-touch-name");
   const memo = unique("tx-month-touch-memo");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await createBasicTransaction(page, { memo, amount: "12000", occurredOn: currentE2EHistoryDateIso() });
   await page.setViewportSize({ width: 320, height: 568 });
   await openTab(page, "거래");
@@ -2315,7 +2314,7 @@ test("issue 197: transaction month direct input clearly marks unapplied changes 
   const previousOldestMemo = `${previousMemoPrefix}-01`;
   const previousLatestMemo = `${previousMemoPrefix}-28`;
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await createTransactionViaApi(page, { memo: currentMemo, amount: "12000", occurredOn: currentDate });
   await createTransactionViaApi(page, { memo: previousBoundaryMemo, amount: "34000", occurredOn: previousDate });
   await page.setViewportSize({ width: 390, height: 844 });
@@ -2407,7 +2406,7 @@ test("mobile transaction category flow summaries wrap long leading labels", asyn
   const major = unique("issue175-flow-major");
   const minor = `${unique("issue175-flow-minor")} browser verify long representative category label`;
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   const category = await createCategoryViaApi(page, {
     major,
     minor,
@@ -2512,7 +2511,7 @@ test("transaction ledger stays readable in landscape compact width", async ({ pa
   const displayName = unique("tx-landscape-ledger-name");
   const memo = unique("tx-landscape-ledger-memo");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await createBasicTransaction(page, { memo, amount: "98765", occurredOn: currentE2EHistoryDateIso() });
   await page.setViewportSize({ width: 844, height: 390 });
   await openTab(page, "거래");
@@ -2717,7 +2716,7 @@ test("issue 192: mobile quick entry asks before closing a dirty draft and preser
   const seedMemo = unique("tx-quick-draft-seed");
   const draftMemo = unique("tx-quick-draft-memo");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   const seedCategory = await createCategoryViaApi(page, {
     major: unique("초안입력"),
     minor: unique("최근카테고리"),
@@ -2785,7 +2784,7 @@ test("mobile quick entry restores the active field instead of jumping back to am
   const displayName = unique("tx-quick-focus-name");
   const seedMemo = unique("tx-quick-focus-seed");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   const seedCategory = await createCategoryViaApi(page, {
     major: unique("포커스입력"),
     minor: unique("최근카테고리"),
@@ -2853,7 +2852,7 @@ test("mobile quick entry defaults owner to current user over recent other member
   const otherDisplayName = "찌";
   const otherUserId = `other-user-${Date.now()}`;
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   const currentUser = await page.evaluate(async () => {
     const response = await fetch("/api/v1/auth/me", { credentials: "include" });
     return response.json();
@@ -2904,7 +2903,7 @@ test("desktop transaction entry defaults owner and exposes quick member selectio
 
   const email = `${unique("tx-owner-default-desktop")}@example.com`;
   const displayName = "댕";
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   const currentUser = await page.evaluate(async () => {
     const response = await fetch("/api/v1/auth/me", { credentials: "include" });
     return response.json();
@@ -2942,7 +2941,7 @@ test("mobile quick entry keeps owner override and filters staged category choice
   };
   const staleMemo = unique("tx-quick-stale-category");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   const recentExpense = await createCategoryViaApi(page, recentExpenseCategory);
   const olderExpense = await createCategoryViaApi(page, olderExpenseCategory);
   const income = await createCategoryViaApi(page, { ...incomeCategory, flowType: "income" });
@@ -3010,7 +3009,7 @@ test("issue 82: mobile staged category buttons stay readable at 320px", async ({
     minor: unique("테스트긴분류명"),
   };
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   const createdCategory = await createCategoryViaApi(page, category);
   await createTransactionViaApi(page, {
     memo,
@@ -3063,7 +3062,7 @@ test("mobile quick entry stays usable across viewport and Korean font fallbacks"
     { width: 412, height: 915, font: "Noto Sans KR", slug: "noto-sans-kr" },
   ];
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   const category = await createCategoryViaApi(page, seedCategory);
   await createTransactionViaApi(page, {
     memo: seedMemo,
@@ -3109,7 +3108,7 @@ test("desktop transaction row click and sweep selection keep toolbar summary sta
   const amounts = [12345, 23456, 34567, 45678, 56789, 67890];
   const memos = amounts.map((_, index) => `${memoPrefix}-${String(index).padStart(2, "0")}`);
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   for (const [index, memo] of memos.entries()) {
     await createTransactionViaApi(page, {
       memo,
@@ -3189,7 +3188,7 @@ test("transaction selection persists through passive websocket transaction refre
   const displayName = unique("tx-selection-passive-owner");
   const selectedMemo = unique("tx-selection-passive-selected");
   const incomingMemo = unique("tx-selection-passive-incoming");
-  const category = await registerAndVerify(page, { email, displayName }).then(() =>
+  const category = await bootstrapVerifiedSession(page, { email, displayName }).then(() =>
     createCategoryViaApi(page, {
       major: unique("실시간"),
       minor: unique("선택유지"),
@@ -3232,7 +3231,7 @@ test("issue 233: desktop transaction rows expose keyboard selection", async ({ p
   const displayName = unique("tx-checkbox-hitarea-name");
   const memo = unique("tx-checkbox-hitarea-memo");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await createTransactionViaApi(page, {
     memo,
     amount: "23300",
@@ -3283,7 +3282,7 @@ test("desktop transaction sticky column titles and sweep auto-scroll selection t
   const amounts = Array.from({ length: rowCount }, (_, index) => 1000 + index * 111);
   const memos = amounts.map((_, index) => `${memoPrefix}-${String(index).padStart(2, "0")}`);
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   for (const [index, memo] of memos.entries()) {
     await createTransactionViaApi(page, {
       memo,
@@ -3374,7 +3373,7 @@ test("mobile transaction row selection, touch scroll, and sticky ledger head sur
     { label: "432px Noto Sans KR", width: 432, height: 936, font: "Noto Sans KR", targetIndex: 6, scrollIndex: 17 },
   ];
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   for (const [index, memo] of memos.entries()) {
     await createTransactionViaApi(page, {
       memo,
@@ -3461,7 +3460,7 @@ test("transaction add action and sticky toolbar stay reachable after ledger scro
   const displayName = unique("tx-fab-sticky-name");
   const memoPrefix = unique("tx-fab-sticky-row");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   for (let index = 0; index < 36; index += 1) {
     await createTransactionViaApi(page, {
       memo: `${memoPrefix}-${String(index).padStart(2, "0")}`,
@@ -3549,7 +3548,7 @@ test("transaction sheet return focus does not override a newer ledger focus", as
   const displayName = unique("tx-sheet-focus-race-owner");
   const memo = unique("tx-sheet-focus-race-row");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await page.setViewportSize({ width: 1366, height: 900 });
   const row = await createBasicTransaction(page, { memo, amount: "12000" });
   await expect(row).toBeVisible();
@@ -3584,7 +3583,7 @@ test("issue 211: transaction add opens a visible sheet from a scrolled list", as
   const displayName = unique("tx-add-visible-name");
   const memoPrefix = unique("tx-add-visible-row");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   for (let index = 0; index < 32; index += 1) {
     await createTransactionViaApi(page, {
       memo: `${memoPrefix}-${String(index).padStart(2, "0")}`,
@@ -3644,7 +3643,7 @@ test("issue 213: mobile transaction add defaults to today outside visible month 
   const monthContextDate = isoDaysFromToday(-75);
   const monthMemo = unique("tx-add-month-context-row");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await createTransactionViaApi(page, {
     memo: monthMemo,
     amount: "21300",
@@ -3684,7 +3683,7 @@ test("issue 234: mobile transaction add keeps context visible without secondary 
   const email = `${unique("tx-add-context-first-screen")}@example.com`;
   const displayName = unique("tx-add-context-first-screen-name");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await page.setViewportSize({ width: 320, height: 568 });
   const transactionSheet = await openMobileTransactionQuickEntry(page);
   await expect(page.getByRole("dialog", { name: "거래 추가 레이어" })).toBeVisible();
@@ -3756,7 +3755,7 @@ test("mobile transaction add keeps actions reachable with many staged category o
   const crowdedMajor = unique("과밀그룹");
   const otherMajorPrefix = unique("추가그룹");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   for (let index = 0; index < 12; index += 1) {
     await createCategoryViaApi(page, {
       major: crowdedMajor,
@@ -3911,7 +3910,7 @@ test("issue 237: mobile transaction edit keeps completion controls in the first 
   const memo = unique("tx-mobile-edit-save-flow-memo");
   const occurredOn = currentE2EHistoryDateIso();
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await createTransactionViaApi(page, {
     memo,
     amount: "23700",
@@ -3970,7 +3969,7 @@ test("issue 198: mobile collapsed transaction row keeps key details and actions 
   const email = `${unique("tx-mobile-row-action")}@example.com`;
   const displayName = unique("tx-mobile-row-action-name");
   const memo = unique("tx-mobile-row-action-memo");
-  const category = await registerAndVerify(page, { email, displayName }).then(() =>
+  const category = await bootstrapVerifiedSession(page, { email, displayName }).then(() =>
     createCategoryViaApi(page, {
       major: unique("행요약"),
       minor: unique("즉시수정"),
@@ -4091,7 +4090,7 @@ test("mobile normal add clears stale anchored insert fields after cancelled inse
   const afterMemo = `${memoPrefix}-after`;
   const normalMemo = `${memoPrefix}-normal`;
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await createTransactionViaApi(page, {
     memo: targetMemo,
     amount: "22001",
@@ -4144,7 +4143,7 @@ test("issue 220: mobile collapsed transaction row scans as one ledger line", asy
   const email = `${unique("tx-one-line-row")}@example.com`;
   const displayName = unique("tx-one-line-owner");
   const memo = unique("tx-one-line-memo");
-  const category = await registerAndVerify(page, { email, displayName }).then(() =>
+  const category = await bootstrapVerifiedSession(page, { email, displayName }).then(() =>
     createCategoryViaApi(page, {
       major: unique("한줄요약"),
       minor: unique("스캔"),
@@ -4285,7 +4284,7 @@ test("mobile collapsed transaction row keeps large KRW amount readable", async (
   const displayName = unique("tx-large-amount-owner");
   const memo = unique("tx-large-amount-memo");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await createTransactionViaApi(page, {
     memo,
     amount: "123456789",
@@ -4366,7 +4365,7 @@ test("issue 221: mobile transaction status chips keep clear action in viewport",
   const displayName = unique("tx-status-chip-owner");
   const memo = unique("tx-status-chip-memo");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await createTransactionViaApi(page, {
     memo,
     amount: "22100",
@@ -4439,7 +4438,7 @@ test("issue 222: mobile transaction add action does not cover ledger rows", asyn
   const email = `${unique("tx-fab-clearance")}@example.com`;
   const displayName = unique("tx-fab-clearance-owner");
   const memoPrefix = unique("tx-fab-clearance-row");
-  const category = await registerAndVerify(page, { email, displayName }).then(() =>
+  const category = await bootstrapVerifiedSession(page, { email, displayName }).then(() =>
     createCategoryViaApi(page, {
       major: unique("FAB겹침"),
       minor: unique("하단행"),
@@ -4586,7 +4585,7 @@ test("issue 223: desktop transaction add action does not cover bottom row action
   const email = `${unique("tx-desktop-fab-clearance")}@example.com`;
   const displayName = unique("tx-desktop-fab-owner");
   const memoPrefix = unique("tx-desktop-fab-row");
-  const category = await registerAndVerify(page, { email, displayName }).then(() =>
+  const category = await bootstrapVerifiedSession(page, { email, displayName }).then(() =>
     createCategoryViaApi(page, {
       major: unique("DesktopFAB"),
       minor: unique("동작열"),
@@ -4711,7 +4710,7 @@ test("issue 224: desktop transaction row edit and delete targets stay comfortabl
   const email = `${unique("tx-desktop-row-actions")}@example.com`;
   const displayName = unique("tx-desktop-row-actions-owner");
   const memoPrefix = unique("tx-desktop-row-actions-row");
-  const category = await registerAndVerify(page, { email, displayName }).then(() =>
+  const category = await bootstrapVerifiedSession(page, { email, displayName }).then(() =>
     createCategoryViaApi(page, {
       major: unique("DesktopActions"),
       minor: unique("정리작업"),
@@ -4799,7 +4798,7 @@ test("issue 273: desktop transaction row double-click opens inline edit only fro
   const displayName = unique("tx-row-double-click-owner");
   const memo = unique("tx-row-double-click-memo");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await page.setViewportSize({ width: 1366, height: 900 });
 
   const createdRow = await createBasicTransaction(page, { memo, amount: "12000" });
@@ -4874,7 +4873,7 @@ test("issue 248: extracted transactions page keeps entry and inline edit wiring 
   const memo = unique("tx-extracted-wiring-memo");
   const editedMemo = `${memo}-edited`;
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await page.setViewportSize({ width: 1366, height: 900 });
 
   const createdRow = await createBasicTransaction(page, { memo, amount: "24800" });
@@ -4900,7 +4899,7 @@ test("desktop inline insert locks save while a transaction POST is pending", asy
   const seedMemo = unique("tx-inline-submit-lock-seed");
   const insertMemo = unique("tx-inline-submit-lock-insert");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await page.setViewportSize({ width: 1366, height: 900 });
 
   const seedRow = await createBasicTransaction(page, { memo: seedMemo, amount: "12000" });
@@ -4959,7 +4958,7 @@ test("issue 227: 1024px transaction row actions stay inside the viewport", async
   const email = `${unique("tx-1024-actions")}@example.com`;
   const displayName = unique("tx-1024-actions-owner");
   const memoPrefix = unique("tx-1024-actions-row");
-  const category = await registerAndVerify(page, { email, displayName }).then(() =>
+  const category = await bootstrapVerifiedSession(page, { email, displayName }).then(() =>
     createCategoryViaApi(page, {
       major: unique("Desktop1024"),
       minor: unique("동작열"),
@@ -5141,7 +5140,7 @@ test("transaction selection toolbar bulk deletes multiple rows in one request", 
   const email = `${unique("tx-bulk-delete-ui")}@example.com`;
   const displayName = unique("tx-bulk-delete-owner");
   const memoPrefix = unique("tx-bulk-delete-row");
-  const category = await registerAndVerify(page, { email, displayName }).then(() =>
+  const category = await bootstrapVerifiedSession(page, { email, displayName }).then(() =>
     createCategoryViaApi(page, {
       major: unique("일괄삭제"),
       minor: unique("선택툴바"),
@@ -5200,7 +5199,7 @@ test("transaction ledger selection toolbar stays overflow-free at 820px and 1100
   const email = `${unique("tx-boundary-width")}@example.com`;
   const displayName = unique("tx-boundary-width-owner-long");
   const memo = `${unique("tx-boundary-width-memo")}-긴메모-abcdefghijklmnopqrstuvwxyz`;
-  const category = await registerAndVerify(page, { email, displayName }).then(() =>
+  const category = await bootstrapVerifiedSession(page, { email, displayName }).then(() =>
     createCategoryViaApi(page, {
       major: unique("경계폭"),
       minor: unique("오버플로"),
@@ -5252,7 +5251,7 @@ test("issue 228: mobile transaction filters use ledger headers without duplicate
   const email = `${unique("tx-filter-affordance")}@example.com`;
   const displayName = unique("tx-filter-affordance-owner");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await page.setViewportSize({ width: 390, height: 844 });
   await openTab(page, "거래");
   await waitForTransactionAppShell(page);
@@ -5296,7 +5295,7 @@ test("issue #249: mobile transaction sticky stack uses measured heights", async 
   const displayName = unique("tx-sticky-measured-owner");
   const memo = unique("tx-sticky-measured-row");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await createTransactionViaApi(page, {
     memo,
     amount: "49000",
@@ -5386,7 +5385,7 @@ test("transactions flow: create, inline edit, delete, responsive", async ({ page
   const memo = unique("tx-memo");
   const editedMemo = `${memo}-edited`;
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await page.setViewportSize({ width: 1366, height: 960 });
   await assertResponsiveShell(page);
   await capture(page, "transactions-entry");
@@ -5481,7 +5480,7 @@ test("transaction date controls use unambiguous ISO text fields", async ({ page 
   const memo = unique("tx-date-iso-memo");
   const occurredOn = currentE2EHistoryDateIso(-2);
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await page.setViewportSize({ width: 1366, height: 768 });
   await openTab(page, "거래");
   await waitForTransactionAppShell(page);
@@ -5557,7 +5556,7 @@ test("issue 219: mobile inline transaction date edit uses numeric ISO assistance
   const memo = unique("tx-mobile-date-edit-memo");
   const occurredOn = currentE2EHistoryDateIso();
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await createTransactionViaApi(page, {
     memo,
     amount: "21900",
@@ -5603,7 +5602,7 @@ test("issue 230: narrow mobile transaction date filters keep ISO placeholders re
   const email = `${unique("tx-mobile-date-filter-width")}@example.com`;
   const displayName = unique("tx-mobile-date-filter-width-name");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await page.setViewportSize({ width: 320, height: 568 });
   await openTab(page, "거래");
   await waitForTransactionAppShell(page);
@@ -5665,7 +5664,7 @@ test("mobile transaction expanded row keeps details readable with filter panel o
   const email = `${unique("tx-expanded-filter")}@example.com`;
   const displayName = unique("tx-expanded-filter-name");
   const memo = unique("모바일가져오기테스트긴메모");
-  const category = await registerAndVerify(page, { email, displayName }).then(() =>
+  const category = await bootstrapVerifiedSession(page, { email, displayName }).then(() =>
     createCategoryViaApi(page, {
       major: unique("테스트긴대분류명"),
       minor: unique("모바일가져오기테스트긴분류명"),
@@ -5772,7 +5771,7 @@ test("mobile transaction filter panel stays visible after list scroll", async ({
   const displayName = unique("tx-mobile-filter-name");
   const memoPrefix = unique("tx-mobile-filter-memo");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   for (let index = 0; index < 18; index += 1) {
     await createTransactionViaApi(page, {
       memo: `${memoPrefix}-${String(index).padStart(2, "0")}`,
@@ -5833,7 +5832,7 @@ test("transactions form keeps grouped number format", async ({ page }) => {
 
   const email = `${unique("tx-format")}@example.com`;
   const displayName = unique("tx-format-name");
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
 
   await openTab(page, "거래");
   const transactionCard = page.locator("article.card", {
@@ -5875,7 +5874,7 @@ test("transactions form rejects decimal KRW amount before rounding can occur", a
   const displayName = unique("tx-decimal-name");
   const memo = unique("tx-decimal-memo");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
 
   await openTab(page, "거래");
   const transactionCard = page.locator("article.card", {
@@ -5928,7 +5927,7 @@ test("transactions inline edit rejects decimal KRW amount before rounding can oc
   const displayName = unique("tx-inline-decimal-name");
   const memo = unique("tx-inline-decimal-memo");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   const createdRow = await createBasicTransaction(page, { memo, amount: "12000" });
   await clickTransactionSelectionToolbarAction(page, createdRow, "수정");
 
@@ -5959,7 +5958,7 @@ test("transactions default ledger stays monthly without continuous-history chrom
   const previousMemo = unique("tx-monthly-default-previous");
   const currentMemo = unique("tx-monthly-default-current");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await page.setViewportSize({ width: 1366, height: 960 });
 
   await createTransactionViaApi(page, { memo: previousMemo, amount: "10101", occurredOn: previousDate, ownerName: displayName });
@@ -5993,7 +5992,7 @@ test("issue 287: Android PWA transaction ledger uses monthly dense rows", async 
   const ownerlessMemo = unique("tx-android-ownerless-memo");
   const currentDate = currentE2EHistoryDateIso();
   const previousDate = currentE2EHistoryDateIso(-45);
-  const category = await registerAndVerify(page, { email, displayName }).then(() =>
+  const category = await bootstrapVerifiedSession(page, { email, displayName }).then(() =>
     createCategoryViaApi(page, {
       major: unique("안드로이드원장"),
       minor: unique("고밀도"),
@@ -6216,7 +6215,7 @@ test("issue 287: monthly transaction ledger loads every paged row", async ({ pag
     });
   });
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await page.setViewportSize({ width: 390, height: 844 });
   await openTab(page, "거래");
   const firstPagedRow = page.locator("tr.transaction-row", { hasText: `${pagedMemoPrefix}-0001` });
@@ -6279,7 +6278,7 @@ test("issue 287: stale monthly transaction refresh cannot replace the active mon
   });
   const transactionRequests = [];
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await page.setViewportSize({ width: 390, height: 844 });
   await openTab(page, "거래");
   await waitForTransactionAppShell(page);
@@ -6339,7 +6338,7 @@ test("transactions list affordance: top filters, compact ledger, ownerless marke
   const investmentMemo = unique("tx-investment-memo");
   const ownerlessMemo = unique("tx-ownerless-memo");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await page.setViewportSize({ width: 1366, height: 960 });
   await openTab(page, "거래");
   await expect(page.locator(".transactions-mobile-ledger-head").first()).toBeHidden();

@@ -11,7 +11,8 @@ import {
   expectKeyboardReachableInOrder,
   expectNoHorizontalOverflow,
   expectWithinViewport,
-  registerAndVerify,
+  bootstrapVerifiedSession,
+  setLocalInputFile,
   unique,
 } from "../support/helpers";
 
@@ -54,7 +55,7 @@ test("import flow: no-file actions stay disabled with helper text", async ({ pag
   const email = `${unique("import-empty-user")}@example.com`;
   const displayName = unique("import-empty-name");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await page.setViewportSize({ width: 1440, height: 900 });
   await assertResponsiveShell(page);
   await page.getByRole("button", { name: "데이터 가져오기", exact: true }).click();
@@ -89,7 +90,7 @@ test("import flow: mobile upload copy is touch oriented", async ({ page }) => {
   const email = `${unique("import-copy-user")}@example.com`;
   const displayName = unique("import-copy-name");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await page.setViewportSize({ width: 320, height: 568 });
   await assertResponsiveShell(page);
   await page.getByRole("button", { name: "데이터 가져오기", exact: true }).click();
@@ -97,7 +98,7 @@ test("import flow: mobile upload copy is touch oriented", async ({ page }) => {
   const excelPanel = page.locator(".import-excel-panel");
   const workbookPlaceholder = excelPanel.locator(".upload-placeholder").first();
   await expect(workbookPlaceholder).toHaveText(
-    "탭해서 엑셀 파일을 선택하세요. 파일 앱 또는 기기 저장소에서 업로드할 수 있습니다."
+    "엑셀 파일을 선택하세요. 파일 앱이나 저장소에서 파일을 고르세요."
   );
   await expect(workbookPlaceholder).not.toContainText("드래그 앤 드롭");
   await expect(workbookPlaceholder).not.toContainText("클릭");
@@ -126,12 +127,14 @@ test("import flow: large report exposes full table filters and CSV export", asyn
     });
   });
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await page.setViewportSize({ width: 1440, height: 900 });
   await assertResponsiveShell(page);
   await page.getByRole("button", { name: "데이터 가져오기", exact: true }).click();
 
-  await page.getByLabel("엑셀 파일 업로드").setInputFiles(workbookPath);
+  await setLocalInputFile(page.getByLabel("엑셀 파일 업로드"), workbookPath, {
+    mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
   await page.getByRole("button", { name: "미리 검증", exact: true }).click();
 
   const workbench = page.locator(".import-report-workbench");
@@ -196,12 +199,14 @@ test("import flow: report technical details stay collapsed and sanitized", async
     });
   });
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await page.setViewportSize({ width: 320, height: 568 });
   await assertResponsiveShell(page);
   await page.getByRole("button", { name: "데이터 가져오기", exact: true }).click();
 
-  await page.getByLabel("엑셀 파일 업로드").setInputFiles(workbookPath);
+  await setLocalInputFile(page.getByLabel("엑셀 파일 업로드"), workbookPath, {
+    mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
   await page.getByRole("button", { name: "미리 검증", exact: true }).click();
 
   const report = page.locator("section.import-report", { hasText: "가져오기 결과" });
@@ -231,7 +236,7 @@ test("import flow: legacy owner values can be explained and bulk remapped", asyn
   const firstMemo = unique("legacy-owner-first");
   const secondMemo = unique("legacy-owner-second");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await createTransactionViaApi(page, { memo: firstMemo, amount: "11111", ownerName: legacyOwner });
   await createTransactionViaApi(page, { memo: secondMemo, amount: "22222", ownerName: legacyOwner });
   await page.reload();
@@ -297,7 +302,7 @@ test("import flow: workbook dry-run and apply", async ({ page }, testInfo) => {
     categoryMinor: importCategoryMinor,
   });
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await page.setViewportSize({ width: 390, height: 844 });
   await assertResponsiveShell(page);
   for (let day = 13; day <= 31; day += 1) {
@@ -319,7 +324,9 @@ test("import flow: workbook dry-run and apply", async ({ page }, testInfo) => {
   await expect(fileInput).toBeEnabled();
   await expectWithinViewport(fileDropArea);
 
-  await fileInput.setInputFiles(importWorkbookPath);
+  await setLocalInputFile(fileInput, importWorkbookPath, {
+    mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
   await expect(page.getByText(path.basename(importWorkbookPath))).toBeVisible();
   await expect(dryRunButton).toBeEnabled();
   await expect(applyButton).toBeEnabled();
@@ -371,7 +378,7 @@ test("import flow: migration package export and upload", async ({ page }, testIn
   const displayName = unique("migration-name");
   const migrationPackagePath = testInfo.outputPath(`${unique("migration-package")}.zip`);
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await page.setViewportSize({ width: 390, height: 844 });
   await assertResponsiveShell(page);
   await page.getByRole("button", { name: "데이터 가져오기", exact: true }).click();
@@ -388,7 +395,9 @@ test("import flow: migration package export and upload", async ({ page }, testIn
   const packageInput = page.getByLabel("이식 패키지 업로드");
   const migrationReport = page.locator(".import-package-panel", { hasText: "환경 이식 패키지" });
   await expect(packageInput).toBeEnabled();
-  await packageInput.setInputFiles(migrationPackagePath);
+  await setLocalInputFile(packageInput, migrationPackagePath, {
+    mimeType: "application/zip",
+  });
   await expect(page.getByText(path.basename(migrationPackagePath))).toBeVisible();
 
   const dryRunButton = page.getByRole("button", { name: "패키지 미리 검증", exact: true });
@@ -489,7 +498,7 @@ test("import flow: Toss screenshot preview review and apply", async ({ page }) =
     });
   });
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await assertResponsiveShell(page);
   await page.getByRole("button", { name: "데이터 가져오기", exact: true }).click();
   await page.getByRole("button", { name: "토스 이미지" }).click();
