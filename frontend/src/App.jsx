@@ -2328,6 +2328,7 @@ function App() {
   const activeDeepLinkFlowRef = useRef({ type: "", token: "" });
   const inviteEmailInputRef = useRef(null);
   const confirmResolveRef = useRef(null);
+  const confirmReturnFocusRef = useRef(null);
 
   const transactionEntryTodayDate = useCallback(() => {
     return normalizeIsoDateKey(transactionLocalTodayRef.current, todayIso());
@@ -2347,11 +2348,17 @@ function App() {
     action: "",
     confirmLabel: "확인",
   });
-  const requestConfirmDialog = useCallback(({ title, action, confirmLabel = "확인" }) => {
+  const requestConfirmDialog = useCallback(({ title, action, confirmLabel = "확인", returnFocus = null }) => {
     if (confirmResolveRef.current) {
       confirmResolveRef.current(false);
       confirmResolveRef.current = null;
     }
+    confirmReturnFocusRef.current =
+      returnFocus instanceof HTMLElement && returnFocus.isConnected
+        ? returnFocus
+        : document.activeElement instanceof HTMLElement
+          ? document.activeElement
+          : null;
     return new Promise((resolve) => {
       confirmResolveRef.current = resolve;
       setConfirmDialog({
@@ -2430,6 +2437,7 @@ function App() {
   const holdingEntrySheetRef = useRef(null);
   const transactionEntrySheetBackdropRef = useRef(null);
   const transactionEntrySheetRef = useRef(null);
+  const transactionEntrySheetCloseRef = useRef(null);
   const confirmBackdropRef = useRef(null);
   const confirmDialogRef = useRef(null);
   const confirmCancelButtonRef = useRef(null);
@@ -3830,6 +3838,7 @@ function App() {
         title: "거래 입력을 닫을까요?",
         action: "작성 중인 거래 초안은 보존됩니다. 닫으면 목록으로 돌아가고 다시 열어 이어서 입력할 수 있습니다.",
         confirmLabel: "입력 닫기",
+        returnFocus: transactionEntrySheetCloseRef.current,
       });
       if (!confirmed) {
         return false;
@@ -4507,12 +4516,16 @@ function App() {
   function closeConfirmDialog(confirmed) {
     const resolve = confirmResolveRef.current;
     confirmResolveRef.current = null;
+    const returnFocusTarget = confirmReturnFocusRef.current;
     setConfirmDialog({
       open: false,
       title: "",
       action: "",
       confirmLabel: "확인",
     });
+    if (!returnFocusTarget?.isConnected) {
+      confirmReturnFocusRef.current = null;
+    }
     if (resolve) {
       resolve(confirmed);
     }
@@ -4560,6 +4573,7 @@ function App() {
   useModalFocus({
     dialogRef: confirmDialogRef,
     getInitialFocus: () => confirmCancelButtonRef.current,
+    getReturnFocus: () => confirmReturnFocusRef.current,
     isolationRef: confirmBackdropRef,
     onEscape: () => closeConfirmDialog(false),
     open: confirmDialog.open,
@@ -10244,6 +10258,7 @@ function App() {
       showTransactionForm,
       transactionDesktopAddActionRef,
       transactionEntrySheetBackdropRef,
+      transactionEntrySheetCloseRef,
       transactionEntrySheetRef,
       transactionEntryBanner,
       transactionFabRef,
