@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import final, override
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class AdaptivePolicyConfigError(ValueError):
     """Raised when adaptive policy bounds or cooldown are invalid."""
 
@@ -28,7 +28,7 @@ class AdaptivePolicyConfigError(ValueError):
         )
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class CapacityOutOfBoundsError(ValueError):
     """Raised when current capacity is outside policy bounds."""
 
@@ -126,7 +126,7 @@ class SystemResourceSample:
     available_memory_percent: float
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class _WindowsSamplingError(OSError):
     """Raised when a required Windows system counter cannot be read."""
 

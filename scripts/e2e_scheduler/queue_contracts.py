@@ -9,7 +9,7 @@ from scripts.e2e_scheduler.metrics import QueueMetrics
 from scripts.e2e_scheduler.model import JobId, JobSpec, WorkerId
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class DuplicateJobIdError(ValueError):
     """Raised when queue input contains the same job ID more than once."""
 
@@ -20,7 +20,7 @@ class DuplicateJobIdError(ValueError):
         return f"duplicate scheduler job ID: {self.job_id}"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class DuplicateTerminalJobError(Exception):
     """Raised when a terminal result is recorded more than once."""
 
@@ -31,7 +31,7 @@ class DuplicateTerminalJobError(Exception):
         return f"job {self.job_id} already has a terminal result"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class AssignmentOwnerError(Exception):
     """Raised when a worker finishes another worker's assignment."""
 
@@ -47,7 +47,7 @@ class AssignmentOwnerError(Exception):
         )
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class LostAssignmentError(Exception):
     """Raised when a worker reports a job without an active assignment."""
 
@@ -59,7 +59,7 @@ class LostAssignmentError(Exception):
         return f"worker {self.worker_id} has no assignment for job {self.job_id}"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class WorkerAlreadyAssignedError(Exception):
     """Raised when a busy worker asks for another job."""
 

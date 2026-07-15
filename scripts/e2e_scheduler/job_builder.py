@@ -28,7 +28,7 @@ class LogicalGroupResolver(Protocol):
         raise NotImplementedError
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class UnassignedLogicalGroupError(Exception):
     test_id: TestId
 
@@ -37,7 +37,7 @@ class UnassignedLogicalGroupError(Exception):
         return f"logical group resolver did not assign {self.test_id}"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class DiscoveredTestIdentityError(Exception):
     test_id: TestId
 
@@ -46,7 +46,7 @@ class DiscoveredTestIdentityError(Exception):
         return f"test identity no longer matches discovered metadata: {self.test_id}"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class DuplicateTestSelectorError(Exception):
     selector: str
 
@@ -55,7 +55,7 @@ class DuplicateTestSelectorError(Exception):
         return f"test-list selector cannot span logical groups: {self.selector}"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class SpecPathOutsideTestDirectoryError(Exception):
     path: Path
 

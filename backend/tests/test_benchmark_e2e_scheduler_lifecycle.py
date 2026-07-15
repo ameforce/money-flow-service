@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import os
 from pathlib import Path
 import subprocess
+from types import SimpleNamespace
 from typing import final
 
 import pytest
@@ -127,6 +129,14 @@ def _browser_runtime(
     )
 
 
+def _use_windows_benchmark_host(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        benchmark_harness,
+        "os",
+        SimpleNamespace(name="nt", environ=os.environ),
+    )
+
+
 def _run_interrupted(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -135,6 +145,7 @@ def _run_interrupted(
     label: str,
 ) -> tuple[BenchmarkRun, list[tuple[int, bool]]]:
     stopped: list[tuple[int, bool]] = []
+    _use_windows_benchmark_host(monkeypatch)
 
     def fake_spawn(
         _cls: type[OwnedProcess],
@@ -180,6 +191,7 @@ def test_sampler_error_stops_live_owned_child_and_records_original_error(
 ) -> None:
     process = _LiveProcess()
     stopped: list[int] = []
+    _use_windows_benchmark_host(monkeypatch)
 
     def fake_spawn(
         _cls: type[OwnedProcess],

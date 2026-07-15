@@ -4,11 +4,13 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+from types import SimpleNamespace
 from typing import final
 
 import pytest
 
 import scripts.e2e_scheduler.legacy_runtime as runtime
+import scripts.e2e_scheduler.orchestrator_launch as orchestrator_launch
 import scripts.run_e2e_with_orchestrator as runner
 from scripts.e2e_scheduler.owned_command import OwnedCommandResult
 from scripts.e2e_scheduler.process_metrics import ProcessMetricsRecorder
@@ -76,7 +78,11 @@ def test_start_orchestrator_creates_posix_session(
         captured_start_new_session.append(launch.start_new_session)
         return OwnedProcess(FakeProcess(), ports)
 
-    monkeypatch.setattr(os, "name", "posix")
+    monkeypatch.setattr(
+        orchestrator_launch,
+        "os",
+        SimpleNamespace(name="posix", environ=os.environ),
+    )
     monkeypatch.setattr(OwnedProcess, "spawn", classmethod(fake_spawn))
 
     # When

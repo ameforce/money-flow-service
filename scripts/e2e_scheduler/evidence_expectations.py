@@ -49,7 +49,7 @@ class _EvidenceExpectationRoot(RootModel[_EvidenceExpectation]):
     pass
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class EvidenceExpectationError(Exception):
     path: Path
     reason: str

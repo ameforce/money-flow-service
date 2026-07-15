@@ -109,7 +109,7 @@ class RunnerOptions(TypedDict):
     include_slow: bool
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class FreePortError(RuntimeError):
     attempts: int
 

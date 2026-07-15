@@ -24,7 +24,7 @@ from scripts.e2e_scheduler.publication_transaction import (
 )
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class PublicationError(Exception):
     reason: str
 

@@ -25,7 +25,7 @@ from scripts.e2e_scheduler.project_profiles import BrowserEngine
 from scripts.e2e_scheduler.runtime_support import with_local_playwright_runtime
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class BrowserServerStartError(Exception):
     reason: str
 

@@ -8,6 +8,7 @@ from typing import NoReturn
 import pytest
 
 import scripts.e2e_scheduler.capsule_services as services_module
+import scripts.e2e_scheduler.processes as process_module
 from backend.tests.e2e_scheduler_capsule_fakes import FakeBrowserHandle, FakeProcess
 from scripts.e2e_scheduler.browser import BrowserServerHandle
 from scripts.e2e_scheduler.capsule_services import (
@@ -157,6 +158,9 @@ def test_backend_bind_exit_retries_with_a_fresh_same_origin_port(
     backend_processes = iter((first_backend, second_backend))
     orchestrator_ports: list[tuple[int, int]] = []
 
+    def stop_fake_process(process: FakeProcess) -> None:
+        process.returncode = 0
+
     def start_browser(
         *,
         repository_root: Path,
@@ -224,6 +228,7 @@ def test_backend_bind_exit_retries_with_a_fresh_same_origin_port(
         monkeypatch.setattr(BrowserServerHandle, "start", start_browser)
         monkeypatch.setattr(services_module, "start_orchestrator", start_orchestrator)
         monkeypatch.setattr(services_module, "wait_until_up", ready_or_exited)
+        monkeypatch.setattr(process_module, "kill_process_tree", stop_fake_process)
         monkeypatch.setattr(
             "scripts.e2e_scheduler.processes.port_is_open",
             lambda _port: False,

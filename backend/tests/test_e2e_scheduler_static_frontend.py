@@ -25,6 +25,9 @@ def test_dynamic_capsules_serve_shared_dist_from_isolated_backend_origins_withou
     selected_ports: list[int] = []
     available_ports = iter((8123, 8124))
 
+    def stop_fake_process(process: FakeProcess) -> None:
+        process.returncode = 0
+
     def pick_port() -> int:
         port = next(available_ports)
         selected_ports.append(port)
@@ -112,6 +115,7 @@ def test_dynamic_capsules_serve_shared_dist_from_isolated_backend_origins_withou
         raising=False,
     )
     monkeypatch.setattr(process_module, "port_is_open", lambda _port: False)
+    monkeypatch.setattr(process_module, "kill_process_tree", stop_fake_process)
 
     # When
     first_services = CapsuleServices.start(

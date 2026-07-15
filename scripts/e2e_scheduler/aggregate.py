@@ -67,7 +67,7 @@ class AggregationSummary:
     published_files: tuple[str, ...]
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class AggregationError(Exception):
     reason: str
 

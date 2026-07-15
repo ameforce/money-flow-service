@@ -19,7 +19,7 @@ class RunnerMode(StrEnum):
     LEGACY = "legacy"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class RunnerOptionError(ValueError):
     reason: str
 

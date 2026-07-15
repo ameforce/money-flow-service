@@ -60,7 +60,7 @@ class PlaywrightArgumentSets:
     job: tuple[str, ...]
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class PlaywrightCompatibilityError(ValueError):
     option: str
     reason: str

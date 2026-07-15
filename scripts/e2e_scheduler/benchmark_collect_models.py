@@ -109,7 +109,7 @@ class MetricCleanup(InputModel):
     succeeded: bool
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class BenchmarkCollectionError(Exception):
     reason: str
 

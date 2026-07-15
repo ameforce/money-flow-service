@@ -1,8 +1,10 @@
 import os
+from types import SimpleNamespace
 from typing import final
 
 import pytest
 
+import scripts.e2e_scheduler.resources as resources_module
 from scripts.e2e_scheduler.adaptive import AdaptiveCapacityController
 from scripts.e2e_scheduler.resources import (
     AdaptivePolicy,
@@ -310,7 +312,11 @@ def test_windows_system_sampler_reports_bounded_percentages() -> None:
 def test_windows_sampler_reports_typed_unsupported_error_off_windows(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(os, "name", "posix")
+    monkeypatch.setattr(
+        resources_module,
+        "os",
+        SimpleNamespace(name="posix"),
+    )
 
     with pytest.raises(OSError, match="WindowsSystemSampler"):
         _ = WindowsSystemSampler(interval_seconds=0).sample()

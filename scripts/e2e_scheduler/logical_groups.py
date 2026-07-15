@@ -144,7 +144,7 @@ MOBILE_MATRIX_GROUPS: Final[Mapping[str, tuple[str, ...]]] = MappingProxyType(
 )
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class DuplicateLogicalGroupTitleError(Exception):
     spec_name: str
     title: str

@@ -66,7 +66,7 @@ class _JobOwnership(Protocol):
     def close(self) -> None: ...
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class WindowsDirectProcessSpawnError(OSError):
     pid: int
     process_running: bool

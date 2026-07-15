@@ -13,7 +13,7 @@ from scripts.e2e_scheduler.model import DiscoveredTest, TestId
 from scripts.e2e_scheduler.project_profiles import ProjectProfile
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class DuplicateDiscoveredTestError(Exception):
     test_id: TestId
 
@@ -22,7 +22,7 @@ class DuplicateDiscoveredTestError(Exception):
         return f"duplicate discovered test: {self.test_id}"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class UnknownProjectError(Exception):
     project: str
 
@@ -31,14 +31,14 @@ class UnknownProjectError(Exception):
         return f"unknown Playwright project: {self.project}"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class EmptyDiscoveryError(Exception):
     @override
     def __str__(self) -> str:
         return "Playwright discovery returned zero tests"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class SpecPathOutsideRepositoryError(Exception):
     path: Path
 

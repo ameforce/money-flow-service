@@ -10,7 +10,7 @@ from scripts.e2e_scheduler.model import RunId, WorkerId
 from scripts.e2e_scheduler.processes import OwnedProcess
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class ActiveJobOverlapError(Exception):
     run_id: RunId
     worker_id: WorkerId

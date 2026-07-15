@@ -133,7 +133,7 @@ class BenchmarkDocument:
     summary: BenchmarkSummary | None
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class BenchmarkAcceptanceError(RuntimeError):
     reason: str
 

@@ -16,7 +16,7 @@ SQLITE_CONNECT_TIMEOUT_SECONDS: Final = 0.5
 SQLITE_BUSY_TIMEOUT_MILLISECONDS: Final = 1000
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class DatabaseResetError(Exception):
     path: Path
     attempts: int

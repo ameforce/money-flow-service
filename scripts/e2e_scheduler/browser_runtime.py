@@ -10,6 +10,7 @@ from typing import Annotated, ClassVar, Literal, override
 from pydantic import BaseModel, ConfigDict, Field, RootModel, ValidationError
 
 from scripts.e2e_scheduler.benchmark import BrowserRuntimeIdentity
+from scripts.e2e_scheduler.runtime_support import with_local_playwright_runtime
 from scripts.e2e_scheduler.subprocess_visibility import run_hidden
 
 
@@ -41,7 +42,7 @@ class _RuntimeIdentityRoot(RootModel[_RuntimeIdentityInput]):
     pass
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class BrowserRuntimeResolutionError(RuntimeError):
     reason: str
 
@@ -55,10 +56,11 @@ def resolve_browser_runtime_identity(
     environment: Mapping[str, str],
 ) -> BrowserRuntimeIdentity:
     try:
+        resolved_environment = with_local_playwright_runtime(dict(environment))
         completed = run_hidden(
             ["node", "scripts/e2e_scheduler/browser_runtime_identity.mjs"],
             cwd=repository_root,
-            env=environment,
+            env=resolved_environment,
             capture_output=True,
             text=True,
             encoding="utf-8",

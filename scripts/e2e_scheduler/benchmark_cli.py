@@ -23,7 +23,7 @@ class BenchmarkOptions:
     timeout_seconds: float
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class BenchmarkOptionError(ValueError):
     reason: str
 

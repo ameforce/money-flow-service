@@ -19,7 +19,7 @@ from scripts.e2e_scheduler.runtime_support import wait_until_up
 _MAX_PORT_START_ATTEMPTS = 3
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class CapsuleServiceStartError(Exception):
     reason: str
 

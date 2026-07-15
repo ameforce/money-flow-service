@@ -39,7 +39,7 @@ class JobSpec:
     estimated_seconds: float
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class ManifestTestCoverageError(ValueError):
     missing: tuple[TestId, ...]
     duplicates: tuple[TestId, ...]
@@ -55,7 +55,7 @@ class ManifestTestCoverageError(ValueError):
         )
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class ManifestProjectProfileError(ValueError):
     test_id: TestId
     expected: ProjectProfile
@@ -71,7 +71,7 @@ class ManifestProjectProfileError(ValueError):
         )
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class ManifestJobMetadataError(ValueError):
     job_id: JobId
     reason: str

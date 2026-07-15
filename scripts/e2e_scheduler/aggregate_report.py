@@ -17,7 +17,7 @@ type _TestStatus = Literal["expected", "skipped", "unexpected", "flaky"]
 type _AttemptStatus = Literal["passed", "failed", "timedOut", "skipped", "interrupted"]
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class ResultReportError(Exception):
     reason: str
 

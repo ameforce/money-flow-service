@@ -3,12 +3,14 @@ from __future__ import annotations
 from dataclasses import replace
 import os
 from pathlib import Path
+from types import SimpleNamespace
 from typing import final
 
 import pytest
 
 import scripts.run_e2e_with_orchestrator as e2e_runner
 import scripts.e2e_scheduler.runner as runner_module
+import scripts.e2e_scheduler.runner_options as runner_options_module
 from backend.tests.e2e_scheduler_runner_fakes import (
     FakeRuntime,
     make_options,
@@ -38,11 +40,22 @@ from scripts.e2e_scheduler.runner_worker import (
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def _set_runner_platform(
+    monkeypatch: pytest.MonkeyPatch,
+    platform_name: str,
+) -> None:
+    monkeypatch.setattr(
+        runner_options_module,
+        "os",
+        SimpleNamespace(name=platform_name, environ=os.environ),
+    )
+
+
 def test_windows_matrix_defaults_to_dynamic_eight_workers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Given
-    monkeypatch.setattr(os, "name", "nt")
+    _set_runner_platform(monkeypatch, "nt")
     monkeypatch.delenv("CI", raising=False)
     monkeypatch.delenv("E2E_RUNNER_MODE", raising=False)
 
@@ -81,7 +94,7 @@ def test_non_local_matrix_defaults_to_legacy(
     args: tuple[str, ...],
 ) -> None:
     # Given
-    monkeypatch.setattr(os, "name", os_name)
+    _set_runner_platform(monkeypatch, os_name)
     if ci is None:
         monkeypatch.delenv("CI", raising=False)
     else:
@@ -120,7 +133,7 @@ def test_adaptive_scheduler_workers_keep_four_to_ten_policy_bounds() -> None:
 def test_adaptive_scheduler_rejects_unsupported_non_windows_host(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(os, "name", "posix")
+    _set_runner_platform(monkeypatch, "posix")
     monkeypatch.setenv("E2E_RUNNER_MODE", "dynamic")
 
     with pytest.raises(e2e_runner.RunnerOptionError, match="Windows"):
@@ -129,7 +142,10 @@ def test_adaptive_scheduler_rejects_unsupported_non_windows_host(
         )
 
 
-def test_dynamic_runner_rejects_unsupported_custom_reporter() -> None:
+def test_dynamic_runner_rejects_unsupported_custom_reporter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("E2E_RUNNER_MODE", "dynamic")
     # When / Then
     with pytest.raises(e2e_runner.RunnerOptionError, match="custom reporter"):
         _ = e2e_runner.parse_runner_options(
@@ -409,7 +425,7 @@ def test_cli_dispatches_dynamic_mode_without_calling_legacy(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Given
-    monkeypatch.setattr(os, "name", "nt")
+    _set_runner_platform(monkeypatch, "nt")
     monkeypatch.delenv("CI", raising=False)
     monkeypatch.delenv("E2E_RUNNER_MODE", raising=False)
     calls: list[tuple[RunnerMode, tuple[str, ...]]] = []

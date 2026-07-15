@@ -65,7 +65,7 @@ class _JobOwnership(Protocol):
 _IPV4_ADDRESS_ADAPTER: Final = TypeAdapter(tuple[str, int])
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class WindowsProcessSpawnError(OSError):
     pid: int
     process_running: bool

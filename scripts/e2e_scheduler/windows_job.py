@@ -57,7 +57,7 @@ _MEMORY_ACCOUNTING_ADAPTER: Final = TypeAdapter(_MemoryAccounting)
 _PROCESS_ID_LIST_ADAPTER: Final = TypeAdapter(tuple[int, ...])
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class WindowsJobError(OSError):
     operation: str
     error_code: int
@@ -67,7 +67,7 @@ class WindowsJobError(OSError):
         return f"Windows Job Object {self.operation} failed with error {self.error_code}"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class WindowsJobAccountingError(OSError):
     operation: str
 

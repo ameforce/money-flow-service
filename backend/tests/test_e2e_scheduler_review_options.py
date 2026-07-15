@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import ClassVar
 
@@ -101,8 +100,7 @@ def test_dynamic_mode_rejects_incompatible_playwright_options_before_build(
     monkeypatch: pytest.MonkeyPatch,
     args: list[str],
 ) -> None:
-    monkeypatch.setattr(os, "name", "nt")
-    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.setenv("E2E_RUNNER_MODE", "dynamic")
     build_events: list[str] = []
 
     def fake_dynamic(
@@ -118,7 +116,10 @@ def test_dynamic_mode_rejects_incompatible_playwright_options_before_build(
     assert build_events == []
 
 
-def test_dynamic_mode_routes_filters_only_to_discovery() -> None:
+def test_dynamic_mode_routes_filters_only_to_discovery(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("E2E_RUNNER_MODE", "dynamic")
     options = e2e_runner.parse_runner_options(
         [
             "--project-matrix",
@@ -174,8 +175,7 @@ def test_dynamic_mode_rejects_alternate_playwright_config_before_build(
     monkeypatch: pytest.MonkeyPatch,
     args: list[str],
 ) -> None:
-    monkeypatch.setattr(os, "name", "nt")
-    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.setenv("E2E_RUNNER_MODE", "dynamic")
     build_events: list[str] = []
 
     def fake_dynamic(
@@ -195,8 +195,7 @@ def test_benchmark_label_is_persisted_from_cli_in_immutable_manifest(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setattr(os, "name", "nt")
-    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.setenv("E2E_RUNNER_MODE", "dynamic")
     runtime = FakeRuntime(tmp_path, (make_test(1),))
     options = e2e_runner.parse_runner_options(
         ["--project-matrix", "--benchmark-label=candidate-a"]

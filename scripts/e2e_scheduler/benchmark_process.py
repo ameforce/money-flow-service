@@ -18,7 +18,7 @@ _SECRET_PATTERN: Final = re.compile(
 INTERRUPT_GRACE_SECONDS: Final = 15.0
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class BenchmarkExecutionError(RuntimeError):
     reason: str
 

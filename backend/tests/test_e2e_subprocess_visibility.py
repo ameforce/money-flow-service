@@ -4,6 +4,7 @@ from pathlib import Path
 import json
 import os
 import subprocess
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -15,7 +16,11 @@ def test_hidden_creationflags_adds_no_window_on_windows(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Given
-    monkeypatch.setattr(visibility.os, "name", "nt")
+    monkeypatch.setattr(
+        visibility,
+        "os",
+        SimpleNamespace(name="nt", environ=os.environ),
+    )
     monkeypatch.setattr(
         visibility.subprocess, "CREATE_NO_WINDOW", 0x08000000, raising=False
     )
@@ -30,7 +35,11 @@ def test_run_hidden_passes_windows_visibility_options(
 ) -> None:
     # Given
     calls: list[dict[str, Any]] = []
-    monkeypatch.setattr(visibility.os, "name", "nt")
+    monkeypatch.setattr(
+        visibility,
+        "os",
+        SimpleNamespace(name="nt", environ=os.environ),
+    )
     monkeypatch.setattr(
         visibility.subprocess, "CREATE_NO_WINDOW", 0x08000000, raising=False
     )
@@ -68,7 +77,11 @@ def test_hidden_node_environment_injects_preload_on_windows(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Given
-    monkeypatch.setattr(visibility.os, "name", "nt")
+    monkeypatch.setattr(
+        visibility,
+        "os",
+        SimpleNamespace(name="nt", environ=os.environ),
+    )
 
     # When
     env = visibility.with_hidden_node_children(
@@ -85,6 +98,7 @@ def test_windows_node_preload_forces_hidden_child_processes() -> None:
     preload = visibility.WINDOWS_NODE_PRELOAD.resolve()
     probe = r"""
 const childProcess = require("node:child_process");
+Object.defineProperty(process, "platform", { value: "win32" });
 const calls = [];
 for (const method of ["spawn", "spawnSync", "execFileSync"]) {
   childProcess[method] = (...args) => {

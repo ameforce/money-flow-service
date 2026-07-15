@@ -9,7 +9,7 @@ from typing import override
 import unicodedata
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class PublicationPathError(Exception):
     reason: str
 

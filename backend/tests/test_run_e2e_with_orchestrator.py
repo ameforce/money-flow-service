@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -23,6 +24,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import scripts.run_e2e_with_orchestrator as e2e_runner  # noqa: E402
+import scripts.e2e_scheduler.legacy_runtime as legacy_runtime  # noqa: E402
 import scripts.e2e_scheduler.runtime_support as runtime_support  # noqa: E402
 import orchestrator  # noqa: E402
 from scripts.verify_e2e_screenshots import verify_screenshot_manifest  # noqa: E402
@@ -95,7 +97,11 @@ def test_with_local_playwright_runtime_leaves_env_unchanged_when_missing(
 def test_normalize_playwright_args_caps_default_windows_workers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(os, "name", "nt")
+    monkeypatch.setattr(
+        legacy_runtime,
+        "os",
+        SimpleNamespace(name="nt", environ=os.environ),
+    )
 
     assert e2e_runner.normalize_playwright_args(["e2e/specs/auth.spec.js"]) == [
         "e2e/specs/auth.spec.js",
@@ -134,7 +140,11 @@ def test_split_runner_args_removes_runner_only_options() -> None:
 def test_resolve_frontend_mode_uses_static_for_full_windows_run(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(os, "name", "nt")
+    monkeypatch.setattr(
+        legacy_runtime,
+        "os",
+        SimpleNamespace(name="nt", environ=os.environ),
+    )
     monkeypatch.delenv("E2E_FRONTEND_MODE", raising=False)
 
     assert e2e_runner.resolve_frontend_mode([]) == "static"

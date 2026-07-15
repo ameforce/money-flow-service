@@ -14,7 +14,7 @@ from scripts.e2e_scheduler.processes import (
 )
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class LegacyCleanupError(RuntimeError):
     failures: tuple[str, ...]
 

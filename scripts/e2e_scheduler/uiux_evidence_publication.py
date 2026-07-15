@@ -23,7 +23,7 @@ EVIDENCE_VERSION: Final = "mobile-uiux-v0.1.49"
 _TARGET_PARENT: Final = Path(".omo") / "evidence"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class UiuxEvidencePublicationError(Exception):
     """Fail-closed UI/UX evidence validation or publication failure."""
 

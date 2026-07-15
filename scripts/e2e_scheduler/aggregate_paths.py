@@ -9,7 +9,7 @@ from typing import Protocol, override
 from scripts.e2e_scheduler.model import JobId
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class ArtifactPathError(Exception):
     reason: str
 

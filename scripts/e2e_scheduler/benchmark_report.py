@@ -79,7 +79,7 @@ class PlaywrightInventory:
     interrupted: int
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class BenchmarkReportError(Exception):
     reason: str
 

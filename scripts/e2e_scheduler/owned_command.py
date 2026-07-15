@@ -19,7 +19,7 @@ class CommunicatingProcess(Protocol):
     def poll(self) -> int | None: ...
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class OwnedCommandStateError(Exception):
     command: tuple[str, ...]
 

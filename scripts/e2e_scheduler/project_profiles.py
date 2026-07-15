@@ -15,7 +15,7 @@ class ProjectProfile:
     viewport: tuple[int, int] | None
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class UnknownProjectProfileError(ValueError):
     project: str
 

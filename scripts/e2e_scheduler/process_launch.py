@@ -48,7 +48,7 @@ class WindowsSpawnMode(StrEnum):
     DIRECT = "direct"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class WindowsSpawnModeError(ValueError):
     value: str
 

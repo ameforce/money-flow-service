@@ -13,7 +13,7 @@ from scripts.e2e_scheduler.benchmark import BenchmarkDocument
 _ADAPTER: Final = TypeAdapter(BenchmarkDocument)
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class BenchmarkDocumentError(ValueError):
     reason: str
 

@@ -22,7 +22,7 @@ from scripts.e2e_scheduler.reporters import resolve_reporters
 from scripts.e2e_scheduler.subprocess_visibility import with_hidden_node_children
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class DiscoveryProcessError(Exception):
     return_code: int
     stderr: str

@@ -31,7 +31,7 @@ PORT_CLOSE_TIMEOUT_SECONDS: Final = 15.0
 PORT_CLOSE_POLL_SECONDS: Final = 0.1
 OWNED_BOOTSTRAP_EXIT_TIMEOUT_SECONDS: Final = 2.0
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class OwnedProcessCleanupError(Exception):
     pid: int
     open_ports: tuple[int, ...]

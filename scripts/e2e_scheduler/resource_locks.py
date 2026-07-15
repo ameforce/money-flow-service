@@ -49,7 +49,7 @@ class ResourceLockDeclaration:
     locks: tuple[str, ...]
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class UnknownResourceLockError(ValueError):
     resource_name: str
 
@@ -58,7 +58,7 @@ class UnknownResourceLockError(ValueError):
         return f"unknown or worker-isolated E2E resource lock: {self.resource_name}"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class InvalidResourceLockDeclarationError(ValueError):
     declaration: ResourceLockDeclaration
     reason: str

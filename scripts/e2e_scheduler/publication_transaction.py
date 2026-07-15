@@ -16,7 +16,7 @@ from scripts.e2e_scheduler.publication_paths import (
 )
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class PublicationTransactionError(Exception):
     """Fail-closed publication transaction failure."""
 

@@ -56,6 +56,9 @@ def test_capsule_keeps_services_warm_and_namespaces_each_job(
     job_process = FakeProcess(returncode=0)
     job_process.pid = 7002
 
+    def stop_fake_process(fake: FakeProcess) -> None:
+        fake.returncode = 0
+
     def fake_start_orchestrator(
         db_url: str,
         backend_port: int,
@@ -179,6 +182,7 @@ def test_capsule_keeps_services_warm_and_namespaces_each_job(
     monkeypatch.setattr(process_module.OwnedProcess, "close", record_close)
     monkeypatch.setattr(subprocess, "run", forbid_raw_run)
     monkeypatch.setattr(capsule_module, "reset_capsule_state", reset_state)
+    monkeypatch.setattr(process_module, "kill_process_tree", stop_fake_process)
     monkeypatch.setattr(process_module, "port_is_open", port_closed)
     capsule = WorkerCapsule(
         tmp_path,

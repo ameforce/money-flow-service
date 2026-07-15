@@ -24,7 +24,7 @@ type _PositiveSeconds = Annotated[float, Field(gt=0)]
 type _NonnegativeSeconds = Annotated[float, Field(ge=0)]
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class HistoryPayloadValidationError(Exception):
     detail: str
 

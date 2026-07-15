@@ -12,7 +12,7 @@ SUPPORTED_REPORTERS: Final = frozenset(
 )
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class ReporterOptionError(ValueError):
     reason: str
 

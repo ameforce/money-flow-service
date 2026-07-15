@@ -68,7 +68,7 @@ _CLOSE_HANDLE: Final = ctypes.WINFUNCTYPE(
 )(("CloseHandle", _KERNEL32))
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class WindowsThreadResumeError(OSError):
     operation: str
     error_code: int

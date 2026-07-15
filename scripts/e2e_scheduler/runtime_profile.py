@@ -32,7 +32,7 @@ class RuntimeProfile:
     viewport: tuple[int, int] | None
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class RuntimeProfileError(Exception):
     path: Path
     reason: str

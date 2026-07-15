@@ -83,7 +83,7 @@ class WorkerCrash:
     detail: str
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class WorkerLoopError(Exception):
     crash: WorkerCrash
 

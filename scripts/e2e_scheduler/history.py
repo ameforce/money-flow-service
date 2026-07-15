@@ -22,7 +22,7 @@ DEFAULT_ESTIMATED_SECONDS: Final = 30.0
 HISTORY_VERSION: Final = 2
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class DurationHistoryFormatError(Exception):
     path: Path
     detail: str
@@ -32,7 +32,7 @@ class DurationHistoryFormatError(Exception):
         return f"invalid duration history {self.path}: {self.detail}"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class InvalidDurationError(Exception):
     test_id: TestId
     seconds: float
@@ -42,7 +42,7 @@ class InvalidDurationError(Exception):
         return f"duration for {self.test_id} must be positive, got {self.seconds}"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class InvalidBoundaryDurationError(Exception):
     browser: str
     seconds: float

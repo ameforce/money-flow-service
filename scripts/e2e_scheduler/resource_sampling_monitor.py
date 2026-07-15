@@ -19,14 +19,14 @@ class ResourceSamplingSnapshot:
     errors: tuple[str, ...]
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class ResourceSamplingMonitorAlreadyStartedError(RuntimeError):
     @override
     def __str__(self) -> str:
         return "resource sampling monitor already started"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class ResourceSamplingMonitorStopTimeoutError(RuntimeError):
     timeout_seconds: float
 

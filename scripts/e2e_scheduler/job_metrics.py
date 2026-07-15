@@ -19,7 +19,7 @@ from scripts.e2e_scheduler.metrics import (
 )
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class AuthSetupMetricsFormatError(Exception):
     path: Path
     line_number: int
