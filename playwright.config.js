@@ -1,19 +1,16 @@
 import { existsSync } from "node:fs";
 import { defineConfig, devices } from "@playwright/test";
+import "./scripts/e2e_scheduler/windows_hide_node_children.cjs";
+import { resolveBrowserRuntime } from "./scripts/e2e_scheduler/browser_runtime.mjs";
 
 const runProjectMatrix = process.env.E2E_PROJECT_MATRIX === "1";
 const reporters = [["list"]];
 if (process.env.E2E_HTML_REPORT === "1") {
   reporters.push(["html", { open: "never" }]);
 }
-const chromeCandidates = [
-  "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-  "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
-  process.env.LOCALAPPDATA ? `${process.env.LOCALAPPDATA}\\Google\\Chrome\\Application\\chrome.exe` : "",
-].filter(Boolean);
-const hasSystemChrome = process.platform === "win32" && chromeCandidates.some((path) => existsSync(path));
-const useSystemChrome = hasSystemChrome && process.env.E2E_USE_SYSTEM_CHROME !== "0";
-const chromiumRuntime = useSystemChrome ? { channel: "chrome" } : {};
+const chromiumRuntime = resolveBrowserRuntime().launchOptions;
+const connectWsEndpoint = String(process.env.PW_TEST_CONNECT_WS_ENDPOINT || "").trim();
+const connectOptions = connectWsEndpoint ? { wsEndpoint: connectWsEndpoint } : undefined;
 const ffmpegPath =
   process.platform === "win32" && process.env.LOCALAPPDATA
     ? `${process.env.LOCALAPPDATA}\\ms-playwright\\ffmpeg-1011\\ffmpeg-win64.exe`
@@ -42,17 +39,17 @@ if (runProjectMatrix) {
     {
       name: "matrix-chromium",
       testMatch: "**/mobile-browser-matrix.spec.js",
-      use: { browserName: "chromium", ...chromiumRuntime },
+      use: { browserName: "chromium", viewport: { width: 1280, height: 720 }, ...chromiumRuntime },
     },
     {
       name: "matrix-firefox",
       testMatch: "**/mobile-browser-matrix.spec.js",
-      use: { browserName: "firefox" },
+      use: { browserName: "firefox", viewport: { width: 1280, height: 720 } },
     },
     {
       name: "matrix-webkit",
       testMatch: "**/mobile-browser-matrix.spec.js",
-      use: { browserName: "webkit" },
+      use: { browserName: "webkit", viewport: { width: 1280, height: 720 } },
     }
   );
 }
@@ -69,6 +66,7 @@ export default defineConfig({
   reporter: reporters,
   use: {
     baseURL: process.env.E2E_BASE_URL || "http://127.0.0.1:5173",
+    connectOptions,
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
     video: videoMode,
