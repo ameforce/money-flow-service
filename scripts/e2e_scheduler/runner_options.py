@@ -43,8 +43,13 @@ class RunnerOptions:
     scheduler_smoke_workers: int | None = None
 
 
-def parse_runner_options(args: list[str]) -> RunnerOptions:
+def parse_runner_options(
+    args: list[str],
+    *,
+    platform_name: str | None = None,
+) -> RunnerOptions:
     """Separate runner flags and select the local execution mode."""
+    host_platform = os.name if platform_name is None else platform_name
     playwright_args: list[str] = []
     legacy_runner = False
     scheduler_workers = 8
@@ -102,7 +107,7 @@ def parse_runner_options(args: list[str]) -> RunnerOptions:
             playwright_args.append(arg)
         index += 1
 
-    mode = _resolve_mode(legacy_runner, project_matrix)
+    mode = _resolve_mode(legacy_runner, project_matrix, host_platform)
     if scheduler_workers_explicit and scheduler_smoke_workers is not None:
         raise RunnerOptionError(
             "--scheduler-workers and --scheduler-smoke-workers cannot be combined"
@@ -113,7 +118,7 @@ def parse_runner_options(args: list[str]) -> RunnerOptions:
         raise RunnerOptionError(
             "--adaptive-workers requires --scheduler-workers in 4..10"
         )
-    if mode is RunnerMode.DYNAMIC and adaptive_workers and os.name != "nt":
+    if mode is RunnerMode.DYNAMIC and adaptive_workers and host_platform != "nt":
         raise RunnerOptionError(
             "--adaptive-workers requires the Windows resource sampler"
         )
@@ -135,6 +140,12 @@ def parse_runner_options(args: list[str]) -> RunnerOptions:
         playwright_args = list(reporting.playwright_args)
         discovery_args = classified.discovery
         job_args = job_reporting.playwright_args
+        if host_platform != "nt":
+            message = (
+                "dynamic local E2E requires Windows; "
+                "use --legacy-runner on non-Windows hosts"
+            )
+            raise RunnerOptionError(message)
     return RunnerOptions(
         mode=mode,
         scheduler_workers=scheduler_workers,
@@ -150,7 +161,11 @@ def parse_runner_options(args: list[str]) -> RunnerOptions:
     )
 
 
-def _resolve_mode(legacy_runner: bool, project_matrix: bool) -> RunnerMode:
+def _resolve_mode(
+    legacy_runner: bool,
+    project_matrix: bool,
+    platform_name: str,
+) -> RunnerMode:
     if legacy_runner:
         return RunnerMode.LEGACY
     explicit = os.environ.get("E2E_RUNNER_MODE", "").strip().lower()
@@ -160,7 +175,7 @@ def _resolve_mode(legacy_runner: bool, project_matrix: bool) -> RunnerMode:
         )
     if explicit:
         return RunnerMode(explicit)
-    if os.name == "nt" and not os.environ.get("CI") and project_matrix:
+    if platform_name == "nt" and not os.environ.get("CI") and project_matrix:
         return RunnerMode.DYNAMIC
     return RunnerMode.LEGACY
 

@@ -138,7 +138,8 @@ def test_dynamic_mode_routes_filters_only_to_discovery(
             "--fail-on-flaky-tests",
             "--no-deps",
             "--quiet",
-        ]
+        ],
+        platform_name="nt",
     )
     assert options.discovery_args == (
         "e2e/specs/auth.spec.js",
@@ -198,7 +199,8 @@ def test_benchmark_label_is_persisted_from_cli_in_immutable_manifest(
     monkeypatch.setenv("E2E_RUNNER_MODE", "dynamic")
     runtime = FakeRuntime(tmp_path, (make_test(1),))
     options = e2e_runner.parse_runner_options(
-        ["--project-matrix", "--benchmark-label=candidate-a"]
+        ["--project-matrix", "--benchmark-label=candidate-a"],
+        platform_name="nt",
     )
     return_code = run_dynamic(options, (), runtime=runtime)
     payload = _ManifestLabel.model_validate_json(
@@ -206,3 +208,15 @@ def test_benchmark_label_is_persisted_from_cli_in_immutable_manifest(
     )
     assert return_code == 0
     assert payload.benchmark_label == "candidate-a"
+
+
+def test_fixed_dynamic_rejects_non_windows_before_runtime_start(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("E2E_RUNNER_MODE", "dynamic")
+
+    with pytest.raises(e2e_runner.RunnerOptionError, match="requires Windows"):
+        _ = e2e_runner.parse_runner_options(
+            ["--project-matrix"],
+            platform_name="posix",
+        )

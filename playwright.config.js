@@ -8,7 +8,7 @@ const reporters = [["list"]];
 if (process.env.E2E_HTML_REPORT === "1") {
   reporters.push(["html", { open: "never" }]);
 }
-const chromiumRuntime = resolveBrowserRuntime().launchOptions;
+const chromiumRuntime = { launchOptions: resolveBrowserRuntime().launchOptions };
 const connectWsEndpoint = String(process.env.PW_TEST_CONNECT_WS_ENDPOINT || "").trim();
 const connectOptions = connectWsEndpoint ? { wsEndpoint: connectWsEndpoint } : undefined;
 const ffmpegPath =

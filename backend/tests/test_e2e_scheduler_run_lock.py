@@ -158,6 +158,12 @@ def test_cli_uses_one_repository_lock_for_dynamic_and_legacy(
     monkeypatch.setattr(e2e_runner, "_run_legacy", fake_legacy)
     monkeypatch.setattr(dynamic_runner, "run_dynamic", fake_dynamic)
     monkeypatch.setenv("E2E_RUNNER_MODE", "dynamic")
+    original_parse = e2e_runner.parse_runner_options
+    monkeypatch.setattr(
+        e2e_runner,
+        "parse_runner_options",
+        lambda args: original_parse(args, platform_name="nt"),
+    )
 
     # When
     legacy_code = e2e_runner.main(["--legacy-runner"])
@@ -212,6 +218,12 @@ def test_busy_dynamic_run_fails_closed_without_legacy_fallback(
     monkeypatch.setattr(e2e_runner, "_run_legacy", fail_legacy)
     monkeypatch.setattr(dynamic_runner, "run_dynamic", fail_dynamic)
     monkeypatch.setenv("E2E_RUNNER_MODE", RunnerMode.DYNAMIC.value)
+    original_parse = e2e_runner.parse_runner_options
+    monkeypatch.setattr(
+        e2e_runner,
+        "parse_runner_options",
+        lambda args: original_parse(args, platform_name="nt"),
+    )
 
     # When
     return_code = e2e_runner.main(["--project-matrix"])

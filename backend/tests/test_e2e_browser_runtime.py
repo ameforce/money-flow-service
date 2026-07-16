@@ -153,6 +153,10 @@ def test_config_and_browser_server_reuse_one_runtime_resolution_rule() -> None:
     assert "resolveBrowserRuntime" in server
     assert "browser_runtime.mjs" in config
     assert "browser_runtime.mjs" in server
+    assert (
+        "const chromiumRuntime = { launchOptions: "
+        "resolveBrowserRuntime().launchOptions };"
+    ) in config
 
 
 def test_system_chrome_records_the_exact_selected_launch_executable() -> None:
