@@ -123,7 +123,7 @@ test("auth forms show Korean required-field validation", async ({ page }) => {
   await page.getByRole("button", { name: "회원가입하고 시작" }).click();
   await expect(page.getByText("비밀번호 확인을 입력해 주세요.")).toBeVisible();
 
-  await page.getByRole("textbox", { name: "비밀번호 확인", exact: true }).fill(TEST_PASSWORD);
+  await page.getByLabel("비밀번호 확인", { exact: true }).fill(TEST_PASSWORD);
   await page.getByRole("button", { name: "회원가입하고 시작" }).click();
   await expect(page.getByText("본명을 입력해 주세요.")).toBeVisible();
 });
@@ -156,7 +156,7 @@ test("auth signup switch after failed login clears password fields", async ({ pa
   await expect(page.locator("form.auth-card-register")).toBeVisible();
   await expect(page.getByLabel("이메일", { exact: true })).toHaveValue(failedEmail);
   await expect(page.getByLabel("비밀번호", { exact: true })).toHaveValue("");
-  await expect(page.getByRole("textbox", { name: "비밀번호 확인", exact: true })).toHaveValue("");
+  await expect(page.getByLabel("비밀번호 확인", { exact: true })).toHaveValue("");
   await capture(page, "issue-205-signup-password-cleared");
 });
 
@@ -215,7 +215,7 @@ test("auth verification submit waits for a link token or 6-digit code", async ({
   await page.getByRole("button", { name: "회원가입", exact: true }).click();
   await page.getByLabel("이메일", { exact: true }).fill(`${unique("verify-cta-user")}@example.com`);
   await page.getByLabel("비밀번호", { exact: true }).fill(TEST_PASSWORD);
-  await page.getByRole("textbox", { name: "비밀번호 확인", exact: true }).fill(TEST_PASSWORD);
+  await page.getByLabel("비밀번호 확인", { exact: true }).fill(TEST_PASSWORD);
   await page.getByLabel("본명").fill(unique("verify-cta-name"));
   await page.getByRole("button", { name: "회원가입하고 시작" }).click();
 
@@ -309,17 +309,17 @@ test("auth flow: register validation, verify, logout, relogin", async ({ page })
   await page.getByRole("button", { name: "회원가입" }).click();
   await page.getByLabel("이메일", { exact: true }).fill(email);
   await page.getByLabel("비밀번호", { exact: true }).fill("1234567");
-  await page.getByRole("textbox", { name: "비밀번호 확인", exact: true }).fill("1234567");
+  await page.getByLabel("비밀번호 확인", { exact: true }).fill("1234567");
   await page.getByLabel("본명").fill(displayName);
   await page.getByRole("button", { name: "회원가입하고 시작" }).click();
   await expect(page.getByText("비밀번호는 8자 이상이어야 합니다.")).toBeVisible();
 
   await page.getByLabel("비밀번호", { exact: true }).fill(TEST_PASSWORD);
-  await page.getByRole("textbox", { name: "비밀번호 확인", exact: true }).fill("Password9999");
+  await page.getByLabel("비밀번호 확인", { exact: true }).fill("Password9999");
   await page.getByRole("button", { name: "회원가입하고 시작" }).click();
   await expect(page.getByText("비밀번호 확인이 일치하지 않습니다.")).toBeVisible();
 
-  await page.getByRole("textbox", { name: "비밀번호 확인", exact: true }).fill(TEST_PASSWORD);
+  await page.getByLabel("비밀번호 확인", { exact: true }).fill(TEST_PASSWORD);
   await page.getByRole("button", { name: "회원가입하고 시작" }).click();
   await expect(page.getByText("인증 메일을 확인해 주세요.")).toBeVisible();
   await expect(page.locator("form.auth-card-verify > .message")).toHaveCount(0);

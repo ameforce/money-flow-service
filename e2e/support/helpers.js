@@ -121,10 +121,7 @@ async function openAuthMode(page, mode) {
   }
   const emailInput = page.getByLabel("이메일", { exact: true });
   const passwordInput = page.getByLabel("비밀번호", { exact: true });
-  const passwordConfirmInput = page.getByRole("textbox", {
-    name: "비밀번호 확인",
-    exact: true,
-  });
+  const passwordConfirmInput = page.getByLabel("비밀번호 확인", { exact: true });
   const inVerifyMode = await verifyButton.isVisible().catch(() => false);
   if (inVerifyMode) {
     await page.getByRole("button", { name: "로그인으로 돌아가기" }).click();
@@ -155,7 +152,7 @@ async function fillRegisterForm(page, { email, password, displayName }) {
   await openAuthMode(page, "register");
   await page.getByLabel("이메일", { exact: true }).fill(email);
   await page.getByLabel("비밀번호", { exact: true }).fill(password);
-  await page.getByRole("textbox", { name: "비밀번호 확인", exact: true }).fill(password);
+  await page.getByLabel("비밀번호 확인", { exact: true }).fill(password);
   await page.getByLabel("본명").fill(displayName);
 }
 
