@@ -220,7 +220,7 @@ def run_worker_pool(
                 if first_crash is None:
                     first_crash = error.crash
                     runtime.record_worker_crash(first_crash)
-    except KeyboardInterrupt, SystemExit:
+    except (KeyboardInterrupt, SystemExit):
         queue.stop()
         if activation is not None:
             activation.stop_waiters()

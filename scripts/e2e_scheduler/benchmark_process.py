@@ -72,7 +72,7 @@ def redact_command(command: tuple[str, ...]) -> tuple[str, ...]:
 def stop_owned(process: OwnedProcess) -> bool:
     try:
         process.close()
-    except OSError, OwnedProcessCleanupError, subprocess.TimeoutExpired:
+    except (OSError, OwnedProcessCleanupError, subprocess.TimeoutExpired):
         return False
     return process.process.poll() is not None
 
@@ -83,7 +83,7 @@ def wait_for_interrupt_cleanup(process: OwnedProcess) -> bool:
         if process.ownership is not None:
             return process.ownership.wait_until_empty(INTERRUPT_GRACE_SECONDS) == 0
         _ = process.process.wait(timeout=INTERRUPT_GRACE_SECONDS)
-    except OSError, subprocess.TimeoutExpired:
+    except (OSError, subprocess.TimeoutExpired):
         return False
     return True
 

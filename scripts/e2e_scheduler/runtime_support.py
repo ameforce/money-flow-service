@@ -67,7 +67,7 @@ def is_up(url: str) -> bool:
         with urlopen(url, timeout=2) as response:
             return 200 <= response.status < 300
         return False
-    except OSError, TimeoutError, URLError:
+    except (OSError, TimeoutError, URLError):
         return False
 
 

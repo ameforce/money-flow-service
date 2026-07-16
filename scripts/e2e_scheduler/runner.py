@@ -246,7 +246,7 @@ def start_capsules(
                     )
                     runtime.record_worker_crash(first_crash)
                     _request_capsule_stop(capsules)
-    except KeyboardInterrupt, SystemExit:
+    except (KeyboardInterrupt, SystemExit):
         _request_capsule_stop(capsules)
         raise
     finally:

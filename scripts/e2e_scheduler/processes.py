@@ -254,7 +254,7 @@ def _kill_windows_process_tree(process: OwnedPopen) -> None:
     try:
         process.send_signal(signal.CTRL_BREAK_EVENT)
         _ = process.wait(timeout=10)
-    except OSError, subprocess.TimeoutExpired:
+    except (OSError, subprocess.TimeoutExpired):
         try:
             startup_info = subprocess.STARTUPINFO(
                 dwFlags=subprocess.STARTF_USESHOWWINDOW,
@@ -268,5 +268,5 @@ def _kill_windows_process_tree(process: OwnedPopen) -> None:
                 startupinfo=startup_info,
             )
             _ = process.wait(timeout=5)
-        except OSError, subprocess.TimeoutExpired:
+        except (OSError, subprocess.TimeoutExpired):
             return
