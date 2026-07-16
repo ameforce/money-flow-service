@@ -7,7 +7,7 @@ import {
   expectNoHorizontalOverflow,
   labeledField,
   openTab,
-  registerAndVerify,
+  bootstrapVerifiedSession,
   unique,
 } from "../support/helpers";
 
@@ -62,7 +62,7 @@ test("issue #265: transaction tab rolls local date at midnight and refreshes the
 
   const email = `${unique("tx-midnight-rollover")}@example.com`;
   const displayName = unique("tx-midnight-rollover-name");
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await installAdvancingDateMock(page, "2026-07-31T14:59:55.500Z");
   await page.reload();
   await page.waitForLoadState("networkidle");
@@ -112,7 +112,7 @@ test("issues #265/#268: transaction tab opens at latest rows and price refresh p
   const anchorMemo = `${memoPrefix}-scroll-anchor`;
   const latestMemo = `${memoPrefix}-latest`;
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await page.setViewportSize({ width: 1366, height: 540 });
 
   const currentLedgerDate = currentE2EHistoryDateIso();

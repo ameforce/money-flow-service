@@ -6,6 +6,7 @@ export function TransactionEntrySheet({ permissions, entrySheet, categoryManager
     showTransactionForm,
     transactionEntryBanner,
     transactionEntrySheetBackdropRef,
+    transactionEntrySheetCloseRef,
     transactionEntrySheetRef,
     txEntrySheetStep,
     updateTxEntrySheetStep,
@@ -36,7 +37,7 @@ export function TransactionEntrySheet({ permissions, entrySheet, categoryManager
                 : "일자부터 거래자까지 한 화면에서 저장합니다."}
             </p>
           </div>
-          <button type="button" className="secondary" data-testid="transaction-entry-sheet-close" onClick={closeTransactionEntrySheet}>닫기</button>
+          <button ref={transactionEntrySheetCloseRef} type="button" className="secondary" data-testid="transaction-entry-sheet-close" onClick={closeTransactionEntrySheet}>닫기</button>
         </div>
         {!canEditRecords && (
           <p className="table-summary transaction-entry-readonly-note">거래 등록/수정/삭제는 편집자 이상 권한에서만 가능합니다.</p>

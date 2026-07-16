@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { TEST_PASSWORD, capture, openTab, registerAndVerify, unique } from "../support/helpers";
+import { TEST_PASSWORD, capture, openTab, bootstrapVerifiedSession, unique } from "../support/helpers";
 
 const PENDING_INVITE_NEUTRAL_TITLE = "초대 토큰을 감지했습니다.";
 const PENDING_INVITE_UNVALIDATED_COPY =
@@ -13,7 +13,7 @@ test("auth deep-link token policy: query token rejected", async ({ page }) => {
   await page.goto("/?verify_token=query-token");
   await capture(page, "deeplink-query-token-rejected-entry");
   await expect(page.getByRole("button", { name: "로그인하기" })).toBeVisible();
-  await expect(page.getByLabel("인증 토큰")).toHaveCount(0);
+  await expect(page.getByRole("textbox", { name: "인증 토큰", exact: true })).toHaveCount(0);
   await expect(page.getByText("보안을 위해 URL query 토큰은 지원하지 않습니다.")).toBeVisible();
   await expect.poll(() => page.url()).not.toContain("verify_token=query-token");
   await capture(page, "deeplink-query-token-rejected-result");
@@ -24,7 +24,7 @@ test("auth deep-link token policy: hash token accepted", async ({ page }) => {
 
   await page.goto("/#verify_token=hash-token");
   await capture(page, "deeplink-hash-token-accepted-entry");
-  await expect(page.getByLabel("인증 토큰")).toHaveCount(0);
+  await expect(page.getByRole("textbox", { name: "인증 토큰", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "이메일 인증 완료" })).toBeVisible();
   await expect(page.getByText(/인증 토큰이 유효하지 않습니다|인증 링크를 바로 완료할 수 없습니다/)).toBeVisible();
   await expect.poll(() => page.url()).not.toContain("verify_token=hash-token");
@@ -57,7 +57,7 @@ test("auth deep-link token policy: different browser asks for password setup", a
 
   await page.goto(`/#verify_token=${encodeURIComponent(verifyToken)}`);
   await capture(page, "deeplink-cross-browser-password-setup-entry");
-  await expect(page.getByLabel("인증 토큰")).toHaveCount(0);
+  await expect(page.getByRole("textbox", { name: "인증 토큰", exact: true })).toHaveCount(0);
   await expect(page.getByText("다른 브라우저에서 인증 링크를 열었습니다.", { exact: true })).toBeVisible();
   await expect(
     page.getByText(
@@ -155,7 +155,7 @@ test("household invite deep-link clears stale verification mode in same tab", as
 test("tab query overrides the previously saved active tab", async ({ page }) => {
   test.setTimeout(90_000);
 
-  await registerAndVerify(page, {
+  await bootstrapVerifiedSession(page, {
     email: `${unique("deeplink-tab-user")}@example.com`,
     displayName: unique("deeplink-tab-name"),
   });

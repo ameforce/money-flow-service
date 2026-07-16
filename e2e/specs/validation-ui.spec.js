@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { capture, labeledField, openTab, registerAndVerify, unique } from "../support/helpers";
+import { capture, labeledField, openTab, bootstrapVerifiedSession, unique } from "../support/helpers";
 
 async function expectMessageFullyVisible(page, text) {
   const message = page.locator(".message", { hasText: text }).first();
@@ -27,7 +27,7 @@ test("collaboration invite empty email uses Korean inline validation", async ({ 
   test.setTimeout(120_000);
 
   const email = `${unique("issue-215-invite-validation")}@example.com`;
-  await registerAndVerify(page, { email, displayName: unique("issue-215-owner") });
+  await bootstrapVerifiedSession(page, { email, displayName: unique("issue-215-owner") });
   await page.setViewportSize({ width: 390, height: 844 });
 
   await openTab(page, "협업");
@@ -57,7 +57,7 @@ test("localized form validation replaces native bubbles and mobile messages wrap
   test.setTimeout(180_000);
 
   const email = `${unique("validation-ui")}@example.com`;
-  await registerAndVerify(page, { email, displayName: unique("validation-name") });
+  await bootstrapVerifiedSession(page, { email, displayName: unique("validation-name") });
   await page.setViewportSize({ width: 390, height: 844 });
 
   await openTab(page, "설정");

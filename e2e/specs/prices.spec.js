@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { assertResponsiveShell, capture, registerAndVerify, unique } from "../support/helpers";
+import { assertResponsiveShell, capture, bootstrapVerifiedSession, unique } from "../support/helpers";
 
 const completePriceStatus = () => ({
   refresh_in_progress: false,
@@ -18,7 +18,7 @@ test("prices flow: refresh action and status endpoint", async ({ page }) => {
   const email = `${unique("price-user")}@example.com`;
   const displayName = unique("price-name");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await page.setViewportSize({ width: 1366, height: 960 });
   await assertResponsiveShell(page);
   await capture(page, "prices-entry");
@@ -61,7 +61,7 @@ test("prices flow: status failure does not block unrelated refresh UI", async ({
   const email = `${unique("price-status-user")}@example.com`;
   const displayName = unique("price-status-name");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await page.setViewportSize({ width: 1366, height: 960 });
   await assertResponsiveShell(page);
 
@@ -108,7 +108,7 @@ test("prices flow: polling failures release refresh lock", async ({ page }) => {
   const email = `${unique("price-poll-user")}@example.com`;
   const displayName = unique("price-poll-name");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await page.setViewportSize({ width: 1366, height: 960 });
   await assertResponsiveShell(page);
 

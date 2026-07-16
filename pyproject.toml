@@ -17,6 +17,7 @@ dependencies = [
   "pydantic-settings>=2.11.0",
   "PyJWT>=2.10.0",
   "python-multipart>=0.0.20",
+  "pywin32>=312; sys_platform == 'win32'",
   "sqlalchemy>=2.0.44",
   "psycopg[binary]>=3.2.0",
   "uvicorn[standard]>=0.35.0",
@@ -27,6 +28,7 @@ dev = [
   "pytest>=8.4.1",
   "pytest-asyncio>=1.2.0",
   "ruff>=0.14.0",
+  "types-pywin32>=312.0.0.20260609",
 ]
 
 [tool.pytest.ini_options]

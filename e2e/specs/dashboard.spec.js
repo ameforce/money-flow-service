@@ -16,7 +16,7 @@ import {
   expectTextContrast,
   expectWithinViewport,
   openTab,
-  registerAndVerify,
+  bootstrapVerifiedSession,
   unique,
 } from "../support/helpers";
 
@@ -501,7 +501,7 @@ test("price refresh polling releases the global busy state after status failures
   test.setTimeout(120_000);
 
   const email = `${unique("price-refresh-status")}@example.com`;
-  await registerAndVerify(page, { email, displayName: unique("price-refresh-user") });
+  await bootstrapVerifiedSession(page, { email, displayName: unique("price-refresh-user") });
   await page.setViewportSize({ width: 390, height: 844 });
   await openTab(page, "대시보드");
 
@@ -555,7 +555,7 @@ test("dashboard month shortcut keeps readable mobile contrast", async ({ page })
   const email = `${unique("dashboard-contrast")}@example.com`;
   const displayName = unique("dashboard-contrast-name");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await page.setViewportSize({ width: 390, height: 844 });
   await openTab(page, "대시보드");
 
@@ -573,7 +573,7 @@ test("dashboard realtime status remains readable at minimum mobile width", async
   const email = `${unique("dashboard-status-chip")}@example.com`;
   const displayName = unique("dashboard-status-chip-name");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await page.setViewportSize({ width: 320, height: 568 });
   await page.evaluate(() => {
     document.documentElement.style.fontSize = "18px";
@@ -626,7 +626,7 @@ test("dashboard topbar actions keep landscape touch targets", async ({ page }) =
   const email = `${unique("dashboard-landscape-topbar")}@example.com`;
   const displayName = unique("dashboard-landscape-topbar-name");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await page.setViewportSize({ width: 844, height: 390 });
   await applyFontFamily(page, '"Malgun Gothic", "Noto Sans KR", "Apple SD Gothic Neo", sans-serif');
   await openTab(page, "대시보드");
@@ -658,7 +658,7 @@ test("dashboard mobile topbar uses compact price refresh icon action", async ({ 
   const email = `${unique("dashboard-price-label")}@example.com`;
   const displayName = unique("dashboard-price-label-name");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
 
   for (const viewport of [
     { width: 320, height: 568 },
@@ -677,7 +677,7 @@ test("dashboard mobile footer actions keep touch targets", async ({ page }) => {
   const email = `${unique("dashboard-footer-actions")}@example.com`;
   const displayName = unique("dashboard-footer-actions-name");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await page.setViewportSize({ width: 390, height: 844 });
   await applyFontFamily(page, '"Malgun Gothic", "Noto Sans KR", "Apple SD Gothic Neo", sans-serif');
   await openTab(page, "대시보드");
@@ -711,7 +711,7 @@ test("dashboard month inputs expose visible focus state", async ({ page }) => {
   const email = `${unique("dashboard-month-focus")}@example.com`;
   const displayName = unique("dashboard-month-focus-name");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
 
   for (const viewport of [
     { width: 1366, height: 768 },
@@ -763,7 +763,7 @@ test("dashboard period mode keeps the current month scope and ISO date affordanc
   const memo = unique("dashboard-period-current-month");
   const monthRange = currentMonthBounds();
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await page.setViewportSize({ width: 390, height: 844 });
   await assertResponsiveShell(page);
   await openTab(page, "거래");
@@ -795,7 +795,7 @@ test("dashboard range inputs expose readable mobile labels and focus", async ({ 
   const email = `${unique("dashboard-range-labels")}@example.com`;
   const displayName = unique("dashboard-range-labels-name");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
 
   for (const viewport of [
     { width: 320, height: 568 },
@@ -877,7 +877,7 @@ test("dashboard flow: onboarding, portfolio coherence, summary visibility", asyn
   const currentListIso = currentE2EHistoryDateIso();
   const previousMonthIso = previousMonthMiddleIso();
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await page.setViewportSize({ width: 1366, height: 960 });
   await assertResponsiveShell(page);
 

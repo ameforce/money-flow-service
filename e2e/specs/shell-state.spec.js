@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { assertResponsiveShell, registerAndVerify, unique } from "../support/helpers";
+import { assertResponsiveShell, bootstrapVerifiedSession, unique } from "../support/helpers";
 
 test("shell tab state persists after page reload", async ({ page }) => {
   test.setTimeout(120_000);
@@ -8,7 +8,7 @@ test("shell tab state persists after page reload", async ({ page }) => {
   const email = `${unique("shell-state-user")}@example.com`;
   const displayName = unique("shell-state-name");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await page.setViewportSize({ width: 1366, height: 960 });
   await assertResponsiveShell(page);
 

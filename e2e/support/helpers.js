@@ -3,9 +3,39 @@ import { execFileSync } from "node:child_process";
 import path from "node:path";
 
 import { expect, test } from "@playwright/test";
+import {
+  capture,
+  ensureScreenshotDir,
+  semanticCaptureIdentity,
+} from "./evidence.js";
+import { bootstrapVerifiedSessionWithApi } from "./auth-bootstrap.js";
+
+export { capture, ensureScreenshotDir, semanticCaptureIdentity };
+
+export function ensureMobileEvidenceDir(findingId) {
+  const finding = String(findingId || "").trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(finding)) {
+    throw new Error(`invalid mobile evidence finding ID: ${finding}`);
+  }
+  const configured = String(process.env.E2E_UIUX_EVIDENCE_ROOT || "").trim();
+  const evidenceRoot = configured
+    ? path.resolve(configured)
+    : path.resolve(".omo", "evidence");
+  const evidenceDir = path.join(evidenceRoot, "mobile-uiux-v0.1.49", finding);
+  fs.mkdirSync(evidenceDir, { recursive: true });
+  return evidenceDir;
+}
 
 export const TEST_PASSWORD = "Password1234";
 const ACTIVE_HOUSEHOLD_KEY = "money-flow-active-household-id";
+
+export async function setLocalInputFile(locator, filePath, { mimeType }) {
+  await locator.setInputFiles({
+    name: path.basename(filePath),
+    mimeType,
+    buffer: fs.readFileSync(filePath),
+  });
+}
 const DEFAULT_CSRF_COOKIE_NAME = "mf_csrf_token";
 const DEFAULT_CSRF_HEADER_NAME = "x-csrf-token";
 const DEFAULT_HOUSEHOLD_HEADER_NAME = "x-household-id";
@@ -91,7 +121,7 @@ async function openAuthMode(page, mode) {
   }
   const emailInput = page.getByLabel("이메일", { exact: true });
   const passwordInput = page.getByLabel("비밀번호", { exact: true });
-  const passwordConfirmInput = page.getByLabel("비밀번호 확인");
+  const passwordConfirmInput = page.getByLabel("비밀번호 확인", { exact: true });
   const inVerifyMode = await verifyButton.isVisible().catch(() => false);
   if (inVerifyMode) {
     await page.getByRole("button", { name: "로그인으로 돌아가기" }).click();
@@ -122,7 +152,7 @@ async function fillRegisterForm(page, { email, password, displayName }) {
   await openAuthMode(page, "register");
   await page.getByLabel("이메일", { exact: true }).fill(email);
   await page.getByLabel("비밀번호", { exact: true }).fill(password);
-  await page.getByLabel("비밀번호 확인").fill(password);
+  await page.getByLabel("비밀번호 확인", { exact: true }).fill(password);
   await page.getByLabel("본명").fill(displayName);
 }
 
@@ -155,40 +185,13 @@ async function loginFromAuthShell(page, credentials, { timeout = AUTH_READY_TIME
 
 async function completeEmailVerification(page) {
   await expect(page.getByText("인증 메일을 확인해 주세요.")).toBeVisible();
-  await expect(page.getByLabel("인증 토큰")).toHaveCount(0);
+  await expect(page.getByRole("textbox", { name: "인증 토큰", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "이메일 인증 완료" }).click();
   return expectAuthReady(page, { timeout: SHARED_AUTH_READY_TIMEOUT_MS });
 }
 
 export function escapeRegex(text) {
   return String(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-export function ensureScreenshotDir() {
-  const dir = path.resolve("output", "playwright", "e2e-flow");
-  fs.mkdirSync(dir, { recursive: true });
-  return dir;
-}
-
-export async function capture(page, name) {
-  const screenshotDir = ensureScreenshotDir();
-  const outputPath = path.join(screenshotDir, `${Date.now()}-${name}.png`);
-  try {
-    await page.screenshot({
-      path: outputPath,
-      fullPage: false,
-      animations: "disabled",
-      timeout: 15_000,
-    });
-  } catch {
-    await page.screenshot({
-      path: outputPath,
-      fullPage: false,
-      animations: "disabled",
-      timeout: 15_000,
-    });
-  }
-  return outputPath;
 }
 
 export function labeledField(container, label, selector = "input, select, textarea") {
@@ -787,7 +790,7 @@ export async function logout(page) {
   await expect(page.getByLabel("이메일", { exact: true })).toBeVisible();
 }
 
-export async function registerAndVerify(page, { email, password = TEST_PASSWORD, displayName }) {
+async function registerAndVerifyFlow(page, { email, password = TEST_PASSWORD, displayName }) {
   const identity = resolveSharedAuthIdentity({ email, displayName });
   const authReadyTimeout = identity.shared ? SHARED_AUTH_READY_TIMEOUT_MS : AUTH_READY_TIMEOUT_MS;
   await page.goto("/");
@@ -838,6 +841,60 @@ export async function registerAndVerify(page, { email, password = TEST_PASSWORD,
 
   const authMessage = String((await page.locator(".message").first().textContent().catch(() => "")) || "").trim();
   throw new Error(`회원가입/인증에 실패했습니다: ${identity.email}${authMessage ? ` :: ${authMessage}` : ""}`);
+}
+
+function recordAuthSetupMetric(mode, durationMs, status) {
+  const metricsPath = String(process.env.E2E_AUTH_SETUP_METRICS_FILE || "").trim();
+  if (!metricsPath) {
+    return;
+  }
+  fs.mkdirSync(path.dirname(metricsPath), { recursive: true });
+  fs.appendFileSync(metricsPath, `${JSON.stringify({
+    version: 1,
+    kind: "auth_setup",
+    mode,
+    duration_ms: Math.max(0, durationMs),
+    status,
+  })}\n`, "utf-8");
+}
+
+export async function registerAndVerify(page, credentials) {
+  const started = performance.now();
+  try {
+    await registerAndVerifyFlow(page, credentials);
+    recordAuthSetupMetric("ui", performance.now() - started, "passed");
+  } catch (error) {
+    recordAuthSetupMetric("ui", performance.now() - started, "failed");
+    throw error;
+  }
+}
+
+export async function bootstrapVerifiedSession(page, { email, password = TEST_PASSWORD, displayName }) {
+  const authSetupMode = String(process.env.E2E_AUTH_SETUP_MODE || "ui").trim();
+  if (!["ui", "api"].includes(authSetupMode)) {
+    throw new Error("unsupported E2E_AUTH_SETUP_MODE; expected ui or api");
+  }
+  const useApiBootstrap =
+    authSetupMode === "api" &&
+    !process.env.CI &&
+    !isSharedE2EBaseUrl();
+  if (!useApiBootstrap) {
+    await registerAndVerify(page, { email, password, displayName });
+    return;
+  }
+  const started = performance.now();
+  try {
+    await bootstrapVerifiedSessionWithApi(page, { email, password, displayName });
+    await page.goto("/");
+    const signedIn = await expectAuthReady(page);
+    if (!signedIn) {
+      throw new Error("E2E API auth bootstrap did not create an authenticated browser session");
+    }
+    recordAuthSetupMetric("api", performance.now() - started, "passed");
+  } catch (error) {
+    recordAuthSetupMetric("api", performance.now() - started, "failed");
+    throw error;
+  }
 }
 
 export async function selectFirstNonEmptyOption(selectLocator) {

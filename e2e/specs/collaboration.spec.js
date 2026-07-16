@@ -7,7 +7,7 @@ import {
   expectNoHorizontalOverflow,
   labeledField,
   openTab,
-  registerAndVerify,
+  bootstrapVerifiedSession,
   unique,
 } from "../support/helpers";
 
@@ -87,7 +87,7 @@ test("collaboration household selector keeps long mobile names readable", async 
   const displayName = unique("collab-select-name");
   const householdName = `${unique("collaboration household")} desktop chromium mobile readability household`;
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await renameHouseholdViaApi(page, householdName);
   await page.reload();
   await page.setViewportSize({ width: 320, height: 568 });
@@ -180,13 +180,13 @@ test("collaboration flow: invite, accept, switch household, responsive", async (
     await ownerPage.setViewportSize({ width: 1366, height: 960 });
     await guestPage.setViewportSize({ width: 1366, height: 960 });
 
-    await registerAndVerify(ownerPage, {
+    await bootstrapVerifiedSession(ownerPage, {
       email: ownerEmail,
       password: TEST_PASSWORD,
       displayName: ownerDisplayName,
     });
     await assertResponsiveShell(ownerPage);
-    await registerAndVerify(guestPage, {
+    await bootstrapVerifiedSession(guestPage, {
       email: guestEmail,
       password: TEST_PASSWORD,
       displayName: guestDisplayName,
@@ -404,7 +404,7 @@ test("collaboration invite accept shows invited-email guidance for same account"
   const invitedEmail = `${unique("guest-self-accept")}@example.com`;
 
   await page.setViewportSize({ width: 390, height: 844 });
-  await registerAndVerify(page, {
+  await bootstrapVerifiedSession(page, {
     email: ownerEmail,
     password: TEST_PASSWORD,
     displayName: ownerDisplayName,
@@ -437,7 +437,7 @@ test("collaboration invite accept shows token guidance for invalid token", async
   const displayName = unique("collab-invalid-token-name");
 
   await page.setViewportSize({ width: 390, height: 844 });
-  await registerAndVerify(page, {
+  await bootstrapVerifiedSession(page, {
     email,
     password: TEST_PASSWORD,
     displayName,
@@ -465,7 +465,7 @@ test("collaboration invite token helper stays readable on narrow mobile", async 
   const displayName = unique("collab-token-helper-name");
 
   await page.setViewportSize({ width: 320, height: 568 });
-  await registerAndVerify(page, {
+  await bootstrapVerifiedSession(page, {
     email,
     password: TEST_PASSWORD,
     displayName,
