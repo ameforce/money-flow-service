@@ -16,7 +16,7 @@ import {
   expectTransparentBackground,
   labeledField,
   openTab,
-  registerAndVerify,
+  bootstrapVerifiedSession,
   unique,
 } from "../support/helpers";
 
@@ -104,7 +104,7 @@ test("holding entry defaults owner and keeps it for repeated assets", async ({ p
 
   const email = `${unique("holding-owner-default")}@example.com`;
   const displayName = "댕";
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   const currentUser = await page.evaluate(async () => {
     const response = await fetch("/api/v1/auth/me", { credentials: "include" });
     return response.json();
@@ -148,7 +148,7 @@ test("issue 192: mobile holding entry asks before closing a dirty draft and pres
   const displayName = unique("holding-draft-close-name");
   const holdingName = unique("holding-draft-name");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await page.setViewportSize({ width: 390, height: 844 });
   await openTab(page, "자산");
   await page.waitForLoadState("networkidle");
@@ -273,7 +273,7 @@ test("single holding portfolio donut renders a seamless 100 percent ring", async
   const displayName = unique("holding-donut-owner");
   const holdingName = unique("holding-donut");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await page.setViewportSize({ width: 1366, height: 768 });
   await createBasicHolding(page, { name: holdingName, category: "현금성", marketValue: "300000" });
   await page.setViewportSize({ width: 320, height: 568 });
@@ -301,7 +301,7 @@ test("mobile holding summary reopen keeps portfolio labels in viewport", async (
   const displayName = unique("holding-summary-reopen-owner");
   const holdingName = unique("holding-summary-reopen");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await page.setViewportSize({ width: 390, height: 844 });
   await createBasicHolding(page, { name: holdingName, category: "현금성", marketValue: "360000" });
   await openTab(page, "자산");
@@ -342,7 +342,7 @@ test("desktop holding ledger controls keep usable hit targets", async ({ page })
   const displayName = unique("holding-hit-area-owner");
   const holdingName = unique("holding-hit-area");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await page.setViewportSize({ width: 1366, height: 768 });
   await createBasicHolding(page, { name: holdingName, category: "현금성" });
   await openTab(page, "자산");
@@ -412,7 +412,7 @@ test("issue 226: 1024px holding right-side columns and actions stay discoverable
     unique("장기-1024"),
   ];
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await page.setViewportSize({ width: 1024, height: 768 });
 
   for (let index = 0; index < 6; index += 1) {
@@ -554,7 +554,7 @@ test("issue 239: holding view options collapse as a compact explicit toggle", as
   const email = `${unique("issue-239-view-options")}@example.com`;
   const displayName = unique("issue-239-view-options-name");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await createHoldingViaApi(page, {
     name: unique("issue-239-holding"),
     ownerName: displayName,
@@ -614,7 +614,7 @@ test("holdings flow: create, inline edit, delete, responsive", async ({ page }) 
   const holdingCategory = unique("holding-category");
   const editedHoldingName = `${holdingName}-edited`;
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await page.setViewportSize({ width: 1366, height: 960 });
   await assertResponsiveShell(page);
   await openTab(page, "자산");
@@ -989,7 +989,7 @@ test("mobile holding expanded details show labeled values", async ({ page }) => 
   const holdingName = unique("holding-detail-label");
   const holdingCategory = unique("상세라벨");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await page.setViewportSize({ width: 390, height: 844 });
   const row = await createBasicHolding(page, {
     name: holdingName,
@@ -1026,7 +1026,7 @@ test("mobile holding names remain readable at 320px", async ({ page }) => {
   const displayName = unique("holding-name-mobile-owner");
   const holdingName = "현금성 / 모바일가져오기자산명 / 테스트은행";
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await page.setViewportSize({ width: 1366, height: 960 });
   await createBasicHolding(page, { name: holdingName, category: "현금성" });
 
@@ -1058,7 +1058,7 @@ test("holdings stock fields keep grouped decimals", async ({ page }) => {
 
   const email = `${unique("holding-format")}@example.com`;
   const displayName = unique("holding-format-name");
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await page.setViewportSize({ width: 390, height: 844 });
   await openTab(page, "자산");
   const holdingEmptyState = page.getByTestId("holdings-empty-state");
@@ -1104,7 +1104,7 @@ test("issue 200: holding type switch clears semantically different value", async
 
   const email = `${unique("issue-200-holding-type-switch")}@example.com`;
   const displayName = unique("issue-200-holding-type-switch-name");
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await page.setViewportSize({ width: 1366, height: 960 });
   await openTab(page, "자산");
 
@@ -1137,7 +1137,7 @@ test("issue 218: mobile holding valuation is numeric and reachable before option
   const email = `${unique("issue-218-mobile-holding-keypad")}@example.com`;
   const displayName = unique("issue-218-mobile-holding-keypad-name");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await page.setViewportSize({ width: 390, height: 844 });
   await openTab(page, "자산");
   await page.waitForLoadState("networkidle");
@@ -1170,7 +1170,7 @@ test("issue 238: mobile holding entry opens as a focused sheet with visible subm
   const email = `${unique("issue-238-mobile-holding-sheet")}@example.com`;
   const displayName = unique("issue-238-mobile-holding-sheet-name");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await page.setViewportSize({ width: 390, height: 844 });
   await openTab(page, "자산");
   await page.waitForLoadState("networkidle");
@@ -1248,7 +1248,7 @@ test("mobile holding entry sheet stays within the viewport", async ({ page }) =>
 
   const email = `${unique("holding-sheet-overflow-with-long-email")}@example.com`;
   const displayName = unique("holding-sheet-overflow-name");
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
 
   for (const viewport of [
     { width: 390, height: 844 },

@@ -7,7 +7,7 @@ import {
   expectNoHorizontalOverflow,
   labeledField,
   openTab,
-  registerAndVerify,
+  bootstrapVerifiedSession,
   unique,
 } from "../support/helpers";
 
@@ -42,7 +42,7 @@ async function expectDashboardContextVisible(page) {
 test("issue #241: top-level navigation uses semantic SVG icons with selected state", async ({ page }) => {
   const email = `${unique("uiux-nav-icons")}@example.com`;
 
-  await registerAndVerify(page, { email, displayName: unique("uiux-nav-icons-name") });
+  await bootstrapVerifiedSession(page, { email, displayName: unique("uiux-nav-icons-name") });
   await assertResponsiveShell(page);
 
   const nav = page.locator("nav.topbar-tabs");
@@ -77,7 +77,7 @@ test("issue #242: mobile dashboard keeps status and market context visible", asy
     { name: "768-noto", width: 768, height: 1024, font: '"Noto Sans KR", "Malgun Gothic", sans-serif' },
   ];
 
-  await registerAndVerify(page, { email, displayName: unique("uiux-mobile-dashboard-name") });
+  await bootstrapVerifiedSession(page, { email, displayName: unique("uiux-mobile-dashboard-name") });
 
   for (const profile of profiles) {
     await page.setViewportSize({ width: profile.width, height: profile.height });
@@ -94,7 +94,7 @@ test("issue #242: mobile dashboard keeps status and market context visible", asy
 test("issue #243: mobile holding sheet closes with Escape and restores trigger focus", async ({ page }) => {
   const email = `${unique("uiux-holding-escape")}@example.com`;
 
-  await registerAndVerify(page, { email, displayName: unique("uiux-holding-escape-name") });
+  await bootstrapVerifiedSession(page, { email, displayName: unique("uiux-holding-escape-name") });
   await page.setViewportSize({ width: 390, height: 844 });
   await openTab(page, "자산");
 
@@ -147,7 +147,7 @@ test("issue #243: mobile holding sheet closes with Escape and restores trigger f
 test("issue #244: mobile touch activation does not forcibly blur the active control", async ({ page }) => {
   const email = `${unique("uiux-mobile-focus-retention")}@example.com`;
 
-  await registerAndVerify(page, { email, displayName: unique("uiux-mobile-focus-retention-name") });
+  await bootstrapVerifiedSession(page, { email, displayName: unique("uiux-mobile-focus-retention-name") });
   await page.setViewportSize({ width: 390, height: 844 });
   await openTab(page, "거래");
 
@@ -172,7 +172,7 @@ test("issue #244: mobile touch activation does not forcibly blur the active cont
 test("issue #259: category management is outside the transaction entry sheet", async ({ page }) => {
   const email = `${unique("uiux-category-management-separated")}@example.com`;
 
-  await registerAndVerify(page, { email, displayName: unique("uiux-category-management-separated-name") });
+  await bootstrapVerifiedSession(page, { email, displayName: unique("uiux-category-management-separated-name") });
   await page.setViewportSize({ width: 390, height: 844 });
   await openTab(page, "거래");
 
@@ -202,7 +202,7 @@ test("issue #257: transaction entry uses staged choices without recommendations 
   const categoryMajor = unique("생활그룹");
   const categoryMinor = unique("생활용품");
 
-  await registerAndVerify(page, { email, displayName: unique("uiux-category-search-on-demand-name") });
+  await bootstrapVerifiedSession(page, { email, displayName: unique("uiux-category-search-on-demand-name") });
   await createCategoryViaApi(page, { major: categoryMajor, minor: categoryMinor, flowType: "expense" });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.reload();

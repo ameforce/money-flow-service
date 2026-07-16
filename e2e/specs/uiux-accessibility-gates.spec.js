@@ -7,7 +7,7 @@ import {
   createTransactionViaApi,
   expectNoHorizontalOverflow,
   openTab,
-  registerAndVerify,
+  bootstrapVerifiedSession,
   unique,
 } from "../support/helpers";
 
@@ -34,7 +34,7 @@ async function expectNoAxeViolations(page, label, includeSelector = "body") {
 test("issue #250: axe WCAG gate covers dashboard and transaction entry", async ({ page }) => {
   const email = `${unique("uiux-axe-gate")}@example.com`;
 
-  await registerAndVerify(page, { email, displayName: unique("uiux-axe-gate-name") });
+  await bootstrapVerifiedSession(page, { email, displayName: unique("uiux-axe-gate-name") });
   await page.setViewportSize({ width: 390, height: 844 });
   await openTab(page, "대시보드");
   await expect(page.locator(".dashboard-command-center")).toBeVisible();
@@ -51,7 +51,7 @@ test("issue #251: forced colors and text spacing keep transaction entry operable
   const email = `${unique("uiux-forced-colors")}@example.com`;
 
   await page.emulateMedia({ forcedColors: "active" });
-  await registerAndVerify(page, { email, displayName: unique("uiux-forced-colors-name") });
+  await bootstrapVerifiedSession(page, { email, displayName: unique("uiux-forced-colors-name") });
   await page.setViewportSize({ width: 320, height: 568 });
   await openTab(page, "거래");
   await page.addStyleTag({
@@ -80,7 +80,7 @@ test("issue #251: forced colors and text spacing keep transaction entry operable
 test("issue #251: 200% text zoom reflows transaction entry without blocking core actions", async ({ page }) => {
   const email = `${unique("uiux-zoom-reflow")}@example.com`;
 
-  await registerAndVerify(page, { email, displayName: unique("uiux-zoom-reflow-name") });
+  await bootstrapVerifiedSession(page, { email, displayName: unique("uiux-zoom-reflow-name") });
   await page.setViewportSize({ width: 640, height: 900 });
   await page.addStyleTag({
     content: `
@@ -131,7 +131,7 @@ test("issue #251: 200% text zoom reflows transaction entry without blocking core
 test("issue #254: mobile transaction entry exposes input semantics", async ({ page }) => {
   const email = `${unique("uiux-mobile-input-semantics")}@example.com`;
 
-  await registerAndVerify(page, { email, displayName: unique("uiux-mobile-input-semantics-name") });
+  await bootstrapVerifiedSession(page, { email, displayName: unique("uiux-mobile-input-semantics-name") });
   await page.setViewportSize({ width: 390, height: 844 });
   await openTab(page, "거래");
   await page.getByTestId("transactions-fab").click();
@@ -195,7 +195,7 @@ test("issue #254: mobile transaction entry exposes input semantics", async ({ pa
 test("issue #246: transaction validation errors are linked to blocking fields", async ({ page }) => {
   const email = `${unique("uiux-field-errors")}@example.com`;
 
-  await registerAndVerify(page, { email, displayName: unique("uiux-field-errors-name") });
+  await bootstrapVerifiedSession(page, { email, displayName: unique("uiux-field-errors-name") });
   await page.setViewportSize({ width: 390, height: 844 });
   await openTab(page, "거래");
   await page.getByTestId("transactions-fab").click();
@@ -238,7 +238,7 @@ test("issue #246: transaction validation errors are linked to blocking fields", 
 test("issue #246 regression: transaction validation feedback clears across sheet reopen", async ({ page }) => {
   const email = `${unique("uiux-field-error-reset")}@example.com`;
 
-  await registerAndVerify(page, { email, displayName: unique("uiux-field-error-reset-name") });
+  await bootstrapVerifiedSession(page, { email, displayName: unique("uiux-field-error-reset-name") });
   await page.setViewportSize({ width: 390, height: 844 });
   await openTab(page, "거래");
   await page.getByTestId("transactions-fab").click();
@@ -266,7 +266,7 @@ test("issue #246 regression: transaction validation feedback clears across sheet
 test("issue #245: transaction ledger exposes one native table header contract", async ({ page }) => {
   const email = `${unique("uiux-ledger-semantics")}@example.com`;
 
-  await registerAndVerify(page, { email, displayName: unique("uiux-ledger-semantics-name") });
+  await bootstrapVerifiedSession(page, { email, displayName: unique("uiux-ledger-semantics-name") });
   await page.setViewportSize({ width: 1366, height: 900 });
   await createTransactionViaApi(page, {
     memo: unique("semantic-ledger-row"),
@@ -300,7 +300,7 @@ test("issue #245: transaction ledger exposes one native table header contract", 
 test("issue #247 and #255: dashboard charts expose exact text alternatives", async ({ page }) => {
   const email = `${unique("uiux-chart-alternatives")}@example.com`;
 
-  await registerAndVerify(page, { email, displayName: unique("uiux-chart-alternatives-name") });
+  await bootstrapVerifiedSession(page, { email, displayName: unique("uiux-chart-alternatives-name") });
   await createTransactionViaApi(page, {
     memo: unique("chart-income"),
     amount: "12000",

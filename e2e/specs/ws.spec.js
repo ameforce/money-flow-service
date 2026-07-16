@@ -8,7 +8,7 @@ import {
   currentE2EHistoryDateIso,
   login,
   openTab,
-  registerAndVerify,
+  bootstrapVerifiedSession,
   unique,
 } from "../support/helpers";
 
@@ -71,7 +71,7 @@ test("ws flow: connected state and cross-session transaction sync", async ({ bro
   const secondPage = await secondContext.newPage();
 
   try {
-    await registerAndVerify(firstPage, { email, password: TEST_PASSWORD, displayName });
+    await bootstrapVerifiedSession(firstPage, { email, password: TEST_PASSWORD, displayName });
     await firstPage.setViewportSize({ width: 1366, height: 960 });
     await assertResponsiveShell(firstPage);
     await expect(firstPage.getByText("실시간 연결: 연결됨")).toBeVisible({ timeout: 20_000 });

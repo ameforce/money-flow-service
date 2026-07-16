@@ -34,6 +34,8 @@ This matrix defines the exhaustive E2E scope for local, staging, and async/on-de
 
 ## Planned E2E spec split map
 
+`mobile-browser-matrix.spec.js` runs through three dedicated Playwright matrix projects (`matrix-chromium`, `matrix-firefox`, and `matrix-webkit`). The scheduler splits its 19 scenarios into smaller logical jobs while preserving each browser engine's native project profile. Related focused coverage remains in `mobile-touch-targets.spec.js`, `layout-stability.spec.js`, `uiux-accessibility-gates.spec.js`, and responsive domain scenarios.
+
 - `e2e/specs/auth.spec.js`
 - `e2e/specs/dashboard.spec.js`
 - `e2e/specs/transactions.spec.js`

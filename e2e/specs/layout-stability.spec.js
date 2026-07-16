@@ -9,7 +9,7 @@ import {
   expectNoHorizontalOverflow,
   expectWithinViewport,
   openTab,
-  registerAndVerify,
+  bootstrapVerifiedSession,
   unique,
 } from "../support/helpers";
 
@@ -691,7 +691,7 @@ test("mobile import navigation label stays readable at compact widths", async ({
       .replace(/\\a\s?/gi, "")
       .replace(/\s/g, "");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
 
   for (const profile of MOBILE_NAV_LABEL_PROFILES) {
     await test.step(profile.name, async () => {
@@ -739,7 +739,7 @@ test("empty holdings table keeps desktop columns readable", async ({ page }) => 
   const displayName = unique("empty-holdings-user");
 
   await page.setViewportSize({ width: 1366, height: 900 });
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await openTab(page, "자산");
 
   const table = page.locator(".holdings-surface-table");
@@ -804,7 +804,7 @@ test("mobile transaction sheet actions keep navigation reachable", async ({ page
   const displayName = unique("mobile-action-user");
 
   await page.setViewportSize({ width: 390, height: 844 });
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await openTab(page, "거래");
 
   const fab = page.getByTestId("transactions-fab");
@@ -901,7 +901,7 @@ test("mobile landscape surfaces show first work controls without immediate scrol
   const holdingName = "랜드스케이프 첫 화면 검증 자산";
 
   await page.setViewportSize({ width: 568, height: 320 });
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await applyFontProfile(page, "Malgun Gothic");
   await createBasicHolding(page, { name: holdingName, category: "주식" });
   const savedMessageClose = page.locator(".message .message-close").first();
@@ -949,7 +949,7 @@ test("layout stability matrix: pages remain clean across desktop, tablet, and mo
   const displayName = unique("layout-user");
   const holdingName = "브라우저 레이아웃 검증용 긴 자산 이름";
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await createTransactionViaApi(page, {
     memo: "브라우저 레이아웃 검증용 긴 메모",
     amount: "123456",

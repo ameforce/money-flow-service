@@ -13,6 +13,7 @@ import {
   login,
   openTab,
   registerAndVerify,
+  setLocalInputFile,
   unique,
 } from "../support/helpers";
 
@@ -92,7 +93,9 @@ test("post-deploy live smoke: workbook import dry-run and apply", async ({ page 
   const applyButton = page.getByRole("button", { name: "적용", exact: true });
   const workbookReport = page.locator("section.import-report", { hasText: "검증 리포트" });
 
-  await fileInput.setInputFiles(workbookPath);
+  await setLocalInputFile(fileInput, workbookPath, {
+    mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
   await expect(page.getByText(path.basename(workbookPath))).toBeVisible();
   await page.getByRole("button", { name: "미리 검증", exact: true }).click();
   await expect(page.getByText("미리 검증 완료")).toBeVisible();

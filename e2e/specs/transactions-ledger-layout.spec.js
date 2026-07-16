@@ -6,7 +6,7 @@ import {
   createTransactionViaApi,
   expectNoHorizontalOverflow,
   openTab,
-  registerAndVerify,
+  bootstrapVerifiedSession,
   unique,
 } from "../support/helpers";
 
@@ -35,7 +35,7 @@ async function seedLedger(page) {
   const displayName = unique("ledger-layout-user");
   const memo = `${unique("ledger-layout-memo")}-긴메모-가계부-열정렬`;
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await createTransactionViaApi(page, {
     memo,
     amount: "123456",
@@ -575,7 +575,7 @@ test("transaction entry sheet keeps date and amount on one compact primary row",
 
   const email = `${unique("entry-primary-row")}@example.com`;
   const displayName = unique("entry-primary-row-user");
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await createCategoryViaApi(page, {
     major: "생활",
     minor: "식비",
@@ -710,7 +710,7 @@ test("transaction ledger aligns desktop cells and keeps mobile rows compact", as
   const graphemeOwnerMemo = `${unique("ledger-consistency-owner")}-조합문자`;
   const memoPrefix = `${unique("ledger-consistency-memo")}-생활비`;
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   const category = await createCategoryViaApi(page, {
     major: "생활",
     minor: "생활용품",

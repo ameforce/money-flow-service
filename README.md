@@ -47,10 +47,16 @@ cmd /c uv run orchestrator.py --no-reload
 cmd /c uv run python -m pytest
 ```
 
-### E2E (서버 실행 중인 상태)
+### E2E
 ```cmd
 cmd /c npm run e2e
+cmd /c npm run e2e:matrix
 ```
+
+`npm run e2e`는 필요한 서버를 자체 기동하고 종료합니다. Windows 로컬의
+`e2e:matrix`는 기본 8-worker 격리형 동적 scheduler를 사용하고, CI·비 Windows·
+일반 `e2e`는 기존 단일 runner를 유지합니다. 명령 옵션, 격리/cleanup 계약,
+artifact 위치는 [Local E2E Scheduler](docs/local-e2e-scheduler.md)를 참고하세요.
 
 Linux/WSL 등에서 Playwright 시스템 라이브러리가 부족한 경우에는,
 프로젝트 루트의 `.omx/local-libs/root/usr/lib/x86_64-linux-gnu` 경로가 존재하면

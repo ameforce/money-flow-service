@@ -5,7 +5,7 @@ import {
   createCategoryViaApi,
   expectNoHorizontalOverflow,
   openTab,
-  registerAndVerify,
+  bootstrapVerifiedSession,
   unique,
 } from "../support/helpers";
 
@@ -26,7 +26,7 @@ test("issue #269: transaction entry exposes existing categories as staged button
     minor: unique("대중교통"),
   };
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await createCategoryViaApi(page, groceries);
   await createCategoryViaApi(page, transit);
 

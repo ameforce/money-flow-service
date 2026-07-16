@@ -16,6 +16,13 @@ from typing import Sequence
 from urllib.error import URLError
 from urllib.request import urlopen
 
+from scripts.e2e_scheduler.subprocess_visibility import (
+    hidden_creationflags,
+    hidden_startupinfo,
+    run_hidden,
+    with_hidden_node_children,
+)
+
 
 ROOT = Path(__file__).resolve().parent
 IS_WINDOWS = os.name == "nt"
@@ -57,8 +64,36 @@ def install_signal_handlers() -> None:
 
 
 def run_cmd(cmd: Sequence[str], *, cwd: Path | None = None, env: dict[str, str] | None = None) -> int:
-    proc = subprocess.Popen(cmd, cwd=cwd or ROOT, env=env or os.environ.copy())
+    resolved_env = with_hidden_node_children(env or os.environ.copy())
+    proc = subprocess.Popen(
+        cmd,
+        cwd=cwd or ROOT,
+        env=resolved_env,
+        creationflags=_child_creationflags(resolved_env),
+        startupinfo=_child_startupinfo(resolved_env),
+    )
     return proc.wait()
+
+
+def _is_e2e_environment(env: dict[str, str]) -> bool:
+    return str(env.get("ENV") or "").strip().lower() == "test"
+
+
+def _child_creationflags(
+    env: dict[str, str],
+    *,
+    new_process_group: bool = False,
+) -> int:
+    flags = NEW_PROCESS_GROUP if IS_WINDOWS and new_process_group else 0
+    if not IS_WINDOWS or not _is_e2e_environment(env):
+        return flags
+    return hidden_creationflags(flags)
+
+
+def _child_startupinfo(env: dict[str, str]) -> subprocess.STARTUPINFO | None:
+    if not IS_WINDOWS or not _is_e2e_environment(env):
+        return None
+    return hidden_startupinfo()
 
 
 def ensure_frontend_deps() -> None:
@@ -117,13 +152,16 @@ def spawn_backend(args: argparse.Namespace, backend_env: dict[str, str]) -> subp
     ]
     if not args.no_reload:
         backend_cmd.append("--reload")
+    if args.backend_timeout_keep_alive is not None:
+        backend_cmd.extend(["--timeout-keep-alive", str(args.backend_timeout_keep_alive)])
     print("[orchestrator] backend start:", " ".join(backend_cmd), flush=True)
-    creationflags = NEW_PROCESS_GROUP if IS_WINDOWS else 0
+    creationflags = _child_creationflags(backend_env, new_process_group=True)
     return subprocess.Popen(
         backend_cmd,
         cwd=ROOT,
         env=backend_env,
         creationflags=creationflags,
+        startupinfo=_child_startupinfo(backend_env),
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
@@ -150,8 +188,8 @@ def spawn_frontend(args: argparse.Namespace) -> subprocess.Popen:
     if IS_WINDOWS:
         frontend_cmd = ["cmd", "/c", *frontend_cmd]
     print("[orchestrator] frontend start:", " ".join(frontend_cmd), flush=True)
-    creationflags = NEW_PROCESS_GROUP if IS_WINDOWS else 0
-    frontend_env = os.environ.copy()
+    frontend_env = with_hidden_node_children(os.environ.copy())
+    creationflags = _child_creationflags(frontend_env, new_process_group=True)
     frontend_env["VITE_BACKEND_ORIGIN"] = f"http://{args.backend_host}:{args.backend_port}"
     frontend_env.pop("NO_COLOR", None)
     frontend_env.setdefault("FORCE_COLOR", "1")
@@ -160,6 +198,7 @@ def spawn_frontend(args: argparse.Namespace) -> subprocess.Popen:
         cwd=ROOT,
         env=frontend_env,
         creationflags=creationflags,
+        startupinfo=_child_startupinfo(frontend_env),
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
@@ -321,10 +360,9 @@ def terminate(proc: subprocess.Popen | None, name: str) -> None:
         # Ctrl+C in interactive console can race with uv/cmd signal handling.
         # Force tree kill to avoid delayed child logs printing after prompt.
         if SHUTDOWN_SIGNAL == signal.SIGINT:
-            subprocess.run(
+            run_hidden(
                 ["cmd", "/c", "taskkill", "/PID", str(proc.pid), "/T", "/F"],
                 cwd=ROOT,
-                check=False,
             )
             with contextlib.suppress(Exception):
                 proc.wait(timeout=5)
@@ -335,10 +373,9 @@ def terminate(proc: subprocess.Popen | None, name: str) -> None:
         with contextlib.suppress(subprocess.TimeoutExpired):
             proc.wait(timeout=8)
         if proc.poll() is None:
-            subprocess.run(
+            run_hidden(
                 ["cmd", "/c", "taskkill", "/PID", str(proc.pid), "/T", "/F"],
                 cwd=ROOT,
-                check=False,
             )
         with contextlib.suppress(Exception):
             proc.wait(timeout=5)
@@ -383,6 +420,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--frontend-host", default="0.0.0.0")
     parser.add_argument("--frontend-port", type=int, default=5173)
     parser.add_argument("--database-url", default=None)
+    parser.add_argument("--backend-timeout-keep-alive", type=int, default=None)
     parser.add_argument("--reload", dest="no_reload", action="store_false")
     parser.add_argument("--no-reload", dest="no_reload", action="store_true")
     parser.set_defaults(no_reload=True)

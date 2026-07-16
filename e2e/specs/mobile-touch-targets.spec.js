@@ -6,7 +6,7 @@ import {
   createTransactionViaApi,
   expectNoHorizontalOverflow,
   openTab,
-  registerAndVerify,
+  bootstrapVerifiedSession,
   unique,
 } from "../support/helpers";
 
@@ -60,7 +60,7 @@ test("issue 225: mobile transaction rows and holding detail toggles expose 44px 
   const txMemo = unique("issue-225-touch-transaction");
   const holdingName = unique("issue-225-touch-holding");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await createTransactionViaApi(page, {
     memo: txMemo,
     amount: "22500",

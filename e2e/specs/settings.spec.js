@@ -10,7 +10,7 @@ import {
   labeledField,
   openTransactionEntryForm,
   openTab,
-  registerAndVerify,
+  bootstrapVerifiedSession,
   unique,
 } from "../support/helpers";
 
@@ -112,7 +112,7 @@ test("settings color inputs keep mobile and tablet hit targets", async ({ page }
   const email = `${unique("settings-color-hit")}@example.com`;
   const displayName = unique("settings-color-hit-name");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
 
   for (const viewport of [
     { width: 320, height: 568 },
@@ -140,7 +140,7 @@ test("settings passive status strips wrap instead of creating keyboard-inaccessi
   const email = `${unique("settings-status-strip")}@example.com`;
   const displayName = unique("settings-status-strip-name-with-a-long-mobile-label");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await page.setViewportSize({ width: 320, height: 568 });
   await assertResponsiveShell(page);
   await openTab(page, "설정");
@@ -154,7 +154,7 @@ test("issue 236: mobile asset type rule checkboxes keep touch targets", async ({
   const email = `${unique("settings-asset-rule-hit")}@example.com`;
   const displayName = unique("settings-asset-rule-hit-name");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await page.setViewportSize({ width: 390, height: 844 });
   await assertResponsiveShell(page);
   await openTab(page, "설정");
@@ -211,7 +211,7 @@ test("settings category row actions stay inside mobile cards", async ({ page }) 
   const major = unique("settings-mobile-major");
   const minor = unique("settings-mobile-minor");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await createCategoryViaApi(page, { major, minor, flowType: "expense" });
   await page.reload();
 
@@ -307,7 +307,7 @@ test("settings flow: profile, household, colors, categories CRUD", async ({ page
   const deleteMajor = unique("delete-major");
   const deleteMinor = unique("delete-minor");
 
-  await registerAndVerify(page, { email, displayName });
+  await bootstrapVerifiedSession(page, { email, displayName });
   await page.setViewportSize({ width: 1366, height: 960 });
   await assertResponsiveShell(page);
   await openTab(page, "설정");

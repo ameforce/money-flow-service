@@ -252,7 +252,7 @@ export function useModalFocus({
       entryRef.current = null;
 
       window.setTimeout(() => {
-        if (surfaceOpenRef.current) {
+        if (surfaceOpenRef.current && dialog.isConnected) {
           if (isVisibleFocusable(focusedAtClose) && dialog.contains(focusedAtClose)) {
             focusedAtClose.scrollIntoView({ behavior: "auto", block: "center", inline: "nearest" });
           }
