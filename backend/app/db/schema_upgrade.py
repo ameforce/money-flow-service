@@ -235,6 +235,7 @@ def upgrade_schema(bind_engine: Engine | None = None) -> None:
         )
         _add_column_if_missing(conn, "transactions", "owner_user_id", "owner_user_id VARCHAR(36)")
         _add_column_if_missing(conn, "transactions", "order_key", "order_key INTEGER NOT NULL DEFAULT 0")
+        _add_column_if_missing(conn, "transactions", "installment_months", "installment_months INTEGER")
         _add_column_if_missing(conn, "holdings", "owner_user_id", "owner_user_id VARCHAR(36)")
         _add_column_if_missing(conn, "holdings", "type_key", "type_key VARCHAR(80)")
         _add_column_if_missing(conn, "holdings", "display_order", "display_order INTEGER NOT NULL DEFAULT 100")

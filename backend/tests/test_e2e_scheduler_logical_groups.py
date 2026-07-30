@@ -159,8 +159,8 @@ def test_transaction_split_preserves_exact_title_inventory() -> None:
     assert "tx-entry-category-context" not in groups
     assert "tx-ledger-layout-actions" not in groups
     assert len(groups) == 7
-    assert sum(map(len, groups.values())) == 71
-    assert len(logical_groups.TRANSACTION_GROUP_BY_TITLE) == 71
+    assert sum(map(len, groups.values())) == 72
+    assert len(logical_groups.TRANSACTION_GROUP_BY_TITLE) == 72
 
 
 def test_unmapped_spec_keeps_one_spec_level_job() -> None:

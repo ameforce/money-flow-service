@@ -1122,6 +1122,8 @@ export function TransactionSurfaceTable({
             const fullCategoryLabel = [categoryMajorLabel, categoryMinorLabel].filter(Boolean).join(" / ") || compactCategoryLabel;
             const flowLabel = FLOW_TYPE_LABELS[item.flow_type] || item.flow_type;
             const flowShortLabel = String(flowLabel || "").slice(0, 2) || "-";
+            const installmentLabel =
+              item.installment_months == null ? "" : `${item.installment_months}개월 할부`;
             const ownerNameLabel = String(item.owner_name || "").trim();
             const ownerCompactLabel = firstVisibleChar(ownerNameLabel);
             const ownerCueLabel = ownerCueAfterCompactInitial(ownerNameLabel);
@@ -1234,6 +1236,7 @@ export function TransactionSurfaceTable({
               setTxInlineEdit({
                 ...editForm,
                 flow_type: normalizedFlowType,
+                installment_months: normalizedFlowType === "expense" ? editForm.installment_months : "",
                 category_id: compatibleCategory ? String(compatibleCategory.id || "") : "",
                 category_major: compatibleCategory ? String(compatibleCategory.major || "") : "",
               });
@@ -1288,6 +1291,43 @@ export function TransactionSurfaceTable({
                           ))}
                         </select>
                       </label>
+                      {editForm.flow_type === "expense" && (
+                        <div className="tx-inline-installment-field transaction-installment-field">
+                          <label>
+                            <span className="tx-inline-field-label">결제 방식</span>
+                            <select
+                              aria-label="결제 방식"
+                              value={String(editForm.installment_months ?? "").trim() ? "installment" : "single"}
+                              onChange={(event) =>
+                                setTxInlineEdit({
+                                  ...editForm,
+                                  installment_months:
+                                    event.target.value === "installment" ? editForm.installment_months || "2" : "",
+                                })
+                              }
+                              disabled={inlineEditorDisabled}
+                            >
+                              <option value="single">일시불</option>
+                              <option value="installment">할부</option>
+                            </select>
+                          </label>
+                          {String(editForm.installment_months ?? "").trim() && (
+                            <label>
+                              <span className="tx-inline-field-label">할부 개월</span>
+                              <input
+                                aria-label="할부 개월"
+                                type="number"
+                                min="2"
+                                max="120"
+                                inputMode="numeric"
+                                value={editForm.installment_months ?? ""}
+                                onChange={(event) => setTxInlineEdit({ ...editForm, installment_months: event.target.value })}
+                                disabled={inlineEditorDisabled}
+                              />
+                            </label>
+                          )}
+                        </div>
+                      )}
                       <div className="tx-inline-category-section" aria-label="카테고리 선택">
                         <TransactionCategoryQuickPicker
                           categories={txInlineCategoryOptions}
@@ -1464,7 +1504,7 @@ export function TransactionSurfaceTable({
                   data-transaction-id={item.id}
                   data-transaction-date={item.occurred_on}
                   aria-selected={selectedTransactionIds.has(item.id) ? "true" : "false"}
-                  aria-label={`거래 ${item.occurred_on} ${flowLabel} ${ownerSummaryLabel} ${compactCategoryLabel} ${item.memo || "-"} ${amountLabel}. ${rowActivationLabel} ${rowKeyboardShortcutLabel}`}
+                  aria-label={`거래 ${item.occurred_on} ${flowLabel} ${ownerSummaryLabel} ${compactCategoryLabel} ${item.memo || "-"} ${amountLabel}${installmentLabel ? ` ${installmentLabel}` : ""}. ${rowActivationLabel} ${rowKeyboardShortcutLabel}`}
                   aria-keyshortcuts={rowKeyShortcuts || undefined}
                   tabIndex={isEditing ? -1 : 0}
                   onPointerDown={(event) => startRowPointerGesture(event, item.id, isEditing)}
@@ -1526,11 +1566,12 @@ export function TransactionSurfaceTable({
                     <span className="transaction-mobile-detail-label">카테고리</span>
                     <div className="transaction-mobile-detail-value">{renderCategoryCell(category)}</div>
                   </td>
-                  <td data-label="메모" aria-label={`메모 ${item.memo || "-"}`} className="transaction-col-memo" data-field-key="memo" data-mobile-priority={transactionMobilePriority("memo")}>
+                  <td data-label="메모" aria-label={`메모 ${item.memo || "-"}${installmentLabel ? `, ${installmentLabel}` : ""}`} className="transaction-col-memo" data-field-key="memo" data-mobile-priority={transactionMobilePriority("memo")}>
                     <span className="transaction-memo-text" title={item.memo || "-"} aria-label={`메모 ${item.memo || "-"}`}>
                       <span className="transaction-memo-text-full">{item.memo || "-"}</span>
                       <span className="transaction-memo-text-compact" aria-hidden="true">{compactMemoLabel}</span>
                     </span>
+                    {installmentLabel && <span className="transaction-installment-badge">{installmentLabel}</span>}
                   </td>
                   <td data-label="금액" aria-label={`금액 ${amountLabel}`} className="transaction-col-amount" data-field-key="amount" data-mobile-priority={transactionMobilePriority("amount")}>
                     <span className={`transaction-amount-text${isWideAmount ? " transaction-amount-text-wide" : ""}`} title={amountLabel}>
@@ -1565,6 +1606,12 @@ export function TransactionSurfaceTable({
                           <span className="transaction-mobile-detail-label">금액</span>
                           <div className="transaction-mobile-detail-value">{amountLabel}</div>
                         </div>
+                        {item.installment_months != null && (
+                          <div className="transaction-expanded-detail-item transaction-expanded-detail-installment transaction-mobile-detail-cell">
+                            <span className="transaction-mobile-detail-label">할부</span>
+                            <div className="transaction-mobile-detail-value">{item.installment_months}개월 할부</div>
+                          </div>
+                        )}
                         <div className="transaction-expanded-detail-item transaction-expanded-detail-updated transaction-mobile-detail-cell">
                           <span className="transaction-mobile-detail-label">최종 수정일</span>
                           <div className="transaction-mobile-detail-value">{fmtDate(item.updated_at)}</div>
