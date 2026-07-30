@@ -21,7 +21,7 @@ import jwt
 from openpyxl import Workbook, load_workbook
 from pydantic import ValidationError
 import pytest
-from sqlalchemy import create_engine, delete, event, func, select, update
+from sqlalchemy import create_engine, delete, event, func, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.requests import Request
@@ -4753,6 +4753,70 @@ def test_transaction_create_and_patch_reject_decimal_krw_amount() -> None:
         assert decimal_patch.json()["error"]["code"] == "REQUEST_VALIDATION_FAILED"
 
 
+def test_transaction_installment_months_create_patch_read_and_validation() -> None:
+    with TestClient(app) as client:
+        token = _auth(client, f"tx-installment-{uuid.uuid4().hex}@example.com", "Password1234", "TxInstallment")
+        created = client.post(
+            "/api/v1/transactions",
+            headers=_headers(token),
+            json={"occurred_on": "2026-02-03", "flow_type": "expense", "amount": 15000, "currency": "KRW", "memo": "installment", "installment_months": 3},
+        )
+        assert created.status_code == 201
+        tx = created.json()
+        assert tx["installment_months"] == 3
+        listed = client.get("/api/v1/transactions?year=2026&month=2", headers=_headers(token))
+        assert listed.status_code == 200
+        assert listed.json()[0]["installment_months"] == 3
+        history = client.get("/api/v1/transactions/history?anchor_date=2026-02-03", headers=_headers(token))
+        assert history.status_code == 200
+        assert history.json()["items"][0]["installment_months"] == 3
+
+        changed = client.patch(
+            f"/api/v1/transactions/{tx['id']}", headers=_headers(token), json={"base_version": tx["version"], "installment_months": 6}
+        )
+        assert changed.status_code == 200
+        assert changed.json()["installment_months"] == 6
+        cleared = client.patch(
+            f"/api/v1/transactions/{tx['id']}", headers=_headers(token), json={"base_version": changed.json()["version"], "installment_months": None}
+        )
+        assert cleared.status_code == 200
+        assert cleared.json()["installment_months"] is None
+
+        for invalid in (0, 1, 121):
+            response = client.post(
+                "/api/v1/transactions", headers=_headers(token),
+                json={"occurred_on": "2026-02-04", "flow_type": "expense", "amount": 1000, "installment_months": invalid},
+            )
+            assert response.status_code == 400
+        non_expense = client.post(
+            "/api/v1/transactions", headers=_headers(token),
+            json={"occurred_on": "2026-02-04", "flow_type": "income", "amount": 1000, "installment_months": 2},
+        )
+        assert non_expense.status_code == 400
+
+
+def test_transaction_installment_flow_transition_requires_explicit_clear() -> None:
+    with TestClient(app) as client:
+        token = _auth(client, f"tx-installment-flow-{uuid.uuid4().hex}@example.com", "Password1234", "TxInstallmentFlow")
+        created = client.post(
+            "/api/v1/transactions", headers=_headers(token),
+            json={"occurred_on": "2026-02-03", "flow_type": "expense", "amount": 15000, "installment_months": 3},
+        )
+        assert created.status_code == 201
+        tx = created.json()
+        rejected = client.patch(
+            f"/api/v1/transactions/{tx['id']}", headers=_headers(token), json={"base_version": tx["version"], "flow_type": "income"}
+        )
+        assert rejected.status_code == 400
+        assert rejected.json()["error"]["code"] == "TRANSACTION_INSTALLMENT_FLOW_TYPE_MISMATCH"
+        changed = client.patch(
+            f"/api/v1/transactions/{tx['id']}", headers=_headers(token),
+            json={"base_version": tx["version"], "flow_type": "income", "installment_months": None},
+        )
+        assert changed.status_code == 200
+        assert changed.json()["installment_months"] is None
+
+
 def test_transaction_source_ref_is_idempotent_for_retried_seed() -> None:
     with TestClient(app) as client:
         token = _auth(client, f"tx-source-ref-{uuid.uuid4().hex}@example.com", "Password1234", "TxSource")
@@ -4801,6 +4865,17 @@ def test_transaction_create_suppresses_immediate_exact_replay_without_source_ref
         listed = client.get("/api/v1/transactions", headers=_headers(token))
         assert listed.status_code == 200
         assert len(listed.json()) == 1
+
+
+def test_transaction_replay_dedupe_distinguishes_installment_months() -> None:
+    with TestClient(app) as client:
+        token = _auth(client, f"tx-installment-replay-{uuid.uuid4().hex}@example.com", "Password1234", "TxInstallmentReplay")
+        payload = {"occurred_on": "2026-05-03", "flow_type": "expense", "amount": 68000, "currency": "KRW", "memo": "same purchase"}
+        first = client.post("/api/v1/transactions", headers=_headers(token), json={**payload, "installment_months": 3})
+        second = client.post("/api/v1/transactions", headers=_headers(token), json={**payload, "installment_months": 6})
+        assert first.status_code == 201
+        assert second.status_code == 201
+        assert first.json()["id"] != second.json()["id"]
 
 
 def test_transaction_create_allows_anchored_duplicate_without_source_ref() -> None:
@@ -5695,6 +5770,7 @@ def test_schema_upgrade_preserves_legacy_null_owner_rows(tmp_path: Path) -> None
                     flow_type=FlowType.expense,
                     occurred_on=date(2026, 4, 22),
                     amount=Decimal("12000"),
+                    installment_months=3,
                     currency="KRW",
                     memo="legacy transaction",
                     owner_name="LegacyOwner",
@@ -5729,6 +5805,57 @@ def test_schema_upgrade_preserves_legacy_null_owner_rows(tmp_path: Path) -> None
             assert holding.owner_user_id is None
             assert tx.owner_name == "LegacyOwner"
             assert holding.owner_name == "LegacyOwner"
+    finally:
+        local_engine.dispose()
+
+
+def test_schema_upgrade_adds_installment_months_to_legacy_transactions_as_null(tmp_path: Path) -> None:
+    local_engine = create_engine(f"sqlite:///{(tmp_path / 'legacy-installment-upgrade.db').as_posix()}")
+    Base.metadata.create_all(bind=local_engine)
+    transaction_id = str(uuid.uuid4())
+    try:
+        with Session(local_engine) as db:
+            household = Household(name="Legacy Installment Household", base_currency="KRW")
+            db.add(household)
+            db.commit()
+            household_id = str(household.id)
+
+        with local_engine.begin() as conn:
+            conn.execute(text("ALTER TABLE transactions DROP COLUMN installment_months"))
+            now = datetime.now(UTC)
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO transactions (
+                        id, household_id, flow_type, occurred_on, amount, currency, memo,
+                        order_key, version, created_at, updated_at
+                    ) VALUES (
+                        :id, :household_id, :flow_type, :occurred_on, :amount, :currency, :memo,
+                        :order_key, :version, :created_at, :updated_at
+                    )
+                    """
+                ),
+                {
+                    "id": transaction_id,
+                    "household_id": household_id,
+                    "flow_type": FlowType.expense.value,
+                    "occurred_on": "2026-07-29",
+                    "amount": 24000,
+                    "currency": "KRW",
+                    "memo": "legacy installment-unknown transaction",
+                    "order_key": 1024,
+                    "version": 1,
+                    "created_at": now,
+                    "updated_at": now,
+                },
+            )
+
+        schema_upgrade_module.upgrade_schema(local_engine)
+
+        with Session(local_engine) as db:
+            transaction = db.get(Transaction, transaction_id)
+            assert transaction is not None
+            assert transaction.installment_months is None
     finally:
         local_engine.dispose()
 
@@ -8325,6 +8452,7 @@ def test_migration_package_export_and_dry_run_round_trip() -> None:
                     amount=Decimal("12000"),
                     currency="KRW",
                     memo="migration-seed",
+                    installment_months=3,
                     owner_user_id=user_id,
                     owner_name="MigrationSeeded",
                     source_ref=f"migration-seed-tx-{uuid.uuid4().hex}",
@@ -8362,6 +8490,9 @@ def test_migration_package_export_and_dry_run_round_trip() -> None:
             names = set(archive.namelist())
             assert "manifest.json" in names
             assert "payload.json" in names
+            exported_payload = json.loads(archive.read("payload.json"))
+            assert exported_payload["schema_version"] == 2
+            assert exported_payload["transactions"][0]["installment_months"] == 3
 
         dry_run = client.post(
             "/api/v1/imports/migration-package/upload?mode=dry_run",
@@ -8370,13 +8501,55 @@ def test_migration_package_export_and_dry_run_round_trip() -> None:
         )
         assert dry_run.status_code == 200
         payload = dry_run.json()
-        assert payload["schema_version"] == 1
+        assert payload["schema_version"] == 2
         assert payload["mode"] == "dry_run"
         assert payload["category_rows"] == 1
         assert payload["transaction_rows"] == 1
         assert payload["holding_rows"] == 1
         assert payload["applied_transactions"] == 0
         assert payload["applied_holdings"] == 0
+
+        applied_v2 = client.post(
+            "/api/v1/imports/migration-package/upload?mode=apply&replace_existing=true",
+            headers=_headers(token),
+            files={"file": ("transfer-v2.zip", package_bytes, "application/zip")},
+        )
+        assert applied_v2.status_code == 200
+        assert applied_v2.json()["schema_version"] == 2
+        v2_transactions = client.get("/api/v1/transactions", headers=_headers(token))
+        assert v2_transactions.status_code == 200
+        assert v2_transactions.json()[0]["installment_months"] == 3
+
+        with zipfile.ZipFile(io.BytesIO(package_bytes), "r") as archive:
+            legacy_manifest = json.loads(archive.read("manifest.json"))
+            legacy_payload = json.loads(archive.read("payload.json"))
+        legacy_manifest["schema_version"] = 1
+        legacy_payload["schema_version"] = 1
+        for transaction in legacy_payload["transactions"]:
+            transaction.pop("installment_months", None)
+        legacy_payload_bytes = json.dumps(
+            legacy_payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+        ).encode("utf-8")
+        legacy_manifest["payload_sha256"] = hashlib.sha256(legacy_payload_bytes).hexdigest()
+        legacy_manifest["payload_size_bytes"] = len(legacy_payload_bytes)
+        legacy_manifest_bytes = json.dumps(
+            legacy_manifest, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+        ).encode("utf-8")
+        legacy_package = io.BytesIO()
+        with zipfile.ZipFile(legacy_package, "w", zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("manifest.json", legacy_manifest_bytes)
+            archive.writestr("payload.json", legacy_payload_bytes)
+
+        applied_v1 = client.post(
+            "/api/v1/imports/migration-package/upload?mode=apply&replace_existing=true",
+            headers=_headers(token),
+            files={"file": ("transfer-v1.zip", legacy_package.getvalue(), "application/zip")},
+        )
+        assert applied_v1.status_code == 200
+        assert applied_v1.json()["schema_version"] == 1
+        v1_transactions = client.get("/api/v1/transactions", headers=_headers(token))
+        assert v1_transactions.status_code == 200
+        assert v1_transactions.json()[0]["installment_months"] is None
 
 
 def test_migration_package_apply_replaces_existing_household_data() -> None:

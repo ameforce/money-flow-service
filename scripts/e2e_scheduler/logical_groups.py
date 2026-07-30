@@ -48,6 +48,7 @@ TRANSACTION_GROUPS: Final[Mapping[str, tuple[str, ...]]] = MappingProxyType(
         ),
         "tx-entry-crud-validation": (
             "mobile normal add clears stale anchored insert fields after cancelled insert",
+            "issue 315: transaction installment input creates, edits, clears, and hides for non-expense",
             "issue 248: extracted transactions page keeps entry and inline edit wiring live",
             "desktop inline insert locks save while a transaction POST is pending",
             "transactions flow: create, inline edit, delete, responsive",

@@ -273,6 +273,7 @@ class Transaction(Base):
     flow_type: Mapped[FlowType] = mapped_column(Enum(FlowType), nullable=False)
     occurred_on: Mapped[date] = mapped_column(Date, nullable=False)
     amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    installment_months: Mapped[int | None] = mapped_column(Integer, nullable=True)
     currency: Mapped[str] = mapped_column(String(8), nullable=False, default="KRW")
     memo: Mapped[str] = mapped_column(Text, nullable=False, default="")
     order_key: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
