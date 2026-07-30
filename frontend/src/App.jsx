@@ -8935,11 +8935,17 @@ function App() {
       "총자산(KRW)": "평가금액 기준",
       "평가손익(KRW)": "보유자산 평가 차이",
     };
+    const installmentExpense = Number(overview?.totals?.installment_expense || 0);
     return {
       ...item,
       tone,
       helper: helperByLabel[item.label] || "조회 기준 집계",
-      meta: item.label === "평가손익(KRW)" ? dashboardGainLossRatioText : "",
+      meta:
+        item.label === "평가손익(KRW)"
+          ? dashboardGainLossRatioText
+          : item.label === "지출" && installmentExpense > 0
+            ? `할부 ${fmtKrw(overview?.totals?.installment_expense)} 포함`
+            : "",
     };
   });
   const dashboardPriceTone = isPriceRefreshActive
@@ -9284,6 +9290,11 @@ function App() {
                   </select>
                 </label>
                 {String(txForm.installment_months || "").trim() && (
+                  <small className="field-helper transaction-installment-note">
+                    할부는 무이자 기준으로 계산돼요. 카드사 할부 수수료(이자)는 반영되지 않습니다.
+                  </small>
+                )}
+                {String(txForm.installment_months || "").trim() && (
                   <label>
                     <span>할부 개월</span>
                     <input
@@ -9541,6 +9552,11 @@ function App() {
               <option value="installment">할부</option>
             </select>
           </label>
+          {String(txForm.installment_months || "").trim() && (
+            <small className="field-helper transaction-installment-note">
+              할부는 무이자 기준으로 계산돼요. 카드사 할부 수수료(이자)는 반영되지 않습니다.
+            </small>
+          )}
           {String(txForm.installment_months || "").trim() && (
             <label>
               할부 개월

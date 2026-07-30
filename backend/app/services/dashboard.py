@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
-from decimal import Decimal
+from decimal import ROUND_DOWN, Decimal
 from collections import defaultdict
+from collections.abc import Iterator
 
 from sqlalchemy import Integer, cast, func, select
 from sqlalchemy.orm import Session
@@ -40,6 +41,20 @@ class DashboardService:
         )
         minimum = first_tx or default_minimum
         maximum = fallback_date
+        # Scheduled installment payments extend into future months, so the navigable
+        # range must reach the final billing month of the longest-running installment.
+        installment_tails = db.execute(
+            select(Transaction.occurred_on, Transaction.installment_months).where(
+                Transaction.household_id == household_id,
+                Transaction.flow_type == FlowType.expense,
+                Transaction.installment_months.is_not(None),
+            )
+        ).all()
+        for occurred_on, months in installment_tails:
+            tail_year, tail_month = self._shift_month(occurred_on.year, occurred_on.month, int(months) - 1)
+            tail_date = date(tail_year, tail_month, 1)
+            if tail_date > maximum:
+                maximum = tail_date
         if minimum > maximum:
             minimum = maximum
         return minimum.strftime("%Y-%m"), maximum.strftime("%Y-%m")
@@ -68,6 +83,7 @@ class DashboardService:
                 Transaction.household_id == household_id,
                 Transaction.occurred_on >= month_start,
                 Transaction.occurred_on < month_end,
+                Transaction.installment_months.is_(None),
             )
             .group_by(Transaction.flow_type)
         ).all()
@@ -84,6 +100,7 @@ class DashboardService:
                 Transaction.household_id == household_id,
                 Transaction.occurred_on >= year_start,
                 Transaction.occurred_on < year_end,
+                Transaction.installment_months.is_(None),
             )
             .group_by(month_index, Transaction.flow_type)
         ).all()
@@ -93,6 +110,33 @@ class DashboardService:
                 continue
             key = f"{year:04d}-{month_num:02d}"
             trend_bucket[key][row.flow_type.value] += Decimal(row.total_amount or 0)
+
+        # Installment expenses are billed across N months starting from the purchase
+        # month, so spread each slice into its billing month rather than the purchase month.
+        installment_rows = db.execute(
+            select(
+                Transaction.occurred_on,
+                Transaction.amount,
+                Transaction.installment_months,
+            ).where(
+                Transaction.household_id == household_id,
+                Transaction.flow_type == FlowType.expense,
+                Transaction.installment_months.is_not(None),
+                Transaction.occurred_on >= self._installment_lookback(year, 1),
+                Transaction.occurred_on < year_end,
+            )
+        ).all()
+        installment_expense = Decimal("0")
+        for occurred_on, amount, months in installment_rows:
+            for slice_year, slice_month, slice_amount in self._installment_month_amounts(
+                occurred_on, Decimal(amount), int(months)
+            ):
+                if slice_year != year:
+                    continue
+                trend_bucket[f"{year:04d}-{slice_month:02d}"][FlowType.expense.value] += slice_amount
+                if slice_month == month:
+                    totals[FlowType.expense.value] += slice_amount
+                    installment_expense += slice_amount
 
         trend = [self._to_trend_point(key, trend_bucket[key]) for key in sorted(trend_bucket.keys())]
         return OverviewResponse(
@@ -104,7 +148,7 @@ class DashboardService:
             end_date=None,
             min_available_month=min_month,
             max_available_month=max_month,
-            totals=self._with_net(totals),
+            totals=self._with_net(totals, installment_expense),
             trend=trend,
         )
 
@@ -127,6 +171,7 @@ class DashboardService:
                 Transaction.household_id == household_id,
                 Transaction.occurred_on >= start_date,
                 Transaction.occurred_on <= end_date,
+                Transaction.installment_months.is_(None),
             )
             .group_by(Transaction.flow_type)
         ).all()
@@ -146,6 +191,7 @@ class DashboardService:
                 Transaction.household_id == household_id,
                 Transaction.occurred_on >= start_date,
                 Transaction.occurred_on <= end_date,
+                Transaction.installment_months.is_(None),
             )
             .group_by(year_index, month_index, Transaction.flow_type)
         ).all()
@@ -156,6 +202,36 @@ class DashboardService:
                 continue
             key = f"{year_num:04d}-{month_num:02d}"
             trend_bucket[key][row.flow_type.value] += Decimal(row.total_amount or 0)
+
+        # Spread installment expenses into their billing months, counting only the
+        # slices whose month falls within the requested range (month granularity).
+        installment_rows = db.execute(
+            select(
+                Transaction.occurred_on,
+                Transaction.amount,
+                Transaction.installment_months,
+            ).where(
+                Transaction.household_id == household_id,
+                Transaction.flow_type == FlowType.expense,
+                Transaction.installment_months.is_not(None),
+                Transaction.occurred_on >= self._installment_lookback(start_date.year, start_date.month),
+                Transaction.occurred_on <= end_date,
+            )
+        ).all()
+        start_bucket = start_date.year * 12 + (start_date.month - 1)
+        end_bucket = end_date.year * 12 + (end_date.month - 1)
+        installment_expense = Decimal("0")
+        for occurred_on, amount, months in installment_rows:
+            for slice_year, slice_month, slice_amount in self._installment_month_amounts(
+                occurred_on, Decimal(amount), int(months)
+            ):
+                slice_bucket = slice_year * 12 + (slice_month - 1)
+                if slice_bucket < start_bucket or slice_bucket > end_bucket:
+                    continue
+                key = f"{slice_year:04d}-{slice_month:02d}"
+                totals[FlowType.expense.value] += slice_amount
+                trend_bucket[key][FlowType.expense.value] += slice_amount
+                installment_expense += slice_amount
         trend = [self._to_trend_point(key, trend_bucket[key]) for key in sorted(trend_bucket.keys())]
         return OverviewResponse(
             household_id=household_id,
@@ -166,7 +242,7 @@ class DashboardService:
             end_date=end_date,
             min_available_month=min_month,
             max_available_month=max_month,
-            totals=self._with_net(totals),
+            totals=self._with_net(totals, installment_expense),
             trend=trend,
         )
 
@@ -285,6 +361,33 @@ class DashboardService:
         return (amount * rate).quantize(Decimal("0.01"))
 
     @staticmethod
+    def _shift_month(year: int, month: int, offset: int) -> tuple[int, int]:
+        index = year * 12 + (month - 1) + offset
+        return index // 12, index % 12 + 1
+
+    @staticmethod
+    def _installment_lookback(year: int, month: int) -> date:
+        # Longest supported installment is 120 months, so a purchase this far back is
+        # the earliest that could still be billing in the requested (year, month).
+        lookback_year, lookback_month = DashboardService._shift_month(year, month, -119)
+        return date(lookback_year, lookback_month, 1)
+
+    @staticmethod
+    def _installment_slices(amount: Decimal, months: int) -> list[Decimal]:
+        base = (amount / months).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+        slices = [base for _ in range(months - 1)]
+        slices.append(amount - base * (months - 1))
+        return slices
+
+    @staticmethod
+    def _installment_month_amounts(
+        occurred_on: date, amount: Decimal, months: int
+    ) -> Iterator[tuple[int, int, Decimal]]:
+        for offset, slice_amount in enumerate(DashboardService._installment_slices(amount, months)):
+            slice_year, slice_month = DashboardService._shift_month(occurred_on.year, occurred_on.month, offset)
+            yield slice_year, slice_month, slice_amount
+
+    @staticmethod
     def _empty_totals() -> dict[str, Decimal]:
         return {
             FlowType.income.value: Decimal("0"),
@@ -293,12 +396,16 @@ class DashboardService:
             FlowType.transfer.value: Decimal("0"),
         }
 
-    def _with_net(self, totals: dict[str, Decimal]) -> dict[str, Decimal]:
+    def _with_net(
+        self, totals: dict[str, Decimal], installment_expense: Decimal = Decimal("0")
+    ) -> dict[str, Decimal]:
         return {
             "income": totals[FlowType.income.value],
             "expense": totals[FlowType.expense.value],
             "investment": totals[FlowType.investment.value],
             "transfer": totals[FlowType.transfer.value],
+            # Portion of expense that comes from installment billing in this period.
+            "installment_expense": installment_expense,
             "net_cashflow": totals[FlowType.income.value] - totals[FlowType.expense.value] - totals[FlowType.investment.value],
         }
 

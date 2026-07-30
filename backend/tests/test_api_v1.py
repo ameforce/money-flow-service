@@ -4817,6 +4817,73 @@ def test_transaction_installment_flow_transition_requires_explicit_clear() -> No
         assert changed.json()["installment_months"] is None
 
 
+def test_dashboard_spreads_installment_expense_across_billing_months() -> None:
+    with TestClient(app) as client:
+        token = _auth(client, f"dash-installment-{uuid.uuid4().hex}@example.com", "Password1234", "DashInstallment")
+
+        # 3-month installment purchased in Nov 2026; 1,000,000 does not divide evenly
+        # so the remainder must land in the final billing month (Jan 2027).
+        installment = client.post(
+            "/api/v1/transactions", headers=_headers(token),
+            json={"occurred_on": "2026-11-15", "flow_type": "expense", "amount": 1000000, "installment_months": 3},
+        )
+        assert installment.status_code == 201
+        # A plain expense in the same month must keep its full amount in that month.
+        plain = client.post(
+            "/api/v1/transactions", headers=_headers(token),
+            json={"occurred_on": "2026-11-20", "flow_type": "expense", "amount": 50000},
+        )
+        assert plain.status_code == 201
+        income = client.post(
+            "/api/v1/transactions", headers=_headers(token),
+            json={"occurred_on": "2026-11-01", "flow_type": "income", "amount": 200000},
+        )
+        assert income.status_code == 201
+
+        def _expense_for(year: int, month: int) -> Decimal:
+            response = client.get(
+                f"/api/v1/dashboard/overview?year={year}&month={month}", headers=_headers(token)
+            )
+            assert response.status_code == 200
+            return Decimal(str(response.json()["totals"]["expense"]))
+
+        # Purchase month: first installment slice (floor) + the plain expense.
+        assert _expense_for(2026, 11) == Decimal("333333.33") + Decimal("50000")
+        # Middle month: only the installment slice, spread from the purchase month.
+        assert _expense_for(2026, 12) == Decimal("333333.33")
+        # Final month crosses the year boundary and absorbs the rounding remainder.
+        assert _expense_for(2027, 1) == Decimal("333333.34")
+
+        november = client.get("/api/v1/dashboard/overview?year=2026&month=11", headers=_headers(token))
+        totals = november.json()["totals"]
+        assert Decimal(str(totals["income"])) == Decimal("200000")
+        assert Decimal(str(totals["net_cashflow"])) == Decimal("200000") - (Decimal("333333.33") + Decimal("50000"))
+        # Installment portion of the month's expense is surfaced separately (excludes the plain expense).
+        assert Decimal(str(totals["installment_expense"])) == Decimal("333333.33")
+
+        # The final billing month reports the remainder as its installment portion.
+        january = client.get("/api/v1/dashboard/overview?year=2027&month=1", headers=_headers(token))
+        assert Decimal(str(january.json()["totals"]["installment_expense"])) == Decimal("333333.34")
+
+        # A month with no active installment reports zero installment expense.
+        september = client.get("/api/v1/dashboard/overview?year=2026&month=9", headers=_headers(token))
+        assert Decimal(str(september.json()["totals"]["installment_expense"])) == Decimal("0")
+
+        # The navigable range must extend to the final installment billing month.
+        assert november.json()["max_available_month"] >= "2027-01"
+
+        # Range mode must spread installments the same way and respect range bounds.
+        range_response = client.get(
+            "/api/v1/dashboard/overview?start_date=2026-11-01&end_date=2027-01-31", headers=_headers(token)
+        )
+        assert range_response.status_code == 200
+        range_totals = range_response.json()["totals"]
+        # All three installment slices (= full 1,000,000) plus the plain expense.
+        assert Decimal(str(range_totals["expense"])) == Decimal("1000000") + Decimal("50000")
+        # The installment portion covers exactly the three slices across the range.
+        assert Decimal(str(range_totals["installment_expense"])) == Decimal("1000000")
+
+
 def test_transaction_source_ref_is_idempotent_for_retried_seed() -> None:
     with TestClient(app) as client:
         token = _auth(client, f"tx-source-ref-{uuid.uuid4().hex}@example.com", "Password1234", "TxSource")
