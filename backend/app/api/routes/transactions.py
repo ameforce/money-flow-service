@@ -88,6 +88,7 @@ def _recent_matching_transaction_id(
     occurred_on: date,
     flow_type,
     amount,
+    installment_months: int | None,
     currency: str,
     memo: str,
     owner_user_id: str | None,
@@ -104,6 +105,7 @@ def _recent_matching_transaction_id(
             Transaction.occurred_on == occurred_on,
             Transaction.flow_type == flow_type,
             Transaction.amount == amount,
+            _nullable_column_equals(Transaction.installment_months, installment_months),
             Transaction.currency == currency,
             Transaction.memo == memo,
             Transaction.created_at >= replay_cutoff,
@@ -381,6 +383,7 @@ def _to_transaction_read(transaction: Transaction, linked_owner_name: str | None
         occurred_on=transaction.occurred_on,
         flow_type=transaction.flow_type,
         amount=transaction.amount,
+        installment_months=transaction.installment_months,
         currency=str(transaction.currency),
         memo=str(transaction.memo or ""),
         order_key=int(transaction.order_key),
@@ -567,6 +570,7 @@ def create_transaction(
             occurred_on=payload.occurred_on,
             flow_type=payload.flow_type,
             amount=payload.amount,
+            installment_months=payload.installment_months,
             currency=currency,
             memo=memo,
             owner_user_id=owner_user_id,
@@ -590,6 +594,7 @@ def create_transaction(
         occurred_on=payload.occurred_on,
         flow_type=payload.flow_type,
         amount=payload.amount,
+        installment_months=payload.installment_months,
         currency=currency,
         memo=memo,
         order_key=order_key,
@@ -684,6 +689,14 @@ def patch_transaction(
         )
 
     next_flow_type = patch_data.get("flow_type", transaction.flow_type)
+    next_installment_months = patch_data.get("installment_months", transaction.installment_months)
+    if next_installment_months is not None and str(getattr(next_flow_type, "value", next_flow_type)) != "expense":
+        raise app_error(
+            status_code=400,
+            code="TRANSACTION_INSTALLMENT_FLOW_TYPE_MISMATCH",
+            message="할부 개월 수는 지출 거래에만 지정할 수 있습니다.",
+            action="지출 유형을 선택하거나 할부 개월 수를 일시불로 변경해 주세요.",
+        )
     next_category_id = patch_data.get("category_id", transaction.category_id)
     if next_category_id:
         category = db.get(Category, next_category_id)

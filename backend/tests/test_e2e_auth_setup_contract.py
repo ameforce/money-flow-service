@@ -23,7 +23,7 @@ API_BOOTSTRAP_CALLS_BY_SPEC = {
     "transactions-category-picker.spec.js": 1,
     "transactions-ledger-layout.spec.js": 3,
     "transactions-tab-state.spec.js": 2,
-    "transactions.spec.js": 71,
+    "transactions.spec.js": 72,
     "uiux-accessibility-gates.spec.js": 8,
     "uiux-rca.spec.js": 6,
     "validation-ui.spec.js": 2,

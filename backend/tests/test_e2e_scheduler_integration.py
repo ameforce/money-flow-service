@@ -92,7 +92,7 @@ def test_real_matrix_partition_assigns_every_discovered_test_once(
     )
 
     # Then
-    assert len(real_matrix_discovery) == 564
+    assert len(real_matrix_discovery) == 567
     assert len(manifest.jobs) == 99
     assert manifest.expected_projects == EXPECTED_PROJECTS
     assert manifest.expected_test_ids == frozenset(
@@ -153,9 +153,9 @@ def test_current_transaction_titles_have_one_business_group(
     mapped_titles = set(TRANSACTION_GROUP_BY_TITLE)
 
     # Then
-    assert len(titles) == 71
+    assert len(titles) == 72
     assert mapped_titles == titles
-    assert sum(len(group_titles) for group_titles in TRANSACTION_GROUPS.values()) == 71
+    assert sum(len(group_titles) for group_titles in TRANSACTION_GROUPS.values()) == 72
 
 
 def test_current_mobile_matrix_titles_have_one_business_group(

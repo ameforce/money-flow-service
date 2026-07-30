@@ -1483,6 +1483,43 @@ test("mobile quick entry creates an expense through one-screen staged buttons", 
   await expect(createdRow).toBeVisible({ timeout: 20_000 });
 });
 
+test("issue 315: transaction installment input creates, edits, clears, and hides for non-expense", async ({ page }) => {
+  test.setTimeout(180_000);
+  const email = `${unique("tx-installment-ui")}@example.com`;
+  const displayName = unique("tx-installment-ui-name");
+  const memo = unique("tx-installment-ui");
+  await bootstrapVerifiedSession(page, { email, displayName });
+  const sheet = await openTransactionEntrySheet(page);
+  const quickAmount = page.getByTestId("transaction-quick-amount");
+  await quickAmount.fill("24000");
+  await page.getByTestId("transaction-quick-installment-mode").selectOption("installment");
+  await page.getByTestId("transaction-quick-installment-months").fill("3");
+  await labeledField(sheet, "메모", "input").fill(memo);
+  await page.getByTestId("transaction-quick-save").click();
+  const row = page.locator("tr.transaction-row", { hasText: memo }).first();
+  await expect(row).toBeVisible({ timeout: 20_000 });
+  await expect(row).toContainText("3개월 할부");
+  await page.getByTestId("transaction-entry-sheet-close").click();
+
+  await clickTransactionSelectionToolbarAction(page, row, "수정");
+  const editorRow = page.locator("tr.transaction-inline-editor-row").first();
+  const installmentInput = editorRow.getByLabel("할부 개월");
+  await expect(installmentInput).toHaveValue("3");
+  await installmentInput.fill("6");
+  await editorRow.getByTestId("tx-inline-save").click();
+  await expect(row).toContainText("6개월 할부");
+
+  await clickTransactionSelectionToolbarAction(page, row, "수정");
+  await page.locator("tr.transaction-inline-editor-row").first().getByLabel("결제 방식").selectOption("single");
+  await page.locator("tr.transaction-inline-editor-row").first().getByTestId("tx-inline-save").click();
+  await expect(row.locator(".transaction-installment-badge")).toHaveCount(0);
+
+  await clickTransactionSelectionToolbarAction(page, row, "수정");
+  const nonExpenseEditor = page.locator("tr.transaction-inline-editor-row").first();
+  await nonExpenseEditor.getByLabel("유형").selectOption("income");
+  await expect(nonExpenseEditor.getByLabel("할부 개월")).toHaveCount(0);
+});
+
 test("mobile quick entry locks save while a transaction submit is pending", async ({ page }) => {
   test.setTimeout(180_000);
 

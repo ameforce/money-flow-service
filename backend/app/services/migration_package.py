@@ -9,7 +9,7 @@ from pathlib import Path
 import re
 import zipfile
 
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
@@ -32,7 +32,8 @@ from app.services.profile import normalize_holding_settings, normalize_optional_
 
 _PACKAGE_KIND = "moneyflow-household-transfer"
 _MANIFEST_KIND = "moneyflow-household-transfer-manifest"
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 2
+_SUPPORTED_SCHEMA_VERSIONS = {1, 2}
 _ZIP_REQUIRED_MEMBERS = ("manifest.json", "payload.json")
 _FILE_NAME_SAFE_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
@@ -156,11 +157,18 @@ class _PackageTransaction(BaseModel):
     category_major: str = Field(min_length=1, max_length=120)
     category_minor: str = Field(min_length=1, max_length=120)
     amount: str = Field(min_length=1, max_length=64)
+    installment_months: int | None = Field(default=None, ge=2, le=120)
     currency: str = Field(min_length=1, max_length=8)
     memo: str = Field(default="", max_length=5000)
     owner_name: str | None = Field(default=None, max_length=80)
     source_ref: str = Field(min_length=1, max_length=120)
     order_key: int | None = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def _validate_installment_flow_type(self) -> _PackageTransaction:
+        if self.installment_months is not None and self.flow_type != FlowType.expense:
+            raise ValueError("installment_months is only allowed for expense transactions")
+        return self
 
     @field_validator("category_major", "category_minor", "amount", "currency", "source_ref", mode="before")
     @classmethod
@@ -302,6 +310,7 @@ class MigrationPackageService:
                     "category_major": str(item.category.major if item.category else "").strip() or "기타",
                     "category_minor": str(item.category.minor if item.category else "").strip() or "기타",
                     "amount": _decimal_to_text(Decimal(item.amount)),
+                    "installment_months": item.installment_months,
                     "currency": str(item.currency or "KRW").strip().upper()[:8] or "KRW",
                     "memo": str(item.memo or ""),
                     "owner_name": normalize_optional_text(item.owner_name),
@@ -408,7 +417,7 @@ class MigrationPackageService:
                 message="패키지 manifest 형식이 올바르지 않습니다.",
                 action="dev 환경에서 패키지를 다시 추출해 주세요.",
             ) from error
-        if manifest.kind != _MANIFEST_KIND or int(manifest.schema_version) != _SCHEMA_VERSION:
+        if manifest.kind != _MANIFEST_KIND or int(manifest.schema_version) not in _SUPPORTED_SCHEMA_VERSIONS:
             raise app_error(
                 status_code=400,
                 code="MIGRATION_PACKAGE_SCHEMA_UNSUPPORTED",
@@ -432,7 +441,11 @@ class MigrationPackageService:
                 message="패키지 payload 형식이 올바르지 않습니다.",
                 action="dev 환경에서 패키지를 다시 추출해 주세요.",
             ) from error
-        if payload.kind != _PACKAGE_KIND or int(payload.schema_version) != _SCHEMA_VERSION:
+        if (
+            payload.kind != _PACKAGE_KIND
+            or int(payload.schema_version) not in _SUPPORTED_SCHEMA_VERSIONS
+            or int(payload.schema_version) != int(manifest.schema_version)
+        ):
             raise app_error(
                 status_code=400,
                 code="MIGRATION_PACKAGE_SCHEMA_UNSUPPORTED",
@@ -534,6 +547,7 @@ class MigrationPackageService:
                     "flow_type": row.flow_type,
                     "occurred_on": row.occurred_on,
                     "amount": amount,
+                    "installment_months": row.installment_months,
                     "currency": str(row.currency or "KRW").strip().upper()[:8] or "KRW",
                     "memo": str(row.memo or ""),
                     "owner_user_id": owner_user_id,
@@ -656,6 +670,7 @@ class MigrationPackageService:
                         flow_type=row["flow_type"],
                         occurred_on=occurred_on,
                         amount=row["amount"],
+                        installment_months=row["installment_months"],
                         currency=row["currency"],
                         memo=row["memo"],
                         order_key=order_key,
