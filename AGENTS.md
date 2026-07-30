@@ -33,14 +33,11 @@
 - For donut charts, labels should be positioned from the chart geometry and slice midpoint, not from screenshot-specific offsets. E2E should assert both text clipping and geometric placement against the chart ring.
 
 ## Commit, PR, Release, and Deployment Addendum
-- Follow the global Git Flow, PR review, finding-resolution, and hotfix/release deployment-evidence gates. This section only adds `money-flow-service` specifics and preserves the repo-specific hard gates below.
-- If the global contract is unavailable or unclear, stop release/hotfix completion work until the global Git Flow, PR review, finding-resolution, and deployment-evidence gates are recovered. Do not treat this addendum as a weaker replacement.
 - Commit format in this repo is `<prefix>: <summary>` using only `fix`, `feat`, `chore`, or `refact`; keep summaries short, usually Korean, e.g. `fix: 거래 구버전 폴백 보강`.
 - Treat existing behavior fixes, improvements, and refactors in this repo as hotfix-scope unless the user explicitly selects a different lane.
 - For hotfix-scope work, branch from the latest `origin/main` using `hotfix/vX.Y.Z`, then create task branches from that hotfix branch.
 - Hotfix-scope PRs must target the active `hotfix/vX.Y.Z` branch as the base branch; do not open them directly to `main` or `develop`.
 - UI PRs should include affected areas, verification commands, and screenshots or equivalent visual evidence for the changed surface.
-- PR merge gate in this repository is `LOW` and above findings resolved to zero (`LOW/MEDIUM/HIGH/CRITICAL = 0`) unless the user explicitly approves a temporary exception.
 - Hotfix/release completion still requires PR merge/closure, no-ff integration into both `main` and `develop`, an annotated `vX.Y.Z` tag on the `main` merge commit, and explicit Git evidence that the tag resolves to `main` HEAD while `develop` contains the completed hotfix/release tree.
 - Jenkins must pass for every pushed SHA that belongs to the release chain: task branch, `main` merge/tag, and `develop` integration merge, unless the user supplies a release procedure that explicitly omits `develop`.
 - After hotfix/release finish gates pass, deploy in this fixed order: first confirm Jenkins green and deploy/verify `dev.moneyflow.enmsoftware.com` for the expected non-`main` SHA/version using `$enm-jenkins` and `$enm-server-ops`; only when that dev target is judged healthy, proceed to production.
