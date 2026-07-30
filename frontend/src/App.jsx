@@ -1224,6 +1224,7 @@ function createTransactionForm(defaultOccurredOn = todayIso()) {
     occurred_on: defaultOccurredOn,
     flow_type: "expense",
     amount: "",
+    installment_months: "",
     category_id: "",
     memo: "",
     owner_user_id: "",
@@ -1237,6 +1238,7 @@ function createTransactionFormErrors() {
   return {
     occurred_on: "",
     amount: "",
+    installment_months: "",
   };
 }
 
@@ -1245,6 +1247,7 @@ function createRepeatTransactionForm(previousForm, fallbackOccurredOn = todayIso
   return {
     ...createTransactionForm(normalizedDate),
     flow_type: previousForm?.flow_type || "expense",
+    installment_months: previousForm?.installment_months || "",
     category_id: previousForm?.category_id || "",
     owner_user_id: previousForm?.owner_user_id || "",
     owner_name: previousForm?.owner_name || "",
@@ -1320,6 +1323,7 @@ function buildTransactionPayloadFromForm(form) {
     occurred_on: String(form.occurred_on || "").trim(),
     flow_type: String(form.flow_type || "").trim(),
     amount: stripGrouping(form.amount),
+    installment_months: String(form.installment_months ?? "").trim() ? Number(form.installment_months) : null,
     category_id: form.category_id || null,
     memo: String(form.memo || ""),
     owner_user_id: normalizeNullableText(form.owner_user_id),
@@ -1367,6 +1371,7 @@ const TX_PATCH_COMPARATORS = {
   occurred_on: (left, right) => String(left || "").trim() === String(right || "").trim(),
   flow_type: (left, right) => String(left || "").trim() === String(right || "").trim(),
   amount: (left, right) => normalizeDecimalForCompare(left) === normalizeDecimalForCompare(right),
+  installment_months: (left, right) => normalizeNullableText(left) === normalizeNullableText(right),
   category_id: (left, right) => normalizeNullableText(left) === normalizeNullableText(right),
   memo: (left, right) => String(left ?? "") === String(right ?? ""),
   owner_user_id: (left, right) => normalizeNullableText(left) === normalizeNullableText(right),
@@ -3057,6 +3062,7 @@ function App() {
   const transactionDraftHasContent = Boolean(
     String(stripGrouping(txForm.amount) || "").trim() ||
       String(txForm.memo || "").trim() ||
+      String(txForm.installment_months || "").trim() ||
       String(txForm.category_id || "").trim() ||
       String(txCategoryMajor || "").trim() ||
       String(txForm.flow_type || "expense") !== "expense" ||
@@ -4089,6 +4095,7 @@ function App() {
     setTxForm((prev) => ({
       ...prev,
       flow_type: normalizedFlowType,
+      installment_months: normalizedFlowType === "expense" ? prev.installment_months : "",
       category_id: compatibleCategory ? String(compatibleCategory.id || "") : "",
     }));
     setTxCategoryMajor(compatibleCategory ? String(compatibleCategory.major || "") : "");
@@ -5523,11 +5530,20 @@ function App() {
       errors.occurred_on = dateMessage;
     }
     errors.amount = validateTransactionAmountInput(form.amount);
+    const installmentRaw = String(form.installment_months ?? "").trim();
+    if (installmentRaw) {
+      const installmentMonths = Number(installmentRaw);
+      if (!Number.isInteger(installmentMonths) || installmentMonths < 2 || installmentMonths > 120) {
+        errors.installment_months = "할부 개월은 2~120개월 사이의 정수로 입력해 주세요.";
+      } else if (form.flow_type !== "expense") {
+        errors.installment_months = "할부 개월은 지출 거래에만 지정할 수 있습니다.";
+      }
+    }
     return errors;
   }
 
   function firstTransactionFormError(errors) {
-    return errors.occurred_on || errors.amount || "";
+    return errors.occurred_on || errors.amount || errors.installment_months || "";
   }
 
   function validateTransactionForm(form) {
@@ -6316,6 +6332,7 @@ function App() {
       occurred_on: item.occurred_on,
       flow_type: item.flow_type,
       amount: normalizeDecimalInputValue(item.amount),
+      installment_months: item.installment_months ?? "",
       category_id: item.category_id || "",
       category_major: category?.major || "",
       memo: item.memo || "",
@@ -6336,6 +6353,7 @@ function App() {
       occurred_on: anchor?.occurred_on || transactionEntryContextDate(),
       flow_type: anchor?.flow_type || "expense",
       amount: "",
+      installment_months: anchor?.flow_type === "expense" ? anchor?.installment_months ?? "" : "",
       category_id: anchor?.category_id || "",
       category_major: category?.major || "",
       memo: "",
@@ -6578,6 +6596,7 @@ function App() {
             occurred_on: originalTx.occurred_on,
             flow_type: originalTx.flow_type,
             amount: originalTx.amount,
+            installment_months: originalTx.installment_months ?? "",
             category_id: originalTx.category_id || "",
             memo: originalTx.memo || "",
             owner_user_id: originalTx.owner_user_id || "",
@@ -9244,6 +9263,53 @@ function App() {
                 );
               })}
             </div>
+            {txForm.flow_type === "expense" && (
+              <div className="transaction-installment-field">
+                <label>
+                  <span>결제 방식</span>
+                  <select
+                    data-testid="transaction-quick-installment-mode"
+                    value={String(txForm.installment_months || "").trim() ? "installment" : "single"}
+                    onChange={(event) => {
+                      setTxDraftTouched(true);
+                      setTxForm((prev) => ({
+                        ...prev,
+                        installment_months: event.target.value === "installment" ? prev.installment_months || "2" : "",
+                      }));
+                    }}
+                    disabled={transactionFormDisabled}
+                  >
+                    <option value="single">일시불</option>
+                    <option value="installment">할부</option>
+                  </select>
+                </label>
+                {String(txForm.installment_months || "").trim() && (
+                  <label>
+                    <span>할부 개월</span>
+                    <input
+                      data-testid="transaction-quick-installment-months"
+                      type="number"
+                      min="2"
+                      max="120"
+                      inputMode="numeric"
+                      value={txForm.installment_months}
+                      onChange={(event) => {
+                        setTxDraftTouched(true);
+                        setTxForm((prev) => ({ ...prev, installment_months: event.target.value }));
+                      }}
+                      aria-invalid={txFormErrors.installment_months ? "true" : undefined}
+                      aria-describedby={txFormErrors.installment_months ? "transaction-quick-installment-error" : undefined}
+                      disabled={transactionFormDisabled}
+                    />
+                    {txFormErrors.installment_months && (
+                      <small id="transaction-quick-installment-error" className="field-error" role="alert">
+                        {txFormErrors.installment_months}
+                      </small>
+                    )}
+                  </label>
+                )}
+              </div>
+            )}
             {renderTransactionCategoryRestoreNotice()}
 
             <TransactionCategoryQuickPicker
@@ -9456,6 +9522,50 @@ function App() {
           ))}
         </select>
       </label>
+      {txForm.flow_type === "expense" && (
+        <div className="transaction-installment-field">
+          <label>
+            결제 방식
+            <select
+              value={String(txForm.installment_months || "").trim() ? "installment" : "single"}
+              onChange={(event) => {
+                setTxDraftTouched(true);
+                setTxForm((prev) => ({
+                  ...prev,
+                  installment_months: event.target.value === "installment" ? prev.installment_months || "2" : "",
+                }));
+              }}
+              disabled={transactionFormDisabled}
+            >
+              <option value="single">일시불</option>
+              <option value="installment">할부</option>
+            </select>
+          </label>
+          {String(txForm.installment_months || "").trim() && (
+            <label>
+              할부 개월
+              <input
+                type="number"
+                min="2"
+                max="120"
+                inputMode="numeric"
+                value={txForm.installment_months}
+                onChange={(event) => {
+                  setTxDraftTouched(true);
+                  setTxForm((prev) => ({ ...prev, installment_months: event.target.value }));
+                }}
+                aria-invalid={txFormErrors.installment_months ? "true" : undefined}
+                disabled={transactionFormDisabled}
+              />
+              {txFormErrors.installment_months && (
+                <small className="field-helper field-error" role="alert">
+                  {txFormErrors.installment_months}
+                </small>
+              )}
+            </label>
+          )}
+        </div>
+      )}
       {renderTransactionCategoryRestoreNotice()}
       <label>
         금액

@@ -371,6 +371,7 @@ class TransactionCreate(BaseModel):
     occurred_on: date
     flow_type: FlowType
     amount: Decimal = Field(gt=0)
+    installment_months: int | None = Field(default=None, ge=2, le=120)
     currency: str = Field(default="KRW", min_length=3, max_length=8)
     category_id: str | None = None
     memo: str = Field(default="", max_length=2000)
@@ -379,6 +380,12 @@ class TransactionCreate(BaseModel):
     source_ref: str | None = Field(default=None, max_length=120)
     anchor_transaction_id: str | None = Field(default=None, max_length=36)
     insert_position: Literal["above", "below"] | None = None
+
+    @model_validator(mode="after")
+    def validate_installment_flow_type(self) -> TransactionCreate:
+        if self.installment_months is not None and self.flow_type != FlowType.expense:
+            raise ValueError("installment_months is only allowed for expense transactions")
+        return self
 
     @field_validator("amount")
     @classmethod
@@ -417,6 +424,7 @@ class TransactionPatch(BaseModel):
     occurred_on: date | None = None
     flow_type: FlowType | None = None
     amount: Decimal | None = Field(default=None, gt=0)
+    installment_months: int | None = Field(default=None, ge=2, le=120)
     currency: str | None = Field(default=None, min_length=3, max_length=8)
     category_id: str | None = None
     memo: str | None = Field(default=None, max_length=2000)
@@ -459,6 +467,7 @@ class TransactionRead(BaseModel):
     occurred_on: date
     flow_type: FlowType
     amount: Decimal
+    installment_months: int | None = None
     currency: str
     memo: str
     order_key: int

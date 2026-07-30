@@ -55,7 +55,7 @@ test("issue #269: transaction entry exposes existing categories as staged button
   await expect(transitButton).toBeVisible();
   await transitButton.click();
   await expect(transitButton).toHaveAttribute("aria-pressed", "true");
-  await expect(categoryStage.locator("select")).toHaveCount(0);
+  await expect(categoryStage.locator('select[name="category_id"]')).toHaveCount(0);
   await expect(transactionSheet).not.toContainText("추천 카테고리");
 
   await capture(page, "issue-269-transaction-staged-category-buttons");
