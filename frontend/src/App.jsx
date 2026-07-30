@@ -8935,11 +8935,17 @@ function App() {
       "총자산(KRW)": "평가금액 기준",
       "평가손익(KRW)": "보유자산 평가 차이",
     };
+    const installmentExpense = Number(overview?.totals?.installment_expense || 0);
     return {
       ...item,
       tone,
       helper: helperByLabel[item.label] || "조회 기준 집계",
-      meta: item.label === "평가손익(KRW)" ? dashboardGainLossRatioText : "",
+      meta:
+        item.label === "평가손익(KRW)"
+          ? dashboardGainLossRatioText
+          : item.label === "지출" && installmentExpense > 0
+            ? `할부 ${fmtKrw(overview?.totals?.installment_expense)} 포함`
+            : "",
     };
   });
   const dashboardPriceTone = isPriceRefreshActive
