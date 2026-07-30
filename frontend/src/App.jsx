@@ -9290,6 +9290,11 @@ function App() {
                   </select>
                 </label>
                 {String(txForm.installment_months || "").trim() && (
+                  <small className="field-helper transaction-installment-note">
+                    할부는 무이자 기준으로 계산돼요. 카드사 할부 수수료(이자)는 반영되지 않습니다.
+                  </small>
+                )}
+                {String(txForm.installment_months || "").trim() && (
                   <label>
                     <span>할부 개월</span>
                     <input
@@ -9547,6 +9552,11 @@ function App() {
               <option value="installment">할부</option>
             </select>
           </label>
+          {String(txForm.installment_months || "").trim() && (
+            <small className="field-helper transaction-installment-note">
+              할부는 무이자 기준으로 계산돼요. 카드사 할부 수수료(이자)는 반영되지 않습니다.
+            </small>
+          )}
           {String(txForm.installment_months || "").trim() && (
             <label>
               할부 개월

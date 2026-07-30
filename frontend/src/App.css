@@ -2153,6 +2153,18 @@
   white-space: nowrap;
 }
 
+.transaction-installment-note {
+  display: block;
+  margin: 0.3rem 0 0;
+  padding: 0.4rem 0.55rem;
+  border-radius: 8px;
+  border-left: 3px solid #f0b429;
+  background: #fff9e9;
+  color: #7a4d00;
+  font-size: 0.74rem;
+  line-height: 1.4;
+}
+
 .holdings-form-container {
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(247, 251, 255, 0.94));
